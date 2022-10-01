@@ -19,7 +19,7 @@ maintainers = [
 urls.Documentation = "https://spatialdata-io.readthedocs.io/"
 urls.Source = "https://github.com/scverse/spatialdata-io"
 urls.Home-page = "https://github.com/scverse/spatialdata-io"
-dependencies = ["anndata"]
+dependencies = ["spatialdata"]
 
 [project.optional-dependencies]
 dev = [
