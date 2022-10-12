@@ -1,7 +1,9 @@
 from importlib.metadata import version
 
 # from spatialdata_io import pl, pp, tl
-from spatialdata_io.readers import read_metaspace, read_visium, read_xenium
+from spatialdata_io.readers.read_visium import read_visium
+from spatialdata_io.readers.read_xenium import read_xenium
+from spatialdata_io.readers.read_metaspace import read_metaspace
 from spatialdata_io.constructors.images_labels import image_xarray_from_numpy, labels_xarray_from_numpy
 from spatialdata_io.constructors.points import points_anndata_from_coordinates
 from spatialdata_io.constructors.circles import circles_anndata_from_coordinates
