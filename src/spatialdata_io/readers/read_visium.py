@@ -1,8 +1,8 @@
-from spatialdata import SpatialData, Scale
-import scanpy as sc
-import numpy as np
-from xarray import DataArray
 from typing import Optional
+
+import numpy as np
+import scanpy as sc
+from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel
 
 
 def read_visium(path: str, coordinate_system_name: Optional[str] = None) -> SpatialData:
@@ -21,9 +21,6 @@ def read_visium(path: str, coordinate_system_name: Optional[str] = None) -> Spat
     SpatialData
         SpatialData object containing the data from the Visium experiment.
     """
-    from spatialdata_io.constructors.table import table_update_anndata
-    from spatialdata_io.constructors.circles import circles_anndata_from_coordinates
-
     adata = sc.read_visium(path)
     libraries = list(adata.uns["spatial"].keys())
     assert len(libraries) == 1
@@ -38,37 +35,35 @@ def read_visium(path: str, coordinate_system_name: Optional[str] = None) -> Spat
     del expression.obsm
     expression.obs_names_make_unique()
     expression.var_names_make_unique()
-    table_update_anndata(
+    expression = TableModel.parse(
         expression,
-        regions=f"/points/{csn}",
-        regions_key="library_id",
+        region=f"/shapes/{csn}",
         instance_key="visium_spot_id",
-        regions_values=f"/points/{csn}",
         instance_values=np.arange(len(adata)),
     )
 
     # circles ("visium spots")
     radius = adata.uns["spatial"][lib]["scalefactors"]["spot_diameter_fullres"] / 2
-    circles = circles_anndata_from_coordinates(
-        coordinates=adata.obsm["spatial"],
-        radii=radius,
+    shapes = ShapesModel.parse(
+        coords=adata.obsm["spatial"],
+        shape_type="Circle",
+        shape_size=radius,
         instance_key="visium_spot_id",
         instance_values=np.arange(len(adata)),
     )
-
-    # image
-    img = DataArray(adata.uns["spatial"][lib]["images"]["hires"], dims=("y", "x", "c"))
-    assert img.dtype == np.float32 and np.min(img) >= 0. and np.max(img) <= 1.
-    img = (img * 255).astype(np.uint8)
-
     # transformation
     scale_factors = np.array([1.0] + [1 / adata.uns["spatial"][lib]["scalefactors"]["tissue_hires_scalef"]] * 2)
     transform = Scale(scale=scale_factors)
 
+    # image
+    img = adata.uns["spatial"][lib]["images"]["hires"]
+    assert img.dtype == np.float32 and np.min(img) >= 0.0 and np.max(img) <= 1.0
+    img = (img * 255).astype(np.uint8)
+    img = Image2DModel.parse(img, transform=transform, dims=("y", "x", "c"))
+
     sdata = SpatialData(
         images={csn: img},
-        points={csn: circles},
+        shapes={csn: shapes},
         table=expression,
-        transformations={(f"/images/{csn}", csn): transform, (f"/points/{csn}", csn): None},
     )
     return sdata
