@@ -5,7 +5,7 @@ import scanpy as sc
 from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel
 
 
-def read_visium(path: str, coordinate_system_name: Optional[str] = None) -> SpatialData:
+def read_visium(path: str, library_id: Optional[str] = None) -> SpatialData:
     """
     Read Visium data from a directory containing the output of the spaceranger pipeline.
 
@@ -13,8 +13,8 @@ def read_visium(path: str, coordinate_system_name: Optional[str] = None) -> Spat
     ----------
     path : str
         Path to the directory containing the output of the spaceranger pipeline.
-    coordinate_system_name : str, optional
-        Name of the coordinate system to use. If not provided, it's the name of the library found in the .h5 matrix
+    library_id : str, optional
+        Name of the library id to use. If not provided, it's the name of the library found in the .h5 matrix
 
     Returns
     -------
@@ -25,9 +25,8 @@ def read_visium(path: str, coordinate_system_name: Optional[str] = None) -> Spat
     libraries = list(adata.uns["spatial"].keys())
     assert len(libraries) == 1
     lib = libraries[0]
-    if coordinate_system_name is None:
-        coordinate_system_name = lib
-    csn = coordinate_system_name
+    if library_id is None:
+        library_id = lib
 
     # expression table
     expression = adata.copy()
@@ -37,7 +36,7 @@ def read_visium(path: str, coordinate_system_name: Optional[str] = None) -> Spat
     expression.var_names_make_unique()
     expression = TableModel.parse(
         expression,
-        region=f"/shapes/{csn}",
+        region=f"/shapes/{library_id}",
         instance_key="visium_spot_id",
         instance_values=np.arange(len(adata)),
     )
@@ -62,8 +61,8 @@ def read_visium(path: str, coordinate_system_name: Optional[str] = None) -> Spat
     img = Image2DModel.parse(img, transform=transform, dims=("y", "x", "c"))
 
     sdata = SpatialData(
-        images={csn: img},
-        shapes={csn: shapes},
+        images={library_id: img},
+        shapes={library_id: shapes},
         table=expression,
     )
     return sdata
