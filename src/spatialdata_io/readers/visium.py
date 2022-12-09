@@ -44,7 +44,7 @@ def read_visium(path: str, library_id: Optional[str] = None) -> SpatialData:
     # circles ("visium spots")
     radius = adata.uns["spatial"][lib]["scalefactors"]["spot_diameter_fullres"] / 2
     shapes = ShapesModel.parse(
-        coords=adata.obsm["spatial"],
+        coords=adata.obsm["spatial"].astype(float),
         shape_type="Circle",
         shape_size=radius,
     )

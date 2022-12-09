@@ -6,11 +6,29 @@ import psutil
 
 from geopandas import GeoDataFrame
 from shapely import Polygon
-from spatialdata import SpatialData
 from spatialdata._io.write import write_polygons, write_points, write_table, write_shapes
+from spatialdata._core.models import _parse_transform
 import numpy as np
 import scanpy as sc
-from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel, PolygonsModel, PointsModel
+from spatialdata import (
+    SpatialData,
+    Image2DModel,
+    Scale,
+    ShapesModel,
+    SpatialData,
+    TableModel,
+    PolygonsModel,
+    PointsModel,
+    set_transform,
+    get_transform,
+    Sequence,
+    get_dims,
+    MapAxis,
+)
+from spatialdata._core.core_utils import SpatialElement
+from spatialdata._core.transformations import BaseTransformation
+from spatialdata._core.models import _parse_transform
+from spatialdata._io.read import _read_multiscale
 from typing import Optional, Dict, Any
 import re
 import json
@@ -22,10 +40,14 @@ from functools import partial
 from itertools import chain
 import time
 import zarr
+from ome_zarr.io import ZarrLocation
+from ome_zarr.reader import Label, Multiscales, Node, Reader
 from ome_zarr.io import parse_url
+from ome_zarr.writer import write_multiscales_metadata
 import pyarrow.parquet as pq
 from loguru import logger
 from anndata import AnnData
+from spatialdata._io.format import SpatialDataFormatV01
 
 DEBUG = True
 # DEBUG = False
@@ -56,7 +78,7 @@ def _build_polygons(indices, df):
     return polygons, first_index
 
 
-def _get_zarr_group(out_path: str, element_type: str, name: str) -> zarr.Group:
+def _get_zarr_group(out_path: str, element_type: str, name: str, delete_existing: bool = True) -> zarr.Group:
     if not os.path.isdir(out_path):
         store = parse_url(out_path, mode="w").store
     else:
@@ -64,13 +86,15 @@ def _get_zarr_group(out_path: str, element_type: str, name: str) -> zarr.Group:
     root = zarr.group(store)
     elem_group = root.require_group(element_type)
     inner_path = os.path.normpath(os.path.join(elem_group._store.path, elem_group.path, name))
-    if os.path.isdir(inner_path):
+    if os.path.isdir(inner_path) and delete_existing:
         logger.info(f"Removing existing directory {inner_path}")
         shutil.rmtree(inner_path)
     return elem_group
 
 
-def _convert_polygons(in_path: str, data: Dict[str, Any], out_path: str, name: str, num_workers: int) -> None:
+def _convert_polygons(
+    in_path: str, data: Dict[str, Any], out_path: str, name: str, num_workers: int, pixel_size: float
+) -> None:
     df = pd.read_csv(f"{in_path}/{data['run_name']}_{name}.csv.gz")
     if DEBUG:
         n_cells = 1000
@@ -88,13 +112,14 @@ def _convert_polygons(in_path: str, data: Dict[str, Any], out_path: str, name: s
     polygons = GeoDataFrame(geometry=polygons)
     print(f"GeoDataFrame instantiation: {time.time() - start}")
     len(polygons)
+    set_transform(polygons, Scale([pixel_size, pixel_size]))
     parsed = PolygonsModel.parse(polygons)
     # TODO: put the login of the next two lines inside spatialdata._io.write and import from there
     group = _get_zarr_group(out_path, "polygons", name)
     write_polygons(polygons=parsed, group=group, name=name)
 
 
-def _convert_points(in_path: str, data: Dict[str, Any], out_path: str) -> None:
+def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_size: float) -> None:
     # using parquet is 10 times faster than reading from csv
     start = time.time()
     name = "transcripts"
@@ -113,24 +138,32 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str) -> None:
     ##
     start = time.time()
     # TODO: this is slow because of perfomance issues in anndata, maybe we will use geodataframes instead
-    parsed = PointsModel.parse(coords=xyz, points_assignment=d)
+    transform = Scale([pixel_size, pixel_size, 1.])
+    parsed = PointsModel.parse(coords=xyz, points_assignment=d, transform=transform)
     print(f"parsing: {time.time() - start}")
     group = _get_zarr_group(out_path, "points", name)
     write_points(points=parsed, group=group, name=name)
 
 
-def _convert_table_and_shapes(in_path: str, data: Dict[str, Any], out_path: str) -> None:
+def _convert_table_and_shapes(in_path: str, data: Dict[str, Any], out_path: str, pixel_size: float) -> None:
     name = "cells"
     df = pd.read_csv(f"{in_path}/{data['run_name']}_{name}.csv.gz")
     feature_matrix = sc.read_10x_h5(f"{in_path}/{data['run_name']}_cell_feature_matrix.h5")
 
     nuclei_radii = np.sqrt(df["nucleus_area"].to_numpy() / np.pi)
     cells_radii = np.sqrt(df["cell_area"].to_numpy() / np.pi)
+    transform = Scale([pixel_size, pixel_size])
     shapes_nuclei = ShapesModel.parse(
-        coords=df[["x_centroid", "y_centroid"]].to_numpy(), shape_type="Circle", shape_size=nuclei_radii
+        coords=df[["x_centroid", "y_centroid"]].to_numpy(),
+        shape_type="Circle",
+        shape_size=nuclei_radii,
+        transform=transform,
     )
     shapes_cells = ShapesModel.parse(
-        coords=df[["x_centroid", "y_centroid"]].to_numpy(), shape_type="Circle", shape_size=cells_radii
+        coords=df[["x_centroid", "y_centroid"]].to_numpy(),
+        shape_type="Circle",
+        shape_size=cells_radii,
+        transform=transform,
     )
     group = _get_zarr_group(out_path, "shapes", "nuclei")
     write_shapes(shapes=shapes_nuclei, group=group, name="nuclei")
@@ -263,6 +296,56 @@ def _convert_image(in_path: str, data: Dict[str, Any], out_path: str, name: str,
         ##
 
 
+# TODO: move this function inside spatialdata and make it work for all the spatial elements
+def _update_transformation(transform: BaseTransformation, group: zarr.Group, element: SpatialElement, name: str):
+    # we validate again later, but this catches length mismatch before zip(datasets...)
+    fmt = SpatialDataFormatV01()
+    multiscales = dict(group.attrs)["multiscales"]
+    assert len(multiscales) == 1
+    datasets = multiscales[0]["datasets"]
+    for i in range(len(datasets)):
+        dataset = datasets[i]
+        assert len(dataset) == 2
+        path = dataset["path"]
+        multiscale_transform = dataset["coordinateTransformations"]
+        transforms = [BaseTransformation.from_dict(t) for t in multiscale_transform]
+        composed = Sequence(transforms + [transform])
+        parsed_element = _parse_transform(element, composed)
+        t = get_transform(parsed_element)
+        datasets[i]["coordinateTransformations"] = [t.to_dict()]
+    axes = get_dims(element)
+    write_multiscales_metadata(group, datasets, fmt, axes, name)
+
+
+def _adjust_raster_transformation(out_path: str, element_type: str, name: str) -> None:
+    # read multiscale raster
+    f_elem_store = os.path.join(out_path, element_type, name)
+    image_loc = ZarrLocation(f_elem_store)
+    assert image_loc.exists()
+    image_reader = Reader(image_loc)()
+    image_nodes = list(image_reader)
+    assert len(image_nodes)
+    fmt = SpatialDataFormatV01()
+    for node in image_nodes:
+        if np.any([isinstance(spec, Multiscales) for spec in node.specs]) and np.all(
+            [not isinstance(spec, Label) for spec in node.specs]
+        ):
+            raster = _read_multiscale(node, fmt)
+            set_transform(raster, None)
+            transform = get_transform(raster)
+            assert transform is None
+            _parse_transform(raster)
+            transform = get_transform(raster)
+            store = parse_url(out_path, mode="r+").store
+            root = zarr.group(store)
+            elem_group = root.require_group(element_type)
+            name_group = elem_group.require_group(name)
+            _update_transformation(transform, group=name_group, element=raster, name=name)
+
+    # image_loc = ZarrLocation(os.path.join(store.store))
+    #     image_reader = Reader(store)()
+
+
 def convert_xenium_to_ngff(
     path: str,
     out_path: str,
@@ -285,29 +368,43 @@ def convert_xenium_to_ngff(
         )
         num_workers = MAX_WORKERS
     data = _identify_files(path)
+    pixel_size = data["pixel_size"]
     if not skip_nucleus_boundaries:
         _convert_polygons(
-            in_path=path, data=data, out_path=out_path, name="nucleus_boundaries", num_workers=num_workers
+            in_path=path,
+            data=data,
+            out_path=out_path,
+            name="nucleus_boundaries",
+            num_workers=num_workers,
+            pixel_size=pixel_size,
         )
     if not skip_cell_boundaries:
-        _convert_polygons(in_path=path, data=data, out_path=out_path, name="cell_boundaries", num_workers=num_workers)
+        _convert_polygons(
+            in_path=path,
+            data=data,
+            out_path=out_path,
+            name="cell_boundaries",
+            num_workers=num_workers,
+            pixel_size=pixel_size,
+        )
     if not skip_points:
-        _convert_points(in_path=path, data=data, out_path=out_path)
+        _convert_points(in_path=path, data=data, out_path=out_path, pixel_size=pixel_size)
     if not skip_table_and_shapes:
-        _convert_table_and_shapes(in_path=path, data=data, out_path=out_path)
+        _convert_table_and_shapes(in_path=path, data=data, out_path=out_path, pixel_size=pixel_size)
     # TODO: can't convert morphology since there is a t dimension that is not currently supported (TODO: check the
     #  raw data with FIJI). The other images are fine
     # if not skip_image_morphology:
     # # _convert_image(in_path=path, data=data, out_path=out_path, name="morphology", num_workers=num_workers)
     if not skip_image_morphology_mip:
         _convert_image(in_path=path, data=data, out_path=out_path, name="morphology_mip", num_workers=num_workers)
+        _adjust_raster_transformation(out_path=out_path, element_type="images", name="morphology_mip")
     if not skip_image_morphology_focus:
         _convert_image(in_path=path, data=data, out_path=out_path, name="morphology_focus", num_workers=num_workers)
-    # TODO: decide if to save the extra metadata present in `data`
-    pass
+        _adjust_raster_transformation(out_path=out_path, element_type="images", name="morphology_focus")
+    # # TODO: decide if to save the extra metadata present in `data`
 
 
-# if __name__ == "__main__":
-#     convert_xenium_to_ngff(path="./data/", out_path="./data.zarr/")
-#     sdata = SpatialData.read("./data.zarr/")
-#     print(sdata)
+if __name__ == "__main__":
+    convert_xenium_to_ngff(path="./data/", out_path="./data.zarr/")
+    sdata = SpatialData.read("./data.zarr/")
+    print(sdata)
