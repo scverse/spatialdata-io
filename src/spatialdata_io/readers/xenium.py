@@ -58,7 +58,7 @@ def _build_polygons(indices, df):
 
 def _get_zarr_group(out_path: str, element_type: str, name: str) -> zarr.Group:
     if not os.path.isdir(out_path):
-        store = parse_url(out_path, mode='w').store
+        store = parse_url(out_path, mode="w").store
     else:
         store = parse_url(out_path, mode="r+").store
     root = zarr.group(store)
@@ -113,7 +113,7 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str) -> None:
     ##
     start = time.time()
     # TODO: this is slow because of perfomance issues in anndata, maybe we will use geodataframes instead
-    parsed = PointsModel.parse(coords=xyz, points_assignment=feature_name)
+    parsed = PointsModel.parse(coords=xyz, points_assignment=d)
     print(f"parsing: {time.time() - start}")
     group = _get_zarr_group(out_path, "points", name)
     write_points(points=parsed, group=group, name=name)
@@ -126,19 +126,20 @@ def _convert_table_and_shapes(in_path: str, data: Dict[str, Any], out_path: str)
 
     nuclei_radii = np.sqrt(df["nucleus_area"].to_numpy() / np.pi)
     cells_radii = np.sqrt(df["cell_area"].to_numpy() / np.pi)
-    shapes_nuclei = ShapesModel.parse(coords=df[['x_centroid', 'y_centroid']].to_numpy(), shape_type='Circle',
-                                      shape_size=nuclei_radii)
-    shapes_cells = ShapesModel.parse(coords=df[['x_centroid', 'y_centroid']].to_numpy(), shape_type='Circle',
-                                      shape_size=cells_radii)
+    shapes_nuclei = ShapesModel.parse(
+        coords=df[["x_centroid", "y_centroid"]].to_numpy(), shape_type="Circle", shape_size=nuclei_radii
+    )
+    shapes_cells = ShapesModel.parse(
+        coords=df[["x_centroid", "y_centroid"]].to_numpy(), shape_type="Circle", shape_size=cells_radii
+    )
     group = _get_zarr_group(out_path, "shapes", "nuclei")
     write_shapes(shapes=shapes_nuclei, group=group, name="nuclei")
     group = _get_zarr_group(out_path, "shapes", "cells")
     write_shapes(shapes=shapes_cells, group=group, name="cells")
 
-
     df.drop(columns=["x_centroid", "y_centroid"], inplace=True)
     adata = AnnData(X=feature_matrix.X, var=feature_matrix.var, obs=df)
-    parsed = TableModel.parse(adata, region='/polygons/cell_boundaries', instance_key='cell_id')
+    parsed = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
     group = _get_zarr_group(out_path, "table", name)
     write_table(table=parsed, group=group, name=name)
 
@@ -153,22 +154,22 @@ def _ome_ngff_dims_workaround(zarr_path: str):
     with open(os.path.join(zarr_path, ".zattrs")) as f:
         attrs = json.load(f)
     # removing t and z axes
-    assert len(attrs['multiscales']) == 1
-    axes = attrs['multiscales'][0]['axes']
+    assert len(attrs["multiscales"]) == 1
+    axes = attrs["multiscales"][0]["axes"]
     for ax in axes:
-        if ax['name'] in ('t', 'z'):
+        if ax["name"] in ("t", "z"):
             axes.remove(ax)
     # adjust the multiscale coordinateTransformations
-    for multiscale in attrs['multiscales'][0]['datasets']:
-        for transform in multiscale['coordinateTransformations']:
-            assert transform['type'] == 'scale'
-            scale = transform['scale']
+    for multiscale in attrs["multiscales"][0]["datasets"]:
+        for transform in multiscale["coordinateTransformations"]:
+            assert transform["type"] == "scale"
+            scale = transform["scale"]
             assert len(scale) == 5
             assert scale[0] == 1
             assert scale[2] == 1
             new_scale = np.array(scale)[np.array([1, 3, 4], dtype=int)].tolist()
-            transform['scale'] = new_scale
-    with open(os.path.join(zarr_path, ".zattrs"), 'w') as f:
+            transform["scale"] = new_scale
+    with open(os.path.join(zarr_path, ".zattrs"), "w") as f:
         json.dump(attrs, f)
 
     # adjust .zarray
@@ -177,8 +178,8 @@ def _ome_ngff_dims_workaround(zarr_path: str):
             multiscale_path = os.path.join(zarr_path, path)
             with open(os.path.join(multiscale_path, ".zarray")) as f:
                 zarray = json.load(f)
-            chunks = zarray['chunks']
-            shape = zarray['shape']
+            chunks = zarray["chunks"]
+            shape = zarray["shape"]
             assert len(chunks) == 5
             assert len(shape) == 5
             assert chunks[0] == 1
@@ -187,9 +188,9 @@ def _ome_ngff_dims_workaround(zarr_path: str):
             assert shape[2] == 1
             new_chunks = np.array(chunks)[np.array([1, 3, 4], dtype=int)].tolist()
             new_shape = np.array(shape)[np.array([1, 3, 4], dtype=int)].tolist()
-            zarray['chunks'] = new_chunks
-            zarray['shape'] = new_shape
-            with open(os.path.join(multiscale_path, ".zarray"), 'w') as f:
+            zarray["chunks"] = new_chunks
+            zarray["shape"] = new_shape
+            with open(os.path.join(multiscale_path, ".zarray"), "w") as f:
                 json.dump(zarray, f)
 
     # remove t dimension from raw storage
@@ -200,7 +201,7 @@ def _ome_ngff_dims_workaround(zarr_path: str):
             t_dims = [d for d in t_dims if os.path.isdir(d)]
             assert len(t_dims) == 1
             t_path = t_dims[0]
-            temp_path = os.path.join(multiscale_path, 'temp')
+            temp_path = os.path.join(multiscale_path, "temp")
             shutil.move(t_path, temp_path)
             for f in os.listdir(temp_path):
                 shutil.move(os.path.join(temp_path, f), os.path.join(multiscale_path, f))
@@ -217,12 +218,12 @@ def _ome_ngff_dims_workaround(zarr_path: str):
                 z_dims = [d for d in z_dims if os.path.isdir(d)]
                 assert len(z_dims) == 1
                 z_path = z_dims[0]
-                temp_path = os.path.join(c_path, 'temp')
+                temp_path = os.path.join(c_path, "temp")
                 shutil.move(z_path, temp_path)
                 for f in os.listdir(temp_path):
-                    shutil.move(os.path.join(temp_path, f),
-                                os.path.join(c_path, f))
+                    shutil.move(os.path.join(temp_path, f), os.path.join(c_path, f))
                 shutil.rmtree(temp_path)
+
 
 def _convert_image(in_path: str, data: Dict[str, Any], out_path: str, name: str, num_workers: int) -> None:
     image = f"{in_path}/{data['run_name']}_{name}.ome.tif"
@@ -262,7 +263,18 @@ def _convert_image(in_path: str, data: Dict[str, Any], out_path: str, name: str,
         ##
 
 
-def convert_xenium_to_ngff(path: str, out_path: str, num_workers: int = -1) -> None:
+def convert_xenium_to_ngff(
+    path: str,
+    out_path: str,
+    num_workers: int = -1,
+    skip_nucleus_boundaries: bool = False,
+    skip_cell_boundaries: bool = False,
+    skip_points: bool = False,
+    skip_table_and_shapes: bool = False,
+    skip_image_morphology: bool = False,
+    skip_image_morphology_mip: bool = False,
+    skip_image_morphology_focus: bool = False,
+) -> None:
     if num_workers == -1:
         MAX_WORKERS = psutil.cpu_count()
         logger.info(
@@ -273,20 +285,29 @@ def convert_xenium_to_ngff(path: str, out_path: str, num_workers: int = -1) -> N
         )
         num_workers = MAX_WORKERS
     data = _identify_files(path)
-    # _convert_polygons(in_path=path, data=data, out_path=out_path, name="nucleus_boundaries", num_workers=num_workers)
-    # _convert_polygons(in_path=path, data=data, out_path=out_path, name="cell_boundaries", num_workers=num_workers)
-    _convert_points(in_path=path, data=data, out_path=out_path)
-    # _convert_table_and_shapes(in_path=path, data=data, out_path=out_path)
+    if not skip_nucleus_boundaries:
+        _convert_polygons(
+            in_path=path, data=data, out_path=out_path, name="nucleus_boundaries", num_workers=num_workers
+        )
+    if not skip_cell_boundaries:
+        _convert_polygons(in_path=path, data=data, out_path=out_path, name="cell_boundaries", num_workers=num_workers)
+    if not skip_points:
+        _convert_points(in_path=path, data=data, out_path=out_path)
+    if not skip_table_and_shapes:
+        _convert_table_and_shapes(in_path=path, data=data, out_path=out_path)
     # TODO: can't convert morphology since there is a t dimension that is not currently supported (TODO: check the
     #  raw data with FIJI). The other images are fine
+    # if not skip_image_morphology:
     # # _convert_image(in_path=path, data=data, out_path=out_path, name="morphology", num_workers=num_workers)
-    # _convert_image(in_path=path, data=data, out_path=out_path, name="morphology_mip", num_workers=num_workers)
-    # _convert_image(in_path=path, data=data, out_path=out_path, name="morphology_focus", num_workers=num_workers)
+    if not skip_image_morphology_mip:
+        _convert_image(in_path=path, data=data, out_path=out_path, name="morphology_mip", num_workers=num_workers)
+    if not skip_image_morphology_focus:
+        _convert_image(in_path=path, data=data, out_path=out_path, name="morphology_focus", num_workers=num_workers)
     # TODO: decide if to save the extra metadata present in `data`
     pass
 
 
-if __name__ == "__main__":
-    convert_xenium_to_ngff(path="./data/", out_path="./data.zarr/")
-    sdata = SpatialData.read("./data.zarr/")
-    print(sdata)
+# if __name__ == "__main__":
+#     convert_xenium_to_ngff(path="./data/", out_path="./data.zarr/")
+#     sdata = SpatialData.read("./data.zarr/")
+#     print(sdata)

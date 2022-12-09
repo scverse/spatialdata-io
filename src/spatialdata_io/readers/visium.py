@@ -47,8 +47,6 @@ def read_visium(path: str, library_id: Optional[str] = None) -> SpatialData:
         coords=adata.obsm["spatial"],
         shape_type="Circle",
         shape_size=radius,
-        instance_key="visium_spot_id",
-        instance_values=np.arange(len(adata)),
     )
     # transformation
     scale_factors = np.array([1.0] + [1 / adata.uns["spatial"][lib]["scalefactors"]["tissue_hires_scalef"]] * 2)
