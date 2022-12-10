@@ -111,9 +111,8 @@ def _convert_polygons(
     start = time.time()
     polygons = GeoDataFrame(geometry=polygons)
     print(f"GeoDataFrame instantiation: {time.time() - start}")
-    len(polygons)
-    set_transform(polygons, Scale([pixel_size, pixel_size]))
-    parsed = PolygonsModel.parse(polygons)
+    scale = Scale([1. / pixel_size, 1. / pixel_size])
+    parsed = PolygonsModel.parse(polygons, transform=scale)
     # TODO: put the login of the next two lines inside spatialdata._io.write and import from there
     group = _get_zarr_group(out_path, "polygons", name)
     write_polygons(polygons=parsed, group=group, name=name)
@@ -138,7 +137,7 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     ##
     start = time.time()
     # TODO: this is slow because of perfomance issues in anndata, maybe we will use geodataframes instead
-    transform = Scale([pixel_size, pixel_size, 1.])
+    transform = Scale([1. / pixel_size, 1. / pixel_size, 1.])
     parsed = PointsModel.parse(coords=xyz, points_assignment=d, transform=transform)
     print(f"parsing: {time.time() - start}")
     group = _get_zarr_group(out_path, "points", name)
@@ -152,7 +151,7 @@ def _convert_table_and_shapes(in_path: str, data: Dict[str, Any], out_path: str,
 
     nuclei_radii = np.sqrt(df["nucleus_area"].to_numpy() / np.pi)
     cells_radii = np.sqrt(df["cell_area"].to_numpy() / np.pi)
-    transform = Scale([pixel_size, pixel_size])
+    transform = Scale([1. / pixel_size, 1. / pixel_size])
     shapes_nuclei = ShapesModel.parse(
         coords=df[["x_centroid", "y_centroid"]].to_numpy(),
         shape_type="Circle",
@@ -303,13 +302,20 @@ def _update_transformation(transform: BaseTransformation, group: zarr.Group, ele
     multiscales = dict(group.attrs)["multiscales"]
     assert len(multiscales) == 1
     datasets = multiscales[0]["datasets"]
+    base_resolution = np.array(list(element['scale0'].dims.values()))
     for i in range(len(datasets)):
+        current_resolution = np.array(list(element[f'scale{i}'].dims.values()))
+        scale_factors = base_resolution / current_resolution
         dataset = datasets[i]
         assert len(dataset) == 2
         path = dataset["path"]
         multiscale_transform = dataset["coordinateTransformations"]
-        transforms = [BaseTransformation.from_dict(t) for t in multiscale_transform]
-        composed = Sequence(transforms + [transform])
+        # this is completely wrong: no idea why but bioformats2raw gives a scale for the first multiscale with value
+        # smaller than 1. It should be 1, so we recompute it here
+        # transforms = [BaseTransformation.from_dict(t) for t in multiscale_transform]
+        # composed = Sequence(transforms + [transform])
+        manual_scale = Scale(scale_factors)
+        composed = Sequence([manual_scale, transform])
         parsed_element = _parse_transform(element, composed)
         t = get_transform(parsed_element)
         datasets[i]["coordinateTransformations"] = [t.to_dict()]
@@ -405,6 +411,7 @@ def convert_xenium_to_ngff(
 
 
 if __name__ == "__main__":
-    convert_xenium_to_ngff(path="./data/", out_path="./data.zarr/")
+    # convert_xenium_to_ngff(path="./data/", out_path="./data.zarr/")
     sdata = SpatialData.read("./data.zarr/")
     print(sdata)
+    print()
