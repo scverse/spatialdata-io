@@ -1,53 +1,51 @@
 # format specification https://cf.10xgenomics.com/supp/xenium/xenium_documentation.html#polygon_vertices
+import json
 import os
 import shutil
 import subprocess
-import psutil
+import time
+from functools import partial
+from itertools import chain
+from multiprocessing import Pool
+from typing import Any, Dict, Optional
 
-from geopandas import GeoDataFrame
-from shapely import Polygon
-from spatialdata._io.write import write_polygons, write_points, write_table, write_shapes
-from spatialdata._core.models import _parse_transform
 import numpy as np
+import pandas as pd
+import psutil
+import pyarrow.parquet as pq
 import scanpy as sc
+import zarr
+from anndata import AnnData
+from geopandas import GeoDataFrame
+from loguru import logger
+from ome_zarr.io import ZarrLocation, parse_url
+from ome_zarr.reader import Label, Multiscales, Reader
+from ome_zarr.writer import write_multiscales_metadata
+from shapely import Polygon
 from spatialdata import (
-    SpatialData,
-    Image2DModel,
+    PointsModel,
+    PolygonsModel,
     Scale,
+    Sequence,
     ShapesModel,
     SpatialData,
     TableModel,
-    PolygonsModel,
-    PointsModel,
-    set_transform,
-    get_transform,
-    Sequence,
     get_dims,
-    MapAxis,
+    get_transform,
+    set_transform,
 )
 from spatialdata._core.core_utils import SpatialElement
-from spatialdata._core.transformations import BaseTransformation
 from spatialdata._core.models import _parse_transform
-from spatialdata._io.read import _read_multiscale
-from typing import Optional, Dict, Any
-import re
-import json
-import tifffile
-import pandas as pd
-from tqdm import tqdm
-from multiprocessing import Pool
-from functools import partial
-from itertools import chain
-import time
-import zarr
-from ome_zarr.io import ZarrLocation
-from ome_zarr.reader import Label, Multiscales, Node, Reader
-from ome_zarr.io import parse_url
-from ome_zarr.writer import write_multiscales_metadata
-import pyarrow.parquet as pq
-from loguru import logger
-from anndata import AnnData
+from spatialdata._core.transformations import BaseTransformation
 from spatialdata._io.format import SpatialDataFormatV01
+from spatialdata._io.read import _read_multiscale
+from spatialdata._io.write import (
+    write_points,
+    write_polygons,
+    write_shapes,
+    write_table,
+)
+from tqdm import tqdm
 
 DEBUG = True
 # DEBUG = False
@@ -111,7 +109,7 @@ def _convert_polygons(
     start = time.time()
     polygons = GeoDataFrame(geometry=polygons)
     print(f"GeoDataFrame instantiation: {time.time() - start}")
-    scale = Scale([1. / pixel_size, 1. / pixel_size])
+    scale = Scale([1.0 / pixel_size, 1.0 / pixel_size])
     parsed = PolygonsModel.parse(polygons, transform=scale)
     # TODO: put the login of the next two lines inside spatialdata._io.write and import from there
     group = _get_zarr_group(out_path, "polygons", name)
@@ -137,7 +135,7 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     ##
     start = time.time()
     # TODO: this is slow because of perfomance issues in anndata, maybe we will use geodataframes instead
-    transform = Scale([1. / pixel_size, 1. / pixel_size, 1.])
+    transform = Scale([1.0 / pixel_size, 1.0 / pixel_size, 1.0])
     parsed = PointsModel.parse(coords=xyz, points_assignment=d, transform=transform)
     print(f"parsing: {time.time() - start}")
     group = _get_zarr_group(out_path, "points", name)
@@ -151,7 +149,7 @@ def _convert_table_and_shapes(in_path: str, data: Dict[str, Any], out_path: str,
 
     nuclei_radii = np.sqrt(df["nucleus_area"].to_numpy() / np.pi)
     cells_radii = np.sqrt(df["cell_area"].to_numpy() / np.pi)
-    transform = Scale([1. / pixel_size, 1. / pixel_size])
+    transform = Scale([1.0 / pixel_size, 1.0 / pixel_size])
     shapes_nuclei = ShapesModel.parse(
         coords=df[["x_centroid", "y_centroid"]].to_numpy(),
         shape_type="Circle",
@@ -285,7 +283,7 @@ def _convert_image(in_path: str, data: Dict[str, Any], out_path: str, name: str,
             shutil.move(os.path.join(full_out_path, "temp", f), os.path.join(full_out_path, f))
         shutil.rmtree(os.path.join(full_out_path, "temp"))
         _ome_ngff_dims_workaround(full_out_path)
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         ##
         raise FileNotFoundError(
             "bioformats2raw not found, please check https://github.com/glencoesoftware/bioformats2raw for the "
@@ -302,14 +300,14 @@ def _update_transformation(transform: BaseTransformation, group: zarr.Group, ele
     multiscales = dict(group.attrs)["multiscales"]
     assert len(multiscales) == 1
     datasets = multiscales[0]["datasets"]
-    base_resolution = np.array(list(element['scale0'].dims.values()))
+    base_resolution = np.array(list(element["scale0"].dims.values()))
     for i in range(len(datasets)):
-        current_resolution = np.array(list(element[f'scale{i}'].dims.values()))
+        current_resolution = np.array(list(element[f"scale{i}"].dims.values()))
         scale_factors = base_resolution / current_resolution
         dataset = datasets[i]
         assert len(dataset) == 2
-        path = dataset["path"]
-        multiscale_transform = dataset["coordinateTransformations"]
+        dataset["path"]
+        dataset["coordinateTransformations"]
         # this is completely wrong: no idea why but bioformats2raw gives a scale for the first multiscale with value
         # smaller than 1. It should be 1, so we recompute it here
         # transforms = [BaseTransformation.from_dict(t) for t in multiscale_transform]
