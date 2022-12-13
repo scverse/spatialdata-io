@@ -49,7 +49,7 @@ from loguru import logger
 from anndata import AnnData
 from spatialdata._io.format import SpatialDataFormatV01
 
-DEBUG = True
+DEBUG = False
 # DEBUG = False
 
 __all__ = ["convert_xenium_to_ngff"]
