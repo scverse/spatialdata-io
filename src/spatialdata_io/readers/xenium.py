@@ -111,7 +111,7 @@ def _convert_polygons(
     start = time.time()
     polygons = GeoDataFrame(geometry=polygons)
     print(f"GeoDataFrame instantiation: {time.time() - start}")
-    scale = Scale([1. / pixel_size, 1. / pixel_size])
+    scale = Scale([1.0 / pixel_size, 1.0 / pixel_size])
     parsed = PolygonsModel.parse(polygons, transform=scale)
     # TODO: put the login of the next two lines inside spatialdata._io.write and import from there
     group = _get_zarr_group(out_path, "polygons", name)
@@ -126,8 +126,9 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     xyz = table.select(("x_location", "y_location", "z_location")).to_pandas().to_numpy()
     # TODO: the construction of the sparse matrix is slow, optimize by converting to a categorical, the code in the
     #  parser needs to be adapted
-    d = table.column("feature_name").cast("string").dictionary_encode()
-    feature_name = d.to_pandas()
+    annotations = table.select(('overlaps_nucleus', 'qv', 'cell_id'))
+    annotations = annotations.add_column(3, 'feature_name', table.column("feature_name").cast(
+        "string").dictionary_encode())
     if DEBUG:
         n = 100000
         xyz = xyz[:n]
@@ -137,8 +138,8 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     ##
     start = time.time()
     # TODO: this is slow because of perfomance issues in anndata, maybe we will use geodataframes instead
-    transform = Scale([1. / pixel_size, 1. / pixel_size, 1.])
-    parsed = PointsModel.parse(coords=xyz, points_assignment=d, transform=transform)
+    transform = Scale([1.0 / pixel_size, 1.0 / pixel_size, 1.0])
+    parsed = PointsModel.parse(coords=xyz, annotations=annotations, transform=transform)
     print(f"parsing: {time.time() - start}")
     group = _get_zarr_group(out_path, "points", name)
     write_points(points=parsed, group=group, name=name)
@@ -151,7 +152,7 @@ def _convert_table_and_shapes(in_path: str, data: Dict[str, Any], out_path: str,
 
     nuclei_radii = np.sqrt(df["nucleus_area"].to_numpy() / np.pi)
     cells_radii = np.sqrt(df["cell_area"].to_numpy() / np.pi)
-    transform = Scale([1. / pixel_size, 1. / pixel_size])
+    transform = Scale([1.0 / pixel_size, 1.0 / pixel_size])
     shapes_nuclei = ShapesModel.parse(
         coords=df[["x_centroid", "y_centroid"]].to_numpy(),
         shape_type="Circle",
@@ -302,9 +303,9 @@ def _update_transformation(transform: BaseTransformation, group: zarr.Group, ele
     multiscales = dict(group.attrs)["multiscales"]
     assert len(multiscales) == 1
     datasets = multiscales[0]["datasets"]
-    base_resolution = np.array(list(element['scale0'].dims.values()))
+    base_resolution = np.array(list(element["scale0"].dims.values()))
     for i in range(len(datasets)):
-        current_resolution = np.array(list(element[f'scale{i}'].dims.values()))
+        current_resolution = np.array(list(element[f"scale{i}"].dims.values()))
         scale_factors = base_resolution / current_resolution
         dataset = datasets[i]
         assert len(dataset) == 2
@@ -360,9 +361,9 @@ def convert_xenium_to_ngff(
     skip_cell_boundaries: bool = False,
     skip_points: bool = False,
     skip_table_and_shapes: bool = False,
-    skip_image_morphology: bool = False,
+    skip_image_morphology: bool = True,
     skip_image_morphology_mip: bool = False,
-    skip_image_morphology_focus: bool = False,
+    skip_image_morphology_focus: bool = True,
 ) -> None:
     if num_workers == -1:
         MAX_WORKERS = psutil.cpu_count()
@@ -411,7 +412,16 @@ def convert_xenium_to_ngff(
 
 
 if __name__ == "__main__":
-    # convert_xenium_to_ngff(path="./data/", out_path="./data.zarr/")
-    sdata = SpatialData.read("./data.zarr/")
+    convert_xenium_to_ngff(
+        path="/Users/macbook/temp/hackathon/spatialdata-sandbox-hack/xenium/data/",
+        out_path="/Users/macbook/temp/hackathon/spatialdata-sandbox-hack/xenium/data.zarr/",
+        # skip_table_and_shapes=True,
+        # skip_nucleus_boundaries=True,
+        # skip_cell_boundaries=True,
+        # skip_image_morphology=True,
+        # skip_image_morphology_focus=True,
+        # skip_image_morphology_mip=True
+    )
+    sdata = SpatialData.read("/Users/macbook/temp/hackathon/spatialdata-sandbox-hack/xenium/data.zarr/")
     print(sdata)
     print()
