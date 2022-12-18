@@ -22,6 +22,8 @@ urls.Home-page = "https://github.com/scverse/spatialdata-io"
 dependencies = [
     "spatialdata @ git+https://github.com/scverse/spatialdata.git@main",
     "scanpy",
+    "psutil",
+    "loguru",
 ]
 
 [project.optional-dependencies]
