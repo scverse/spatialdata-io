@@ -19,7 +19,9 @@ maintainers = [
 urls.Documentation = "https://spatialdata-io.readthedocs.io/"
 urls.Source = "https://github.com/scverse/spatialdata-io"
 urls.Home-page = "https://github.com/scverse/spatialdata-io"
-dependencies = ["spatialdata @ git+https://github.com/scverse/spatialdata.git"]
+dependencies = [
+    "spatialdata @ git+https://github.com/scverse/spatialdata.git@main"
+]
 
 [project.optional-dependencies]
 dev = [
@@ -85,3 +87,6 @@ exclude = '''
 
 [tool.jupytext]
 formats = "ipynb,md"
+
+[tool.hatch.metadata]
+allow-direct-references = true
