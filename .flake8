@@ -46,11 +46,13 @@ rst-roles =
     class,
     func,
     ref,
+    attr,
     cite:p,
     cite:t,
 rst-directives =
     envvar,
     exception,
+    seealso,
 rst-substitutions =
     version,
 extend-ignore =
