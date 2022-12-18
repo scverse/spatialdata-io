@@ -1,53 +1,51 @@
 # format specification https://cf.10xgenomics.com/supp/xenium/xenium_documentation.html#polygon_vertices
+import json
 import os
 import shutil
 import subprocess
-import psutil
+import time
+from functools import partial
+from itertools import chain
+from multiprocessing import Pool
+from typing import Any, Dict, Optional
 
-from geopandas import GeoDataFrame
-from shapely import Polygon
-from spatialdata._io.write import write_polygons, write_points, write_table, write_shapes
-from spatialdata._core.models import _parse_transform
 import numpy as np
+import pandas as pd
+import psutil
+import pyarrow.parquet as pq
 import scanpy as sc
+import zarr
+from anndata import AnnData
+from geopandas import GeoDataFrame
+from loguru import logger
+from ome_zarr.io import ZarrLocation, parse_url
+from ome_zarr.reader import Label, Multiscales, Reader
+from ome_zarr.writer import write_multiscales_metadata
+from shapely import Polygon
 from spatialdata import (
-    SpatialData,
-    Image2DModel,
+    PointsModel,
+    PolygonsModel,
     Scale,
+    Sequence,
     ShapesModel,
     SpatialData,
     TableModel,
-    PolygonsModel,
-    PointsModel,
-    set_transform,
-    get_transform,
-    Sequence,
     get_dims,
-    MapAxis,
+    get_transform,
+    set_transform,
 )
 from spatialdata._core.core_utils import SpatialElement
-from spatialdata._core.transformations import BaseTransformation
 from spatialdata._core.models import _parse_transform
-from spatialdata._io.read import _read_multiscale
-from typing import Optional, Dict, Any
-import re
-import json
-import tifffile
-import pandas as pd
-from tqdm import tqdm
-from multiprocessing import Pool
-from functools import partial
-from itertools import chain
-import time
-import zarr
-from ome_zarr.io import ZarrLocation
-from ome_zarr.reader import Label, Multiscales, Node, Reader
-from ome_zarr.io import parse_url
-from ome_zarr.writer import write_multiscales_metadata
-import pyarrow.parquet as pq
-from loguru import logger
-from anndata import AnnData
+from spatialdata._core.transformations import BaseTransformation
 from spatialdata._io.format import SpatialDataFormatV01
+from spatialdata._io.read import _read_multiscale
+from spatialdata._io.write import (
+    write_points,
+    write_polygons,
+    write_shapes,
+    write_table,
+)
+from tqdm import tqdm
 
 DEBUG = False
 # DEBUG = False
@@ -126,9 +124,10 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     xyz = table.select(("x_location", "y_location", "z_location")).to_pandas().to_numpy()
     # TODO: the construction of the sparse matrix is slow, optimize by converting to a categorical, the code in the
     #  parser needs to be adapted
-    annotations = table.select(('overlaps_nucleus', 'qv', 'cell_id'))
-    annotations = annotations.add_column(3, 'feature_name', table.column("feature_name").cast(
-        "string").dictionary_encode())
+    annotations = table.select(("overlaps_nucleus", "qv", "cell_id"))
+    annotations = annotations.add_column(
+        3, "feature_name", table.column("feature_name").cast("string").dictionary_encode()
+    )
     if DEBUG:
         n = 100000
         xyz = xyz[:n]
@@ -286,7 +285,7 @@ def _convert_image(in_path: str, data: Dict[str, Any], out_path: str, name: str,
             shutil.move(os.path.join(full_out_path, "temp", f), os.path.join(full_out_path, f))
         shutil.rmtree(os.path.join(full_out_path, "temp"))
         _ome_ngff_dims_workaround(full_out_path)
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         ##
         raise FileNotFoundError(
             "bioformats2raw not found, please check https://github.com/glencoesoftware/bioformats2raw for the "
@@ -309,8 +308,8 @@ def _update_transformation(transform: BaseTransformation, group: zarr.Group, ele
         scale_factors = base_resolution / current_resolution
         dataset = datasets[i]
         assert len(dataset) == 2
-        path = dataset["path"]
-        multiscale_transform = dataset["coordinateTransformations"]
+        dataset["path"]
+        dataset["coordinateTransformations"]
         # this is completely wrong: no idea why but bioformats2raw gives a scale for the first multiscale with value
         # smaller than 1. It should be 1, so we recompute it here
         # transforms = [BaseTransformation.from_dict(t) for t in multiscale_transform]
