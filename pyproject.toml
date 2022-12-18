@@ -24,6 +24,8 @@ dependencies = [
     "scanpy",
     "psutil",
     "loguru",
+    "h5py",
+    "pillow",
 ]
 
 [project.optional-dependencies]
