@@ -103,7 +103,7 @@ def _convert_polygons(
     splits = np.array_split(range(1, n_cells), pool._processes)
     nested = pool.map(partial(_build_polygons, df=df), splits)
     start = time.time()
-    nested_sorted = map(lambda x: x[0], sorted(nested, key=lambda x: x[1]))
+    nested_sorted = map(lambda x: x[0], sorted(nested, key=lambda x: x[1]))  # noqa: C417
     polygons = list(chain.from_iterable(nested_sorted))
     print(f"list flattening: {time.time() - start}")
     start = time.time()
@@ -131,7 +131,6 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     if DEBUG:
         n = 100000
         xyz = xyz[:n]
-        feature_name = feature_name[:n]
         logger.info(f"DEBUG: only using {n} transcripts")
     print(f"parquet: {time.time() - start}")
     ##
@@ -364,6 +363,7 @@ def convert_xenium_to_ngff(
     skip_image_morphology_mip: bool = False,
     skip_image_morphology_focus: bool = True,
 ) -> None:
+    """Convert Xenium to NGFF"""
     if num_workers == -1:
         MAX_WORKERS = psutil.cpu_count()
         logger.info(
