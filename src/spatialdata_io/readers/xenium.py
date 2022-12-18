@@ -7,7 +7,7 @@ import time
 from functools import partial
 from itertools import chain
 from multiprocessing import Pool
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -53,7 +53,7 @@ DEBUG = False
 __all__ = ["convert_xenium_to_ngff"]
 
 
-def _identify_files(in_path: str, library_id: Optional[str] = None) -> Dict[str, Any]:
+def _identify_files(in_path: str, library_id: Optional[str] = None) -> dict[str, Any]:
     files = os.listdir(in_path)
     xenium_files = [f for f in files if f.endswith(".xenium")]
     assert len(xenium_files) == 1
@@ -91,7 +91,7 @@ def _get_zarr_group(out_path: str, element_type: str, name: str, delete_existing
 
 
 def _convert_polygons(
-    in_path: str, data: Dict[str, Any], out_path: str, name: str, num_workers: int, pixel_size: float
+    in_path: str, data: dict[str, Any], out_path: str, name: str, num_workers: int, pixel_size: float
 ) -> None:
     df = pd.read_csv(f"{in_path}/{data['run_name']}_{name}.csv.gz")
     if DEBUG:
@@ -116,7 +116,7 @@ def _convert_polygons(
     write_polygons(polygons=parsed, group=group, name=name)
 
 
-def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_size: float) -> None:
+def _convert_points(in_path: str, data: dict[str, Any], out_path: str, pixel_size: float) -> None:
     # using parquet is 10 times faster than reading from csv
     start = time.time()
     name = "transcripts"
@@ -143,7 +143,7 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     write_points(points=parsed, group=group, name=name)
 
 
-def _convert_table_and_shapes(in_path: str, data: Dict[str, Any], out_path: str, pixel_size: float) -> None:
+def _convert_table_and_shapes(in_path: str, data: dict[str, Any], out_path: str, pixel_size: float) -> None:
     name = "cells"
     df = pd.read_csv(f"{in_path}/{data['run_name']}_{name}.csv.gz")
     feature_matrix = sc.read_10x_h5(f"{in_path}/{data['run_name']}_cell_feature_matrix.h5")
@@ -256,7 +256,7 @@ def _ome_ngff_dims_workaround(zarr_path: str):
                 shutil.rmtree(temp_path)
 
 
-def _convert_image(in_path: str, data: Dict[str, Any], out_path: str, name: str, num_workers: int) -> None:
+def _convert_image(in_path: str, data: dict[str, Any], out_path: str, name: str, num_workers: int) -> None:
     image = f"{in_path}/{data['run_name']}_{name}.ome.tif"
     assert os.path.isfile(image)
     _ = _get_zarr_group(out_path, "images", name)

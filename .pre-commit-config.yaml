@@ -73,7 +73,7 @@ repos:
       rev: v3.3.1
       hooks:
           - id: pyupgrade
-            args: [--py3-plus, --py38-plus, --keep-runtime-typing]
+            args: [--py3-plus, --py39-plus, --keep-runtime-typing]
     - repo: local
       hooks:
           - id: forbid-to-commit
@@ -83,3 +83,7 @@ repos:
                 Fix the merge conflicts manually and remove the .rej files.
             language: fail
             files: '.*\.rej$'
+    - repo: https://github.com/PyCQA/doc8
+      rev: v1.0.0
+      hooks:
+          - id: doc8
