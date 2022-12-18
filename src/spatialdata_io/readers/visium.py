@@ -2,7 +2,8 @@ from typing import Optional
 
 import numpy as np
 import scanpy as sc
-from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel
+from spatialdata import (Image2DModel, Scale, ShapesModel, SpatialData,
+                         TableModel)
 
 
 def read_visium(path: str, library_id: Optional[str] = None) -> SpatialData:
