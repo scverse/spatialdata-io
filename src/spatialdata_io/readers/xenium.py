@@ -22,16 +22,29 @@ from ome_zarr.io import ZarrLocation, parse_url
 from ome_zarr.reader import Label, Multiscales, Reader
 from ome_zarr.writer import write_multiscales_metadata
 from shapely import Polygon
-from spatialdata import (PointsModel, PolygonsModel, Scale, Sequence,
-                         ShapesModel, SpatialData, TableModel, get_dims,
-                         get_transform, set_transform)
+from spatialdata import (
+    PointsModel,
+    PolygonsModel,
+    Scale,
+    Sequence,
+    ShapesModel,
+    SpatialData,
+    TableModel,
+    get_dims,
+    get_transform,
+    set_transform,
+)
 from spatialdata._core.core_utils import SpatialElement
 from spatialdata._core.models import _parse_transform
 from spatialdata._core.transformations import BaseTransformation
 from spatialdata._io.format import SpatialDataFormatV01
 from spatialdata._io.read import _read_multiscale
-from spatialdata._io.write import (write_points, write_polygons, write_shapes,
-                                   write_table)
+from spatialdata._io.write import (
+    write_points,
+    write_polygons,
+    write_shapes,
+    write_table,
+)
 from tqdm import tqdm
 
 DEBUG = False
