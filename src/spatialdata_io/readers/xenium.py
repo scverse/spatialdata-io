@@ -1,53 +1,51 @@
 # format specification https://cf.10xgenomics.com/supp/xenium/xenium_documentation.html#polygon_vertices
+import json
 import os
 import shutil
 import subprocess
-import psutil
+import time
+from functools import partial
+from itertools import chain
+from multiprocessing import Pool
+from typing import Any, Optional
 
-from geopandas import GeoDataFrame
-from shapely import Polygon
-from spatialdata._io.write import write_polygons, write_points, write_table, write_shapes
-from spatialdata._core.models import _parse_transform
 import numpy as np
+import pandas as pd
+import psutil
+import pyarrow.parquet as pq
 import scanpy as sc
+import zarr
+from anndata import AnnData
+from geopandas import GeoDataFrame
+from loguru import logger
+from ome_zarr.io import ZarrLocation, parse_url
+from ome_zarr.reader import Label, Multiscales, Reader
+from ome_zarr.writer import write_multiscales_metadata
+from shapely import Polygon
 from spatialdata import (
-    SpatialData,
-    Image2DModel,
+    PointsModel,
+    PolygonsModel,
     Scale,
+    Sequence,
     ShapesModel,
     SpatialData,
     TableModel,
-    PolygonsModel,
-    PointsModel,
-    set_transform,
-    get_transform,
-    Sequence,
     get_dims,
-    MapAxis,
+    get_transform,
+    set_transform,
 )
 from spatialdata._core.core_utils import SpatialElement
-from spatialdata._core.transformations import BaseTransformation
 from spatialdata._core.models import _parse_transform
-from spatialdata._io.read import _read_multiscale
-from typing import Optional, Dict, Any
-import re
-import json
-import tifffile
-import pandas as pd
-from tqdm import tqdm
-from multiprocessing import Pool
-from functools import partial
-from itertools import chain
-import time
-import zarr
-from ome_zarr.io import ZarrLocation
-from ome_zarr.reader import Label, Multiscales, Node, Reader
-from ome_zarr.io import parse_url
-from ome_zarr.writer import write_multiscales_metadata
-import pyarrow.parquet as pq
-from loguru import logger
-from anndata import AnnData
+from spatialdata._core.transformations import BaseTransformation
 from spatialdata._io.format import SpatialDataFormatV01
+from spatialdata._io.read import _read_multiscale
+from spatialdata._io.write import (
+    write_points,
+    write_polygons,
+    write_shapes,
+    write_table,
+)
+from tqdm import tqdm
 
 DEBUG = False
 # DEBUG = False
@@ -55,7 +53,7 @@ DEBUG = False
 __all__ = ["convert_xenium_to_ngff"]
 
 
-def _identify_files(in_path: str, library_id: Optional[str] = None) -> Dict[str, Any]:
+def _identify_files(in_path: str, library_id: Optional[str] = None) -> dict[str, Any]:
     files = os.listdir(in_path)
     xenium_files = [f for f in files if f.endswith(".xenium")]
     assert len(xenium_files) == 1
@@ -93,7 +91,7 @@ def _get_zarr_group(out_path: str, element_type: str, name: str, delete_existing
 
 
 def _convert_polygons(
-    in_path: str, data: Dict[str, Any], out_path: str, name: str, num_workers: int, pixel_size: float
+    in_path: str, data: dict[str, Any], out_path: str, name: str, num_workers: int, pixel_size: float
 ) -> None:
     df = pd.read_csv(f"{in_path}/{data['run_name']}_{name}.csv.gz")
     if DEBUG:
@@ -105,7 +103,7 @@ def _convert_polygons(
     splits = np.array_split(range(1, n_cells), pool._processes)
     nested = pool.map(partial(_build_polygons, df=df), splits)
     start = time.time()
-    nested_sorted = map(lambda x: x[0], sorted(nested, key=lambda x: x[1]))
+    nested_sorted = map(lambda x: x[0], sorted(nested, key=lambda x: x[1]))  # noqa: C417
     polygons = list(chain.from_iterable(nested_sorted))
     print(f"list flattening: {time.time() - start}")
     start = time.time()
@@ -118,7 +116,7 @@ def _convert_polygons(
     write_polygons(polygons=parsed, group=group, name=name)
 
 
-def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_size: float) -> None:
+def _convert_points(in_path: str, data: dict[str, Any], out_path: str, pixel_size: float) -> None:
     # using parquet is 10 times faster than reading from csv
     start = time.time()
     name = "transcripts"
@@ -126,13 +124,13 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     xyz = table.select(("x_location", "y_location", "z_location")).to_pandas().to_numpy()
     # TODO: the construction of the sparse matrix is slow, optimize by converting to a categorical, the code in the
     #  parser needs to be adapted
-    annotations = table.select(('overlaps_nucleus', 'qv', 'cell_id'))
-    annotations = annotations.add_column(3, 'feature_name', table.column("feature_name").cast(
-        "string").dictionary_encode())
+    annotations = table.select(("overlaps_nucleus", "qv", "cell_id"))
+    annotations = annotations.add_column(
+        3, "feature_name", table.column("feature_name").cast("string").dictionary_encode()
+    )
     if DEBUG:
         n = 100000
         xyz = xyz[:n]
-        feature_name = feature_name[:n]
         logger.info(f"DEBUG: only using {n} transcripts")
     print(f"parquet: {time.time() - start}")
     ##
@@ -145,7 +143,7 @@ def _convert_points(in_path: str, data: Dict[str, Any], out_path: str, pixel_siz
     write_points(points=parsed, group=group, name=name)
 
 
-def _convert_table_and_shapes(in_path: str, data: Dict[str, Any], out_path: str, pixel_size: float) -> None:
+def _convert_table_and_shapes(in_path: str, data: dict[str, Any], out_path: str, pixel_size: float) -> None:
     name = "cells"
     df = pd.read_csv(f"{in_path}/{data['run_name']}_{name}.csv.gz")
     feature_matrix = sc.read_10x_h5(f"{in_path}/{data['run_name']}_cell_feature_matrix.h5")
@@ -258,7 +256,7 @@ def _ome_ngff_dims_workaround(zarr_path: str):
                 shutil.rmtree(temp_path)
 
 
-def _convert_image(in_path: str, data: Dict[str, Any], out_path: str, name: str, num_workers: int) -> None:
+def _convert_image(in_path: str, data: dict[str, Any], out_path: str, name: str, num_workers: int) -> None:
     image = f"{in_path}/{data['run_name']}_{name}.ome.tif"
     assert os.path.isfile(image)
     _ = _get_zarr_group(out_path, "images", name)
@@ -286,7 +284,7 @@ def _convert_image(in_path: str, data: Dict[str, Any], out_path: str, name: str,
             shutil.move(os.path.join(full_out_path, "temp", f), os.path.join(full_out_path, f))
         shutil.rmtree(os.path.join(full_out_path, "temp"))
         _ome_ngff_dims_workaround(full_out_path)
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         ##
         raise FileNotFoundError(
             "bioformats2raw not found, please check https://github.com/glencoesoftware/bioformats2raw for the "
@@ -309,8 +307,8 @@ def _update_transformation(transform: BaseTransformation, group: zarr.Group, ele
         scale_factors = base_resolution / current_resolution
         dataset = datasets[i]
         assert len(dataset) == 2
-        path = dataset["path"]
-        multiscale_transform = dataset["coordinateTransformations"]
+        dataset["path"]
+        dataset["coordinateTransformations"]
         # this is completely wrong: no idea why but bioformats2raw gives a scale for the first multiscale with value
         # smaller than 1. It should be 1, so we recompute it here
         # transforms = [BaseTransformation.from_dict(t) for t in multiscale_transform]
@@ -365,6 +363,7 @@ def convert_xenium_to_ngff(
     skip_image_morphology_mip: bool = False,
     skip_image_morphology_focus: bool = True,
 ) -> None:
+    """Convert Xenium to NGFF"""
     if num_workers == -1:
         MAX_WORKERS = psutil.cpu_count()
         logger.info(
