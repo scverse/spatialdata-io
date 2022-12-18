@@ -3,8 +3,8 @@
 ## Preprocessing
 
 ```{eval-rst}
-.. module:: spatialdata_io.pp
-.. currentmodule:: spatialdata_io
+.. module:: cookiecutter_scverse_instance.pp
+.. currentmodule:: cookiecutter_scverse_instance
 
 .. autosummary::
     :toctree: generated
@@ -15,8 +15,8 @@
 ## Tools
 
 ```{eval-rst}
-.. module:: spatialdata_io.tl
-.. currentmodule:: spatialdata_io
+.. module:: cookiecutter_scverse_instance.tl
+.. currentmodule:: cookiecutter_scverse_instance
 
 .. autosummary::
     :toctree: generated
@@ -27,11 +27,12 @@
 ## Plotting
 
 ```{eval-rst}
-.. module:: spatialdata_io.pl
-.. currentmodule:: spatialdata_io
+.. module:: cookiecutter_scverse_instance.pl
+.. currentmodule:: cookiecutter_scverse_instance
 
 .. autosummary::
     :toctree: generated
 
     pl.basic_plot
+    pl.BasicClass
 ```
