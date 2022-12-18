@@ -31,7 +31,7 @@
 # code below taken from https://github.com/scverse/scanpy/blob/master/scanpy/readwrite.py
 
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import h5py
 import numpy as np
@@ -77,6 +77,7 @@ def _read_10x_h5(
         logg.debug(f"... did not find original file {filename}")
     with h5py.File(str(filename), "r") as f:
         v3 = "/matrix" in f
+
     if v3:
         adata = _read_v3_10x_h5(filename, start=start)
         if genome:
@@ -95,11 +96,11 @@ def _read_10x_h5(
     return adata
 
 
-def _read_v3_10x_h5(filename, *, start=None):
+def _read_v3_10x_h5(filename: Union[str, Path], *, start: Optional[Any] = None) -> AnnData:
     """Read hdf5 file from Cell Ranger v3 or later versions."""
     with h5py.File(str(filename), "r") as f:
         try:
-            dsets = {}
+            dsets: dict[str, Any] = {}
             _collect_datasets(dsets, f["matrix"])
 
             from scipy.sparse import csr_matrix
@@ -129,7 +130,7 @@ def _read_v3_10x_h5(filename, *, start=None):
             raise Exception("File is missing one or more required datasets.")
 
 
-def _collect_datasets(dsets: dict, group: h5py.Group):
+def _collect_datasets(dsets: dict[str, Any], group: h5py.Group) -> None:
     for k, v in group.items():
         if isinstance(v, h5py.Dataset):
             dsets[k] = v[:]

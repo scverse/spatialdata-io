@@ -27,7 +27,7 @@ repos:
       hooks:
           - id: mypy
             additional_dependencies: [numpy==1.23.0]
-            # exclude: tests/|docs/|src/spatialdata_io/xenium.py|src/spatialdata_io/visium.py|src/spatialdata_io/resolve.py|
+            exclude: tests/|docs/|src/spatialdata_io/(xenium|visium|resolve).py|
     - repo: https://github.com/asottile/yesqa
       rev: v1.4.0
       hooks:
