@@ -18,26 +18,32 @@ from spatialdata._logging import logger
 from spatialdata._types import ArrayLike
 
 from spatialdata_io._constants._constants import CosmxKeys
+from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _load_image
 
 __all__ = ["cosmx"]
 
 
+@inject_docs(cx=CosmxKeys)
 def cosmx(
     path: str | Path,
     dataset_id: str,
     shape_size: float | int = 1,
 ) -> AnnData:
     """
-    Read *Nanostring* formatted dataset.
+    Read *Cosmx Nanostring* data.
 
-    In addition to reading the regular *Nanostring* output, it loads the metadata file, *CellComposite* and *CellLabels*
-    directories containing the images and optionally the field of view file.
+    This function reads the following files:
+
+        - ``<dataset_id>_`{cx.COUNTS_SUFFIX.s!r}```: Counts matrix.
+        - ``<dataset_id>_`{cx.METADATA_SUFFIX.s!r}```: Metadata file.
+        - ``<dataset_id>_`{cx.FOV_SUFFIX.s!r}```: Field of view file.
+        - ``{cx.IMAGES_DIR.s!r}``: Directory containing the images.
+        - ``{cx.LABELS_DIR.s!r}``: Directory containing the labels.
 
     .. seealso::
 
         - `Nanostring Spatial Molecular Imager <https://nanostring.com/products/cosmx-spatial-molecular-imager/>`_.
-        - :func:`squidpy.pl.spatial_scatter` on how to plot spatial data.
 
     Parameters
     ----------
