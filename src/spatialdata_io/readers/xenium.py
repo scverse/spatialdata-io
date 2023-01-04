@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from functools import partial
 from itertools import chain
 from multiprocessing import Pool
@@ -45,10 +46,15 @@ from spatialdata._io.write import (
     write_shapes,
     write_table,
 )
+from spatialdata._types import ArrayLike
 from tqdm import tqdm
 
-DEBUG = False
-# DEBUG = False
+
+@dataclass
+class Config:
+    NUM_WORKERS = 8
+    SMALL_EXAMPLE_DATASET = False
+
 
 __all__ = ["convert_xenium_to_ngff"]
 
@@ -60,10 +66,11 @@ def _identify_files(in_path: str, library_id: Optional[str] = None) -> dict[str,
     xenium_file = xenium_files[0]
     with open(os.path.join(in_path, xenium_file)) as f:
         data = json.load(f)
+    assert isinstance(data, dict)
     return data
 
 
-def _build_polygons(indices, df):
+def _build_polygons(indices: ArrayLike, df: pd.DataFrame) -> tuple[list[Polygon], int]:
     first_index = indices[0]
     master_process = first_index == 1
     polygons = []
@@ -91,16 +98,16 @@ def _get_zarr_group(out_path: str, element_type: str, name: str, delete_existing
 
 
 def _convert_polygons(
-    in_path: str, data: dict[str, Any], out_path: str, name: str, num_workers: int, pixel_size: float
+    in_path: str, data: dict[str, Any], out_path: str, name: str, pixel_size: float, config: Config
 ) -> None:
     df = pd.read_csv(f"{in_path}/{data['run_name']}_{name}.csv.gz")
-    if DEBUG:
+    if config.SMALL_EXAMPLE_DATASET:
         n_cells = 1000
         logger.info(f"DEBUG: considering only {n_cells} cells")
     else:
         n_cells = df.cell_id.max() + 1
-    pool = Pool(num_workers)
-    splits = np.array_split(range(1, n_cells), pool._processes)
+    pool = Pool(config.NUM_WORKERS)
+    splits: list[ArrayLike] = np.array_split(list(range(1, n_cells)), pool._processes)  # type: ignore[attr-defined]
     nested = pool.map(partial(_build_polygons, df=df), splits)
     start = time.time()
     nested_sorted = map(lambda x: x[0], sorted(nested, key=lambda x: x[1]))  # noqa: C417
@@ -116,7 +123,7 @@ def _convert_polygons(
     write_polygons(polygons=parsed, group=group, name=name)
 
 
-def _convert_points(in_path: str, data: dict[str, Any], out_path: str, pixel_size: float) -> None:
+def _convert_points(in_path: str, data: dict[str, Any], out_path: str, pixel_size: float, config: Config) -> None:
     # using parquet is 10 times faster than reading from csv
     start = time.time()
     name = "transcripts"
@@ -128,7 +135,7 @@ def _convert_points(in_path: str, data: dict[str, Any], out_path: str, pixel_siz
     annotations = annotations.add_column(
         3, "feature_name", table.column("feature_name").cast("string").dictionary_encode()
     )
-    if DEBUG:
+    if config.SMALL_EXAMPLE_DATASET:
         n = 100000
         xyz = xyz[:n]
         logger.info(f"DEBUG: only using {n} transcripts")
@@ -175,7 +182,7 @@ def _convert_table_and_shapes(in_path: str, data: dict[str, Any], out_path: str,
     write_table(table=parsed, group=group, name=name)
 
 
-def _ome_ngff_dims_workaround(zarr_path: str):
+def _ome_ngff_dims_workaround(zarr_path: str) -> None:
     # manually, very hackily, make the data cyx from tczyx. Replace with a better option by either supporting tczyx
     # images or with solution arising from the discussion in
     # https://github.com/glencoesoftware/bioformats2raw/issues/180
@@ -234,8 +241,8 @@ def _ome_ngff_dims_workaround(zarr_path: str):
             t_path = t_dims[0]
             temp_path = os.path.join(multiscale_path, "temp")
             shutil.move(t_path, temp_path)
-            for f in os.listdir(temp_path):
-                shutil.move(os.path.join(temp_path, f), os.path.join(multiscale_path, f))
+            for f in os.listdir(temp_path):  # type: ignore[assignment]
+                shutil.move(os.path.join(temp_path, f), os.path.join(multiscale_path, f))  # type: ignore[call-overload]
             shutil.rmtree(temp_path)
 
     # remove z dimension from raw storage
@@ -251,8 +258,8 @@ def _ome_ngff_dims_workaround(zarr_path: str):
                 z_path = z_dims[0]
                 temp_path = os.path.join(c_path, "temp")
                 shutil.move(z_path, temp_path)
-                for f in os.listdir(temp_path):
-                    shutil.move(os.path.join(temp_path, f), os.path.join(c_path, f))
+                for f in os.listdir(temp_path):  # type: ignore[assignment]
+                    shutil.move(os.path.join(temp_path, f), os.path.join(c_path, f))  # type: ignore[call-overload]
                 shutil.rmtree(temp_path)
 
 
@@ -295,7 +302,9 @@ def _convert_image(in_path: str, data: dict[str, Any], out_path: str, name: str,
 
 
 # TODO: move this function inside spatialdata and make it work for all the spatial elements
-def _update_transformation(transform: BaseTransformation, group: zarr.Group, element: SpatialElement, name: str):
+def _update_transformation(
+    transform: BaseTransformation, group: zarr.Group, element: SpatialElement, name: str
+) -> None:
     # we validate again later, but this catches length mismatch before zip(datasets...)
     fmt = SpatialDataFormatV01()
     multiscales = dict(group.attrs)["multiscales"]
@@ -362,39 +371,27 @@ def convert_xenium_to_ngff(
     skip_image_morphology: bool = True,
     skip_image_morphology_mip: bool = False,
     skip_image_morphology_focus: bool = True,
+    config: Optional[Config] = None,
 ) -> None:
     """Convert Xenium to NGFF"""
+    if config is None:
+        config = Config()
     if num_workers == -1:
-        MAX_WORKERS = psutil.cpu_count()
-        logger.info(
-            f"Using {MAX_WORKERS} workers to speed up the conversion of polygons and images. A note on the "
-            "conversion of images to NGFF: as explained in the bioformats2raw readme, a large number of workers "
-            "doesn't always imply better performance in systems with systems with significant I/O bandwidth. See "
-            "https://github.com/glencoesoftware/bioformats2raw for more details https://github.com/glencoesoftware/bioformats2raw"
-        )
-        num_workers = MAX_WORKERS
+        total_workers = psutil.cpu_count()
+        config.NUM_WORKERS = min(total_workers, config.NUM_WORKERS)
+        logger.info(f"Using {config.NUM_WORKERS} workers to speed up the conversion of polygons and images.")
     data = _identify_files(path)
     pixel_size = data["pixel_size"]
     if not skip_nucleus_boundaries:
         _convert_polygons(
-            in_path=path,
-            data=data,
-            out_path=out_path,
-            name="nucleus_boundaries",
-            num_workers=num_workers,
-            pixel_size=pixel_size,
+            in_path=path, data=data, out_path=out_path, name="nucleus_boundaries", pixel_size=pixel_size, config=config
         )
     if not skip_cell_boundaries:
         _convert_polygons(
-            in_path=path,
-            data=data,
-            out_path=out_path,
-            name="cell_boundaries",
-            num_workers=num_workers,
-            pixel_size=pixel_size,
+            in_path=path, data=data, out_path=out_path, name="cell_boundaries", pixel_size=pixel_size, config=config
         )
     if not skip_points:
-        _convert_points(in_path=path, data=data, out_path=out_path, pixel_size=pixel_size)
+        _convert_points(in_path=path, data=data, out_path=out_path, pixel_size=pixel_size, config=config)
     if not skip_table_and_shapes:
         _convert_table_and_shapes(in_path=path, data=data, out_path=out_path, pixel_size=pixel_size)
     # TODO: can't convert morphology since there is a t dimension that is not currently supported (TODO: check the
@@ -411,6 +408,8 @@ def convert_xenium_to_ngff(
 
 
 if __name__ == "__main__":
+    config = Config()
+    config.SMALL_EXAMPLE_DATASET = True
     convert_xenium_to_ngff(
         path="/Users/macbook/temp/hackathon/spatialdata-sandbox-hack/xenium/data/",
         out_path="/Users/macbook/temp/hackathon/spatialdata-sandbox-hack/xenium/data.zarr/",
@@ -420,6 +419,7 @@ if __name__ == "__main__":
         # skip_image_morphology=True,
         # skip_image_morphology_focus=True,
         # skip_image_morphology_mip=True
+        config=config,
     )
     sdata = SpatialData.read("/Users/macbook/temp/hackathon/spatialdata-sandbox-hack/xenium/data.zarr/")
     print(sdata)
