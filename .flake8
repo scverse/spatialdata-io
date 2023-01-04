@@ -42,6 +42,7 @@ exclude = .git,__pycache__,build,docs/_build,dist
 per-file-ignores =
     tests/*: D
     */__init__.py: F401
+    src/spatialdata_io/_constants/_enum.py: RST, D
 rst-roles =
     class,
     func,
