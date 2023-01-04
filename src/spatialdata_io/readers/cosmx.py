@@ -153,5 +153,5 @@ def cosmx(
 def _estimate_transform(src: ArrayLike, tgt: ArrayLike) -> Affine:
     out = estimate_transform(ttype="affine", src=src, dst=tgt)
     out_cs = deepcopy(xy_cs)
-    out_cs.NAME = "xy_global"
+    out_cs.name = "xy_global"
     return Affine(out.params, input_coordinate_system=xy_cs, output_coordinate_system=out_cs)
