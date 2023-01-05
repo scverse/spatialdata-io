@@ -28,6 +28,7 @@ dependencies = [
     "h5py",
     "pillow",
     "imagecodecs",
+    "dask-image",
 ]
 
 [project.optional-dependencies]
