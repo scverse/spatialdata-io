@@ -36,7 +36,7 @@ from typing import Any, Optional, Union
 import h5py
 import numpy as np
 from anndata import AnnData
-from loguru import logger as logg
+from spatialdata._logging import logger
 
 
 def _read_10x_h5(
@@ -70,11 +70,11 @@ def _read_10x_h5(
         - `['gene_ids']`: Gene IDs
         - `['feature_types']`: Feature types
     """
-    start = logg.info(f"reading {filename}")
+    start = logger.info(f"reading {filename}")
     filename = Path(filename) if isinstance(filename, str) else filename
     is_present = filename.is_file()
     if not is_present:
-        logg.debug(f"... did not find original file {filename}")
+        logger.debug(f"... did not find original file {filename}")
     with h5py.File(str(filename), "r") as f:
         v3 = "/matrix" in f
 
@@ -124,7 +124,6 @@ def _read_v3_10x_h5(filename: Union[str, Path], *, start: Optional[Any] = None) 
                     "genome": dsets["genome"].astype(str),
                 },
             )
-            logg.info("", time=start)
             return adata
         except KeyError:
             raise Exception("File is missing one or more required datasets.")
