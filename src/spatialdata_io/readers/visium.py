@@ -38,6 +38,20 @@ def visium(
 
         - `Space Ranger output <https://support.10xgenomics.com/spatial-gene-expression/software/pipelines/latest/output/overview>`_.
 
+    Parameters
+    ----------
+    path
+        Path to the directory containing the data.
+    dataset_id
+        Dataset identifier.
+    imread_kwargs
+        Keyword arguments passed to :func:`dask_image.imread.imread`.
+    image_models_kwargs
+        Keyword arguments passed to :class:`spatialdata.Image2DModel`.
+
+    Returns
+    -------
+    :class:`spatialdata.SpatialData`
     """
     path = Path(path)
     # get library_id
