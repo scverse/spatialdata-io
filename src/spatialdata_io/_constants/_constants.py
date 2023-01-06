@@ -60,3 +60,24 @@ class XeniumKeys(ModeEnum):
     # morphology iamges
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"
     MORPHOLOGY_FOCUS_FILE = "morphology_focus.ome.tif"
+
+
+@unique
+class VisiumKeys(ModeEnum):
+    """Keys for *10X Genomics Visium* formatted dataset."""
+
+    # files and directories
+    COUNTS_FILE = "filtered_feature_bc_matrix.h5"
+
+    # images
+    HIRES_IMAGE_FILE = "spatial/tissue_hires_image.png"
+    LOWRES_IMAGE_FILE = "spatial/tissue_lowres_image.png"
+    TIF_IMAGE_SUFFIX = "image.tif"
+
+    # scalefactors
+    SCALEFACTORS_FILE = "spatial/scalefactors_json.json"
+
+    # spots
+    SPOTS_FILE = "spatial/tissue_positions.csv"
+    SPOTS_X = "pxl_row_in_fullres"
+    SPOTS_Y = "pxl_col_in_fullres"
