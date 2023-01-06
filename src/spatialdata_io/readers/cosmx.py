@@ -35,11 +35,11 @@ def cosmx(
 
     This function reads the following files:
 
-        - ``<dataset_id>_`{cx.COUNTS_SUFFIX.s!r}```: Counts matrix.
-        - ``<dataset_id>_`{cx.METADATA_SUFFIX.s!r}```: Metadata file.
-        - ``<dataset_id>_`{cx.FOV_SUFFIX.s!r}```: Field of view file.
-        - ``{cx.IMAGES_DIR.s!r}``: Directory containing the images.
-        - ``{cx.LABELS_DIR.s!r}``: Directory containing the labels.
+        - ``<dataset_id>_`{cx.COUNTS_SUFFIX!r}```: Counts matrix.
+        - ``<dataset_id>_`{cx.METADATA_SUFFIX!r}```: Metadata file.
+        - ``<dataset_id>_`{cx.FOV_SUFFIX!r}```: Field of view file.
+        - ``{cx.IMAGES_DIR!r}``: Directory containing the images.
+        - ``{cx.LABELS_DIR!r}``: Directory containing the labels.
 
     .. seealso::
 
