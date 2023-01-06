@@ -1,66 +1,144 @@
-from typing import Optional
+from __future__ import annotations
 
-import numpy as np
-import scanpy as sc
+import json
+import os
+import re
+from collections.abc import Mapping
+from pathlib import Path
+from types import MappingProxyType
+from typing import Union  # noqa: F401
+from typing import Any, Optional
+
+import pandas as pd
+from anndata import AnnData
+from dask_image.imread import imread
+from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
+from scanpy import logging as logg
 from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel
+from spatialdata._core.coordinate_system import CoordinateSystem
+from xarray import DataArray
+
+from spatialdata_io._constants._constants import VisiumKeys
+from spatialdata_io.readers._utils._utils import _read_counts
+
+__all__ = ["visium"]
 
 
-def read_visium(path: str, library_id: Optional[str] = None) -> SpatialData:
+def visium(
+    path: str | Path,
+    dataset_id: Optional[str] = None,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    **kwargs: Any,
+) -> AnnData:
     """
-    Read Visium data from a directory containing the output of the spaceranger pipeline.
+    Read *10x Genomics* Visium formatted dataset.
+
+    .. seealso::
+
+        - `Space Ranger output <https://support.10xgenomics.com/spatial-gene-expression/software/pipelines/latest/output/overview>`_.
 
     Parameters
     ----------
-    path : str
-        Path to the directory containing the output of the spaceranger pipeline.
-    library_id : str, optional
-        Name of the library id to use. If not provided, it's the name of the library found in the .h5 matrix
+    path
+        Path to the directory containing the data.
+    dataset_id
+        Dataset identifier.
+    imread_kwargs
+        Keyword arguments passed to :func:`dask_image.imread.imread`.
+    image_models_kwargs
+        Keyword arguments passed to :class:`spatialdata.Image2DModel`.
 
     Returns
     -------
-    SpatialData
-        SpatialData object containing the data from the Visium experiment.
+    :class:`spatialdata.SpatialData`
     """
-    adata = sc.read_visium(path)
-    libraries = list(adata.uns["spatial"].keys())
-    assert len(libraries) == 1
-    lib = libraries[0]
-    if library_id is None:
-        library_id = lib
+    path = Path(path)
+    # get library_id
+    patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
+    library_id = [i for i in os.listdir(path) if patt.match(i)][0].replace(f"_{VisiumKeys.COUNTS_FILE}", "")
+    if dataset_id is not None:
+        if dataset_id != library_id:
+            logg.warning(
+                f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` will be used to build SpatialData."
+            )
+    else:
+        dataset_id = library_id
 
-    # expression table
-    expression = adata.copy()
-    del expression.uns
-    del expression.obsm
-    expression.obs_names_make_unique()
-    expression.var_names_make_unique()
-    expression = TableModel.parse(
-        expression,
-        region=f"/shapes/{library_id}",
-        instance_key="visium_spot_id",
-        instance_values=np.arange(len(adata)),
+    adata, library_id = _read_counts(
+        path, count_file=f"{library_id}_{VisiumKeys.COUNTS_FILE}", library_id=library_id, **kwargs
     )
 
-    # circles ("visium spots")
-    radius = adata.uns["spatial"][lib]["scalefactors"]["spot_diameter_fullres"] / 2
-    shapes = ShapesModel.parse(
-        coords=adata.obsm["spatial"].astype(float),
-        shape_type="Circle",
-        shape_size=radius,
+    coords = pd.read_csv(
+        path / VisiumKeys.SPOTS_FILE,
+        header=1,
+        index_col=0,
     )
-    # transformation
-    scale_factors = np.array([1.0] + [1 / adata.uns["spatial"][lib]["scalefactors"]["tissue_hires_scalef"]] * 2)
-    transform = Scale(scale=scale_factors)
+    coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
 
-    # image
-    img = adata.uns["spatial"][lib]["images"]["hires"]
-    assert img.dtype == np.float32 and np.min(img) >= 0.0 and np.max(img) <= 1.0
-    img = (img * 255).astype(np.uint8)
-    img = Image2DModel.parse(img, transform=transform, dims=("y", "x", "c"))
+    adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
+    coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
+    adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
 
-    sdata = SpatialData(
-        images={library_id: img},
-        shapes={library_id: shapes},
-        table=expression,
+    scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
+    input_cs = CoordinateSystem("xy", axes=["x", "y"])
+    output_hires_cs = CoordinateSystem("hires", axes=["x", "y"])
+    output_lowres_cs = CoordinateSystem("lowres", axes=["x", "y"])
+    transform_lowres = Scale(
+        [scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
+        input_cs,
+        output_lowres_cs,
     )
-    return sdata
+    transform_hires = Scale(
+        [scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]],
+        input_cs,
+        output_hires_cs,
+    )
+
+    shapes = {}
+    circles = ShapesModel.parse(
+        coords,
+        shape_type="circle",
+        shape_size=scalefactors["spot_diameter_fullres"],
+        index=adata.obs_names,
+    )
+    circles.uns["transform"] = [transform_lowres, transform_hires, circles.uns["transform"]]
+    shapes[dataset_id] = circles
+    table = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
+
+    images = {}
+    input_cs = CoordinateSystem("cxy", axes=["c", "x", "y"])
+    output_hires_cs = CoordinateSystem("hires", axes=["c", "x", "y"])
+    output_lowres_cs = CoordinateSystem("lowres", axes=["c", "x", "y"])
+    transform_lowres = Scale(
+        [1.0, scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
+        input_cs,
+        output_lowres_cs,
+    )
+    transform_hires = Scale(
+        [1.0, scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]],
+        input_cs,
+        output_hires_cs,
+    )
+
+    full_image = imread(path / VisiumKeys.IMAGE_TIF_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
+    full_image = DataArray(full_image, dims=["c", "y", "x"], name=dataset_id)
+    full_image.attrs = {"transform": None}
+    image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
+    image_hires = DataArray(image_hires, dims=["c", "y", "x"], name=dataset_id)
+    image_hires.attrs = {"transform": transform_hires}
+    image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
+    image_lowres = DataArray(image_lowres, dims=["c", "y", "x"], name=dataset_id)
+    image_lowres.attrs = {"transform": transform_lowres}
+
+    multiscale = MultiscaleSpatialImage.from_dict(
+        d={
+            "scale0": full_image,
+            "scale1": image_hires,
+            "scale2": image_lowres,
+        }
+    )
+    Image2DModel().validate(multiscale)
+    images = {dataset_id: multiscale}
+
+    return SpatialData(table=table, shapes=shapes, images=images)
