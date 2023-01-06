@@ -3,15 +3,20 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Union  # noqa: F401
 from typing import Any, Optional
 
 import pandas as pd
 from anndata import AnnData
+from dask_image.imread import imread
+from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
 from scanpy import logging as logg
-from spatialdata import Scale, ShapesModel, SpatialData, TableModel
+from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel
 from spatialdata._core.coordinate_system import CoordinateSystem
+from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumKeys
 from spatialdata_io.readers._utils._utils import _read_counts
@@ -22,6 +27,8 @@ __all__ = ["visium"]
 def visium(
     path: str | Path,
     dataset_id: Optional[str] = None,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
 ) -> AnnData:
     """
@@ -64,10 +71,14 @@ def visium(
     output_hires_cs = CoordinateSystem("hires", axes=["x", "y"])
     output_lowres_cs = CoordinateSystem("lowres", axes=["x", "y"])
     transform_lowres = Scale(
-        [scalefactors["tissue_lowres_scalef"], scalefactors["tissue_lowres_scalef"]], input_cs, output_lowres_cs
+        [scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
+        input_cs,
+        output_lowres_cs,
     )
     transform_hires = Scale(
-        [scalefactors["tissue_hires_scalef"], scalefactors["tissue_hires_scalef"]], input_cs, output_hires_cs
+        [scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]],
+        input_cs,
+        output_hires_cs,
     )
 
     shapes = {}
@@ -79,7 +90,41 @@ def visium(
     )
     circles.uns["transform"] = [transform_lowres, transform_hires, circles.uns["transform"]]
     shapes[dataset_id] = circles
-
     table = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
 
-    return SpatialData(table=table, shapes=shapes)
+    images = {}
+    input_cs = CoordinateSystem("cxy", axes=["c", "x", "y"])
+    output_hires_cs = CoordinateSystem("hires", axes=["c", "x", "y"])
+    output_lowres_cs = CoordinateSystem("lowres", axes=["c", "x", "y"])
+    transform_lowres = Scale(
+        [1.0, scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
+        input_cs,
+        output_lowres_cs,
+    )
+    transform_hires = Scale(
+        [1.0, scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]],
+        input_cs,
+        output_hires_cs,
+    )
+
+    full_image = imread(path / VisiumKeys.IMAGE_TIF_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
+    full_image = DataArray(full_image, dims=["c", "y", "x"], name=dataset_id)
+    full_image.attrs = {"transform": None}
+    image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
+    image_hires = DataArray(image_hires, dims=["c", "y", "x"], name=dataset_id)
+    image_hires.attrs = {"transform": transform_hires}
+    image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
+    image_lowres = DataArray(image_lowres, dims=["c", "y", "x"], name=dataset_id)
+    image_lowres.attrs = {"transform": transform_lowres}
+
+    multiscale = MultiscaleSpatialImage.from_dict(
+        d={
+            "scale0": full_image,
+            "scale1": image_hires,
+            "scale2": image_lowres,
+        }
+    )
+    Image2DModel().validate(multiscale)
+    images = {dataset_id: multiscale}
+
+    return SpatialData(table=table, shapes=shapes, images=images)

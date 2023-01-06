@@ -70,12 +70,14 @@ class VisiumKeys(ModeEnum):
     COUNTS_FILE = "filtered_feature_bc_matrix.h5"
 
     # images
-    HIRES_IMAGE_FILE = "spatial/tissue_hires_image.png"
-    LOWRES_IMAGE_FILE = "spatial/tissue_lowres_image.png"
-    TIF_IMAGE_SUFFIX = "image.tif"
+    IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
+    IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
+    IMAGE_TIF_FILE = "spatial/cytassist_image.tiff"
 
     # scalefactors
     SCALEFACTORS_FILE = "spatial/scalefactors_json.json"
+    SCALEFACTORS_HIRES = "tissue_hires_scalef"
+    SCALEFACTORS_LOWRES = "tissue_lowres_scalef"
 
     # spots
     SPOTS_FILE = "spatial/tissue_positions.csv"
