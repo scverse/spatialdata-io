@@ -19,11 +19,13 @@ from spatialdata._core.coordinate_system import CoordinateSystem
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumKeys
+from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _read_counts
 
 __all__ = ["visium"]
 
 
+@inject_docs(vx=VisiumKeys)
 def visium(
     path: str | Path,
     dataset_id: Optional[str] = None,
@@ -33,6 +35,15 @@ def visium(
 ) -> AnnData:
     """
     Read *10x Genomics* Visium formatted dataset.
+
+    This function reads the following files:
+
+        - ``<dataset_id>_`{vx.COUNTS_SUFFIX!r}```: Counts and metadata file.
+        - ``{vx.IMAGE_HIRES_FILE!r}``: High resolution image.
+        - ``{vx.IMAGE_LOWRES_FILE!r}``: Low resolution image.
+        - ``{vx.IMAGE_TIF_FILE!r}``: High resolution tif image.
+        - ``{vx.SCALEFACTORS_FILE!r}``: Scalefactors file.
+        - ``{vx.SPOTS_FILE!r}``: Spots positions file.
 
     .. seealso::
 
