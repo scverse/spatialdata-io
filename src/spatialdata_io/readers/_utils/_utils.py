@@ -7,7 +7,6 @@ from typing import Any, Optional, Union
 import numpy as np
 from anndata import AnnData, read_mtx, read_text
 from h5py import File
-from PIL import Image
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
@@ -65,7 +64,3 @@ def _read_counts(
 
     adata.uns["spatial"] = {library_id_: {"metadata": {}}}  # can overwrite
     return adata, library_id_
-
-
-def _load_image(path: PathLike) -> NDArrayA:
-    return np.asarray(Image.open(path))

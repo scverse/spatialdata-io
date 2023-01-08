@@ -4,10 +4,12 @@ import os
 import re
 from copy import deepcopy
 from pathlib import Path
+from types import MappingProxyType
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from dask_image.imread import imread
 from scipy.sparse import csr_matrix
 from skimage.transform import estimate_transform
 from spatialdata import SpatialData
@@ -16,10 +18,10 @@ from spatialdata._core.models import Image2DModel, Labels2DModel, ShapesModel
 from spatialdata._core.transformations import Affine
 from spatialdata._logging import logger
 from spatialdata._types import ArrayLike
+from typin import Any, Mapping
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io.readers._utils._utils import _load_image
 
 __all__ = ["cosmx"]
 
@@ -29,6 +31,8 @@ def cosmx(
     path: str | Path,
     dataset_id: str,
     shape_size: float | int = 1,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> AnnData:
     """
     Read *Cosmx Nanostring* data.
@@ -53,6 +57,10 @@ def cosmx(
         Name of the dataset.
     shape_size
         Size of the shape to be used for the centroids of the labels.
+    imread_kwargs
+        Keyword arguments passed to :func:`dask_image.imread.imread`.
+    image_models_kwargs
+        Keyword arguments passed to :class:`spatialdata.Image2DModel`.
 
     Returns
     -------
@@ -107,8 +115,7 @@ def cosmx(
         if fname.endswith(file_extensions):
             fov = str(int(pat.findall(fname)[0]))
             images[fov] = Image2DModel.parse(
-                _load_image(path / CosmxKeys.IMAGES_DIR / fname),
-                name=fov,
+                imread(path / CosmxKeys.IMAGES_DIR / fname, **imread_kwargs).squeeze(), name=fov, **image_models_kwargs
             )
 
     # read labels
@@ -117,8 +124,7 @@ def cosmx(
         if fname.endswith(file_extensions):
             fov = str(int(pat.findall(fname)[0]))
             labels[fov] = Labels2DModel.parse(
-                _load_image(path / CosmxKeys.LABELS_DIR / fname),
-                name=fov,
+                imread(path / CosmxKeys.LABELS_DIR / fname, **imread_kwargs).squeeze(), name=fov, **image_models_kwargs
             )
 
     fovs_images = set(images.keys()).intersection(set(labels.keys()))
