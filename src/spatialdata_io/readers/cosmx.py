@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -18,7 +20,6 @@ from spatialdata._core.models import Image2DModel, Labels2DModel, ShapesModel
 from spatialdata._core.transformations import Affine
 from spatialdata._logging import logger
 from spatialdata._types import ArrayLike
-from typin import Any, Mapping
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs

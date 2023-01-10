@@ -7,7 +7,7 @@
 [link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yml
 [badge-docs]: https://img.shields.io/readthedocs/spatialdata-io
 
-SpatialData IO for common techs
+SpatialData IO for common technologies.
 
 ## Getting started
 

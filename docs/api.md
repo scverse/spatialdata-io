@@ -1,7 +1,7 @@
 # API
 
 ```{eval-rst}
-.. module:: spatialdata-io
+.. module:: spatialdata_io
 ```
 
 ## spatialdata-io

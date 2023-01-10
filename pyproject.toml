@@ -4,7 +4,7 @@ requires = ["hatchling"]
 
 
 [project]
-name = "spatialdata_io"
+name = "spatialdata-io"
 version = "0.0.1"
 description = "SpatialData IO for common techs"
 readme = "README.md"
@@ -38,14 +38,13 @@ dev = [
     "pre-commit"
 ]
 doc = [
-    "sphinx>=4",
+    "sphinx>=4.5",
     "sphinx-book-theme>=0.3.3",
     "myst-nb",
     "sphinxcontrib-bibtex>=1.0.0",
     "sphinx-autodoc-typehints",
     # For notebooks
-    "ipykernel",
-    "ipython",
+    "ipython>=8.6.0",
     "sphinx-copybutton",
 ]
 test = [

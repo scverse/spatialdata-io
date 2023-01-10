@@ -38,7 +38,7 @@ def visium(
 
     This function reads the following files:
 
-        - ``<dataset_id>_`{vx.COUNTS_SUFFIX!r}```: Counts and metadata file.
+        - ``<dataset_id>_`{vx.COUNTS_FILE!r}```: Counts and metadata file.
         - ``{vx.IMAGE_HIRES_FILE!r}``: High resolution image.
         - ``{vx.IMAGE_LOWRES_FILE!r}``: Low resolution image.
         - ``{vx.IMAGE_TIF_FILE!r}``: High resolution tif image.
