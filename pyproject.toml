@@ -23,6 +23,7 @@ dependencies = [
     "spatialdata @ git+https://github.com/scverse/spatialdata.git@main",
     "scikit-image",
     "h5py",
+    "joblib",
     "imagecodecs",
     "dask-image",
 ]
