@@ -111,6 +111,10 @@ def xenium(
     """
     Read a *10X Genomics Xenium* dataset into a SpatialData object.
 
+    .. seealso::
+
+        - `10X Genomics Xenium file format  <https://cf.10xgenomics.com/supp/xenium/xenium_documentation.html>`_.
+
     Parameters
     ----------
     path

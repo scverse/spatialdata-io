@@ -123,6 +123,7 @@ nitpick_ignore = [
     # you can add an exception to this list.
     ("py:class", "Path"),
     ("py:class", "AnnData"),
+    ("py:class", "SpatialData"),
 ]
 
 

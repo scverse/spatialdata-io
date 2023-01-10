@@ -13,4 +13,6 @@ I/O for the `spatialdata` project.
     :toctree: generated
 
     cosmx
+    visium
+    xenium
 ```
