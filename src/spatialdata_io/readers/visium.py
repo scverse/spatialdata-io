@@ -13,9 +13,9 @@ import pandas as pd
 from anndata import AnnData
 from dask_image.imread import imread
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from scanpy import logging as logg
 from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel
 from spatialdata._core.coordinate_system import CoordinateSystem
+from spatialdata._logging import logger
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumKeys
@@ -70,7 +70,7 @@ def visium(
     library_id = [i for i in os.listdir(path) if patt.match(i)][0].replace(f"_{VisiumKeys.COUNTS_FILE}", "")
     if dataset_id is not None:
         if dataset_id != library_id:
-            logg.warning(
+            logger.warning(
                 f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` will be used to build SpatialData."
             )
     else:

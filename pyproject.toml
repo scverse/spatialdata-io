@@ -22,11 +22,7 @@ urls.Home-page = "https://github.com/scverse/spatialdata-io"
 dependencies = [
     "spatialdata @ git+https://github.com/scverse/spatialdata.git@main",
     "scikit-image",
-    "scanpy",
-    "psutil",
-    "loguru",
     "h5py",
-    "pillow",
     "imagecodecs",
     "dask-image",
 ]
