@@ -96,5 +96,5 @@ class SteinbockKeys(ModeEnum):
     IMAGES_DIR = "ome"
 
     # suffixes for images and labels
-    IMAGE_SUFFIX = ".ome.tif"
+    IMAGE_SUFFIX = ".ome.tiff"
     LABEL_SUFFIX = ".tiff"
