@@ -102,7 +102,6 @@ def steinbock(
     adata.obs["region"] = regions
     if len(set(samples).difference(set(regions.unique()))):
         raise ValueError("Samples in table and images are inconsistent, please check.")
-
-    table = TableModel.parse(adata, region=regions.unique(), region_key="region", instance_key="cell_id")
+    table = TableModel.parse(adata, region=regions.unique().tolist(), region_key="region", instance_key="cell_id")
 
     return SpatialData(images=images, labels=labels, table=table)
