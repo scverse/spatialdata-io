@@ -83,3 +83,18 @@ class VisiumKeys(ModeEnum):
     SPOTS_FILE = "spatial/tissue_positions.csv"
     SPOTS_X = "pxl_row_in_fullres"
     SPOTS_Y = "pxl_col_in_fullres"
+
+
+@unique
+class SteinbockKeys(ModeEnum):
+    """Keys for *Steinbock* formatted dataset."""
+
+    # files and directories
+    CELLS_FILE = "cells.h5ad"
+    DEEPCELL_MASKS_DIR = "masks_deepcell"
+    ILASTIK_MASKS_DIR = "masks_ilastik"
+    IMAGES_DIR = "ome"
+
+    # suffixes for images and labels
+    IMAGE_SUFFIX = ".ome.tif"
+    LABEL_SUFFIX = ".tiff"
