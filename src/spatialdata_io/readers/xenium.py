@@ -16,6 +16,7 @@ from joblib import Parallel, delayed
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
 from pyarrow import Table
 from shapely import Polygon
+from spatial_image import SpatialImage
 from spatialdata import (
     Image2DModel,
     PointsModel,
@@ -89,7 +90,7 @@ def _get_images(
     specs: dict[str, Any],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> MultiscaleSpatialImage:
+) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(path / file, **imread_kwargs)
     transform = Scale([1.0, 1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
     return Image2DModel.parse(image, transform=transform, **image_models_kwargs)
