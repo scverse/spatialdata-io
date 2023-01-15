@@ -14,7 +14,7 @@ from anndata import AnnData
 from dask_image.imread import imread
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
 from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel
-from spatialdata._core.coordinate_system import CoordinateSystem
+from spatialdata._core.coordinate_system import Axis, CoordinateSystem
 from spatialdata._logging import logger
 from xarray import DataArray
 
@@ -23,6 +23,9 @@ from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _read_counts
 
 __all__ = ["visium"]
+x_axis = Axis(name="x", type="space", unit="discrete")
+y_axis = Axis(name="y", type="space", unit="discrete")
+c_axis = Axis(name="c", type="channel", unit="index")
 
 
 @inject_docs(vx=VisiumKeys)
@@ -41,7 +44,7 @@ def visium(
         - ``<dataset_id>_`{vx.COUNTS_FILE!r}```: Counts and metadata file.
         - ``{vx.IMAGE_HIRES_FILE!r}``: High resolution image.
         - ``{vx.IMAGE_LOWRES_FILE!r}``: Low resolution image.
-        - ``{vx.IMAGE_TIF_FILE!r}``: High resolution tif image.
+        - ``<dataset_id>_`{vx.IMAGE_TIF_SUFFIX!r}```: High resolution tif image.
         - ``{vx.SCALEFACTORS_FILE!r}``: Scalefactors file.
         - ``{vx.SPOTS_FILE!r}``: Spots positions file.
 
@@ -92,9 +95,9 @@ def visium(
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
 
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
-    input_cs = CoordinateSystem("xy", axes=["x", "y"])
-    output_hires_cs = CoordinateSystem("hires", axes=["x", "y"])
-    output_lowres_cs = CoordinateSystem("lowres", axes=["x", "y"])
+    input_cs = CoordinateSystem("xy", axes=[x_axis, y_axis])
+    output_hires_cs = CoordinateSystem("hires", axes=[x_axis, y_axis])
+    output_lowres_cs = CoordinateSystem("lowres", axes=[x_axis, y_axis])
     transform_lowres = Scale(
         [scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
         input_cs,
@@ -118,9 +121,9 @@ def visium(
     table = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
 
     images = {}
-    input_cs = CoordinateSystem("cxy", axes=["c", "x", "y"])
-    output_hires_cs = CoordinateSystem("hires", axes=["c", "x", "y"])
-    output_lowres_cs = CoordinateSystem("lowres", axes=["c", "x", "y"])
+    input_cs = CoordinateSystem("cyx", axes=[c_axis, y_axis, x_axis])
+    output_hires_cs = CoordinateSystem("hires", axes=[c_axis, y_axis, x_axis])
+    output_lowres_cs = CoordinateSystem("lowres", axes=[c_axis, y_axis, x_axis])
     transform_lowres = Scale(
         [1.0, scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
         input_cs,
@@ -132,14 +135,16 @@ def visium(
         output_hires_cs,
     )
 
-    full_image = imread(path / VisiumKeys.IMAGE_TIF_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-    full_image = DataArray(full_image, dims=["c", "y", "x"], name=dataset_id)
+    full_image = (
+        imread(path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}", **imread_kwargs).squeeze().transpose(2, 0, 1)
+    )
+    full_image = DataArray(full_image, dims=[c_axis.name, y_axis.name, x_axis.name], name=dataset_id)
     full_image.attrs = {"transform": None}
     image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-    image_hires = DataArray(image_hires, dims=["c", "y", "x"], name=dataset_id)
+    image_hires = DataArray(image_hires, dims=[c_axis.name, y_axis.name, x_axis.name], name=dataset_id)
     image_hires.attrs = {"transform": transform_hires}
     image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-    image_lowres = DataArray(image_lowres, dims=["c", "y", "x"], name=dataset_id)
+    image_lowres = DataArray(image_lowres, dims=[c_axis.name, y_axis.name, x_axis.name], name=dataset_id)
     image_lowres.attrs = {"transform": transform_lowres}
 
     multiscale = MultiscaleSpatialImage.from_dict(

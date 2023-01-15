@@ -72,7 +72,7 @@ class VisiumKeys(ModeEnum):
     # images
     IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
     IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
-    IMAGE_TIF_FILE = "spatial/cytassist_image.tiff"
+    IMAGE_TIF_SUFFIX = "_tissue_image.tif"
 
     # scalefactors
     SCALEFACTORS_FILE = "spatial/scalefactors_json.json"
