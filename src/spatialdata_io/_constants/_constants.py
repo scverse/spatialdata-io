@@ -98,3 +98,22 @@ class SteinbockKeys(ModeEnum):
     # suffixes for images and labels
     IMAGE_SUFFIX = ".ome.tiff"
     LABEL_SUFFIX = ".tiff"
+
+
+@unique
+class McmicroKeys(ModeEnum):
+    """Keys for *Mcmicro* formatted dataset."""
+
+    # files and directories
+    CELL_FEATURES_SUFFIX = "--unmicst_cell.csv"
+    QUANTIFICATION_DIR = "quantification"
+    MARKERS_FILE = "markers.csv"
+    IMAGES_DIR = "registration"
+    IMAGE_SUFFIX = ".ome.tif"
+    LABELS_DIR = "segmentation"
+    LABELS_PREFIX = "unmicst-"
+
+    # metadata
+    COORDS_X = "X_centroid"
+    COORDS_Y = "Y_centroid"
+    INSTANCE_KEY = "CellID"
