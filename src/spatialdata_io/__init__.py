@@ -9,6 +9,7 @@ __all__ = [
     "visium",
     "xenium",
     "cosmx",
+    "steinbock",
 ]
 
 __version__ = version("spatialdata-io")
