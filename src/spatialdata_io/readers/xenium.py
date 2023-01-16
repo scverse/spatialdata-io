@@ -139,6 +139,7 @@ def _convert_points(in_path: str, data: dict[str, Any], out_path: str, pixel_siz
         n = 100000
         xyz = xyz[:n]
         logger.info(f"DEBUG: only using {n} transcripts")
+        annotations = annotations[:n]
     print(f"parquet: {time.time() - start}")
     ##
     start = time.time()
