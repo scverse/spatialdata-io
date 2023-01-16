@@ -88,7 +88,12 @@ source_suffix = {
 
 intersphinx_mapping = {
     "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
+    "spatialdata": ("https://scverse-spatialdata.readthedocs.io/en/latest/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "dask-image": ("https://image.dask.org/en/latest/", None),
+    "geopandas": ("https://geopandas.org/en/stable/", None),
+    "xarray": ("https://docs.xarray.dev/en/stable/", None),
+    "datatree": ("https://datatree.readthedocs.io/en/latest/", None),
 }
 
 # List of patterns, relative to source directory, that match files and
@@ -116,7 +121,9 @@ pygments_style = "default"
 nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
-    #     ("py:class", "igraph.Graph"),
+    ("py:class", "Path"),
+    ("py:class", "AnnData"),
+    ("py:class", "SpatialData"),
 ]
 
 

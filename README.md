@@ -3,11 +3,11 @@
 [![Tests][badge-tests]][link-tests]
 [![Documentation][badge-docs]][link-docs]
 
-[badge-tests]: https://img.shields.io/github/workflow/status/scverse/spatialdata-io/Test/main
-[link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yml
+[badge-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml/badge.svg
+[link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml
 [badge-docs]: https://img.shields.io/readthedocs/spatialdata-io
 
-SpatialData IO for common techs
+SpatialData IO for common technologies.
 
 ## Getting started
 
