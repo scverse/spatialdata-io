@@ -15,7 +15,7 @@ from scipy.sparse import csr_matrix
 
 # from skimage.transform import estimate_transform
 from spatialdata import SpatialData
-from spatialdata._core.coordinate_system import Axis  # , CoordinateSystem
+from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
 
 # from spatialdata._core.core_utils import xy_cs
 from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel
@@ -28,9 +28,9 @@ from spatialdata_io._docs import inject_docs
 
 __all__ = ["cosmx"]
 
-x_axis = Axis(name="x", type="space", unit="discrete")
-y_axis = Axis(name="y", type="space", unit="discrete")
-c_axis = Axis(name="c", type="channel", unit="index")
+x_axis = NgffAxis(name="x", type="space", unit="discrete")
+y_axis = NgffAxis(name="y", type="space", unit="discrete")
+c_axis = NgffAxis(name="c", type="channel", unit="index")
 
 
 @inject_docs(cx=CosmxKeys)

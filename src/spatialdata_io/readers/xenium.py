@@ -21,7 +21,7 @@ from spatialdata import (
     Image2DModel,
     PointsModel,
     PolygonsModel,
-    Scale,
+    NgffScale,
     ShapesModel,
     SpatialData,
     TableModel,
@@ -48,7 +48,7 @@ def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> 
         for _, i in df.groupby(XeniumKeys.CELL_ID)[[XeniumKeys.BOUNDARIES_VERTEX_X, XeniumKeys.BOUNDARIES_VERTEX_Y]]
     )
     geo_df = GeoDataFrame({"geometry": out})
-    scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
+    scale = NgffScale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
     return PolygonsModel.parse(geo_df, transform=scale)
 
 
@@ -64,7 +64,7 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
         3, XeniumKeys.FEATURE_NAME, table.column(XeniumKeys.FEATURE_NAME).cast("string").dictionary_encode()
     )
 
-    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"], 1.0])
+    transform = NgffScale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"], 1.0])
     points = PointsModel.parse(coords=arr, annotations=annotations, transform=transform)
     return points
 
@@ -78,7 +78,7 @@ def _get_tables(path: Path, specs: dict[str, Any], shape_size: Union[float, int]
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
     adata.obs = metadata
-    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
+    transform = NgffScale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
     circles = ShapesModel.parse(circ, shape_type="circle", shape_size=shape_size, transform=transform)
     table = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
     return table, circles
@@ -92,7 +92,7 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(path / file, **imread_kwargs)
-    transform = Scale([1.0, 1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
+    transform = NgffScale([1.0, 1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
     return Image2DModel.parse(image, transform=transform, **image_models_kwargs)
 
 

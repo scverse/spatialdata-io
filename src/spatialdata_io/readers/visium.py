@@ -13,8 +13,8 @@ import pandas as pd
 from anndata import AnnData
 from dask_image.imread import imread
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from spatialdata import Image2DModel, Scale, ShapesModel, SpatialData, TableModel
-from spatialdata._core.coordinate_system import Axis, CoordinateSystem
+from spatialdata import Image2DModel, NgffScale, ShapesModel, SpatialData, TableModel
+from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis, NgffCoordinateSystem
 from spatialdata._logging import logger
 from xarray import DataArray
 
@@ -23,9 +23,9 @@ from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _read_counts
 
 __all__ = ["visium"]
-x_axis = Axis(name="x", type="space", unit="discrete")
-y_axis = Axis(name="y", type="space", unit="discrete")
-c_axis = Axis(name="c", type="channel", unit="index")
+x_axis = NgffAxis(name="x", type="space", unit="discrete")
+y_axis = NgffAxis(name="y", type="space", unit="discrete")
+c_axis = NgffAxis(name="c", type="channel", unit="index")
 
 
 @inject_docs(vx=VisiumKeys)
