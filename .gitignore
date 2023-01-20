@@ -1,6 +1,7 @@
 # Temp files
 .DS_Store
 *~
+*.tmp
 
 # Compiled files
 __pycache__/
