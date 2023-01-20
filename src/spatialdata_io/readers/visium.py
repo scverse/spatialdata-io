@@ -23,6 +23,7 @@ from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _read_counts
 
 __all__ = ["visium"]
+
 x_axis = Axis(name="x", type="space", unit="discrete")
 y_axis = Axis(name="y", type="space", unit="discrete")
 c_axis = Axis(name="c", type="channel", unit="index")

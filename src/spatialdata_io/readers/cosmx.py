@@ -113,8 +113,8 @@ def cosmx(
     table = TableModel.parse(
         adata,
         region=adata.obs.fov.astype(str).tolist(),
-        region_key=CosmxKeys.REGION_KEY,
-        instance_key=CosmxKeys.INSTANCE_KEY,
+        region_key=CosmxKeys.REGION_KEY.value,
+        instance_key=CosmxKeys.INSTANCE_KEY.value,
     )
 
     fovs_counts = set(table.obs.fov.astype(str).unique())
