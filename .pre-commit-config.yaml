@@ -26,7 +26,7 @@ repos:
       rev: v0.991
       hooks:
           - id: mypy
-            additional_dependencies: [numpy==1.23.0]
+            additional_dependencies: [numpy==1.24.0]
             exclude: docs/
     - repo: https://github.com/asottile/yesqa
       rev: v1.4.0
