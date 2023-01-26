@@ -28,6 +28,7 @@ def _read_counts(
     **kwargs: Any,
 ) -> tuple[AnnData, str]:
     path = Path(path)
+    library_id_: Optional[str] = None
     if count_file.endswith(".h5"):
         adata: AnnData = _read_10x_h5(path / count_file, **kwargs)
         with File(path / count_file, mode="r") as f:

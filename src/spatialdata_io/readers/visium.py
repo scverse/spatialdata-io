@@ -9,11 +9,9 @@ from types import MappingProxyType
 from typing import Any, Optional
 
 import pandas as pd
-from anndata import AnnData
 from dask_image.imread import imread
-from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from spatialdata import Image2DModel, NgffScale, ShapesModel, SpatialData, TableModel
-from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis, NgffCoordinateSystem
+from spatialdata import Image2DModel, ShapesModel, SpatialData, TableModel
+from spatialdata._core.transformations import Identity, Scale
 from spatialdata._logging import logger
 from xarray import DataArray
 
@@ -22,9 +20,6 @@ from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _read_counts
 
 __all__ = ["visium"]
-x_axis = NgffAxis(name="x", type="space", unit="discrete")
-y_axis = NgffAxis(name="y", type="space", unit="discrete")
-c_axis = NgffAxis(name="c", type="channel", unit="index")
 
 
 @inject_docs(vx=VisiumKeys)
@@ -34,7 +29,7 @@ def visium(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
-) -> AnnData:
+) -> SpatialData:
     """
     Read *10x Genomics* Visium formatted dataset.
 
@@ -69,11 +64,19 @@ def visium(
     path = Path(path)
     # get library_id
     patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
-    library_id = [i for i in os.listdir(path) if patt.match(i)][0].replace(f"_{VisiumKeys.COUNTS_FILE}", "")
+    first_file = [i for i in os.listdir(path) if patt.match(i)][0]
+    if f"_{VisiumKeys.COUNTS_FILE}" in first_file:
+        library_id = first_file.replace(f"_{VisiumKeys.COUNTS_FILE}", "")
+    else:
+        raise ValueError(
+            f"Cannot determine the library_id. Expecting a file with format <library_id>_{VisiumKeys.COUNTS_FILE}. Has "
+            f"the files been renamed?"
+        )
     if dataset_id is not None:
         if dataset_id != library_id:
             logger.warning(
-                f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` will be used to build SpatialData."
+                f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` "
+                f"will be used to build SpatialData."
             )
     else:
         dataset_id = library_id
@@ -94,70 +97,47 @@ def visium(
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
 
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
-    input_cs = CoordinateSystem("xy", axes=[x_axis, y_axis])
-    transform_original = Identity(input_cs, input_cs)
-    # TODO(giovp): update once new transform is implemented
-    # output_hires_cs = CoordinateSystem("hires", axes=[x_axis, y_axis])
-    # output_lowres_cs = CoordinateSystem("lowres", axes=[x_axis, y_axis])
-    # transform_lowres = Scale(
-    #     [scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
-    #     input_cs,
-    #     output_lowres_cs,
-    # )
-    # transform_hires = Scale(
-    #     [scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]],
-    #     input_cs,
-    #     output_hires_cs,
-    # )
-
     shapes = {}
     circles = ShapesModel.parse(
         coords,
-        shape_type="circle",
+        shape_type="Circle",
         shape_size=scalefactors["spot_diameter_fullres"],
         index=adata.obs_names,
-        transform=transform_original,
+        transform=Identity(),
     )
-    # circles.uns["transform"] = [transform_lowres, transform_hires, circles.uns["transform"]]
     shapes[dataset_id] = circles
     table = TableModel.parse(adata)
 
-    images = {}
-    input_cs = CoordinateSystem("cyx", axes=[c_axis, y_axis, x_axis])
-    output_hires_cs = CoordinateSystem("hires", axes=[c_axis, y_axis, x_axis])
-    output_lowres_cs = CoordinateSystem("lowres", axes=[c_axis, y_axis, x_axis])
-    transform_original = Identity(input_cs, input_cs)
+    transform_original = Identity()
     transform_lowres = Scale(
-        [1.0, scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
-        input_cs,
-        output_lowres_cs,
+        [scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]], axes=("y", "x")
     )
     transform_hires = Scale(
-        [1.0, scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]],
-        input_cs,
-        output_hires_cs,
+        [scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]], axes=("y", "x")
     )
 
     full_image = (
         imread(path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}", **imread_kwargs).squeeze().transpose(2, 0, 1)
     )
-    full_image = DataArray(full_image, dims=[c_axis.name, y_axis.name, x_axis.name], name=dataset_id)
+    full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
     full_image.attrs = {"transform": transform_original}
+
     image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-    image_hires = DataArray(image_hires, dims=[c_axis.name, y_axis.name, x_axis.name], name=dataset_id)
+    image_hires = DataArray(image_hires, dims=("c", "y", "x"), name=dataset_id)
     image_hires.attrs = {"transform": transform_hires}
+
     image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-    image_lowres = DataArray(image_lowres, dims=[c_axis.name, y_axis.name, x_axis.name], name=dataset_id)
+    image_lowres = DataArray(image_lowres, dims=("c", "y", "x"), name=dataset_id)
     image_lowres.attrs = {"transform": transform_lowres}
 
-    multiscale = MultiscaleSpatialImage.from_dict(
-        d={
-            "scale0": full_image,
-            "scale1": image_hires,
-            "scale2": image_lowres,
-        }
-    )
-    Image2DModel().validate(multiscale)
-    images = {dataset_id: multiscale}
+    full_image_parsed = Image2DModel.parse(full_image, multiscale_factors=[2, 2, 2, 2], **image_models_kwargs)
+    image_hires_parsed = Image2DModel.parse(image_hires)
+    image_lowres_parsed = Image2DModel.parse(image_lowres)
+
+    images = {
+        dataset_id + "_full_image": full_image_parsed,
+        dataset_id + "_hires_image": image_hires_parsed,
+        dataset_id + "_lowres_image": image_lowres_parsed,
+    }
 
     return SpatialData(table=table, shapes=shapes, images=images)
