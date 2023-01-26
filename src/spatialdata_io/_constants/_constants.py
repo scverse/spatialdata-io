@@ -26,12 +26,8 @@ class CosmxKeys(ModeEnum):
 class XeniumKeys(ModeEnum):
     """Keys for *10X Genomics Xenium* formatted dataset."""
 
-    # files and directories
+    # specifications
     XENIUM_SPECS = "experiment.xenium"
-    METADATA_SUFFIX = "metadata_file.csv"
-    FOV_SUFFIX = "fov_positions_file.csv"
-    IMAGES_DIR = "CellComposite"
-    LABELS_DIR = "CellLabels"
 
     # cell identifiers
     CELL_ID = "cell_id"

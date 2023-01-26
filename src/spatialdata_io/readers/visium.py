@@ -6,7 +6,6 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Union  # noqa: F401
 from typing import Any, Optional
 
 import pandas as pd
@@ -96,18 +95,20 @@ def visium(
 
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
     input_cs = CoordinateSystem("xy", axes=[x_axis, y_axis])
-    output_hires_cs = CoordinateSystem("hires", axes=[x_axis, y_axis])
-    output_lowres_cs = CoordinateSystem("lowres", axes=[x_axis, y_axis])
-    transform_lowres = Scale(
-        [scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
-        input_cs,
-        output_lowres_cs,
-    )
-    transform_hires = Scale(
-        [scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]],
-        input_cs,
-        output_hires_cs,
-    )
+    transform_original = Identity(input_cs, input_cs)
+    # TODO(giovp): update once new transform is implemented
+    # output_hires_cs = CoordinateSystem("hires", axes=[x_axis, y_axis])
+    # output_lowres_cs = CoordinateSystem("lowres", axes=[x_axis, y_axis])
+    # transform_lowres = Scale(
+    #     [scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
+    #     input_cs,
+    #     output_lowres_cs,
+    # )
+    # transform_hires = Scale(
+    #     [scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]],
+    #     input_cs,
+    #     output_hires_cs,
+    # )
 
     shapes = {}
     circles = ShapesModel.parse(
@@ -115,15 +116,17 @@ def visium(
         shape_type="circle",
         shape_size=scalefactors["spot_diameter_fullres"],
         index=adata.obs_names,
+        transform=transform_original,
     )
-    circles.uns["transform"] = [transform_lowres, transform_hires, circles.uns["transform"]]
+    # circles.uns["transform"] = [transform_lowres, transform_hires, circles.uns["transform"]]
     shapes[dataset_id] = circles
-    table = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
+    table = TableModel.parse(adata)
 
     images = {}
     input_cs = CoordinateSystem("cyx", axes=[c_axis, y_axis, x_axis])
     output_hires_cs = CoordinateSystem("hires", axes=[c_axis, y_axis, x_axis])
     output_lowres_cs = CoordinateSystem("lowres", axes=[c_axis, y_axis, x_axis])
+    transform_original = Identity(input_cs, input_cs)
     transform_lowres = Scale(
         [1.0, scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]],
         input_cs,
@@ -139,7 +142,7 @@ def visium(
         imread(path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}", **imread_kwargs).squeeze().transpose(2, 0, 1)
     )
     full_image = DataArray(full_image, dims=[c_axis.name, y_axis.name, x_axis.name], name=dataset_id)
-    full_image.attrs = {"transform": None}
+    full_image.attrs = {"transform": transform_original}
     image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
     image_hires = DataArray(image_hires, dims=[c_axis.name, y_axis.name, x_axis.name], name=dataset_id)
     image_hires.attrs = {"transform": transform_hires}

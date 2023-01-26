@@ -83,7 +83,7 @@ def _read_10x_h5(
         if genome:
             if genome not in adata.var["genome"].values:
                 raise ValueError(
-                    f"Could not find data corresponding to genome '{genome}' in '{filename}'. "
+                    f"Could not find data corresponding to genome `{genome}` in `{filename}`. "
                     f'Available genomes are: {list(adata.var["genome"].unique())}.'
                 )
             adata = adata[:, adata.var["genome"] == genome]
