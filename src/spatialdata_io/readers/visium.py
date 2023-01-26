@@ -12,8 +12,8 @@ import pandas as pd
 from anndata import AnnData
 from dask_image.imread import imread
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from spatialdata import Image2DModel, NgffScale, ShapesModel, SpatialData, TableModel
-from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis, NgffCoordinateSystem
+from spatialdata import Image2DModel, ShapesModel, SpatialData, TableModel
+from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis
 from spatialdata._logging import logger
 from xarray import DataArray
 

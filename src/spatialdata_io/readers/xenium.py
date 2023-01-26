@@ -21,7 +21,6 @@ from spatialdata import (
     Image2DModel,
     PointsModel,
     PolygonsModel,
-    NgffScale,
     ShapesModel,
     SpatialData,
     TableModel,

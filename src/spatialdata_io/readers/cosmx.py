@@ -15,10 +15,10 @@ from scipy.sparse import csr_matrix
 
 # from skimage.transform import estimate_transform
 from spatialdata import SpatialData
-from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
 
 # from spatialdata._core.core_utils import xy_cs
 from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel
+from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
 
 # from spatialdata._core.transformations import Affine
 from spatialdata._logging import logger
