@@ -114,6 +114,8 @@ def xenium(
             n_jobs,
         )
     points = {}
+    transcripts = False
+    print("TODO: transcripts omitted until pr is ready")
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
 
@@ -169,7 +171,7 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
         3, XeniumKeys.FEATURE_NAME, table.column(XeniumKeys.FEATURE_NAME).cast("string").dictionary_encode()
     )
 
-    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"], 1.0], axes=("x", "y"))
+    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     points = PointsModel.parse(coords=arr, annotations=annotations, transform=transform)
     return points
 
@@ -197,4 +199,4 @@ def _get_images(
 ) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / file, **imread_kwargs)
     transform = Scale([1.0, 1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("c", "y", "x"))
-    return Image2DModel.parse(image, transform=transform, **image_models_kwargs)
+    return Image2DModel.parse(image, transform=transform, dims=("c", "y", "x"), **image_models_kwargs)

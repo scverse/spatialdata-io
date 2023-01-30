@@ -130,9 +130,11 @@ def visium(
     image_lowres = DataArray(image_lowres, dims=("c", "y", "x"), name=dataset_id)
     image_lowres.attrs = {"transform": transform_lowres}
 
-    full_image_parsed = Image2DModel.parse(full_image, multiscale_factors=[2, 2, 2, 2], **image_models_kwargs)
-    image_hires_parsed = Image2DModel.parse(image_hires)
-    image_lowres_parsed = Image2DModel.parse(image_lowres)
+    full_image_parsed = Image2DModel.parse(
+        full_image, multiscale_factors=[2, 2, 2, 2], dims=("c", "y", "x"), **image_models_kwargs
+    )
+    image_hires_parsed = Image2DModel.parse(image_hires, dims=("c", "y", "x"))
+    image_lowres_parsed = Image2DModel.parse(image_lowres, dims=("c", "y", "x"))
 
     images = {
         dataset_id + "_full_image": full_image_parsed,

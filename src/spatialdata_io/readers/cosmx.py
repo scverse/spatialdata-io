@@ -37,7 +37,7 @@ def cosmx(
     # shape_size: float | int = 1,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> AnnData:
+) -> SpatialData:
     """
     Read *Cosmx Nanostring* data.
 
@@ -185,6 +185,7 @@ def cosmx(
                     imread(path / CosmxKeys.IMAGES_DIR / fname, **imread_kwargs).squeeze(),
                     name=fov,
                     # transform=affine_transforms_images[fov],
+                    dims=("c", "y", "x"),
                     **image_models_kwargs,
                 )
             else:
@@ -200,6 +201,7 @@ def cosmx(
                     imread(path / CosmxKeys.LABELS_DIR / fname, **imread_kwargs).squeeze(),
                     name=fov,
                     # transform=affine_transforms_labels[fov],
+                    dims=("y", "x"),
                     **image_models_kwargs,
                 )
             else:
