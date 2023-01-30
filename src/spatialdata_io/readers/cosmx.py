@@ -5,39 +5,36 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 from dask_image.imread import imread
 from scipy.sparse import csr_matrix
-
-# from skimage.transform import estimate_transform
 from spatialdata import SpatialData
-
-# from spatialdata._core.core_utils import xy_cs
 from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel
-from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
-
-# from spatialdata._core.transformations import Affine
 from spatialdata._logging import logger
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
 
+# from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
+# from spatialdata._core.transformations import Affine
+# from spatialdata._core.core_utils import xy_cs
+# from skimage.transform import estimate_transform
 __all__ = ["cosmx"]
 
-x_axis = NgffAxis(name="x", type="space", unit="discrete")
-y_axis = NgffAxis(name="y", type="space", unit="discrete")
-c_axis = NgffAxis(name="c", type="channel", unit="index")
+# x_axis = NgffAxis(name="x", type="space", unit="discrete")
+# y_axis = NgffAxis(name="y", type="space", unit="discrete")
+# c_axis = NgffAxis(name="c", type="channel", unit="index")
 
 
 @inject_docs(cx=CosmxKeys)
 def cosmx(
     path: str | Path,
-    dataset_id: str,
-    shape_size: float | int = 1,
+    dataset_id: Optional[str] = None,
+    # shape_size: float | int = 1,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> AnnData:
@@ -74,6 +71,16 @@ def cosmx(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
+
+    # tries to infer dataset_id from the name of the counts file
+    if dataset_id is None:
+        counts_files = [f for f in os.listdir(path) if str(f).endswith(CosmxKeys.COUNTS_SUFFIX)]
+        if len(counts_files) == 1:
+            found = re.match(rf"(.*)_{CosmxKeys.COUNTS_SUFFIX}", counts_files[0])
+            if found:
+                dataset_id = found.group(1)
+    if dataset_id is None:
+        raise ValueError("Could not infer `dataset_id` from the name of the counts file. Please specify it manually.")
 
     # check for file existence
     counts_file = path / f"{dataset_id}_{CosmxKeys.COUNTS_SUFFIX}"
