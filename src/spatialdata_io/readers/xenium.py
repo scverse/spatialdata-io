@@ -25,7 +25,7 @@ from spatialdata import (
     SpatialData,
     TableModel,
 )
-from spatialdata._core.transformations import Scale, Identity
+from spatialdata._core.transformations import Identity, Scale
 from spatialdata._types import ArrayLike
 
 from spatialdata_io._constants._constants import XeniumKeys
@@ -94,6 +94,12 @@ def xenium(
     -------
     :class:`spatialdata.SpatialData`
     """
+    if "chunks" not in image_models_kwargs:
+        if isinstance(image_models_kwargs, MappingProxyType):
+            image_models_kwargs = {}
+        assert isinstance(image_models_kwargs, dict)
+        image_models_kwargs["chunks"] = (1, 4096, 4096)
+        image_models_kwargs["multiscale_factors"] = [2, 2, 2, 2]
     path = Path(path)
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)
@@ -156,7 +162,7 @@ def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> 
     )
     geo_df = GeoDataFrame({"geometry": out})
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    return PolygonsModel.parse(geo_df, transformations={'global': scale})
+    return PolygonsModel.parse(geo_df, transformations={"global": scale})
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
@@ -172,7 +178,7 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     )
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    points = PointsModel.parse(coords=arr, annotations=annotations, transformations={'global': transform})
+    points = PointsModel.parse(coords=arr, annotations=annotations, transformations={"global": transform})
     return points
 
 
@@ -185,8 +191,14 @@ def _get_tables(path: Path, specs: dict[str, Any], shape_size: int | float) -> t
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
     adata.obs = metadata
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    circles = ShapesModel.parse(circ, shape_type="Circle", shape_size=shape_size, transformations={'global': transform})
-    table = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
+    circles = ShapesModel.parse(
+        circ,
+        shape_type="Circle",
+        shape_size=shape_size,
+        transformations={"global": transform},
+        index=adata.obs[XeniumKeys.CELL_ID],
+    )
+    table = TableModel.parse(adata, region="/shapes/circles", instance_key=str(XeniumKeys.CELL_ID))
     return table, circles
 
 
@@ -198,4 +210,6 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / file, **imread_kwargs)
-    return Image2DModel.parse(image, transformations={'global': Identity()}, dims=("c", "y", "x"), **image_models_kwargs)
+    return Image2DModel.parse(
+        image, transformations={"global": Identity()}, dims=("c", "y", "x"), **image_models_kwargs
+    )

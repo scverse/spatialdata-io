@@ -12,17 +12,19 @@ import pandas as pd
 from anndata import AnnData
 from dask_image.imread import imread
 from scipy.sparse import csr_matrix
+
+# from spatialdata._core.core_utils import xy_cs
+from skimage.transform import estimate_transform
 from spatialdata import SpatialData
 from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel
+
+# from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
+from spatialdata._core.transformations import Affine
 from spatialdata._logging import logger
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
 
-# from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
-from spatialdata._core.transformations import Affine
-# from spatialdata._core.core_utils import xy_cs
-from skimage.transform import estimate_transform
 __all__ = ["cosmx"]
 
 # x_axis = NgffAxis(name="x", type="space", unit="discrete")
@@ -104,7 +106,7 @@ def cosmx(
 
     obs = pd.read_csv(path / meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
     obs[CosmxKeys.FOV] = pd.Categorical(obs[CosmxKeys.FOV].astype(str))
-    obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: '/labels/' + s))
+    obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: "/labels/" + s))
     obs[CosmxKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
     obs.rename_axis(None, inplace=True)
     obs.index = obs.index.astype(str).str.cat(obs[CosmxKeys.FOV].values, sep="_")
@@ -143,11 +145,15 @@ def cosmx(
         out = estimate_transform(ttype="affine", src=loc, dst=glob)
         affine_transforms_images[fov] = Affine(
             # out.params, input_coordinate_system=input_cs, output_coordinate_system=output_cs
-            out.params, input_axes=('x', 'y'), output_axes=('x', 'y')
+            out.params,
+            input_axes=("x", "y"),
+            output_axes=("x", "y"),
         )
         affine_transforms_labels[fov] = Affine(
             # out.params, input_coordinate_system=input_cs_labels, output_coordinate_system=output_cs_labels
-            out.params, input_axes = ('x', 'y'), output_axes = ('x', 'y')
+            out.params,
+            input_axes=("x", "y"),
+            output_axes=("x", "y"),
         )
 
     table.obsm["global"] = table.obs[[CosmxKeys.X_GLOBAL, CosmxKeys.Y_GLOBAL]].to_numpy()
