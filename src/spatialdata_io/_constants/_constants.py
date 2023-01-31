@@ -14,7 +14,8 @@ class CosmxKeys(ModeEnum):
     IMAGES_DIR = "CellComposite"
     LABELS_DIR = "CellLabels"
     # metadata
-    REGION_KEY = "fov"
+    FOV = "fov"
+    REGION_KEY = "fov_labels"
     INSTANCE_KEY = "cell_ID"
     X_GLOBAL = "CenterX_global_px"
     Y_GLOBAL = "CenterY_global_px"

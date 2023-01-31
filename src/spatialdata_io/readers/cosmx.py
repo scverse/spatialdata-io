@@ -20,9 +20,9 @@ from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
 
 # from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
-# from spatialdata._core.transformations import Affine
+from spatialdata._core.transformations import Affine
 # from spatialdata._core.core_utils import xy_cs
-# from skimage.transform import estimate_transform
+from skimage.transform import estimate_transform
 __all__ = ["cosmx"]
 
 # x_axis = NgffAxis(name="x", type="space", unit="discrete")
@@ -100,13 +100,14 @@ def cosmx(
         raise FileNotFoundError(f"Labels directory not found: {labels_dir}.")
 
     counts = pd.read_csv(path / counts_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
-    counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxKeys.REGION_KEY).astype(str).values, sep="_")
+    counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxKeys.FOV).astype(str).values, sep="_")
 
     obs = pd.read_csv(path / meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
-    obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.REGION_KEY].astype(str))
+    obs[CosmxKeys.FOV] = pd.Categorical(obs[CosmxKeys.FOV].astype(str))
+    obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: '/labels/' + s))
     obs[CosmxKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
     obs.rename_axis(None, inplace=True)
-    obs.index = obs.index.astype(str).str.cat(obs[CosmxKeys.REGION_KEY].values, sep="_")
+    obs.index = obs.index.astype(str).str.cat(obs[CosmxKeys.FOV].values, sep="_")
 
     common_index = obs.index.intersection(counts.index)
 
@@ -119,12 +120,12 @@ def cosmx(
 
     table = TableModel.parse(
         adata,
-        region=adata.obs.fov.astype(str).tolist(),
+        region=list(set(adata.obs[CosmxKeys.REGION_KEY].astype(str).tolist())),
         region_key=CosmxKeys.REGION_KEY.value,
         instance_key=CosmxKeys.INSTANCE_KEY.value,
     )
 
-    fovs_counts = set(table.obs.fov.astype(str).unique())
+    fovs_counts = set(adata.obs.fov.astype(str).unique())
 
     # TODO(giovp): uncomment once transform is ready
     # input_cs = CoordinateSystem("cxy", axes=[c_axis, y_axis, x_axis])
@@ -132,20 +133,22 @@ def cosmx(
     # output_cs = CoordinateSystem("global", axes=[c_axis, y_axis, x_axis])
     # output_cs_labels = CoordinateSystem("global", axes=[y_axis, x_axis])
 
-    # affine_transforms_images = {}
-    # affine_transforms_labels = {}
+    affine_transforms_images = {}
+    affine_transforms_labels = {}
 
-    # for fov in fovs_counts:
-    #     idx = table.obs.fov.astype(str) == fov
-    #     loc = table[idx, :].obs[[CosmxKeys.X_LOCAL, CosmxKeys.Y_LOCAL]].values
-    #     glob = table[idx, :].obs[[CosmxKeys.X_GLOBAL, CosmxKeys.Y_GLOBAL]].values
-    #     out = estimate_transform(ttype="affine", src=loc, dst=glob)
-    #     affine_transforms_images[fov] = Affine(
-    #         out.params, input_coordinate_system=input_cs, output_coordinate_system=output_cs
-    #     )
-    #     affine_transforms_labels[fov] = Affine(
-    #         out.params, input_coordinate_system=input_cs_labels, output_coordinate_system=output_cs_labels
-    #     )
+    for fov in fovs_counts:
+        idx = table.obs.fov.astype(str) == fov
+        loc = table[idx, :].obs[[CosmxKeys.X_LOCAL, CosmxKeys.Y_LOCAL]].values
+        glob = table[idx, :].obs[[CosmxKeys.X_GLOBAL, CosmxKeys.Y_GLOBAL]].values
+        out = estimate_transform(ttype="affine", src=loc, dst=glob)
+        affine_transforms_images[fov] = Affine(
+            # out.params, input_coordinate_system=input_cs, output_coordinate_system=output_cs
+            out.params, input_axes=('x', 'y'), output_axes=('x', 'y')
+        )
+        affine_transforms_labels[fov] = Affine(
+            # out.params, input_coordinate_system=input_cs_labels, output_coordinate_system=output_cs_labels
+            out.params, input_axes = ('x', 'y'), output_axes = ('x', 'y')
+        )
 
     table.obsm["global"] = table.obs[[CosmxKeys.X_GLOBAL, CosmxKeys.Y_GLOBAL]].to_numpy()
     table.obsm["spatial"] = table.obs[[CosmxKeys.X_LOCAL, CosmxKeys.Y_LOCAL]].to_numpy()
@@ -184,8 +187,8 @@ def cosmx(
                 images[fov] = Image2DModel.parse(
                     imread(path / CosmxKeys.IMAGES_DIR / fname, **imread_kwargs).squeeze(),
                     name=fov,
-                    # transform=affine_transforms_images[fov],
-                    dims=("c", "y", "x"),
+                    transformations={fov: affine_transforms_images[fov]},
+                    dims=("y", "x", "c"),
                     **image_models_kwargs,
                 )
             else:
@@ -200,7 +203,7 @@ def cosmx(
                 labels[fov] = Labels2DModel.parse(
                     imread(path / CosmxKeys.LABELS_DIR / fname, **imread_kwargs).squeeze(),
                     name=fov,
-                    # transform=affine_transforms_labels[fov],
+                    transformations={fov: affine_transforms_labels[fov]},
                     dims=("y", "x"),
                     **image_models_kwargs,
                 )
@@ -209,7 +212,7 @@ def cosmx(
 
     # TODO: what to do with fov file?
     # if fov_file is not None:
-    #     fov_positions = pd.read_csv(path / fov_file, header=0, index_col=CosmxKeys.REGION_KEY)
+    #     fov_positions = pd.read_csv(path / fov_file, header=0, index_col=CosmxKeys.FOV)
     #     for fov, row in fov_positions.iterrows():
     #         try:
     #             adata.uns["spatial"][str(fov)]["metadata"] = row.to_dict()

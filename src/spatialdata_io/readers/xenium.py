@@ -25,7 +25,7 @@ from spatialdata import (
     SpatialData,
     TableModel,
 )
-from spatialdata._core.transformations import Scale
+from spatialdata._core.transformations import Scale, Identity
 from spatialdata._types import ArrayLike
 
 from spatialdata_io._constants._constants import XeniumKeys
@@ -156,7 +156,7 @@ def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> 
     )
     geo_df = GeoDataFrame({"geometry": out})
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    return PolygonsModel.parse(geo_df, transform=scale)
+    return PolygonsModel.parse(geo_df, transformations={'global': scale})
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
@@ -172,7 +172,7 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     )
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    points = PointsModel.parse(coords=arr, annotations=annotations, transform=transform)
+    points = PointsModel.parse(coords=arr, annotations=annotations, transformations={'global': transform})
     return points
 
 
@@ -185,7 +185,7 @@ def _get_tables(path: Path, specs: dict[str, Any], shape_size: int | float) -> t
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
     adata.obs = metadata
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    circles = ShapesModel.parse(circ, shape_type="Circle", shape_size=shape_size, transform=transform)
+    circles = ShapesModel.parse(circ, shape_type="Circle", shape_size=shape_size, transformations={'global': transform})
     table = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
     return table, circles
 
@@ -198,5 +198,4 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / file, **imread_kwargs)
-    transform = Scale([1.0, 1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("c", "y", "x"))
-    return Image2DModel.parse(image, transform=transform, dims=("c", "y", "x"), **image_models_kwargs)
+    return Image2DModel.parse(image, transformations={'global': Identity()}, dims=("c", "y", "x"), **image_models_kwargs)

@@ -8,6 +8,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 from dask_image.imread import imread
 from spatialdata import Image2DModel, ShapesModel, SpatialData, TableModel
@@ -95,6 +96,7 @@ def visium(
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
+    adata.obs["visium_spot_id"] = np.arange(len(adata))
 
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
     shapes = {}
@@ -103,38 +105,45 @@ def visium(
         shape_type="Circle",
         shape_size=scalefactors["spot_diameter_fullres"],
         index=adata.obs_names,
-        transform=Identity(),
+        transformations={"global": Identity()},
     )
     shapes[dataset_id] = circles
-    table = TableModel.parse(adata)
+    table = TableModel.parse(adata, region=f"/shapes/{dataset_id}", region_key=None, instance_key="visium_spot_id")
 
     transform_original = Identity()
     transform_lowres = Scale(
-        [scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]], axes=("y", "x")
+        1 / np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
+        axes=("y", "x"),
     )
     transform_hires = Scale(
-        [scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]], axes=("y", "x")
+        1 / np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
+        axes=("y", "x"),
     )
 
     full_image = (
         imread(path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}", **imread_kwargs).squeeze().transpose(2, 0, 1)
     )
     full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
-    full_image.attrs = {"transform": transform_original}
 
     image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
     image_hires = DataArray(image_hires, dims=("c", "y", "x"), name=dataset_id)
-    image_hires.attrs = {"transform": transform_hires}
 
     image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
     image_lowres = DataArray(image_lowres, dims=("c", "y", "x"), name=dataset_id)
-    image_lowres.attrs = {"transform": transform_lowres}
 
     full_image_parsed = Image2DModel.parse(
-        full_image, multiscale_factors=[2, 2, 2, 2], dims=("c", "y", "x"), **image_models_kwargs
+        full_image,
+        multiscale_factors=[2, 2, 2, 2],
+        dims=("c", "y", "x"),
+        transformations={"global": transform_original},
+        **image_models_kwargs,
     )
-    image_hires_parsed = Image2DModel.parse(image_hires, dims=("c", "y", "x"))
-    image_lowres_parsed = Image2DModel.parse(image_lowres, dims=("c", "y", "x"))
+    image_hires_parsed = Image2DModel.parse(
+        image_hires, dims=("c", "y", "x"), transformations={"downscaled": transform_hires}
+    )
+    image_lowres_parsed = Image2DModel.parse(
+        image_lowres, dims=("c", "y", "x"), transformations={"downscaled": transform_lowres}
+    )
 
     images = {
         dataset_id + "_full_image": full_image_parsed,
