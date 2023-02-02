@@ -50,7 +50,7 @@ def xenium(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
-    Read a *10X Genomics Xenium* dataset into a SpatialData object.
+    Read a *10X Genomics Xenium* data.
 
     This function reads the following files:
 

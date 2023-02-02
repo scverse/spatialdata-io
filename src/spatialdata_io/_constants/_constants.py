@@ -13,6 +13,7 @@ class CosmxKeys(ModeEnum):
     FOV_SUFFIX = "fov_positions_file.csv"
     IMAGES_DIR = "CellComposite"
     LABELS_DIR = "CellLabels"
+
     # metadata
     REGION_KEY = "fov"
     INSTANCE_KEY = "cell_ID"
@@ -20,6 +21,14 @@ class CosmxKeys(ModeEnum):
     Y_GLOBAL = "CenterY_global_px"
     X_LOCAL = "CenterX_local_px"
     Y_LOCAL = "CenterY_local_px"
+
+    # transcripts
+    TRANSCRIPTS_SUFFIX = "tx_file.csv"
+    TRANSCRIPTS_X = "x_local_px"
+    TRANSCRIPTS_Y = "y_local_px"
+    TRANSCRIPTS_Z = "z"
+    FEATURE_NAME = "target"
+    CELL_COMP = "CellComp"
 
 
 @unique

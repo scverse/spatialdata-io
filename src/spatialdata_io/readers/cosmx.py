@@ -9,8 +9,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 from anndata import AnnData
 from dask_image.imread import imread
+from pyarrow import Table
 from scipy.sparse import csr_matrix
 
 # from skimage.transform import estimate_transform
@@ -18,7 +20,12 @@ from spatialdata import SpatialData
 from spatialdata._core.coordinate_system import Axis  # , CoordinateSystem
 
 # from spatialdata._core.core_utils import xy_cs
-from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel
+from spatialdata._core.models import (
+    Image2DModel,
+    Labels2DModel,
+    PointsModel,
+    TableModel,
+)
 
 # from spatialdata._core.transformations import Affine
 from spatialdata._logging import logger
@@ -42,7 +49,7 @@ def cosmx(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> AnnData:
     """
-    Read *Cosmx Nanostring* data.
+    Read *Nanostring Cosmx* data.
 
     This function reads the following files:
 
@@ -91,6 +98,9 @@ def cosmx(
     labels_dir = path / CosmxKeys.LABELS_DIR
     if not labels_dir.exists():
         raise FileNotFoundError(f"Labels directory not found: {labels_dir}.")
+    transcripts_file = path / f"{dataset_id}_{CosmxKeys.TRANSCRIPTS_SUFFIX}"
+    if not transcripts_file.exists():
+        raise FileNotFoundError(f"Transcripts file not found: {transcripts_file}.")
 
     counts = pd.read_csv(path / counts_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
     counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxKeys.REGION_KEY).astype(str).values, sep="_")
@@ -198,6 +208,11 @@ def cosmx(
             else:
                 logger.warning(f"FOV {fov} not found in counts file. Skipping labels {fname}.")
 
+    points = {}
+    points_table = _get_points(transcripts_file)
+    for i in points_table[CosmxKeys.REGION_KEY].unique():
+        points[i] = points_table.filter(pa.compute.equal(points_table[CosmxKeys.REGION_KEY], i))
+
     # TODO: what to do with fov file?
     # if fov_file is not None:
     #     fov_positions = pd.read_csv(path / fov_file, header=0, index_col=CosmxKeys.REGION_KEY)
@@ -208,4 +223,20 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
 
-    return SpatialData(images=images, labels=labels, table=table)
+    return SpatialData(images=images, labels=labels, points=points, table=table)
+
+
+def _get_points(path: Path) -> Table:
+    from pyarrow.csv import read_csv
+
+    table = read_csv(path)
+    arr = (
+        table.select([CosmxKeys.TRANSCRIPTS_X, CosmxKeys.TRANSCRIPTS_Y, CosmxKeys.TRANSCRIPTS_Z]).to_pandas().to_numpy()
+    )
+    annotations = table.select((CosmxKeys.CELL_COMP, CosmxKeys.REGION_KEY, CosmxKeys.INSTANCE_KEY))
+    annotations = annotations.add_column(
+        3, CosmxKeys.FEATURE_NAME, table.column(CosmxKeys.FEATURE_NAME).cast("string").dictionary_encode()
+    )
+
+    points = PointsModel.parse(coords=arr, annotations=annotations)
+    return points

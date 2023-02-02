@@ -38,7 +38,7 @@ def visium(
     **kwargs: Any,
 ) -> AnnData:
     """
-    Read *10x Genomics* Visium formatted dataset.
+    Read *10x Genomics Visium* data.
 
     This function reads the following files:
 
