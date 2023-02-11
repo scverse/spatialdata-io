@@ -45,7 +45,6 @@ def xenium(
     transcripts: bool = True,
     morphology_mip: bool = True,
     morphology_focus: bool = True,
-    shape_size: int | float = 1,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
@@ -83,8 +82,6 @@ def xenium(
         Whether to read morphology mip.
     morphology_focus
         Whether to read morphology focus.
-    shape_size
-        Size of the shape to use for the cell boundaries.
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -144,7 +141,7 @@ def xenium(
         )
 
     circles = {}
-    table, circles["circles"] = _get_tables(path, specs, shape_size)
+    table, circles["circles"] = _get_tables(path, specs)
 
     return SpatialData(images=images, polygons=polygons, points=points, shapes=circles, table=table)
 
@@ -182,19 +179,21 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     return points
 
 
-def _get_tables(path: Path, specs: dict[str, Any], shape_size: int | float) -> tuple[AnnData, AnnData]:
+def _get_tables(path: Path, specs: dict[str, Any]) -> tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str).values, adata.obs_names.values)
 
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
+    metadata[XeniumKeys.CELL_ID] = metadata[XeniumKeys.CELL_ID].astype(str)
     adata.obs = metadata
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
+    diameters = 2 * np.sqrt(adata.obs[XeniumKeys.CELL_AREA].to_numpy() / np.pi) / specs["pixel_size"]
     circles = ShapesModel.parse(
         circ,
         shape_type="Circle",
-        shape_size=shape_size,
+        shape_size=diameters,
         transformations={"global": transform},
         index=adata.obs[XeniumKeys.CELL_ID],
     )

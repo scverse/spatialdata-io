@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 from dask_image.imread import imread
+import dask.array as da
 from scipy.sparse import csr_matrix
 
 # from spatialdata._core.core_utils import xy_cs
@@ -19,7 +20,7 @@ from spatialdata import SpatialData
 from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel
 
 # from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
-from spatialdata._core.transformations import Affine
+from spatialdata._core.transformations import Affine, Identity
 from spatialdata._logging import logger
 
 from spatialdata_io._constants._constants import CosmxKeys
@@ -135,22 +136,15 @@ def cosmx(
     # output_cs = CoordinateSystem("global", axes=[c_axis, y_axis, x_axis])
     # output_cs_labels = CoordinateSystem("global", axes=[y_axis, x_axis])
 
-    affine_transforms_images = {}
-    affine_transforms_labels = {}
+    affine_transforms_to_global = {}
 
     for fov in fovs_counts:
         idx = table.obs.fov.astype(str) == fov
         loc = table[idx, :].obs[[CosmxKeys.X_LOCAL, CosmxKeys.Y_LOCAL]].values
         glob = table[idx, :].obs[[CosmxKeys.X_GLOBAL, CosmxKeys.Y_GLOBAL]].values
         out = estimate_transform(ttype="affine", src=loc, dst=glob)
-        affine_transforms_images[fov] = Affine(
+        affine_transforms_to_global[fov] = Affine(
             # out.params, input_coordinate_system=input_cs, output_coordinate_system=output_cs
-            out.params,
-            input_axes=("x", "y"),
-            output_axes=("x", "y"),
-        )
-        affine_transforms_labels[fov] = Affine(
-            # out.params, input_coordinate_system=input_cs_labels, output_coordinate_system=output_cs_labels
             out.params,
             input_axes=("x", "y"),
             output_axes=("x", "y"),
@@ -190,13 +184,21 @@ def cosmx(
         if fname.endswith(file_extensions):
             fov = str(int(pat.findall(fname)[0]))
             if fov in fovs_counts:
-                images[fov] = Image2DModel.parse(
-                    imread(path / CosmxKeys.IMAGES_DIR / fname, **imread_kwargs).squeeze(),
+                aff = affine_transforms_to_global[fov]
+                im = imread(path / CosmxKeys.IMAGES_DIR / fname, **imread_kwargs).squeeze()
+                flipped_im = da.flip(im, axis=0)
+                parsed_im = Image2DModel.parse(
+                    flipped_im,
                     name=fov,
-                    transformations={fov: affine_transforms_images[fov]},
+                    transformations={
+                        fov: Identity(),
+                        "global": aff,
+                        "global_only_image": aff,
+                    },
                     dims=("y", "x", "c"),
                     **image_models_kwargs,
                 )
+                images[fov] = parsed_im
             else:
                 logger.warning(f"FOV {fov} not found in counts file. Skipping image {fname}.")
 
@@ -206,13 +208,21 @@ def cosmx(
         if fname.endswith(file_extensions):
             fov = str(int(pat.findall(fname)[0]))
             if fov in fovs_counts:
-                labels[fov] = Labels2DModel.parse(
-                    imread(path / CosmxKeys.LABELS_DIR / fname, **imread_kwargs).squeeze(),
+                aff = affine_transforms_to_global[fov]
+                la = imread(path / CosmxKeys.LABELS_DIR / fname, **imread_kwargs).squeeze()
+                flipped_la = da.flip(la, axis=0)
+                parsed_la = Labels2DModel.parse(
+                    flipped_la,
                     name=fov,
-                    transformations={fov: affine_transforms_labels[fov]},
+                    transformations={
+                        fov: Identity(),
+                        "global": aff,
+                        "global_only_labels": aff,
+                    },
                     dims=("y", "x"),
                     **image_models_kwargs,
                 )
+                labels[fov] = parsed_la
             else:
                 logger.warning(f"FOV {fov} not found in counts file. Skipping labels {fname}.")
 

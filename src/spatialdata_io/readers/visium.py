@@ -96,7 +96,7 @@ def visium(
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
-    adata.obs["visium_spot_id"] = np.arange(len(adata))
+    adata.obs["visium_spot_id"] = adata.obs_names
 
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
     shapes = {}
@@ -134,15 +134,14 @@ def visium(
     full_image_parsed = Image2DModel.parse(
         full_image,
         multiscale_factors=[2, 2, 2, 2],
-        dims=("c", "y", "x"),
         transformations={"global": transform_original},
         **image_models_kwargs,
     )
     image_hires_parsed = Image2DModel.parse(
-        image_hires, dims=("c", "y", "x"), transformations={"downscaled": transform_hires}
+        image_hires, transformations={"downscaled": transform_hires}
     )
     image_lowres_parsed = Image2DModel.parse(
-        image_lowres, dims=("c", "y", "x"), transformations={"downscaled": transform_lowres}
+        image_lowres, transformations={"downscaled": transform_lowres}
     )
 
     images = {

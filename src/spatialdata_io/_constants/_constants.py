@@ -53,6 +53,7 @@ class XeniumKeys(ModeEnum):
     CELL_METADATA_FILE = "cells.parquet"
     CELL_X = "x_centroid"
     CELL_Y = "y_centroid"
+    CELL_AREA = 'cell_area'
 
     # morphology iamges
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"
