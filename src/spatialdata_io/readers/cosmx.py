@@ -2,22 +2,26 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 from dask_image.imread import imread
 import dask.array as da
+from dask.dataframe.core import DataFrame as DaskDataFrame
 from scipy.sparse import csr_matrix
 
 # from spatialdata._core.core_utils import xy_cs
 from skimage.transform import estimate_transform
 from spatialdata import SpatialData
-from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel
+from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel, PointsModel
 
 # from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
 from spatialdata._core.transformations import Affine, Identity
@@ -38,6 +42,7 @@ def cosmx(
     path: str | Path,
     dataset_id: Optional[str] = None,
     # shape_size: float | int = 1,
+    transcripts: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
@@ -89,6 +94,12 @@ def cosmx(
     counts_file = path / f"{dataset_id}_{CosmxKeys.COUNTS_SUFFIX}"
     if not counts_file.exists():
         raise FileNotFoundError(f"Counts file not found: {counts_file}.")
+    if transcripts:
+        transcripts_file = path / f"{dataset_id}_{CosmxKeys.TRANSCRIPTS_SUFFIX}"
+        if not transcripts_file.exists():
+            raise FileNotFoundError(f"Transcripts file not found: {transcripts_file}.")
+    else:
+        transcripts_file = None
     meta_file = path / f"{dataset_id}_{CosmxKeys.METADATA_SUFFIX}"
     if not meta_file.exists():
         raise FileNotFoundError(f"Metadata file not found: {meta_file}.")
@@ -128,7 +139,7 @@ def cosmx(
         instance_key=CosmxKeys.INSTANCE_KEY.value,
     )
 
-    fovs_counts = set(adata.obs.fov.astype(str).unique())
+    fovs_counts = list(map(str, adata.obs.fov.astype(int).unique()))
 
     # TODO(giovp): uncomment once transform is ready
     # input_cs = CoordinateSystem("cxy", axes=[c_axis, y_axis, x_axis])
@@ -140,8 +151,8 @@ def cosmx(
 
     for fov in fovs_counts:
         idx = table.obs.fov.astype(str) == fov
-        loc = table[idx, :].obs[[CosmxKeys.X_LOCAL, CosmxKeys.Y_LOCAL]].values
-        glob = table[idx, :].obs[[CosmxKeys.X_GLOBAL, CosmxKeys.Y_GLOBAL]].values
+        loc = table[idx, :].obs[[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL]].values
+        glob = table[idx, :].obs[[CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL]].values
         out = estimate_transform(ttype="affine", src=loc, dst=glob)
         affine_transforms_to_global[fov] = Affine(
             # out.params, input_coordinate_system=input_cs, output_coordinate_system=output_cs
@@ -150,9 +161,9 @@ def cosmx(
             output_axes=("x", "y"),
         )
 
-    table.obsm["global"] = table.obs[[CosmxKeys.X_GLOBAL, CosmxKeys.Y_GLOBAL]].to_numpy()
-    table.obsm["spatial"] = table.obs[[CosmxKeys.X_LOCAL, CosmxKeys.Y_LOCAL]].to_numpy()
-    table.obs.drop(columns=[CosmxKeys.X_LOCAL, CosmxKeys.Y_LOCAL, CosmxKeys.X_GLOBAL, CosmxKeys.Y_GLOBAL], inplace=True)
+    table.obsm["global"] = table.obs[[CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL]].to_numpy()
+    table.obsm["spatial"] = table.obs[[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL]].to_numpy()
+    table.obs.drop(columns=[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL, CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL], inplace=True)
 
     # prepare to read images and labels
     file_extensions = (".jpg", ".png", ".jpeg", ".tif", ".tiff")
@@ -226,6 +237,36 @@ def cosmx(
             else:
                 logger.warning(f"FOV {fov} not found in counts file. Skipping labels {fname}.")
 
+    points: dict[str, DaskDataFrame] = {}
+    if transcripts:
+        # let's convert the .csv to .parquet and let's read it with pyarrow.parquet for faster subsetting
+        with tempfile.TemporaryDirectory() as tmpdir:
+            print("converting .csv to .parquet... ", end="")
+            assert transcripts_file is not None
+            transcripts_data = pd.read_csv(path / transcripts_file, header=0)
+            transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
+            print("done")
+
+            ptable = pq.read_table(Path(tmpdir) / "transcripts.parquet")
+            for fov in fovs_counts:
+                aff = affine_transforms_to_global[fov]
+                sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
+                sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype('category')
+                # we rename z because we want to treat the data as 2d
+                sub_table.rename(columns={'z': 'z_raw'}, inplace=True)
+                points[fov] = PointsModel.parse(
+                    sub_table,
+                    coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
+                    feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
+                    instance_key=CosmxKeys.INSTANCE_KEY,
+                    transformations={
+                        fov: Identity(),
+                        "global": aff,
+                        "global_only_labels": aff,
+                    },
+                )
+
+
     # TODO: what to do with fov file?
     # if fov_file is not None:
     #     fov_positions = pd.read_csv(path / fov_file, header=0, index_col=CosmxKeys.FOV)
@@ -236,4 +277,4 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
 
-    return SpatialData(images=images, labels=labels, table=table)
+    return SpatialData(images=images, labels=labels, points=points, table=table)

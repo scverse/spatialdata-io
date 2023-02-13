@@ -11,6 +11,8 @@ import pandas as pd
 import pyarrow.parquet as pq
 from anndata import AnnData
 from dask_image.imread import imread
+from dask.dataframe.core import DataFrame as DaskDataFrame
+from dask.dataframe import read_parquet
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
@@ -117,8 +119,6 @@ def xenium(
             n_jobs,
         )
     points = {}
-    transcripts = False
-    print("TODO: transcripts omitted until pr is ready")
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
 
@@ -163,19 +163,27 @@ def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> 
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
-    table = pq.read_table(path / XeniumKeys.TRANSCRIPTS_FILE)
-    arr = (
-        table.select([XeniumKeys.TRANSCRIPTS_X, XeniumKeys.TRANSCRIPTS_Y, XeniumKeys.TRANSCRIPTS_Z])
-        .to_pandas()
-        .to_numpy()
-    )
-    annotations = table.select((XeniumKeys.OVERLAPS_NUCLEUS, XeniumKeys.QUALITY_VALUE, XeniumKeys.CELL_ID))
-    annotations = annotations.add_column(
-        3, XeniumKeys.FEATURE_NAME, table.column(XeniumKeys.FEATURE_NAME).cast("string").dictionary_encode()
-    )
+    table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
+    # table = pq.read_table(path / XeniumKeys.TRANSCRIPTS_FILE)
+    # arr = (
+    #     table.select([XeniumKeys.TRANSCRIPTS_X, XeniumKeys.TRANSCRIPTS_Y, XeniumKeys.TRANSCRIPTS_Z])
+    #     .to_pandas()
+    #     .to_numpy()
+    # )
+    # annotations = table.select((XeniumKeys.OVERLAPS_NUCLEUS, XeniumKeys.QUALITY_VALUE, XeniumKeys.CELL_ID))
+    # annotations = annotations.add_column(
+    #     3, XeniumKeys.FEATURE_NAME, table.column(XeniumKeys.FEATURE_NAME).cast("string").dictionary_encode()
+    # )
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    points = PointsModel.parse(coords=arr, annotations=annotations, transformations={"global": transform})
+    # points = PointsModel.parse(coords=arr, annotations=annotations, transformations={"global": transform})
+    points = PointsModel.parse(
+        table,
+        coordinates={"x": XeniumKeys.TRANSCRIPTS_X, "y": XeniumKeys.TRANSCRIPTS_Y},
+        feature_key=XeniumKeys.FEATURE_NAME,
+        instance_key=XeniumKeys.CELL_ID,
+        transformations={"global": transform},
+    )
     return points
 
 
