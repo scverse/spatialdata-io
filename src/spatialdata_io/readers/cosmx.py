@@ -7,21 +7,26 @@ from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
-import pyarrow as pa
-import pyarrow.parquet as pq
 
+import dask.array as da
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from anndata import AnnData
-from dask_image.imread import imread
-import dask.array as da
 from dask.dataframe.core import DataFrame as DaskDataFrame
+from dask_image.imread import imread
 from scipy.sparse import csr_matrix
 
 # from spatialdata._core.core_utils import xy_cs
 from skimage.transform import estimate_transform
 from spatialdata import SpatialData
-from spatialdata._core.models import Image2DModel, Labels2DModel, TableModel, PointsModel
+from spatialdata._core.models import (
+    Image2DModel,
+    Labels2DModel,
+    PointsModel,
+    TableModel,
+)
 
 # from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
 from spatialdata._core.transformations import Affine, Identity
@@ -163,7 +168,10 @@ def cosmx(
 
     table.obsm["global"] = table.obs[[CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL]].to_numpy()
     table.obsm["spatial"] = table.obs[[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL]].to_numpy()
-    table.obs.drop(columns=[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL, CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL], inplace=True)
+    table.obs.drop(
+        columns=[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL, CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL],
+        inplace=True,
+    )
 
     # prepare to read images and labels
     file_extensions = (".jpg", ".png", ".jpeg", ".tif", ".tiff")
@@ -251,9 +259,9 @@ def cosmx(
             for fov in fovs_counts:
                 aff = affine_transforms_to_global[fov]
                 sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
-                sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype('category')
+                sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
                 # we rename z because we want to treat the data as 2d
-                sub_table.rename(columns={'z': 'z_raw'}, inplace=True)
+                sub_table.rename(columns={"z": "z_raw"}, inplace=True)
                 points[fov] = PointsModel.parse(
                     sub_table,
                     coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
@@ -265,7 +273,6 @@ def cosmx(
                         "global_only_labels": aff,
                     },
                 )
-
 
     # TODO: what to do with fov file?
     # if fov_file is not None:

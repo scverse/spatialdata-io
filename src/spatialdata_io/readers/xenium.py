@@ -10,9 +10,8 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from anndata import AnnData
-from dask_image.imread import imread
-from dask.dataframe.core import DataFrame as DaskDataFrame
 from dask.dataframe import read_parquet
+from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage

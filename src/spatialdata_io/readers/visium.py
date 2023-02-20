@@ -137,12 +137,8 @@ def visium(
         transformations={"global": transform_original},
         **image_models_kwargs,
     )
-    image_hires_parsed = Image2DModel.parse(
-        image_hires, transformations={"downscaled": transform_hires}
-    )
-    image_lowres_parsed = Image2DModel.parse(
-        image_lowres, transformations={"downscaled": transform_lowres}
-    )
+    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled": transform_hires})
+    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"downscaled": transform_lowres})
 
     images = {
         dataset_id + "_full_image": full_image_parsed,
