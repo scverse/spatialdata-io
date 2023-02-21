@@ -9,18 +9,23 @@ class CosmxKeys(ModeEnum):
 
     # files and directories
     COUNTS_SUFFIX = "exprMat_file.csv"
+    TRANSCRIPTS_SUFFIX = "tx_file.csv"
     METADATA_SUFFIX = "metadata_file.csv"
     FOV_SUFFIX = "fov_positions_file.csv"
     IMAGES_DIR = "CellComposite"
     LABELS_DIR = "CellLabels"
 
     # metadata
-    REGION_KEY = "fov"
+    FOV = "fov"
+    REGION_KEY = "fov_labels"
     INSTANCE_KEY = "cell_ID"
-    X_GLOBAL = "CenterX_global_px"
-    Y_GLOBAL = "CenterY_global_px"
-    X_LOCAL = "CenterX_local_px"
-    Y_LOCAL = "CenterY_local_px"
+    X_GLOBAL_CELL = "CenterX_global_px"
+    Y_GLOBAL_CELL = "CenterY_global_px"
+    X_LOCAL_CELL = "CenterX_local_px"
+    Y_LOCAL_CELL = "CenterY_local_px"
+    X_LOCAL_TRANSCRIPT = "x_local_px"
+    Y_LOCAL_TRANSCRIPT = "y_local_px"
+    TARGET_OF_TRANSCRIPT = "target"
 
     # transcripts
     TRANSCRIPTS_SUFFIX = "tx_file.csv"
@@ -61,6 +66,7 @@ class XeniumKeys(ModeEnum):
     CELL_METADATA_FILE = "cells.parquet"
     CELL_X = "x_centroid"
     CELL_Y = "y_centroid"
+    CELL_AREA = 'cell_area'
 
     # morphology iamges
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"
@@ -77,7 +83,7 @@ class VisiumKeys(ModeEnum):
     # images
     IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
     IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
-    IMAGE_TIF_SUFFIX = "_tissue_image.tif"
+    IMAGE_TIF_SUFFIX = "_image.tif"
 
     # scalefactors
     SCALEFACTORS_FILE = "spatial/scalefactors_json.json"

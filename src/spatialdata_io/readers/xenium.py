@@ -11,6 +11,8 @@ import pandas as pd
 import pyarrow.parquet as pq
 from anndata import AnnData
 from dask_image.imread import imread
+from dask.dataframe.core import DataFrame as DaskDataFrame
+from dask.dataframe import read_parquet
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
@@ -21,11 +23,11 @@ from spatialdata import (
     Image2DModel,
     PointsModel,
     PolygonsModel,
-    Scale,
     ShapesModel,
     SpatialData,
     TableModel,
 )
+from spatialdata._core.transformations import Identity, Scale
 from spatialdata._types import ArrayLike
 
 from spatialdata_io._constants._constants import XeniumKeys
@@ -45,7 +47,6 @@ def xenium(
     transcripts: bool = True,
     morphology_mip: bool = True,
     morphology_focus: bool = True,
-    shape_size: int | float = 1,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
@@ -83,8 +84,6 @@ def xenium(
         Whether to read morphology mip.
     morphology_focus
         Whether to read morphology focus.
-    shape_size
-        Size of the shape to use for the cell boundaries.
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -94,6 +93,12 @@ def xenium(
     -------
     :class:`spatialdata.SpatialData`
     """
+    if "chunks" not in image_models_kwargs:
+        if isinstance(image_models_kwargs, MappingProxyType):
+            image_models_kwargs = {}
+        assert isinstance(image_models_kwargs, dict)
+        image_models_kwargs["chunks"] = (1, 4096, 4096)
+        image_models_kwargs["multiscale_factors"] = [2, 2, 2, 2]
     path = Path(path)
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)
@@ -136,7 +141,7 @@ def xenium(
         )
 
     circles = {}
-    table, circles["circles"] = _get_tables(path, specs, shape_size)
+    table, circles["circles"] = _get_tables(path, specs)
 
     return SpatialData(images=images, polygons=polygons, points=points, shapes=circles, table=table)
 
@@ -153,39 +158,54 @@ def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> 
         for _, i in df.groupby(XeniumKeys.CELL_ID)[[XeniumKeys.BOUNDARIES_VERTEX_X, XeniumKeys.BOUNDARIES_VERTEX_Y]]
     )
     geo_df = GeoDataFrame({"geometry": out})
-    scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
-    return PolygonsModel.parse(geo_df, transform=scale)
+    scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
+    return PolygonsModel.parse(geo_df, transformations={"global": scale})
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
-    table = pq.read_table(path / XeniumKeys.TRANSCRIPTS_FILE)
-    arr = (
-        table.select([XeniumKeys.TRANSCRIPTS_X, XeniumKeys.TRANSCRIPTS_Y, XeniumKeys.TRANSCRIPTS_Z])
-        .to_pandas()
-        .to_numpy()
-    )
-    annotations = table.select((XeniumKeys.OVERLAPS_NUCLEUS, XeniumKeys.QUALITY_VALUE, XeniumKeys.CELL_ID))
-    annotations = annotations.add_column(
-        3, XeniumKeys.FEATURE_NAME, table.column(XeniumKeys.FEATURE_NAME).cast("string").dictionary_encode()
-    )
+    table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
+    # table = pq.read_table(path / XeniumKeys.TRANSCRIPTS_FILE)
+    # arr = (
+    #     table.select([XeniumKeys.TRANSCRIPTS_X, XeniumKeys.TRANSCRIPTS_Y, XeniumKeys.TRANSCRIPTS_Z])
+    #     .to_pandas()
+    #     .to_numpy()
+    # )
+    # annotations = table.select((XeniumKeys.OVERLAPS_NUCLEUS, XeniumKeys.QUALITY_VALUE, XeniumKeys.CELL_ID))
+    # annotations = annotations.add_column(
+    #     3, XeniumKeys.FEATURE_NAME, table.column(XeniumKeys.FEATURE_NAME).cast("string").dictionary_encode()
+    # )
 
-    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"], 1.0])
-    points = PointsModel.parse(coords=arr, annotations=annotations, transform=transform)
+    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
+    # points = PointsModel.parse(coords=arr, annotations=annotations, transformations={"global": transform})
+    points = PointsModel.parse(
+        table,
+        coordinates={"x": XeniumKeys.TRANSCRIPTS_X, "y": XeniumKeys.TRANSCRIPTS_Y},
+        feature_key=XeniumKeys.FEATURE_NAME,
+        instance_key=XeniumKeys.CELL_ID,
+        transformations={"global": transform},
+    )
     return points
 
 
-def _get_tables(path: Path, specs: dict[str, Any], shape_size: int | float) -> tuple[AnnData, AnnData]:
-
+def _get_tables(path: Path, specs: dict[str, Any]) -> tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str).values, adata.obs_names.values)
 
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
+    metadata[XeniumKeys.CELL_ID] = metadata[XeniumKeys.CELL_ID].astype(str)
     adata.obs = metadata
-    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
-    circles = ShapesModel.parse(circ, shape_type="circle", shape_size=shape_size, transform=transform)
-    table = TableModel.parse(adata, region="/polygons/cell_boundaries", instance_key="cell_id")
+    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
+    diameters = 2 * np.sqrt(adata.obs[XeniumKeys.CELL_AREA].to_numpy() / np.pi) / specs["pixel_size"]
+    circles = ShapesModel.parse(
+        circ,
+        shape_type="Circle",
+        shape_size=diameters,
+        transformations={"global": transform},
+        index=adata.obs[XeniumKeys.CELL_ID],
+    )
+    table = TableModel.parse(adata, region="/shapes/circles", instance_key=str(XeniumKeys.CELL_ID))
     return table, circles
 
 
@@ -197,5 +217,6 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / file, **imread_kwargs)
-    transform = Scale([1.0, 1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]])
-    return Image2DModel.parse(image, transform=transform, **image_models_kwargs)
+    return Image2DModel.parse(
+        image, transformations={"global": Identity()}, dims=("c", "y", "x"), **image_models_kwargs
+    )
