@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -12,7 +11,6 @@ import dask.array as da
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-import pyarrow.parquet as pq
 from anndata import AnnData
 from dask.dataframe.core import DataFrame as DaskDataFrame
 from dask_image.imread import imread
@@ -46,7 +44,6 @@ __all__ = ["cosmx"]
 def cosmx(
     path: str | Path,
     dataset_id: Optional[str] = None,
-    # shape_size: float | int = 1,
     transcripts: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -72,8 +69,8 @@ def cosmx(
         Path to the root directory containing *Nanostring* files.
     dataset_id
         Name of the dataset.
-    shape_size
-        Size of the shape to be used for the centroids of the labels.
+    transcripts
+        Whether to also read in transcripts information.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -239,32 +236,25 @@ def cosmx(
 
     points: dict[str, DaskDataFrame] = {}
     if transcripts:
-        # let's convert the .csv to .parquet and let's read it with pyarrow.parquet for faster subsetting
-        with tempfile.TemporaryDirectory() as tmpdir:
-            logger.info("converting .csv to .parquet... ", end="")
-            assert transcripts_file is not None
-            transcripts_data = pd.read_csv(path / transcripts_file, header=0)
-            transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
-            logger.info("done")
-
-            ptable = pq.read_table(Path(tmpdir) / "transcripts.parquet")
-            for fov in fovs_counts:
-                aff = affine_transforms_to_global[fov]
-                sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
-                sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
-                # we rename z because we want to treat the data as 2d
-                sub_table.rename(columns={"z": "z_raw"}, inplace=True)
-                points[fov] = PointsModel.parse(
-                    sub_table,
-                    coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
-                    feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
-                    instance_key=CosmxKeys.INSTANCE_KEY,
-                    transformations={
-                        fov: Identity(),
-                        "global": aff,
-                        "global_only_labels": aff,
-                    },
-                )
+        assert transcripts_file is not None
+        ptable = pa.read_table(path / transcripts_file, header=0)
+        for fov in fovs_counts:
+            aff = affine_transforms_to_global[fov]
+            sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
+            sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
+            # we rename z because we want to treat the data as 2d
+            sub_table.rename(columns={"z": "z_raw"}, inplace=True)
+            points[fov] = PointsModel.parse(
+                sub_table,
+                coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
+                feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
+                instance_key=CosmxKeys.INSTANCE_KEY,
+                transformations={
+                    fov: Identity(),
+                    "global": aff,
+                    "global_only_labels": aff,
+                },
+            )
 
     # TODO: what to do with fov file?
     # if fov_file is not None:
