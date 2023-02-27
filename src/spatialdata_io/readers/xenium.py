@@ -118,27 +118,26 @@ def xenium(
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
 
-    # images = {}
-    # if morphology_mip:
-    #     images["morphology_mip"] = _get_images(
-    #         path,
-    #         XeniumKeys.MORPHOLOGY_MIP_FILE,
-    #         specs,
-    #         imread_kwargs,
-    #         image_models_kwargs,
-    #     )
-    # if morphology_focus:
-    #     images["morphology_focus"] = _get_images(
-    #         path,
-    #         XeniumKeys.MORPHOLOGY_MIP_FILE,
-    #         specs,
-    #         imread_kwargs,
-    #         image_models_kwargs,
-    #     )
+    images = {}
+    if morphology_mip:
+        images["morphology_mip"] = _get_images(
+            path,
+            XeniumKeys.MORPHOLOGY_MIP_FILE,
+            specs,
+            imread_kwargs,
+            image_models_kwargs,
+        )
+    if morphology_focus:
+        images["morphology_focus"] = _get_images(
+            path,
+            XeniumKeys.MORPHOLOGY_MIP_FILE,
+            specs,
+            imread_kwargs,
+            image_models_kwargs,
+        )
 
     table = _get_tables(path, specs)
-    # return SpatialData(images=images, shapes=polygons, points=points, table=table)
-    return SpatialData(shapes=polygons, points=points, table=table)
+    return SpatialData(images=images, shapes=polygons, points=points, table=table)
 
 
 def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> GeoDataFrame:
