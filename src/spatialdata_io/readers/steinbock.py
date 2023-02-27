@@ -18,27 +18,6 @@ from spatialdata_io._constants._constants import SteinbockKeys
 __all__ = ["steinbock"]
 
 
-def _get_images(
-    path: Path,
-    sample: str,
-    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> Union[SpatialImage, MultiscaleSpatialImage]:
-    image = imread(path / SteinbockKeys.IMAGES_DIR / f"{sample}{SteinbockKeys.IMAGE_SUFFIX}", **imread_kwargs)
-    return Image2DModel.parse(image, **image_models_kwargs)
-
-
-def _get_labels(
-    path: Path,
-    sample: str,
-    labels_kind: str,
-    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> Union[SpatialImage, MultiscaleSpatialImage]:
-    image = imread(path / labels_kind / f"{sample}{SteinbockKeys.LABEL_SUFFIX}", **imread_kwargs).squeeze()
-    return Labels2DModel.parse(image, **image_models_kwargs)
-
-
 def steinbock(
     path: str | Path,
     labels_kind: Literal["deepcell", "ilastik"] = "deepcell",
@@ -105,3 +84,24 @@ def steinbock(
     table = TableModel.parse(adata, region=regions.unique().tolist(), region_key="region", instance_key="cell_id")
 
     return SpatialData(images=images, labels=labels, table=table)
+
+
+def _get_images(
+    path: Path,
+    sample: str,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+) -> Union[SpatialImage, MultiscaleSpatialImage]:
+    image = imread(path / SteinbockKeys.IMAGES_DIR / f"{sample}{SteinbockKeys.IMAGE_SUFFIX}", **imread_kwargs)
+    return Image2DModel.parse(image, **image_models_kwargs)
+
+
+def _get_labels(
+    path: Path,
+    sample: str,
+    labels_kind: str,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+) -> Union[SpatialImage, MultiscaleSpatialImage]:
+    image = imread(path / labels_kind / f"{sample}{SteinbockKeys.LABEL_SUFFIX}", **imread_kwargs).squeeze()
+    return Labels2DModel.parse(image, **image_models_kwargs)
