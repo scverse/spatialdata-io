@@ -10,23 +10,15 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from anndata import AnnData
-from dask_image.imread import imread
-from dask.dataframe.core import DataFrame as DaskDataFrame
 from dask.dataframe import read_parquet
+from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
 from pyarrow import Table
 from shapely import Polygon
 from spatial_image import SpatialImage
-from spatialdata import (
-    Image2DModel,
-    PointsModel,
-    PolygonsModel,
-    ShapesModel,
-    SpatialData,
-    TableModel,
-)
+from spatialdata import Image2DModel, PointsModel, ShapesModel, SpatialData, TableModel
 from spatialdata._core.transformations import Identity, Scale
 from spatialdata._types import ArrayLike
 
@@ -40,7 +32,6 @@ __all__ = ["xenium"]
 @inject_docs(xx=XeniumKeys)
 def xenium(
     path: str | Path,
-    # dataset_id: str,
     n_jobs: int = 1,
     nucleus_boundaries: bool = True,
     cell_boundaries: bool = True,
@@ -98,7 +89,12 @@ def xenium(
             image_models_kwargs = {}
         assert isinstance(image_models_kwargs, dict)
         image_models_kwargs["chunks"] = (1, 4096, 4096)
-        image_models_kwargs["multiscale_factors"] = [2, 2, 2, 2]
+    if "scale_factors" not in image_models_kwargs:
+        if isinstance(image_models_kwargs, MappingProxyType):
+            image_models_kwargs = {}
+        assert isinstance(image_models_kwargs, dict)
+        image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
+
     path = Path(path)
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)
@@ -122,28 +118,27 @@ def xenium(
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
 
-    images = {}
-    if morphology_mip:
-        images["morphology_mip"] = _get_images(
-            path,
-            XeniumKeys.MORPHOLOGY_MIP_FILE,
-            specs,
-            imread_kwargs,
-            image_models_kwargs,
-        )
-    if morphology_focus:
-        images["morphology_focus"] = _get_images(
-            path,
-            XeniumKeys.MORPHOLOGY_MIP_FILE,
-            specs,
-            imread_kwargs,
-            image_models_kwargs,
-        )
+    # images = {}
+    # if morphology_mip:
+    #     images["morphology_mip"] = _get_images(
+    #         path,
+    #         XeniumKeys.MORPHOLOGY_MIP_FILE,
+    #         specs,
+    #         imread_kwargs,
+    #         image_models_kwargs,
+    #     )
+    # if morphology_focus:
+    #     images["morphology_focus"] = _get_images(
+    #         path,
+    #         XeniumKeys.MORPHOLOGY_MIP_FILE,
+    #         specs,
+    #         imread_kwargs,
+    #         image_models_kwargs,
+    #     )
 
-    circles = {}
-    table, circles["circles"] = _get_tables(path, specs)
-
-    return SpatialData(images=images, polygons=polygons, points=points, shapes=circles, table=table)
+    table = _get_tables(path, specs)
+    # return SpatialData(images=images, shapes=polygons, points=points, table=table)
+    return SpatialData(shapes=polygons, points=points, table=table)
 
 
 def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> GeoDataFrame:
@@ -159,27 +154,16 @@ def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> 
     )
     geo_df = GeoDataFrame({"geometry": out})
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    return PolygonsModel.parse(geo_df, transformations={"global": scale})
+    return ShapesModel.parse(geo_df, transformations={"global": scale})
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
-    # table = pq.read_table(path / XeniumKeys.TRANSCRIPTS_FILE)
-    # arr = (
-    #     table.select([XeniumKeys.TRANSCRIPTS_X, XeniumKeys.TRANSCRIPTS_Y, XeniumKeys.TRANSCRIPTS_Z])
-    #     .to_pandas()
-    #     .to_numpy()
-    # )
-    # annotations = table.select((XeniumKeys.OVERLAPS_NUCLEUS, XeniumKeys.QUALITY_VALUE, XeniumKeys.CELL_ID))
-    # annotations = annotations.add_column(
-    #     3, XeniumKeys.FEATURE_NAME, table.column(XeniumKeys.FEATURE_NAME).cast("string").dictionary_encode()
-    # )
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    # points = PointsModel.parse(coords=arr, annotations=annotations, transformations={"global": transform})
     points = PointsModel.parse(
         table,
-        coordinates={"x": XeniumKeys.TRANSCRIPTS_X, "y": XeniumKeys.TRANSCRIPTS_Y},
+        coordinates={"x": XeniumKeys.TRANSCRIPTS_X, "y": XeniumKeys.TRANSCRIPTS_Y, "z": XeniumKeys.TRANSCRIPTS_Y},
         feature_key=XeniumKeys.FEATURE_NAME,
         instance_key=XeniumKeys.CELL_ID,
         transformations={"global": transform},
@@ -187,26 +171,14 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     return points
 
 
-def _get_tables(path: Path, specs: dict[str, Any]) -> tuple[AnnData, AnnData]:
+def _get_tables(path: Path, specs: dict[str, Any]) -> AnnData:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str).values, adata.obs_names.values)
-
-    circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
-    metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
     metadata[XeniumKeys.CELL_ID] = metadata[XeniumKeys.CELL_ID].astype(str)
     adata.obs = metadata
-    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    diameters = 2 * np.sqrt(adata.obs[XeniumKeys.CELL_AREA].to_numpy() / np.pi) / specs["pixel_size"]
-    circles = ShapesModel.parse(
-        circ,
-        shape_type="Circle",
-        shape_size=diameters,
-        transformations={"global": transform},
-        index=adata.obs[XeniumKeys.CELL_ID],
-    )
     table = TableModel.parse(adata, region="/shapes/circles", instance_key=str(XeniumKeys.CELL_ID))
-    return table, circles
+    return table
 
 
 def _get_images(
