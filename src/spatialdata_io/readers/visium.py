@@ -96,7 +96,7 @@ def visium(
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
-    adata.obs["barcode"] = adata.obs.index.copy()
+    adata.obs["spot_id"] = np.arange(len(adata))
     adata.var_names_make_unique()
 
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
@@ -105,10 +105,11 @@ def visium(
         coords,
         geometry=0,
         radius=np.repeat(scalefactors["spot_diameter_fullres"], len(adata)),
+        index=adata.obs["spot_id"].copy(),
         transformations={"global": Identity()},
     )
     shapes[dataset_id] = circles
-    table = TableModel.parse(adata, region=f"/shapes/{dataset_id}", region_key=None, instance_key="barcode")
+    table = TableModel.parse(adata, region=f"/shapes/{dataset_id}", region_key=None, instance_key="spot_id")
 
     transform_original = Identity()
     transform_lowres = Scale(

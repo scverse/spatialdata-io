@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -34,7 +34,6 @@ def xenium(
     path: str | Path,
     n_jobs: int = 1,
     nucleus_boundaries: bool = True,
-    cell_boundaries: bool = True,
     transcripts: bool = True,
     morphology_mip: bool = True,
     morphology_focus: bool = True,
@@ -67,8 +66,6 @@ def xenium(
         Number of jobs to use for parallel processing.
     nucleus_boundaries
         Whether to read nucleus boundaries.
-    cell_boundaries
-        Whether to read cell boundaries.
     transcripts
         Whether to read transcripts.
     morphology_mip
@@ -99,7 +96,10 @@ def xenium(
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)
 
+    specs["region"] = "cell_boundaries"
+    table = _get_tables(path, specs)
     polygons = {}
+
     if nucleus_boundaries:
         polygons["nucleus_boundaries"] = _get_polygons(
             path,
@@ -107,13 +107,11 @@ def xenium(
             specs,
             n_jobs,
         )
-    if cell_boundaries:
-        polygons["cell_boundaries"] = _get_polygons(
-            path,
-            XeniumKeys.CELL_BOUNDARIES_FILE,
-            specs,
-            n_jobs,
-        )
+
+    polygons["cell_boundaries"] = _get_polygons(
+        path, XeniumKeys.CELL_BOUNDARIES_FILE, specs, n_jobs, idx=table.obs[str(XeniumKeys.CELL_ID)].copy()
+    )
+
     points = {}
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
@@ -136,11 +134,12 @@ def xenium(
             image_models_kwargs,
         )
 
-    table = _get_tables(path, specs)
     return SpatialData(images=images, shapes=polygons, points=points, table=table)
 
 
-def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> GeoDataFrame:
+def _get_polygons(
+    path: Path, file: str, specs: dict[str, Any], n_jobs: int, idx: Optional[ArrayLike] = None
+) -> GeoDataFrame:
     def _poly(arr: ArrayLike) -> Polygon:
         return Polygon(arr[:-1])
 
@@ -152,6 +151,8 @@ def _get_polygons(path: Path, file: str, specs: dict[str, Any], n_jobs: int) -> 
         for _, i in df.groupby(XeniumKeys.CELL_ID)[[XeniumKeys.BOUNDARIES_VERTEX_X, XeniumKeys.BOUNDARIES_VERTEX_Y]]
     )
     geo_df = GeoDataFrame({"geometry": out})
+    if idx is not None:
+        geo_df.index = idx
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
 
@@ -174,9 +175,9 @@ def _get_tables(path: Path, specs: dict[str, Any]) -> AnnData:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str).values, adata.obs_names.values)
-    metadata[XeniumKeys.CELL_ID] = metadata[XeniumKeys.CELL_ID].astype(str)
+    metadata[XeniumKeys.CELL_ID] = np.arange(len(metadata[XeniumKeys.CELL_ID]))
     adata.obs = metadata
-    table = TableModel.parse(adata, region="/shapes/circles", instance_key=str(XeniumKeys.CELL_ID))
+    table = TableModel.parse(adata, region=specs["region"], instance_key=str(XeniumKeys.CELL_ID))
     return table
 
 

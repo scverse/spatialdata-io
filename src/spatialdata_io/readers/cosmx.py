@@ -237,7 +237,9 @@ def cosmx(
     points: dict[str, DaskDataFrame] = {}
     if transcripts:
         assert transcripts_file is not None
-        ptable = pa.read_table(path / transcripts_file, header=0)
+        from pyarrow.csv import read_csv
+
+        ptable = read_csv(path / transcripts_file)  # , header=0)
         for fov in fovs_counts:
             aff = affine_transforms_to_global[fov]
             sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
