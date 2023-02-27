@@ -19,54 +19,6 @@ from spatialdata_io._constants._constants import McmicroKeys
 __all__ = ["mcmicro"]
 
 
-def _get_images(
-    path: Path,
-    sample: str,
-    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> Union[SpatialImage, MultiscaleSpatialImage]:
-    image = imread(path / McmicroKeys.IMAGES_DIR / f"{sample}{McmicroKeys.IMAGE_SUFFIX}", **imread_kwargs)
-    return Image2DModel.parse(image, **image_models_kwargs)
-
-
-def _get_labels(
-    path: Path,
-    sample: str,
-    labels_kind: str,
-    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> Union[SpatialImage, MultiscaleSpatialImage]:
-    image = imread(
-        path
-        / McmicroKeys.LABELS_DIR
-        / f"{McmicroKeys.LABELS_PREFIX}{sample}"
-        / f"{labels_kind}{McmicroKeys.IMAGE_SUFFIX}",
-        **imread_kwargs,
-    ).squeeze()
-    return Labels2DModel.parse(image, **image_models_kwargs)
-
-
-def _get_table(
-    path: Path,
-    sample: str,
-) -> AnnData:
-
-    table = pd.read_csv(path / McmicroKeys.QUANTIFICATION_DIR / f"{sample}{McmicroKeys.CELL_FEATURES_SUFFIX}")
-    markers = pd.read_csv(path / McmicroKeys.MARKERS_FILE)
-    markers.index = markers.marker_name
-    var = markers.marker_name.tolist()
-    coords = [McmicroKeys.COORDS_X, McmicroKeys.COORDS_Y]
-    adata = AnnData(
-        table[var].to_numpy(),
-        obs=table.drop(columns=var + coords),
-        var=markers,
-        obsm={"spatial": table[coords].to_numpy()},
-        dtype=np.float_,
-    )
-
-    return TableModel.parse(adata, region=sample, instance_key=McmicroKeys.INSTANCE_KEY)
-
-
 def mcmicro(
     path: str | Path,
     dataset_id: str,
@@ -129,3 +81,51 @@ def mcmicro(
     table = _get_table(path, dataset_id)
 
     return SpatialData(images=images, labels=labels, table=table)
+
+
+def _get_images(
+    path: Path,
+    sample: str,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+) -> Union[SpatialImage, MultiscaleSpatialImage]:
+    image = imread(path / McmicroKeys.IMAGES_DIR / f"{sample}{McmicroKeys.IMAGE_SUFFIX}", **imread_kwargs)
+    return Image2DModel.parse(image, **image_models_kwargs)
+
+
+def _get_labels(
+    path: Path,
+    sample: str,
+    labels_kind: str,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+) -> Union[SpatialImage, MultiscaleSpatialImage]:
+    image = imread(
+        path
+        / McmicroKeys.LABELS_DIR
+        / f"{McmicroKeys.LABELS_PREFIX}{sample}"
+        / f"{labels_kind}{McmicroKeys.IMAGE_SUFFIX}",
+        **imread_kwargs,
+    ).squeeze()
+    return Labels2DModel.parse(image, **image_models_kwargs)
+
+
+def _get_table(
+    path: Path,
+    sample: str,
+) -> AnnData:
+
+    table = pd.read_csv(path / McmicroKeys.QUANTIFICATION_DIR / f"{sample}{McmicroKeys.CELL_FEATURES_SUFFIX}")
+    markers = pd.read_csv(path / McmicroKeys.MARKERS_FILE)
+    markers.index = markers.marker_name
+    var = markers.marker_name.tolist()
+    coords = [McmicroKeys.COORDS_X.value, McmicroKeys.COORDS_Y.value]
+    adata = AnnData(
+        table[var].to_numpy(),
+        obs=table.drop(columns=var + coords),
+        var=markers,
+        obsm={"spatial": table[coords].to_numpy()},
+        dtype=np.float_,
+    )
+
+    return TableModel.parse(adata, region=sample, instance_key=McmicroKeys.INSTANCE_KEY.value)
