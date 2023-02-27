@@ -146,12 +146,6 @@ def cosmx(
 
     fovs_counts = list(map(str, adata.obs.fov.astype(int).unique()))
 
-    # TODO(giovp): uncomment once transform is ready
-    # input_cs = CoordinateSystem("cxy", axes=[c_axis, y_axis, x_axis])
-    # input_cs_labels = CoordinateSystem("cxy", axes=[y_axis, x_axis])
-    # output_cs = CoordinateSystem("global", axes=[c_axis, y_axis, x_axis])
-    # output_cs_labels = CoordinateSystem("global", axes=[y_axis, x_axis])
-
     affine_transforms_to_global = {}
 
     for fov in fovs_counts:
@@ -208,7 +202,6 @@ def cosmx(
                 flipped_im = da.flip(im, axis=0)
                 parsed_im = Image2DModel.parse(
                     flipped_im,
-                    name=fov,
                     transformations={
                         fov: Identity(),
                         "global": aff,
@@ -232,7 +225,6 @@ def cosmx(
                 flipped_la = da.flip(la, axis=0)
                 parsed_la = Labels2DModel.parse(
                     flipped_la,
-                    name=fov,
                     transformations={
                         fov: Identity(),
                         "global": aff,
@@ -249,11 +241,11 @@ def cosmx(
     if transcripts:
         # let's convert the .csv to .parquet and let's read it with pyarrow.parquet for faster subsetting
         with tempfile.TemporaryDirectory() as tmpdir:
-            print("converting .csv to .parquet... ", end="")
+            logger.info("converting .csv to .parquet... ", end="")
             assert transcripts_file is not None
             transcripts_data = pd.read_csv(path / transcripts_file, header=0)
             transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
-            print("done")
+            logger.info("done")
 
             ptable = pq.read_table(Path(tmpdir) / "transcripts.parquet")
             for fov in fovs_counts:
