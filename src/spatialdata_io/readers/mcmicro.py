@@ -114,7 +114,6 @@ def _get_table(
     path: Path,
     sample: str,
 ) -> AnnData:
-
     table = pd.read_csv(path / McmicroKeys.QUANTIFICATION_DIR / f"{sample}{McmicroKeys.CELL_FEATURES_SUFFIX}")
     markers = pd.read_csv(path / McmicroKeys.MARKERS_FILE)
     markers.index = markers.marker_name
