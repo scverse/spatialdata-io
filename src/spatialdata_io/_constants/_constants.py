@@ -58,6 +58,7 @@ class XeniumKeys(ModeEnum):
     CELL_X = "x_centroid"
     CELL_Y = "y_centroid"
     CELL_AREA = "cell_area"
+    CELL_NUCLEUS_AREA = "nucleus_area"
 
     # morphology iamges
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"

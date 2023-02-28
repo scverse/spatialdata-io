@@ -127,4 +127,4 @@ def _get_table(
         dtype=np.float_,
     )
 
-    return TableModel.parse(adata, region=sample, instance_key=McmicroKeys.INSTANCE_KEY.value)
+    return TableModel.parse(adata, region=f'/labels/{sample}', instance_key=McmicroKeys.INSTANCE_KEY.value)

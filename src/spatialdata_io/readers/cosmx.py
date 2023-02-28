@@ -236,27 +236,55 @@ def cosmx(
 
     points: dict[str, DaskDataFrame] = {}
     if transcripts:
-        assert transcripts_file is not None
-        from pyarrow.csv import read_csv
+        # assert transcripts_file is not None
+        # from pyarrow.csv import read_csv
+        #
+        # ptable = read_csv(path / transcripts_file)  # , header=0)
+        # for fov in fovs_counts:
+        #     aff = affine_transforms_to_global[fov]
+        #     sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
+        #     sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
+        #     # we rename z because we want to treat the data as 2d
+        #     sub_table.rename(columns={"z": "z_raw"}, inplace=True)
+        #     points[fov] = PointsModel.parse(
+        #         sub_table,
+        #         coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
+        #         feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
+        #         instance_key=CosmxKeys.INSTANCE_KEY,
+        #         transformations={
+        #             fov: Identity(),
+        #             "global": aff,
+        #             "global_only_labels": aff,
+        #         },
+        #     )
+        # let's convert the .csv to .parquet and let's read it with pyarrow.parquet for faster subsetting
+        import tempfile
+        import pyarrow.parquet as pq
+        with tempfile.TemporaryDirectory() as tmpdir:
+            print("converting .csv to .parquet to improve the speed of the slicing operations... ", end="")
+            assert transcripts_file is not None
+            transcripts_data = pd.read_csv(path / transcripts_file, header=0)
+            transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
+            print("done")
 
-        ptable = read_csv(path / transcripts_file)  # , header=0)
-        for fov in fovs_counts:
-            aff = affine_transforms_to_global[fov]
-            sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
-            sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
-            # we rename z because we want to treat the data as 2d
-            sub_table.rename(columns={"z": "z_raw"}, inplace=True)
-            points[fov] = PointsModel.parse(
-                sub_table,
-                coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
-                feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
-                instance_key=CosmxKeys.INSTANCE_KEY,
-                transformations={
-                    fov: Identity(),
-                    "global": aff,
-                    "global_only_labels": aff,
-                },
-            )
+            ptable = pq.read_table(Path(tmpdir) / "transcripts.parquet")
+            for fov in fovs_counts:
+                aff = affine_transforms_to_global[fov]
+                sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
+                sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype('category')
+                # we rename z because we want to treat the data as 2d
+                sub_table.rename(columns={'z': 'z_raw'}, inplace=True)
+                points[fov] = PointsModel.parse(
+                    sub_table,
+                    coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
+                    feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
+                    instance_key=CosmxKeys.INSTANCE_KEY,
+                    transformations={
+                        fov: Identity(),
+                        "global": aff,
+                        "global_only_labels": aff,
+                    },
+                )
 
     # TODO: what to do with fov file?
     # if fov_file is not None:

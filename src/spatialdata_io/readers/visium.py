@@ -104,7 +104,7 @@ def visium(
     circles = ShapesModel.parse(
         coords,
         geometry=0,
-        radius=np.repeat(scalefactors["spot_diameter_fullres"], len(adata)),
+        radius=scalefactors["spot_diameter_fullres"] / 2.,
         index=adata.obs["spot_id"].copy(),
         transformations={"global": Identity()},
     )
@@ -147,4 +147,4 @@ def visium(
         dataset_id + "_lowres_image": image_lowres_parsed,
     }
 
-    return SpatialData(table=table, shapes=shapes, images=images)
+    return SpatialData(images=images, shapes=shapes, table=table)

@@ -96,8 +96,8 @@ def xenium(
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)
 
-    specs["region"] = "cell_boundaries"
-    table = _get_tables(path, specs)
+    specs["region"] = "/shapes/nucleus_circles"
+    table, circles = _get_tables_and_circles(path, specs)
     polygons = {}
 
     if nucleus_boundaries:
@@ -134,7 +134,7 @@ def xenium(
             image_models_kwargs,
         )
 
-    return SpatialData(images=images, shapes=polygons, points=points, table=table)
+    return SpatialData(images=images, shapes=polygons | {specs['region']: circles}, points=points, table=table)
 
 
 def _get_polygons(
@@ -171,14 +171,25 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     return points
 
 
-def _get_tables(path: Path, specs: dict[str, Any]) -> AnnData:
+def _get_tables_and_circles(path: Path, specs: dict[str, Any]) -> tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str).values, adata.obs_names.values)
+    circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
+    metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
     metadata[XeniumKeys.CELL_ID] = np.arange(len(metadata[XeniumKeys.CELL_ID]))
     adata.obs = metadata
-    table = TableModel.parse(adata, region=specs["region"], instance_key=str(XeniumKeys.CELL_ID))
-    return table
+    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
+    radii = np.sqrt(adata.obs[XeniumKeys.CELL_NUCLEUS_AREA].to_numpy() / np.pi)
+    circles = ShapesModel.parse(
+        circ,
+        geometry=0,
+        radius=radii,
+        transformations={"global": transform},
+        index=adata.obs[XeniumKeys.CELL_ID].copy(),
+    )
+    table = TableModel.parse(adata, region=f'/shapes/{specs["region"]}', instance_key=str(XeniumKeys.CELL_ID))
+    return table, circles
 
 
 def _get_images(
