@@ -78,10 +78,10 @@ def steinbock(
     adata = ad.read(path / SteinbockKeys.CELLS_FILE)
     idx = adata.obs.index.str.split(" ").map(lambda x: int(x[1]))
     regions = adata.obs.image.str.replace(".tiff", "", regex=False)
-    regions = regions.apply(lambda x: f'/labels/{x}')
+    regions = regions.apply(lambda x: f"/labels/{x}")
     adata.obs["cell_id"] = idx
     adata.obs["region"] = regions
-    if len(set([f'/labels/{s}' for s in samples]).difference(set(regions.unique()))):
+    if len({f"/labels/{s}" for s in samples}.difference(set(regions.unique()))):
         raise ValueError("Samples in table and images are inconsistent, please check.")
     table = TableModel.parse(adata, region=regions.unique().tolist(), region_key="region", instance_key="cell_id")
 

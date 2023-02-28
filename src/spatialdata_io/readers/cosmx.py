@@ -259,7 +259,9 @@ def cosmx(
         #     )
         # let's convert the .csv to .parquet and let's read it with pyarrow.parquet for faster subsetting
         import tempfile
+
         import pyarrow.parquet as pq
+
         with tempfile.TemporaryDirectory() as tmpdir:
             print("converting .csv to .parquet to improve the speed of the slicing operations... ", end="")
             assert transcripts_file is not None
@@ -271,9 +273,9 @@ def cosmx(
             for fov in fovs_counts:
                 aff = affine_transforms_to_global[fov]
                 sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
-                sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype('category')
+                sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
                 # we rename z because we want to treat the data as 2d
-                sub_table.rename(columns={'z': 'z_raw'}, inplace=True)
+                sub_table.rename(columns={"z": "z_raw"}, inplace=True)
                 points[fov] = PointsModel.parse(
                     sub_table,
                     coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},

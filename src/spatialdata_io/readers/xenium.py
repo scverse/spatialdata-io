@@ -134,7 +134,7 @@ def xenium(
             image_models_kwargs,
         )
 
-    return SpatialData(images=images, shapes=polygons | {specs['region']: circles}, points=points, table=table)
+    return SpatialData(images=images, shapes=polygons | {specs["region"]: circles}, points=points, table=table)
 
 
 def _get_polygons(

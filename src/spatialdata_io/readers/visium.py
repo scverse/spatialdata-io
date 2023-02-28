@@ -104,7 +104,7 @@ def visium(
     circles = ShapesModel.parse(
         coords,
         geometry=0,
-        radius=scalefactors["spot_diameter_fullres"] / 2.,
+        radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
         transformations={"global": Identity()},
     )
