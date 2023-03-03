@@ -33,6 +33,7 @@ __all__ = ["xenium"]
 def xenium(
     path: str | Path,
     n_jobs: int = 1,
+    cells_as_shapes: bool = False,
     nucleus_boundaries: bool = True,
     transcripts: bool = True,
     morphology_mip: bool = True,
@@ -64,6 +65,8 @@ def xenium(
         Path to the dataset.
     n_jobs
         Number of jobs to use for parallel processing.
+    cells_as_shapes
+        Whether to read cells also as shapes. Useful for visualization.
     nucleus_boundaries
         Whether to read nucleus boundaries.
     transcripts
@@ -96,8 +99,8 @@ def xenium(
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)
 
-    specs["region"] = "/shapes/nucleus_circles"
-    table, circles = _get_tables_and_circles(path, specs)
+    specs["region"] = "cell_circles" if cells_as_shapes else "cell_boundaries"
+    table, circles = _get_tables_and_circles(path, cells_as_shapes, specs)
     polygons = {}
 
     if nucleus_boundaries:
@@ -133,8 +136,9 @@ def xenium(
             imread_kwargs,
             image_models_kwargs,
         )
-
-    return SpatialData(images=images, shapes=polygons | {specs["region"]: circles}, points=points, table=table)
+    if cells_as_shapes:
+        return SpatialData(images=images, shapes=polygons | {specs["region"]: circles}, points=points, table=table)
+    return SpatialData(images=images, shapes=polygons, points=points, table=table)
 
 
 def _get_polygons(
@@ -159,6 +163,7 @@ def _get_polygons(
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
+    table[XeniumKeys.CELL_ID.value] = pd.Categorical(table[XeniumKeys.CELL_ID.value])
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     points = PointsModel.parse(
@@ -171,25 +176,29 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     return points
 
 
-def _get_tables_and_circles(path: Path, specs: dict[str, Any]) -> tuple[AnnData, AnnData]:
+def _get_tables_and_circles(
+    path: Path, cells_as_shapes: bool, specs: dict[str, Any]
+) -> AnnData | tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str).values, adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
-    metadata[XeniumKeys.CELL_ID] = np.arange(len(metadata[XeniumKeys.CELL_ID]))
     adata.obs = metadata
-    transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-    radii = np.sqrt(adata.obs[XeniumKeys.CELL_NUCLEUS_AREA].to_numpy() / np.pi)
-    circles = ShapesModel.parse(
-        circ,
-        geometry=0,
-        radius=radii,
-        transformations={"global": transform},
-        index=adata.obs[XeniumKeys.CELL_ID].copy(),
-    )
-    table = TableModel.parse(adata, region=f'/shapes/{specs["region"]}', instance_key=str(XeniumKeys.CELL_ID))
-    return table, circles
+    adata.obs["region"] = specs["region"]
+    table = TableModel.parse(adata, region=specs["region"], region_key="region", instance_key=str(XeniumKeys.CELL_ID))
+    if cells_as_shapes:
+        transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
+        radii = np.sqrt(adata.obs[XeniumKeys.CELL_NUCLEUS_AREA].to_numpy() / np.pi)
+        circles = ShapesModel.parse(
+            circ,
+            geometry=0,
+            radius=radii,
+            transformations={"global": transform},
+            index=adata.obs[XeniumKeys.CELL_ID].copy(),
+        )
+        return table, circles
+    return table
 
 
 def _get_images(
