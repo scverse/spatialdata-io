@@ -163,7 +163,6 @@ def _get_polygons(
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
-    table[XeniumKeys.CELL_ID.value] = pd.Categorical(table[XeniumKeys.CELL_ID.value])
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     points = PointsModel.parse(

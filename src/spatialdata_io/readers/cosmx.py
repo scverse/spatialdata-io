@@ -120,7 +120,7 @@ def cosmx(
 
     obs = pd.read_csv(path / meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
     obs[CosmxKeys.FOV] = pd.Categorical(obs[CosmxKeys.FOV].astype(str))
-    obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: "/labels/" + s))
+    obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: s + "_labels"))
     obs[CosmxKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
     obs.rename_axis(None, inplace=True)
     obs.index = obs.index.astype(str).str.cat(obs[CosmxKeys.FOV].values, sep="_")
@@ -207,7 +207,7 @@ def cosmx(
                     dims=("y", "x", "c"),
                     **image_models_kwargs,
                 )
-                images[fov] = parsed_im
+                images[f"{fov}_image"] = parsed_im
             else:
                 logger.warning(f"FOV {fov} not found in counts file. Skipping image {fname}.")
 
@@ -230,7 +230,7 @@ def cosmx(
                     dims=("y", "x"),
                     **image_models_kwargs,
                 )
-                labels[fov] = parsed_la
+                labels[f"{fov}_labels"] = parsed_la
             else:
                 logger.warning(f"FOV {fov} not found in counts file. Skipping labels {fname}.")
 
@@ -276,7 +276,7 @@ def cosmx(
                 sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
                 # we rename z because we want to treat the data as 2d
                 sub_table.rename(columns={"z": "z_raw"}, inplace=True)
-                points[fov] = PointsModel.parse(
+                points[f"{fov}_points"] = PointsModel.parse(
                     sub_table,
                     coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
                     feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
