@@ -56,14 +56,14 @@ def mcmicro(
         raise ValueError("Dataset id is not consistent with sample name.")
 
     images = {}
-    images[dataset_id] = _get_images(
+    images[f"{dataset_id}_image"] = _get_images(
         path,
         dataset_id,
         imread_kwargs,
         image_models_kwargs,
     )
     labels = {}
-    labels[dataset_id] = _get_labels(
+    labels[f"{dataset_id}_cells"] = _get_labels(
         path,
         dataset_id,
         "cell",
@@ -126,5 +126,8 @@ def _get_table(
         obsm={"spatial": table[coords].to_numpy()},
         dtype=np.float_,
     )
+    adata.obs["region"] = f"{sample}_cells"
 
-    return TableModel.parse(adata, region=f"/labels/{sample}", instance_key=McmicroKeys.INSTANCE_KEY.value)
+    return TableModel.parse(
+        adata, region=f"{sample}_cells", region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value
+    )

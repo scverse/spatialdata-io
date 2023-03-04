@@ -61,13 +61,13 @@ def steinbock(
             "They will be ignored."
         )
     for sample in samples:
-        images[sample] = _get_images(
+        images[f"{sample}_image"] = _get_images(
             path,
             sample,
             imread_kwargs,
             image_models_kwargs,
         )
-        labels[sample] = _get_labels(
+        labels[f"{sample}_labels"] = _get_labels(
             path,
             sample,
             labels_kind,
@@ -78,10 +78,11 @@ def steinbock(
     adata = ad.read(path / SteinbockKeys.CELLS_FILE)
     idx = adata.obs.index.str.split(" ").map(lambda x: int(x[1]))
     regions = adata.obs.image.str.replace(".tiff", "", regex=False)
-    regions = regions.apply(lambda x: f"/labels/{x}")
+    regions = regions.apply(lambda x: f"{x}_labels")
     adata.obs["cell_id"] = idx
     adata.obs["region"] = regions
-    if len({f"/labels/{s}" for s in samples}.difference(set(regions.unique()))):
+    adata.obsm["spatial"] = adata.obs[["centroid-0", "centroid-1"]].to_numpy()
+    if len({f"{s}_labels" for s in samples}.difference(set(regions.unique()))):
         raise ValueError("Samples in table and images are inconsistent, please check.")
     table = TableModel.parse(adata, region=regions.unique().tolist(), region_key="region", instance_key="cell_id")
 
@@ -95,7 +96,7 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(path / SteinbockKeys.IMAGES_DIR / f"{sample}{SteinbockKeys.IMAGE_SUFFIX}", **imread_kwargs)
-    return Image2DModel.parse(image, transformations={sample: Identity()}, **image_models_kwargs)
+    return Image2DModel.parse(data=image, transformations={sample: Identity()}, **image_models_kwargs)
 
 
 def _get_labels(
@@ -106,4 +107,4 @@ def _get_labels(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(path / labels_kind / f"{sample}{SteinbockKeys.LABEL_SUFFIX}", **imread_kwargs).squeeze()
-    return Labels2DModel.parse(image, transformations={sample: Identity()}, **image_models_kwargs)
+    return Labels2DModel.parse(data=image, transformations={sample: Identity()}, **image_models_kwargs)

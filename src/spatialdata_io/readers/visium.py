@@ -95,6 +95,7 @@ def visium(
 
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
+    adata.obsm["spatial"] = coords
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
     adata.obs["spot_id"] = np.arange(len(adata))
     adata.var_names_make_unique()

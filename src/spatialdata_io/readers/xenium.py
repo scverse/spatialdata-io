@@ -182,6 +182,7 @@ def _get_tables_and_circles(
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str).values, adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
+    adata.obsm["spatial"] = circ
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
     adata.obs = metadata
     adata.obs["region"] = specs["region"]
