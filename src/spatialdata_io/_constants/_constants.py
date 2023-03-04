@@ -57,7 +57,8 @@ class XeniumKeys(ModeEnum):
     CELL_METADATA_FILE = "cells.parquet"
     CELL_X = "x_centroid"
     CELL_Y = "y_centroid"
-    CELL_AREA = 'cell_area'
+    CELL_AREA = "cell_area"
+    CELL_NUCLEUS_AREA = "nucleus_area"
 
     # morphology iamges
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"
@@ -85,3 +86,37 @@ class VisiumKeys(ModeEnum):
     SPOTS_FILE = "spatial/tissue_positions.csv"
     SPOTS_X = "pxl_row_in_fullres"
     SPOTS_Y = "pxl_col_in_fullres"
+
+
+@unique
+class SteinbockKeys(ModeEnum):
+    """Keys for *Steinbock* formatted dataset."""
+
+    # files and directories
+    CELLS_FILE = "cells.h5ad"
+    DEEPCELL_MASKS_DIR = "masks_deepcell"
+    ILASTIK_MASKS_DIR = "masks_ilastik"
+    IMAGES_DIR = "ome"
+
+    # suffixes for images and labels
+    IMAGE_SUFFIX = ".ome.tiff"
+    LABEL_SUFFIX = ".tiff"
+
+
+@unique
+class McmicroKeys(ModeEnum):
+    """Keys for *Mcmicro* formatted dataset."""
+
+    # files and directories
+    CELL_FEATURES_SUFFIX = "--unmicst_cell.csv"
+    QUANTIFICATION_DIR = "quantification"
+    MARKERS_FILE = "markers.csv"
+    IMAGES_DIR = "registration"
+    IMAGE_SUFFIX = ".ome.tif"
+    LABELS_DIR = "segmentation"
+    LABELS_PREFIX = "unmicst-"
+
+    # metadata
+    COORDS_X = "X_centroid"
+    COORDS_Y = "Y_centroid"
+    INSTANCE_KEY = "CellID"

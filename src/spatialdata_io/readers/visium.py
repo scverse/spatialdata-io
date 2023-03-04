@@ -95,20 +95,12 @@ def visium(
 
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
+    adata.obsm["spatial"] = coords
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
-    adata.obs["visium_spot_id"] = adata.obs_names
+    adata.obs["spot_id"] = np.arange(len(adata))
+    adata.var_names_make_unique()
 
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
-    shapes = {}
-    circles = ShapesModel.parse(
-        coords,
-        shape_type="Circle",
-        shape_size=scalefactors["spot_diameter_fullres"],
-        index=adata.obs_names,
-        transformations={"global": Identity()},
-    )
-    shapes[dataset_id] = circles
-    table = TableModel.parse(adata, region=f"/shapes/{dataset_id}", region_key=None, instance_key="visium_spot_id")
 
     transform_original = Identity()
     transform_lowres = Scale(
@@ -119,6 +111,22 @@ def visium(
         1 / np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
         axes=("y", "x"),
     )
+
+    shapes = {}
+    circles = ShapesModel.parse(
+        coords,
+        geometry=0,
+        radius=scalefactors["spot_diameter_fullres"] / 2.0,
+        index=adata.obs["spot_id"].copy(),
+        transformations={
+            "global": Identity(),
+            "downscaled_hires": transform_hires,
+            "downscaled_lowres": transform_lowres,
+        },
+    )
+    shapes[dataset_id] = circles
+    adata.obs["region"] = dataset_id
+    table = TableModel.parse(adata, region=dataset_id, region_key="region", instance_key="spot_id")
 
     full_image = (
         imread(path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}", **imread_kwargs).squeeze().transpose(2, 0, 1)
@@ -133,16 +141,12 @@ def visium(
 
     full_image_parsed = Image2DModel.parse(
         full_image,
-        multiscale_factors=[2, 2, 2, 2],
+        scale_factors=[2, 2, 2, 2],
         transformations={"global": transform_original},
         **image_models_kwargs,
     )
-    image_hires_parsed = Image2DModel.parse(
-        image_hires, transformations={"downscaled": transform_hires}
-    )
-    image_lowres_parsed = Image2DModel.parse(
-        image_lowres, transformations={"downscaled": transform_lowres}
-    )
+    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled_hires": transform_hires})
+    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"downscaled_lowres": transform_lowres})
 
     images = {
         dataset_id + "_full_image": full_image_parsed,
@@ -150,4 +154,4 @@ def visium(
         dataset_id + "_lowres_image": image_lowres_parsed,
     }
 
-    return SpatialData(table=table, shapes=shapes, images=images)
+    return SpatialData(images=images, shapes=shapes, table=table)

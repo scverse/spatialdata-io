@@ -26,6 +26,7 @@ dependencies = [
     "joblib",
     "imagecodecs",
     "dask-image",
+    "pyarrow",
 ]
 
 [project.optional-dependencies]
