@@ -119,7 +119,7 @@ def visium(
         radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
         transformations={
-            "global": Identity(),
+            "global": transform_original,
             "downscaled_hires": transform_hires,
             "downscaled_lowres": transform_lowres,
         },
