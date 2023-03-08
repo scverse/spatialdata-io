@@ -146,7 +146,7 @@ def visium(
         **image_models_kwargs,
     )
     # TODO: here we are returning three different coordiante systems for the same data. We are considering
-    # simplifying the way xarray coordinates and NGFF coordinate transformations interact. After this we 
+    # simplifying the way xarray coordinates and NGFF coordinate transformations interact. After this we
     # will most likely return one object will only one coordinate system and all the coordinates aligned
     # More details can be found here: https://github.com/scverse/spatialdata/issues/169#issuecomment-1458022514
     image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled_hires": Identity()})
