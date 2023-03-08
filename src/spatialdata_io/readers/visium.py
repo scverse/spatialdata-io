@@ -88,7 +88,7 @@ def visium(
 
     coords = pd.read_csv(
         path / VisiumKeys.SPOTS_FILE,
-        header=1,
+        header=0,
         index_col=0,
     )
     coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
