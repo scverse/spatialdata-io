@@ -120,8 +120,8 @@ def visium(
         index=adata.obs["spot_id"].copy(),
         transformations={
             "global": Identity(),
-            "downscaled_hires": transform_hires,
-            "downscaled_lowres": transform_lowres,
+            "downscaled_hires": Identity(),
+            "downscaled_lowres": Identity(),
         },
     )
     shapes[dataset_id] = circles
