@@ -103,7 +103,14 @@ def visium(
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
 
     transform_original = Identity()
-
+    transform_lowres = Scale(
+        np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
+        axes=("y", "x"),
+    )
+    transform_hires = Scale(
+        np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
+        axes=("y", "x"),
+    )
     shapes = {}
     circles = ShapesModel.parse(
         coords,
@@ -111,9 +118,9 @@ def visium(
         radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
         transformations={
-            "global": Identity(),
-            "downscaled_hires": Identity(),
-            "downscaled_lowres": Identity(),
+            "global": transform_original,
+            "downscaled_hires": transform_hires,
+            "downscaled_lowres": transform_lowres,
         },
     )
     shapes[dataset_id] = circles
@@ -137,16 +144,9 @@ def visium(
         transformations={"global": transform_original},
         **image_models_kwargs,
     )
-    transform_lowres = Scale(
-        np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
-        axes=("y", "x"),
-    )
-    transform_hires = Scale(
-        np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
-        axes=("y", "x"),
-    )
-    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"hires": transform_hires})
-    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"lowres": transform_lowres})
+
+    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled_hires": Identity()})
+    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"downscaled_lowres": Identity()})
 
     images = {
         dataset_id + "_lowres_image": image_lowres_parsed,
