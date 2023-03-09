@@ -103,14 +103,6 @@ def visium(
     scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
 
     transform_original = Identity()
-    transform_lowres = Scale(
-        np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
-        axes=("y", "x"),
-    )
-    transform_hires = Scale(
-        np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
-        axes=("y", "x"),
-    )
 
     shapes = {}
     circles = ShapesModel.parse(
@@ -120,8 +112,6 @@ def visium(
         index=adata.obs["spot_id"].copy(),
         transformations={
             "global": transform_original,
-            "downscaled_hires": transform_hires,
-            "downscaled_lowres": transform_lowres,
         },
     )
     shapes[dataset_id] = circles
@@ -145,17 +135,21 @@ def visium(
         transformations={"global": transform_original},
         **image_models_kwargs,
     )
-    # TODO: here we are returning three different coordiante systems for the same data. We are considering
-    # simplifying the way xarray coordinates and NGFF coordinate transformations interact. After this we
-    # will most likely return one object will only one coordinate system and all the coordinates aligned
-    # More details can be found here: https://github.com/scverse/spatialdata/issues/169#issuecomment-1458022514
-    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled_hires": Identity()})
-    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"downscaled_lowres": Identity()})
+    transform_lowres = Scale(
+        np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
+        axes=("y", "x"),
+    )
+    transform_hires = Scale(
+        np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
+        axes=("y", "x"),
+    )
+    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"hires": transform_hires})
+    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"lowres": transform_lowres})
 
     images = {
-        dataset_id + "_full_image": full_image_parsed,
-        dataset_id + "_hires_image": image_hires_parsed,
         dataset_id + "_lowres_image": image_lowres_parsed,
+        dataset_id + "_hires_image": image_hires_parsed,
+        dataset_id + "_full_image": full_image_parsed,
     }
 
     return SpatialData(images=images, shapes=shapes, table=table)
