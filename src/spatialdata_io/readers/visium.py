@@ -88,7 +88,7 @@ def visium(
 
     coords = pd.read_csv(
         path / VisiumKeys.SPOTS_FILE,
-        header=1,
+        header=0,
         index_col=0,
     )
     coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
@@ -104,14 +104,13 @@ def visium(
 
     transform_original = Identity()
     transform_lowres = Scale(
-        1 / np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
+        np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
         axes=("y", "x"),
     )
     transform_hires = Scale(
-        1 / np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
+        np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
         axes=("y", "x"),
     )
-
     shapes = {}
     circles = ShapesModel.parse(
         coords,
@@ -119,9 +118,9 @@ def visium(
         radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
         transformations={
-            "global": Identity(),
-            "downscaled_hires": Identity(),
-            "downscaled_lowres": Identity(),
+            "global": transform_original,
+            "downscaled_hires": transform_hires,
+            "downscaled_lowres": transform_lowres,
         },
     )
     shapes[dataset_id] = circles
@@ -145,13 +144,14 @@ def visium(
         transformations={"global": transform_original},
         **image_models_kwargs,
     )
-    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled_hires": transform_hires})
-    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"downscaled_lowres": transform_lowres})
+
+    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled_hires": Identity()})
+    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"downscaled_lowres": Identity()})
 
     images = {
-        dataset_id + "_full_image": full_image_parsed,
-        dataset_id + "_hires_image": image_hires_parsed,
         dataset_id + "_lowres_image": image_lowres_parsed,
+        dataset_id + "_hires_image": image_hires_parsed,
+        dataset_id + "_full_image": full_image_parsed,
     }
 
     return SpatialData(images=images, shapes=shapes, table=table)
