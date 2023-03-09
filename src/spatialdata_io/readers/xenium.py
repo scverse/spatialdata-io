@@ -100,7 +100,11 @@ def xenium(
         specs = json.load(f)
 
     specs["region"] = "cell_circles" if cells_as_shapes else "cell_boundaries"
-    table, circles = _get_tables_and_circles(path, cells_as_shapes, specs)
+    return_values = _get_tables_and_circles(path, cells_as_shapes, specs)
+    if cells_as_shapes:
+        table, circles = return_values
+    else:
+        table = return_values
     polygons = {}
 
     if nucleus_boundaries:

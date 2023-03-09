@@ -111,7 +111,9 @@ def visium(
         radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
         transformations={
-            "global": transform_original,
+            "global": Identity(),
+            "downscaled_hires": Identity(),
+            "downscaled_lowres": Identity(),
         },
     )
     shapes[dataset_id] = circles
