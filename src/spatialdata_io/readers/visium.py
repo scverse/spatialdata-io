@@ -135,9 +135,7 @@ def visium(
     else:
         raise FileNotFoundError(f"Cannot find {VisiumKeys.IMAGE_TIF_FILE} or {VisiumKeys.IMAGE_TIF_ALTERNATIVE_FILE}.")
 
-    full_image = (
-        imread(tif_path, **imread_kwargs).squeeze().transpose(2, 0, 1)
-    )
+    full_image = imread(tif_path, **imread_kwargs).squeeze().transpose(2, 0, 1)
     full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
 
     image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
