@@ -133,7 +133,7 @@ def visium(
     elif (path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}").exists():
         tif_path = path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}"
     else:
-        raise FileNotFoundError(f"Cannot find {VisiumKeys.IMAGE_TIF_FILE} or {VisiumKeys.IMAGE_TIF_ALTERNATIVE_FILE}.")
+        raise FileNotFoundError(f"Cannot find {VisiumKeys.IMAGE_TIF_SUFFIX} or {VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}.")
 
     full_image = imread(tif_path, **imread_kwargs).squeeze().transpose(2, 0, 1)
     full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
