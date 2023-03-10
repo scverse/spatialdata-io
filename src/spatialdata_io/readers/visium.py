@@ -40,6 +40,7 @@ def visium(
         - ``{vx.IMAGE_HIRES_FILE!r}``: High resolution image.
         - ``{vx.IMAGE_LOWRES_FILE!r}``: Low resolution image.
         - ``<dataset_id>_`{vx.IMAGE_TIF_SUFFIX!r}```: High resolution tif image.
+        - ``<dataset_id>_`{vx.IMAGE_TIF_ALTERNATIVE_SUFFIX!r}```: High resolution tif image, old naming convention.
         - ``{vx.SCALEFACTORS_FILE!r}``: Scalefactors file.
         - ``{vx.SPOTS_FILE!r}``: Spots positions file.
 
@@ -127,9 +128,16 @@ def visium(
     adata.obs["region"] = dataset_id
     table = TableModel.parse(adata, region=dataset_id, region_key="region", instance_key="spot_id")
 
-    full_image = (
-        imread(path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}", **imread_kwargs).squeeze().transpose(2, 0, 1)
-    )
+    if (path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}").exists():
+        tif_path = path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}"
+    elif (path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}").exists():
+        tif_path = path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}"
+    else:
+        raise FileNotFoundError(
+            f"Cannot find {VisiumKeys.IMAGE_TIF_SUFFIX} or {VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}."
+        )
+
+    full_image = imread(tif_path, **imread_kwargs).squeeze().transpose(2, 0, 1)
     full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
 
     image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
