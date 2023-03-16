@@ -18,9 +18,10 @@ from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialI
 from pyarrow import Table
 from shapely import Polygon
 from spatial_image import SpatialImage
-from spatialdata import Image2DModel, PointsModel, ShapesModel, SpatialData, TableModel
-from spatialdata._core.transformations import Identity, Scale
+from spatialdata import SpatialData
 from spatialdata._types import ArrayLike
+from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
+from spatialdata.transformations.transformations import Identity, Scale
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs

@@ -19,16 +19,11 @@ from scipy.sparse import csr_matrix
 # from spatialdata._core.core_utils import xy_cs
 from skimage.transform import estimate_transform
 from spatialdata import SpatialData
-from spatialdata._core.models import (
-    Image2DModel,
-    Labels2DModel,
-    PointsModel,
-    TableModel,
-)
+from spatialdata._logging import logger
+from spatialdata.models import Image2DModel, Labels2DModel, PointsModel, TableModel
 
 # from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
-from spatialdata._core.transformations import Affine, Identity
-from spatialdata._logging import logger
+from spatialdata.transformations.transformations import Affine, Identity
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs

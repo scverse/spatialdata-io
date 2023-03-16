@@ -11,9 +11,10 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 from dask_image.imread import imread
-from spatialdata import Image2DModel, ShapesModel, SpatialData, TableModel
-from spatialdata._core.transformations import Identity, Scale
+from spatialdata import SpatialData
 from spatialdata._logging import logger
+from spatialdata.models import Image2DModel, ShapesModel, TableModel
+from spatialdata.transformations.transformations import Identity, Scale
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumKeys

@@ -12,7 +12,8 @@ from anndata import AnnData
 from dask_image.imread import imread
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
 from spatial_image import SpatialImage
-from spatialdata import Image2DModel, Labels2DModel, SpatialData, TableModel
+from spatialdata import SpatialData
+from spatialdata.models import Image2DModel, Labels2DModel, TableModel
 
 from spatialdata_io._constants._constants import McmicroKeys
 
