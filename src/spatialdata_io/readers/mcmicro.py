@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -22,7 +21,6 @@ __all__ = ["mcmicro"]
 
 def mcmicro(
     path: str | Path,
-    dataset_id: str,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
@@ -39,6 +37,8 @@ def mcmicro(
         Path to the dataset.
     dataset_id
         Dataset identifier.
+    tma
+        Whether output is from a tissue microarray analysis
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -50,19 +50,34 @@ def mcmicro(
     """
     path = Path(path)
 
-    samples = os.listdir(path / McmicroKeys.IMAGES_DIR)
-    if len(samples) > 1:
-        raise ValueError("Only one sample per dataset is supported.")
-    if (dataset_id + McmicroKeys.IMAGE_SUFFIX) not in samples:
-        raise ValueError("Dataset id is not consistent with sample name.")
+    if (path / McmicroKeys.IMAGES_DIR_TMA).exists():
+        tma = True
+    else:
+        tma = False
+
+    if not tma:
+        image_dir = (path / McmicroKeys.IMAGES_DIR_WSI)
+        if not image_dir.exists():
+            raise ValueError(f"{path} does not contain {McmicroKeys.IMAGES_DIR_WSI} directory")
+
+        samples = list(image_dir.glob('*' + McmicroKeys.IMAGE_SUFFIX))
+        if len(samples) > 1:
+            raise ValueError("Only one sample per dataset is supported.")
+    else:
+        image_dir = (path / McmicroKeys.IMAGES_DIR_TMA)
+        samples = list(image_dir.glob('*' + McmicroKeys.IMAGE_SUFFIX))
 
     images = {}
-    images[f"{dataset_id}_image"] = _get_images(
-        path,
-        dataset_id,
-        imread_kwargs,
-        image_models_kwargs,
-    )
+    for sample in samples:
+        image_id = sample.with_name(sample.stem).with_suffix("").stem
+        if tma:
+            image_id = f"core_{image_id}"
+        images[f"{image_id}_image"] = _get_images(
+            sample,
+            imread_kwargs,
+            image_models_kwargs,
+        )
+
     labels = {}
     labels[f"{dataset_id}_cells"] = _get_labels(
         path,
@@ -86,11 +101,10 @@ def mcmicro(
 
 def _get_images(
     path: Path,
-    sample: str,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
-    image = imread(path / McmicroKeys.IMAGES_DIR / f"{sample}{McmicroKeys.IMAGE_SUFFIX}", **imread_kwargs)
+    image = imread(path, **imread_kwargs)
     return Image2DModel.parse(image, **image_models_kwargs)
 
 

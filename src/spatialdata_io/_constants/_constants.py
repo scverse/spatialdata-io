@@ -1,7 +1,5 @@
 from enum import unique
-
 from spatialdata_io._constants._enum import ModeEnum
-
 
 @unique
 class CosmxKeys(ModeEnum):
@@ -112,7 +110,8 @@ class McmicroKeys(ModeEnum):
     CELL_FEATURES_SUFFIX = "--unmicst_cell.csv"
     QUANTIFICATION_DIR = "quantification"
     MARKERS_FILE = "markers.csv"
-    IMAGES_DIR = "registration"
+    IMAGES_DIR_WSI = "registration"
+    IMAGES_DIR_TMA = "dearray"
     IMAGE_SUFFIX = ".ome.tif"
     LABELS_DIR = "segmentation"
     LABELS_PREFIX = "unmicst-"
