@@ -1,5 +1,7 @@
 from enum import unique
+
 from spatialdata_io._constants._enum import ModeEnum
+
 
 @unique
 class CosmxKeys(ModeEnum):

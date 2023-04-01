@@ -56,16 +56,16 @@ def mcmicro(
         tma = False
 
     if not tma:
-        image_dir = (path / McmicroKeys.IMAGES_DIR_WSI)
+        image_dir = path / McmicroKeys.IMAGES_DIR_WSI
         if not image_dir.exists():
             raise ValueError(f"{path} does not contain {McmicroKeys.IMAGES_DIR_WSI} directory")
 
-        samples = list(image_dir.glob('*' + McmicroKeys.IMAGE_SUFFIX))
+        samples = list(image_dir.glob("*" + McmicroKeys.IMAGE_SUFFIX))
         if len(samples) > 1:
             raise ValueError("Only one sample per dataset is supported.")
     else:
-        image_dir = (path / McmicroKeys.IMAGES_DIR_TMA)
-        samples = list(image_dir.glob('*' + McmicroKeys.IMAGE_SUFFIX))
+        image_dir = path / McmicroKeys.IMAGES_DIR_TMA
+        samples = list(image_dir.glob("*" + McmicroKeys.IMAGE_SUFFIX))
 
     images = {}
     for sample in samples:
@@ -79,22 +79,22 @@ def mcmicro(
         )
 
     labels = {}
-    labels[f"{dataset_id}_cells"] = _get_labels(
+    labels[f"{image_id}_cells"] = _get_labels(
         path,
-        dataset_id,
+        image_id,
         "cell",
         imread_kwargs,
         image_models_kwargs,
     )
-    labels[f"{dataset_id}_nuclei"] = _get_labels(
+    labels[f"{image_id}_nuclei"] = _get_labels(
         path,
-        dataset_id,
+        image_id,
         "nuclei",
         imread_kwargs,
         image_models_kwargs,
     )
 
-    table = _get_table(path, dataset_id)
+    table = _get_table(path, image_id)
 
     return SpatialData(images=images, labels=labels, table=table)
 
