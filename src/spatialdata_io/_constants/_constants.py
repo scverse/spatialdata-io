@@ -116,7 +116,6 @@ class McmicroKeys(ModeEnum):
     IMAGES_DIR_TMA = "dearray"
     IMAGE_SUFFIX = ".ome.tif"
     LABELS_DIR = "segmentation"
-    LABELS_PREFIX = "unmicst-"
 
     # metadata
     COORDS_X = "X_centroid"

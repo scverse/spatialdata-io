@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -23,6 +24,7 @@ def mcmicro(
     path: str | Path,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    label_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read a *Mcmicro* output into a SpatialData object.
@@ -43,6 +45,8 @@ def mcmicro(
         Keyword arguments to pass to the image reader.
     image_models_kwargs
         Keyword arguments to pass to the image models.
+    label_models_kwargs
+        Keyword arguments to pass to the label models
 
     Returns
     -------
@@ -72,30 +76,35 @@ def mcmicro(
         image_id = sample.with_name(sample.stem).with_suffix("").stem
         if tma:
             image_id = f"core_{image_id}"
+
         images[f"{image_id}_image"] = _get_images(
             sample,
             imread_kwargs,
             image_models_kwargs,
         )
 
+    samples_labels = list((path / McmicroKeys.LABELS_DIR).glob("*/*" + McmicroKeys.IMAGE_SUFFIX))
+
     labels = {}
-    labels[f"{image_id}_cells"] = _get_labels(
-        path,
-        image_id,
-        "cell",
-        imread_kwargs,
-        image_models_kwargs,
-    )
-    labels[f"{image_id}_nuclei"] = _get_labels(
-        path,
-        image_id,
-        "nuclei",
-        imread_kwargs,
-        image_models_kwargs,
-    )
+    for label_path in samples_labels:
+        if not tma:
+            segmentation_stem = label_path.with_name(label_path.stem).with_suffix("").stem
+            labels[f"{image_id}_{segmentation_stem}"] = _get_labels(
+                label_path,
+                imread_kwargs,
+                label_models_kwargs,
+            )
+        else:
+            segmentation_stem = label_path.with_name(label_path.stem).with_suffix("").stem
+            core_id_search = re.search(r"\d+$", label_path.parent.stem)
+            core_id = int(core_id_search.group()) if core_id_search else None
+            labels[f"core_{core_id}_{segmentation_stem}"] = _get_labels(
+                label_path,
+                imread_kwargs,
+                label_models_kwargs,
+            )
 
     table = _get_table(path, image_id)
-
     return SpatialData(images=images, labels=labels, table=table)
 
 
@@ -110,19 +119,14 @@ def _get_images(
 
 def _get_labels(
     path: Path,
-    sample: str,
-    labels_kind: str,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    label_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(
-        path
-        / McmicroKeys.LABELS_DIR
-        / f"{McmicroKeys.LABELS_PREFIX}{sample}"
-        / f"{labels_kind}{McmicroKeys.IMAGE_SUFFIX}",
+        path,
         **imread_kwargs,
     ).squeeze()
-    return Labels2DModel.parse(image, **image_models_kwargs)
+    return Labels2DModel.parse(image, **label_models_kwargs)
 
 
 def _get_table(
