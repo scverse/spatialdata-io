@@ -54,6 +54,7 @@ def mcmicro(
     """
     path = Path(path)
 
+    # Output directory dearray is specific for tissue micro array output of MCMICRO
     if (path / McmicroKeys.IMAGES_DIR_TMA).exists():
         tma = True
     else:
@@ -88,6 +89,7 @@ def mcmicro(
     labels = {}
     for label_path in samples_labels:
         if not tma:
+            # TODO: when support python >= 3.9 chance to str.removesuffix(McmicroKeys.IMAGE_SUFFIX)
             segmentation_stem = label_path.with_name(label_path.stem).with_suffix("").stem
             labels[f"{image_id}_{segmentation_stem}"] = _get_labels(
                 label_path,
@@ -104,7 +106,8 @@ def mcmicro(
                 label_models_kwargs,
             )
 
-    table = _get_table(path, image_id)
+    table = _get_table(path, tma)
+
     return SpatialData(images=images, labels=labels, table=table)
 
 
@@ -131,13 +134,58 @@ def _get_labels(
 
 def _get_table(
     path: Path,
-    sample: str,
+    tma: bool,
 ) -> AnnData:
-    table = pd.read_csv(path / McmicroKeys.QUANTIFICATION_DIR / f"{sample}{McmicroKeys.CELL_FEATURES_SUFFIX}")
     markers = pd.read_csv(path / McmicroKeys.MARKERS_FILE)
     markers.index = markers.marker_name
     var = markers.marker_name.tolist()
     coords = [McmicroKeys.COORDS_X.value, McmicroKeys.COORDS_Y.value]
+
+    table_paths = list((path / McmicroKeys.QUANTIFICATION_DIR).glob("*.csv"))
+    regions = []
+    adatas = None
+    for table_path in table_paths:
+        if not tma:
+            adata, region = _create_anndata(table_path, markers, var, coords, tma)
+
+            return TableModel.parse(
+                adata, region=region, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value
+            )
+        else:
+            adata, region = _create_anndata(table_path, markers, var, coords, tma)
+            regions.append(region)
+
+            if not adatas:
+                adatas = adata
+            else:
+                adatas = adatas.concatenate(adata, index_unique=None)
+
+    return TableModel.parse(adatas, region=regions, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value)
+
+
+def _create_anndata(
+    csv_path: Path,
+    markers: pd.DataFrame,
+    var: list[str],  # mypy has a bug with ellips, should be list[str, ...]
+    coords: list[str],
+    tma: bool,
+) -> tuple[AnnData, str]:
+    label_basename = csv_path.stem.split("_")[-1]
+    sample_id_search = re.search(r"^([a-zA-Z0-9-]*)--", csv_path.stem)
+    sample_id = sample_id_search.groups()[0] if sample_id_search else None
+    if not sample_id:
+        raise ValueError(
+            f"Csv filename should be in form <SAMPLE_ID>--<SEGMENTATION>_<LABEL_NAME>, got {csv_path.stem} "
+        )
+    table = pd.read_csv(csv_path)
+
+    if not tma:
+        region_value = sample_id + "_" + label_basename
+    else:
+        # Ensure unique CellIDs when concatenating anndata objects. Ensures unique values for INSTANCE_KEY
+        region_value = "core_" + sample_id + "_" + label_basename
+        table[McmicroKeys.INSTANCE_KEY] = "core_" + sample_id + "_" + table[McmicroKeys.INSTANCE_KEY].astype(str)
+    table.index = table[McmicroKeys.INSTANCE_KEY]
     adata = AnnData(
         table[var].to_numpy(),
         obs=table.drop(columns=var + coords),
@@ -145,8 +193,5 @@ def _get_table(
         obsm={"spatial": table[coords].to_numpy()},
         dtype=np.float_,
     )
-    adata.obs["region"] = f"{sample}_cells"
-
-    return TableModel.parse(
-        adata, region=f"{sample}_cells", region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value
-    )
+    adata.obs["region"] = region_value
+    return adata, region_value

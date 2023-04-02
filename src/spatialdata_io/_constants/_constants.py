@@ -109,7 +109,6 @@ class McmicroKeys(ModeEnum):
     """Keys for *Mcmicro* formatted dataset."""
 
     # files and directories
-    CELL_FEATURES_SUFFIX = "--unmicst_cell.csv"
     QUANTIFICATION_DIR = "quantification"
     MARKERS_FILE = "markers.csv"
     IMAGES_DIR_WSI = "registration"
