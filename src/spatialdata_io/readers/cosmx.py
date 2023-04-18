@@ -69,7 +69,7 @@ def cosmx(
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
-        Keyword arguments passed to :class:`spatialdata.Image2DModel`.
+        Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
 
     Returns
     -------
