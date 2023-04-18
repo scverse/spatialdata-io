@@ -148,7 +148,8 @@ def visium(
     image_lowres = DataArray(image_lowres, dims=("c", "y", "x"), name=dataset_id)
 
     full_image_parsed = Image2DModel.parse(
-        full_image,
+        # drop alpha channel
+        full_image.sel({"c": slice(0, 3)}),
         scale_factors=[2, 2, 2, 2],
         transformations={"global": transform_original},
         **image_models_kwargs,
