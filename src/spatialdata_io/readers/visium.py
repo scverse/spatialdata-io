@@ -11,9 +11,10 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 from dask_image.imread import imread
-from spatialdata import Image2DModel, ShapesModel, SpatialData, TableModel
-from spatialdata._core.transformations import Identity, Scale
+from spatialdata import SpatialData
 from spatialdata._logging import logger
+from spatialdata.models import Image2DModel, ShapesModel, TableModel
+from spatialdata.transformations.transformations import Identity, Scale
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumKeys
@@ -40,6 +41,7 @@ def visium(
         - ``{vx.IMAGE_HIRES_FILE!r}``: High resolution image.
         - ``{vx.IMAGE_LOWRES_FILE!r}``: Low resolution image.
         - ``<dataset_id>_`{vx.IMAGE_TIF_SUFFIX!r}```: High resolution tif image.
+        - ``<dataset_id>_`{vx.IMAGE_TIF_ALTERNATIVE_SUFFIX!r}```: High resolution tif image, old naming convention.
         - ``{vx.SCALEFACTORS_FILE!r}``: Scalefactors file.
         - ``{vx.SPOTS_FILE!r}``: Spots positions file.
 
@@ -56,7 +58,7 @@ def visium(
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
-        Keyword arguments passed to :class:`spatialdata.Image2DModel`.
+        Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
 
     Returns
     -------
@@ -88,7 +90,7 @@ def visium(
 
     coords = pd.read_csv(
         path / VisiumKeys.SPOTS_FILE,
-        header=1,
+        header=0,
         index_col=0,
     )
     coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
@@ -104,14 +106,13 @@ def visium(
 
     transform_original = Identity()
     transform_lowres = Scale(
-        1 / np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
+        np.array([scalefactors[VisiumKeys.SCALEFACTORS_LOWRES], scalefactors[VisiumKeys.SCALEFACTORS_LOWRES]]),
         axes=("y", "x"),
     )
     transform_hires = Scale(
-        1 / np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
+        np.array([scalefactors[VisiumKeys.SCALEFACTORS_HIRES], scalefactors[VisiumKeys.SCALEFACTORS_HIRES]]),
         axes=("y", "x"),
     )
-
     shapes = {}
     circles = ShapesModel.parse(
         coords,
@@ -119,7 +120,7 @@ def visium(
         radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
         transformations={
-            "global": Identity(),
+            "global": transform_original,
             "downscaled_hires": transform_hires,
             "downscaled_lowres": transform_lowres,
         },
@@ -128,9 +129,16 @@ def visium(
     adata.obs["region"] = dataset_id
     table = TableModel.parse(adata, region=dataset_id, region_key="region", instance_key="spot_id")
 
-    full_image = (
-        imread(path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}", **imread_kwargs).squeeze().transpose(2, 0, 1)
-    )
+    if (path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}").exists():
+        tif_path = path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_SUFFIX}"
+    elif (path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}").exists():
+        tif_path = path / f"{dataset_id}{VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}"
+    else:
+        raise FileNotFoundError(
+            f"Cannot find {VisiumKeys.IMAGE_TIF_SUFFIX} or {VisiumKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}."
+        )
+
+    full_image = imread(tif_path, **imread_kwargs).squeeze().transpose(2, 0, 1)
     full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
 
     image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
@@ -140,18 +148,20 @@ def visium(
     image_lowres = DataArray(image_lowres, dims=("c", "y", "x"), name=dataset_id)
 
     full_image_parsed = Image2DModel.parse(
-        full_image,
+        # drop alpha channel
+        full_image.sel({"c": slice(0, 3)}),
         scale_factors=[2, 2, 2, 2],
         transformations={"global": transform_original},
         **image_models_kwargs,
     )
-    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled_hires": transform_hires})
-    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"downscaled_lowres": transform_lowres})
+
+    image_hires_parsed = Image2DModel.parse(image_hires, transformations={"downscaled_hires": Identity()})
+    image_lowres_parsed = Image2DModel.parse(image_lowres, transformations={"downscaled_lowres": Identity()})
 
     images = {
-        dataset_id + "_full_image": full_image_parsed,
-        dataset_id + "_hires_image": image_hires_parsed,
         dataset_id + "_lowres_image": image_lowres_parsed,
+        dataset_id + "_hires_image": image_hires_parsed,
+        dataset_id + "_full_image": full_image_parsed,
     }
 
     return SpatialData(images=images, shapes=shapes, table=table)

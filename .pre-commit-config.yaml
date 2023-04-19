@@ -7,7 +7,7 @@ default_stages:
 minimum_pre_commit_version: 2.16.0
 repos:
     - repo: https://github.com/psf/black
-      rev: 23.1.0
+      rev: 23.3.0
       hooks:
           - id: black
     - repo: https://github.com/pre-commit/mirrors-prettier
@@ -23,10 +23,10 @@ repos:
       hooks:
           - id: isort
     - repo: https://github.com/pre-commit/mirrors-mypy
-      rev: v1.0.1
+      rev: v1.2.0
       hooks:
           - id: mypy
-            additional_dependencies: [numpy==1.24.0]
+            additional_dependencies: [numpy]
             exclude: docs/
     - repo: https://github.com/asottile/yesqa
       rev: v1.4.0
@@ -50,7 +50,7 @@ repos:
           - id: trailing-whitespace
           - id: check-case-conflict
     - repo: https://github.com/PyCQA/autoflake
-      rev: v2.0.1
+      rev: v2.0.2
       hooks:
           - id: autoflake
             args:

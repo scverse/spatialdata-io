@@ -15,4 +15,6 @@ I/O for the `spatialdata` project.
     cosmx
     visium
     xenium
+    steinbock
+    mcmicro
 ```
