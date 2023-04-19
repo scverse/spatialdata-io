@@ -42,7 +42,7 @@ def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict]]):
         valid_boundaries = [path for path in plausible_boundaries if path.exists()]
 
         assert (
-            not valid_boundaries
+            valid_boundaries
         ), f"Boundary file not found - expected to find one of these files: {', '.join(plausible_boundaries)}"
 
         return vpt_outputs / MerfishKeys.COUNTS_FILE, vpt_outputs / MerfishKeys.CELL_METADATA_FILE, valid_boundaries[0]
@@ -120,7 +120,7 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
         adata,
         region_key="region",
         region=adata.obs["region"].cat.categories.tolist(),
-        instance_key=MerfishKeys.INSTANCE_KEY,
+        instance_key=MerfishKeys.INSTANCE_KEY.value,
     )
 
     return SpatialData(table=table, shapes=shapes, points=points, images=images)
