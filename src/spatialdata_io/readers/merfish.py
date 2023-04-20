@@ -17,13 +17,13 @@ from spatialdata_io._constants._constants import MerfishKeys
 from spatialdata_io._docs import inject_docs
 
 
-def _scan_images(images_dir: Path) -> Tuple[List]:
+def _scan_images(images_dir: Path) -> tuple[list]:
     """Searches inside the image directory and get all the different channels (stainings) and all the z-levels (usually 0...6)"""
     exp = r"mosaic_(?P<stain>[\w|-]+[0-9]?)_z(?P<z>[0-9]+).tif"
     matches = [re.search(exp, file.name) for file in images_dir.iterdir()]
 
-    stainings = set(match.group("stain") for match in matches if match)
-    z_levels = set(match.group("z") for match in matches if match)
+    stainings = {match.group("stain") for match in matches if match}
+    z_levels = {match.group("z") for match in matches if match}
 
     return list(stainings), list(z_levels)
 
