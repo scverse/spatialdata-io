@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import anndata
 import geopandas
@@ -17,14 +17,15 @@ from spatialdata_io._constants._constants import MerfishKeys
 from spatialdata_io._docs import inject_docs
 
 
-def _scan_images(images_dir: Path) -> Tuple[set]:
+def _scan_images(images_dir: Path) -> Tuple[List]:
+    """Searches inside the image directory and get all the different channels (stainings) and all the z-levels (usually 0...6)"""
     exp = r"mosaic_(?P<stain>[\w|-]+[0-9]?)_z(?P<z>[0-9]+).tif"
     matches = [re.search(exp, file.name) for file in images_dir.iterdir()]
 
-    stains = set(match.group("stain") for match in matches if match)
+    stainings = set(match.group("stain") for match in matches if match)
     z_levels = set(match.group("z") for match in matches if match)
 
-    return stains, z_levels
+    return list(stainings), list(z_levels)
 
 
 def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict]]):
@@ -43,7 +44,7 @@ def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict]]):
 
         assert (
             valid_boundaries
-        ), f"Boundary file not found - expected to find one of these files: {', '.join(plausible_boundaries)}"
+        ), f"Boundary file not found - expected to find one of these files: {', '.join(map(str, plausible_boundaries))}"
 
         return vpt_outputs / MerfishKeys.COUNTS_FILE, vpt_outputs / MerfishKeys.CELL_METADATA_FILE, valid_boundaries[0]
 
@@ -79,11 +80,14 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
     ### Images
     images = {}
 
-    stains, z_levels = _scan_images(images_dir)
+    stainings, z_levels = _scan_images(images_dir)
     for z in z_levels:
-        im = da.stack([imread(images_dir / f"mosaic_{stain}_z{z}.tif").squeeze() for stain in stains], axis=0)
+        im = da.stack([imread(images_dir / f"mosaic_{stain}_z{z}.tif").squeeze() for stain in stainings], axis=0)
         parsed_im = Image2DModel.parse(
-            im, dims=("c", "y", "x"), transformations={"pixels": Identity(), "microns": microns_to_pixels.inverse()}
+            im,
+            dims=("c", "y", "x"),
+            transformations={"pixels": Identity(), "microns": microns_to_pixels.inverse()},
+            c_coords=stainings,
         )
         images[f"z{z}"] = parsed_im
 
@@ -123,4 +127,4 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
         instance_key=MerfishKeys.INSTANCE_KEY.value,
     )
 
-    return SpatialData(table=table, shapes=shapes, points=points, images=images)
+    return SpatialData(shapes=shapes, points=points, images=images, table=table)
