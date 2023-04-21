@@ -3,11 +3,11 @@ from pathlib import Path
 from typing import Optional, Union
 
 import anndata
+import dask.dataframe as dd
 import geopandas
 import numpy as np
 import pandas as pd
 from dask import array as da
-import dask.dataframe as dd
 from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
@@ -102,17 +102,19 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
     )
     # points = {"transcripts": transcripts}
     points = {}
-    gene_categorical = dd.from_pandas(transcripts['gene'].compute().astype('category'), npartitions=transcripts.npartitions).reset_index(drop=True)
-    transcripts['gene'] = gene_categorical
+    gene_categorical = dd.from_pandas(
+        transcripts["gene"].compute().astype("category"), npartitions=transcripts.npartitions
+    ).reset_index(drop=True)
+    transcripts["gene"] = gene_categorical
 
     # split the transcripts into the different z-levels
-    z = transcripts['z'].compute()
+    z = transcripts["z"].compute()
     z_levels = z.value_counts().index
     z_levels = sorted(z_levels, key=lambda x: int(x))
     for z_level in z_levels:
         transcripts_subset = transcripts[z == z_level]
         # temporary solution until the 3D support is better developed
-        transcripts_subset = transcripts_subset.drop('z', axis=1)
+        transcripts_subset = transcripts_subset.drop("z", axis=1)
         points[f"transcripts_z{int(z_level)}"] = transcripts_subset
 
     ### Polygons
