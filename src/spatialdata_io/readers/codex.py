@@ -1,25 +1,13 @@
 from __future__ import annotations
 
-import json
-import os
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
 
-import numpy as np
-import pandas as pd
-from dask_image.imread import imread
 from spatialdata import SpatialData
-from spatialdata._logging import logger
-from spatialdata.models import Image2DModel, ShapesModel, TableModel
-from spatialdata.transformations.transformations import Identity, Scale
-from xarray import DataArray
 
-from spatialdata_io._constants._constants import VisiumKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io.readers._utils._utils import _read_counts
 
 __all__ = ["codex"]
 
