@@ -4,6 +4,16 @@ from spatialdata_io._constants._enum import ModeEnum
 
 
 @unique
+class CodexKeys(ModeEnum):
+    """Keys for *CODEX* formatted dataset."""
+
+    # files and directories
+    FCS = ".fcs"
+    CSV = ".csv"  
+
+    # images  
+
+@unique
 class CosmxKeys(ModeEnum):
     """Keys for *Nanostring Cosmx* formatted dataset."""
 
