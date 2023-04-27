@@ -29,7 +29,6 @@ __all__ = ["codex"]
 @inject_docs(vx=CodexKeys)
 def codex(
     path: str | Path,
-    dataset_id: Optional[str] = None,
     fcs: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -74,27 +73,14 @@ def codex(
         #counts = fcs.data.iloc[:, 9:]
         adata = ad.AnnData(counts)
         adata.obs = fcs[fcs.columns.drop(list(fcs.filter(regex='cyc.*')))]
-        adata.obs.set_index('"cell_id:cell_id"', inplace=True, drop=False)
-        adata.obsm["spatial"] = fcs[['"x:x"', '"y:y"']].values
+        adata.obs.set_index('cell_id', inplace=True, drop=False)
+        adata.obsm["spatial"] = fcs[['x', 'y']].values
         adata.var_names_make_unique()
     else:
         raise ValueError(
             f"Cannot determine the library_id. Expecting a file with format <library_id>_{CodexKeys.FCS_FILE}. Has "
             f"the files been renamed?"
         )
-    if dataset_id is not None:
-        if dataset_id != library_id:
-            logger.warning(
-                f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` "
-                f"will be used to build SpatialData."
-            )
-    else:
-        dataset_id = library_id
-
-    # TODO
-    # - images
-
-
 
     table = TableModel.parse(adata, region=dataset_id, region_key="region:region", instance_key="cell_id:cell_id")
 
