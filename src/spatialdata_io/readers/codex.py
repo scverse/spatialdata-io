@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 from collections.abc import Mapping
@@ -8,20 +7,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
 
-import numpy as np
-import pandas as pd
 import anndata as ad
 import readfcs
-from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata._logging import logger
-from spatialdata.models import Image2DModel, ShapesModel, TableModel
-from spatialdata.transformations.transformations import Identity, Scale
-from xarray import DataArray
+from spatialdata.models import TableModel
 
 from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io.readers._utils._utils import _read_counts
 
 __all__ = ["codex"]
 
@@ -67,10 +60,10 @@ def codex(
     patt = re.compile(f".*{CodexKeys.FCS_FILE}")
     first_file = [i for i in os.listdir(path) if patt.match(i)][0]
     if f"_{CodexKeys.FCS_FILE}" in first_file:
-            # read the .fcs table
-        fcs = readfcs.ReadFCS()        
-        counts = fcs.filter(regex='cyc.*')
-        #counts = fcs.data.iloc[:, 9:]
+        # read the .fcs table
+        fcs = readfcs.ReadFCS()
+        counts = fcs.filter(regex="cyc.*")
+        # counts = fcs.data.iloc[:, 9:]
         adata = ad.AnnData(counts)
         adata.obs = fcs[fcs.columns.drop(list(fcs.filter(regex='cyc.*')))]
         adata.obs.set_index('cell_id', inplace=True, drop=False)
@@ -85,15 +78,15 @@ def codex(
     table = TableModel.parse(adata, region=dataset_id, region_key="region:region", instance_key="cell_id:cell_id")
 
     if (path / f"{dataset_id}{CodexKeys.IMAGE_TIF_SUFFIX}").exists():
-        tif_path = path / f"{dataset_id}{CodexKeys.IMAGE_TIF_SUFFIX}"
+        path / f"{dataset_id}{CodexKeys.IMAGE_TIF_SUFFIX}"
     else:
         raise FileNotFoundError(
             f"Cannot find {CodexKeys.IMAGE_TIF_SUFFIX} or {CodexKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}."
         )
 
-    image = iio.imread(path / '.tif')
-    segmentation = iio.imread(path / 'segmentation.tif')
+    image = iio.imread(path / ".tif")
+    segmentation = iio.imread(path / "segmentation.tif")
 
-    images = { 'images': SpatialData.Image2DModel.parse(image) }
-    labels = { 'labels': SpatialData.Labels2DModel.parse(segmentation,  dims=("y", "x")) }
+    images = {"images": SpatialData.Image2DModel.parse(image)}
+    labels = {"labels": SpatialData.Labels2DModel.parse(segmentation, dims=("y", "x"))}
     return SpatialData(images=images, labels=labels, table=table)
