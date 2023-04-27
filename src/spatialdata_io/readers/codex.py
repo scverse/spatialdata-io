@@ -5,12 +5,11 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Optional
+from typing import Any
 
 import anndata as ad
 import readfcs
 from spatialdata import SpatialData
-from spatialdata._logging import logger
 from spatialdata.models import TableModel
 
 from spatialdata_io._constants._constants import CodexKeys
@@ -65,9 +64,9 @@ def codex(
         counts = fcs.filter(regex="cyc.*")
         # counts = fcs.data.iloc[:, 9:]
         adata = ad.AnnData(counts)
-        adata.obs = fcs[fcs.columns.drop(list(fcs.filter(regex='cyc.*')))]
-        adata.obs.set_index('cell_id', inplace=True, drop=False)
-        adata.obsm["spatial"] = fcs[['x', 'y']].values
+        adata.obs = fcs[fcs.columns.drop(list(fcs.filter(regex="cyc.*")))]
+        adata.obs.set_index("cell_id", inplace=True, drop=False)
+        adata.obsm["spatial"] = fcs[["x", "y"]].values
         adata.var_names_make_unique()
     else:
         raise ValueError(
