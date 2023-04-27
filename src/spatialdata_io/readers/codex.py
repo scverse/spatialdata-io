@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 from collections.abc import Mapping
@@ -8,9 +7,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
 
+import anndata as ad
 import numpy as np
 import pandas as pd
-import anndata as ad
 from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata._logging import logger
@@ -99,8 +98,8 @@ def codex(
         header=0,
         index_col=0,
     )
-    obs = fcs[fcs.columns.drop(list(fcs.filter(regex='cyc.*')))]
-    counts = fcs.filter(regex='cyc.*')
+    obs = fcs[fcs.columns.drop(list(fcs.filter(regex="cyc.*")))]
+    counts = fcs.filter(regex="cyc.*")
     adata = ad.AnnData(counts)
     adata.obs = obs
     adata.obs.set_index('"cell_id:cell_id"', inplace=True)
