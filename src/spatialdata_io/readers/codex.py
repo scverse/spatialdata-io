@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Mapping
@@ -7,11 +8,16 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
 
-import anndata as ad
+import numpy as np
 import pandas as pd
+import anndata as ad
+import readfcs
+from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata._logging import logger
-from spatialdata.models import TableModel
+from spatialdata.models import Image2DModel, ShapesModel, TableModel
+from spatialdata.transformations.transformations import Identity, Scale
+from xarray import DataArray
 
 from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
@@ -62,7 +68,15 @@ def codex(
     patt = re.compile(f".*{CodexKeys.FCS_FILE}")
     first_file = [i for i in os.listdir(path) if patt.match(i)][0]
     if f"_{CodexKeys.FCS_FILE}" in first_file:
-        library_id = first_file.replace(f"_{CodexKeys.FCS_FILE}", "")
+            # read the .fcs table
+        fcs = readfcs.ReadFCS()        
+        counts = fcs.filter(regex='cyc.*')
+        #counts = fcs.data.iloc[:, 9:]
+        adata = ad.AnnData(counts)
+        adata.obs = fcs[fcs.columns.drop(list(fcs.filter(regex='cyc.*')))]
+        adata.obs.set_index('"cell_id:cell_id"', inplace=True, drop=False)
+        adata.obsm["spatial"] = fcs[['"x:x"', '"y:y"']].values
+        adata.var_names_make_unique()
     else:
         raise ValueError(
             f"Cannot determine the library_id. Expecting a file with format <library_id>_{CodexKeys.FCS_FILE}. Has "
@@ -77,39 +91,23 @@ def codex(
     else:
         dataset_id = library_id
 
-    adata, library_id = _read_counts(
-        path, count_file=f"{library_id}_{CodexKeys.FCS_FILE}", library_id=library_id, **kwargs
-    )
-
     # TODO
     # - images
 
-    # read the .fcs table
-    fcs = pd.read_csv(
-        path / CodexKeys.FCS_FILE,
-        header=0,
-        index_col=None,
-    )
-    obs = fcs[fcs.columns.drop(list(fcs.filter(regex="cyc.*")))]
-    counts = fcs.filter(regex="cyc.*")
-    adata = ad.AnnData(counts)
-    adata.obs = obs
-    adata.obs.set_index('"cell_id:cell_id"', inplace=True, drop=False)
-    adata.obsm["spatial"] = fcs[['"x:x"', '"y:y"']].values
-    adata.var_names_make_unique()
+
 
     table = TableModel.parse(adata, region=dataset_id, region_key="region:region", instance_key="cell_id:cell_id")
 
     if (path / f"{dataset_id}{CodexKeys.IMAGE_TIF_SUFFIX}").exists():
-        path / f"{dataset_id}{CodexKeys.IMAGE_TIF_SUFFIX}"
+        tif_path = path / f"{dataset_id}{CodexKeys.IMAGE_TIF_SUFFIX}"
     else:
         raise FileNotFoundError(
             f"Cannot find {CodexKeys.IMAGE_TIF_SUFFIX} or {CodexKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}."
         )
 
-    image = iio.imread(path / ".tif")
-    segmentation = iio.imread(path / "segmentation.tif")
+    image = iio.imread(path / '.tif')
+    segmentation = iio.imread(path / 'segmentation.tif')
 
-    images = {"images": SpatialData.Image2DModel.parse(image)}
-    labels = {"labels": SpatialData.Labels2DModel.parse(segmentation, dims=("y", "x"))}
+    images = { 'images': SpatialData.Image2DModel.parse(image) }
+    labels = { 'labels': SpatialData.Labels2DModel.parse(segmentation,  dims=("y", "x")) }
     return SpatialData(images=images, labels=labels, table=table)
