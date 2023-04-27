@@ -9,9 +9,10 @@ class CodexKeys(ModeEnum):
 
     # files and directories
     FCS = ".fcs"
-    CSV = ".csv"  
+    CSV = ".csv"
 
-    # images  
+    # images
+
 
 @unique
 class CosmxKeys(ModeEnum):
