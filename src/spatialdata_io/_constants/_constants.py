@@ -10,15 +10,11 @@ class CodexKeys(ModeEnum):
     # files and directories
     FCS_FILE = ".fcs"
     FCS_FILE_CSV = ".csv"
-
     # metadata
-    ANNOTATIONS = "annotations.csv"
-    EXPRESSION = "expression.csv"
-    MARKERS = "markers.csv"
-
+    REGION_KEY = "region"
+    INSTANCE_KEY = "cell_id"
     # images
     IMAGES_TIF = ".tif"
-    SEGMENTATION_TIF = "segmentation.tif"
 
 
 @unique
