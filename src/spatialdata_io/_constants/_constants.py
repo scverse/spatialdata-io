@@ -14,7 +14,7 @@ class CodexKeys(ModeEnum):
     REGION_KEY = "region"
     INSTANCE_KEY = "cell_id"
     # images
-    IMAGES_TIF = ".tif"
+    IMAGE_TIF = ".tif"
 
 
 @unique

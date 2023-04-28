@@ -12,6 +12,7 @@ import imageio.v3 as iio
 import pandas as pd
 import readfcs
 from spatialdata import SpatialData
+from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, TableModel
 
 from spatialdata_io._constants._constants import CodexKeys
@@ -55,7 +56,6 @@ def codex(
     -------
     :class:`spatialdata.SpatialData`
     """
-
     path = Path(path)
     patt = re.compile(f"{CodexKeys.FCS_FILE}") if fcs else re.compile(f"{CodexKeys.FCS_FILE_CSV}")
     path_files = [i for i in os.listdir(path) if patt.match(i)]
@@ -66,9 +66,9 @@ def codex(
             else pd.read_csv(path_files[0], header=0, index_col=None)
         )
     else:
-        raise ValueError(f"Cannot determine data set. Expecting a file with format .fcs or .csv")
+        raise ValueError("Cannot determine data set. Expecting a file with format .fcs or .csv")
 
-    adata = _codex_df_to_anndata(fcs)
+    adata = _df_to_anndata(fcs)
 
     region = adata.obs[f"{CodexKeys.REGION_KEY}"].unique()[0].tolist()
     table = TableModel.parse(
@@ -93,9 +93,9 @@ def codex(
     return sdata
 
 
-def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
+def _df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
     """
-    Convert a dataframe made from a codex formatted .fcs or .csv file to anndata.
+    Convert a DataFrame to an anndata object.
     """
     adata = ad.AnnData(df.filter(regex="cyc.*"))
     adata.obs = df[df.columns.drop(list(df.filter(regex="cyc.*")))]
