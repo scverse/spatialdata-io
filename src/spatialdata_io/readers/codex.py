@@ -88,7 +88,7 @@ def codex(
 
 def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
     """
-    Convert a dataframe made from a codex formatted {CodexKeys.FCS_FILE} or {CodexKeys.FCS_FILE_CSV} file to anndata.
+    Convert a dataframe made from a codex formatted .fcs or .csv file to anndata.
     """
     adata = ad.AnnData(df.filter(regex="cyc.*"))
     adata.obs = df[df.columns.drop(list(df.filter(regex='cyc.*')))]
