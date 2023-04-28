@@ -5,14 +5,13 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 import anndata as ad
 import readfcs
 import imageio.v3 as iio
 from spatialdata import SpatialData
-from spatialdata._logging import logger
 from spatialdata.models import TableModel
 from spatialdata.models import Image2DModel
 
@@ -85,11 +84,6 @@ def codex(
             )
         sdata = SpatialData(table=table)
 
-
-    #segmentation = iio.imread(path / "segmentation.tif")
-
-    #labels = {"labels": SpatialData.Labels2DModel.parse(segmentation, dims=("y", "x"))}
-    #return SpatialData(images=images, labels=labels, table=table)
     return sdata
 
 def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
