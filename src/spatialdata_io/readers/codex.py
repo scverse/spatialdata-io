@@ -24,7 +24,6 @@ __all__ = ["codex"]
 @inject_docs(vx=CodexKeys)
 def codex(
     path: str | Path,
-    fcs: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
@@ -45,8 +44,6 @@ def codex(
     ----------
     path
         Path to the directory containing the data.
-    fcs
-        Whether a .fcs file is provided. If False, a .csv file is expected.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -78,11 +75,12 @@ def codex(
     im_patt = re.compile(f"{CodexKeys.IMAGE_TIF}")
     path_files = [i for i in os.listdir(path) if im_patt.match(i)]
     if path_files and f"{CodexKeys.IMAGE_TIF}" in path_files[0]:
-        image = iio.imread(path_files[0])
+        image = iio.imread(path_files[0], **imread_kwargs)
         images = {
             "images": Image2DModel.parse(
                 image,
                 scale_factors=[2, 2, 2, 2],
+                **image_models_kwargs,
             )
         }
         sdata = SpatialData(image=images, table=table)
