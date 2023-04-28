@@ -7,11 +7,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
 
+import pandas as pd
 import anndata as ad
 import readfcs
+import imageio.v3 as iio
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import TableModel
+from spatialdata.models import Image2DModel
 
 from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
@@ -43,8 +46,8 @@ def codex(
     ----------
     path
         Path to the directory containing the data.
-    dataset_id
-        Dataset identifier.
+    fcs
+        Whether a .fcs file is provided. If False, a .csv file is expected.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -56,37 +59,46 @@ def codex(
     """
 
     path = Path(path)
-    # get library_id
-    patt = re.compile(f".*{CodexKeys.FCS_FILE}")
-    first_file = [i for i in os.listdir(path) if patt.match(i)][0]
-    if f"_{CodexKeys.FCS_FILE}" in first_file:
-        # read the .fcs table
-        fcs = readfcs.ReadFCS()
-        counts = fcs.filter(regex="cyc.*")
-        # counts = fcs.data.iloc[:, 9:]
-        adata = ad.AnnData(counts)
-        adata.obs = fcs[fcs.columns.drop(list(fcs.filter(regex='cyc.*')))]
-        adata.obs.set_index('cell_id', inplace=True, drop=False)
-        adata.obsm["spatial"] = fcs[['x', 'y']].values
-        adata.var_names_make_unique()
+    patt = re.compile(f"{CodexKeys.FCS_FILE}") if fcs else re.compile(f"{CodexKeys.FCS_FILE_CSV}") 
+    path_files = [i for i in os.listdir(path) if patt.match(i)]
+    if path_files and f"{CodexKeys.FCS_FILE}" or f"{CodexKeys.FCS_FILE_CSV}" in path_files[0]:
+        fcs = readfcs.ReadFCS(path_files[0]).data if f"{CodexKeys.FCS_FILE}" in path_files[0] else pd.read_csv(path_files[0], header=0, index_col=None)
     else:
         raise ValueError(
-            f"Cannot determine the library_id. Expecting a file with format <library_id>_{CodexKeys.FCS_FILE}. Has "
-            f"the files been renamed?"
+            f"Cannot determine data set. Expecting a file with format .fcs or .csv"
         )
 
-    table = TableModel.parse(adata, region=dataset_id, region_key="region:region", instance_key="cell_id:cell_id")
+    adata = _codex_df_to_anndata(fcs)
 
-    if (path / f"{dataset_id}{CodexKeys.IMAGE_TIF_SUFFIX}").exists():
-        path / f"{dataset_id}{CodexKeys.IMAGE_TIF_SUFFIX}"
+    region = adata.obs[f"{CodexKeys.REGION_KEY}"].unique()[0].tolist()
+    table = TableModel.parse(adata, region=region, region_key=f"{CodexKeys.REGION_KEY}", instance_key=f"{CodexKeys.INSTANCE_KEY}")
+
+    im_patt = re.compile(f"{CodexKeys.IMAGE_TIF}") 
+    path_files = [i for i in os.listdir(path) if im_patt.match(i)]
+    if path_files and f"{CodexKeys.IMAGE_TIF}" in path_files[0]:
+        image = iio.imread(path_files[0])
+        images = {"images": Image2DModel.parse(image,scale_factors=[2, 2, 2, 2],)}
+        sdata = SpatialData(image=images, table=table)
     else:
-        raise FileNotFoundError(
-            f"Cannot find {CodexKeys.IMAGE_TIF_SUFFIX} or {CodexKeys.IMAGE_TIF_ALTERNATIVE_SUFFIX}."
-        )
+        logger.warning(
+                f"Cannot find {CodexKeys.IMAGE_TIF} file. Will build spatialdata with table only."
+            )
+        sdata = SpatialData(table=table)
 
-    image = iio.imread(path / ".tif")
-    segmentation = iio.imread(path / "segmentation.tif")
 
-    images = {"images": SpatialData.Image2DModel.parse(image)}
-    labels = {"labels": SpatialData.Labels2DModel.parse(segmentation, dims=("y", "x"))}
-    return SpatialData(images=images, labels=labels, table=table)
+    #segmentation = iio.imread(path / "segmentation.tif")
+
+    #labels = {"labels": SpatialData.Labels2DModel.parse(segmentation, dims=("y", "x"))}
+    #return SpatialData(images=images, labels=labels, table=table)
+    return sdata
+
+def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
+    """
+    Convert a dataframe made from a codex formatted {CodexKeys.FCS_FILE} or {CodexKeys.FCS_FILE_CSV} file to anndata.
+    """
+    adata = ad.AnnData(df.filter(regex="cyc.*"))
+    adata.obs = df[df.columns.drop(list(df.filter(regex='cyc.*')))]
+    adata.obs.set_index('cell_id', inplace=True, drop=False)
+    adata.obsm["spatial"] = df[['x', 'y']].values
+    adata.var_names_make_unique()
+    return adata

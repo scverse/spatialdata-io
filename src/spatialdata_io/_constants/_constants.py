@@ -8,7 +8,6 @@ class CodexKeys(ModeEnum):
     """Keys for *CODEX* formatted dataset."""
 
     # files and directories
-<<<<<<< HEAD
     FCS_FILE = ".fcs"
     FCS_FILE_CSV = ".csv"
 
@@ -20,13 +19,6 @@ class CodexKeys(ModeEnum):
     # images
     IMAGES_TIF = ".tif"
     SEGMENTATION_TIF = "segmentation.tif"
-=======
-    FCS = ".fcs"
-    CSV = ".csv"
-
-    # images
-
->>>>>>> dd4ee7edcdee4f76f0d8c67c3ade1b26dc554de4
 
 @unique
 class CosmxKeys(ModeEnum):
