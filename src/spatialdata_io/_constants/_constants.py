@@ -20,6 +20,7 @@ class CodexKeys(ModeEnum):
     IMAGES_TIF = ".tif"
     SEGMENTATION_TIF = "segmentation.tif"
 
+
 @unique
 class CosmxKeys(ModeEnum):
     """Keys for *Nanostring Cosmx* formatted dataset."""
