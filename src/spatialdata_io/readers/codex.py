@@ -94,9 +94,7 @@ def codex(
 
 
 def _df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
-    """
-    Convert a DataFrame to an anndata object.
-    """
+    """Convert a DataFrame to an anndata object."""
     adata = ad.AnnData(df.filter(regex="cyc.*"))
     adata.obs = df[df.columns.drop(list(df.filter(regex="cyc.*")))]
     adata.obs.set_index("cell_id", inplace=True, drop=False)
