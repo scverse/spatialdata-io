@@ -24,6 +24,7 @@ __all__ = ["codex"]
 @inject_docs(vx=CodexKeys)
 def codex(
     path: str | Path,
+    fcs: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
@@ -44,6 +45,8 @@ def codex(
     ----------
     path
         Path to the directory containing the data.
+    fcs
+        Whether a ``.fcs`` is provided. If ``False``, a ``.csv`` file is expected.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -56,10 +59,10 @@ def codex(
     path = Path(path)
     patt = re.compile(f"{CodexKeys.FCS_FILE}") if fcs else re.compile(f"{CodexKeys.FCS_FILE_CSV}")
     path_files = [i for i in os.listdir(path) if patt.match(i)]
-    if path_files and f"{CodexKeys.FCS_FILE}" or f"{CodexKeys.FCS_FILE_CSV}" in path_files[0]:
+    if path_files:
         fcs = (
             readfcs.ReadFCS(path_files[0]).data
-            if f"{CodexKeys.FCS_FILE}" in path_files[0]
+            if f"{CodexKeys.FCS_FILE}" in patt.pattern
             else pd.read_csv(path_files[0], header=0, index_col=None)
         )
     else:
