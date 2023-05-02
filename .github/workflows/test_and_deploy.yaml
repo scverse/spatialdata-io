@@ -4,7 +4,7 @@ on:
     push:
         branches: [main]
         tags:
-            - "v[0-9]+(\.[0-9]+)*(-?(rc|alpha|beta)(\.[0-9]+)?)" # Push events to matching v*, i.e. v1.0, v20.15.10, v1.0-rc.1, v2.1-alpha, v3.0-beta.3
+            - "v[0-9]+(\\.[0-9]+)*(-?(rc|alpha|beta)(\\.[0-9]+)?)" # Push events to matching v*, i.e. v1.0, v20.15.10, v1.0-rc.1, v2.1-alpha, v3.0-beta.3
     pull_request:
         branches: [main]
 
