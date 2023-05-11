@@ -49,7 +49,11 @@ def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict]]):
         return vpt_outputs / MerfishKeys.COUNTS_FILE, vpt_outputs / MerfishKeys.CELL_METADATA_FILE, valid_boundaries[0]
 
     if isinstance(vpt_outputs, dict):
-        raise NotImplementedError()
+        return (
+            vpt_outputs[MerfishKeys.VPT_NAME_COUNTS],
+            vpt_outputs[MerfishKeys.VPT_NAME_OBS],
+            vpt_outputs[MerfishKeys.VPT_NAME_BOUNDARIES],
+        )
 
     raise ValueError(f"'vpt_outputs' has to be either None, a str, a Path, or a dict. Found type {type(vpt_outputs)}.")
 
@@ -64,7 +68,7 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
     path
         Path to the root directory containing the *Merfish* files (e.g., `detected_transcripts.csv`).
     vpt_outputs
-        Optional arguments to indicate the output of the vizgen-postprocessing-tool (VPT), when used. If a folder path is provided, it looks inside the folder for the following files: ``{mf.COUNTS_FILE!r}``, ``{mf.CELL_METADATA_FILE!r}``, and a boundary parquet file. If a dictionnary, then the following keys can be provided: `cell_by_gene`, `cell_metadata`, `boundaries` with the desired path as the value.
+        Optional arguments to indicate the output of the vizgen-postprocessing-tool (VPT), when used. If a folder path is provided, it looks inside the folder for the following files: ``{mf.COUNTS_FILE!r}``, ``{mf.CELL_METADATA_FILE!r}``, and a boundary parquet file. If a dictionnary, then the following keys can be provided: ``{mf.VPT_NAME_COUNTS!r}``, ``{mf.VPT_NAME_OBS!r}``, ``{mf.VPT_NAME_BOUNDARIES!r}`` with the desired path as the value.
 
     Returns
     -------
@@ -103,6 +107,7 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
     ### Polygons
     geo_df = geopandas.read_parquet(boundaries_path)
     geo_df = geo_df.rename_geometry("geometry")
+    geo_df = geo_df[geo_df[MerfishKeys.Z_INDEX] == 0]  # Avoid duplicate boundaries on all z-levels
     geo_df.index = geo_df[MerfishKeys.INSTANCE_KEY].astype(str)
 
     polygons = ShapesModel.parse(geo_df, transformations={"microns": Identity(), "pixels": microns_to_pixels})

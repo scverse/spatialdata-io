@@ -138,6 +138,9 @@ class MerfishKeys(ModeEnum):
     # VPT default outputs
     CELLPOSE_BOUNDARIES = "cellpose_micron_space.parquet"
     WATERSHED_BOUNDARIES = "watershed_micron_space.parquet"
+    VPT_NAME_COUNTS = "cell_by_gene"
+    VPT_NAME_OBS = "cell_metadata"
+    VPT_NAME_BOUNDARIES = "cell_boundaries"
 
     # metadata
     INSTANCE_KEY = "EntityID"
@@ -147,3 +150,4 @@ class MerfishKeys(ModeEnum):
     GLOBAL_X = "global_x"
     GLOBAL_Y = "global_y"
     GLOBAL_Z = "global_z"
+    Z_INDEX = "ZIndex"
