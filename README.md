@@ -11,11 +11,11 @@
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
--   Nanostring CosMx
--   mcmicro
--   steinbock
--   10X Genomics Visium
--   10X Genomics Xenium
+-   NanoString CosMx
+-   MCMICRO
+-   Steinbock
+-   10x Genomics Visium
+-   10x Genomics Xenium
 
 ## Getting started
 
