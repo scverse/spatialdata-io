@@ -9,7 +9,7 @@
 [link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test_and_deploy.yaml
 [badge-docs]: https://img.shields.io/readthedocs/spatialdata-io
 
-SpatialData IO for common technologies. Currently, we provide support for:
+This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
 -   Nanostring CosMx
 -   mcmicro
@@ -30,7 +30,7 @@ Python installed, we recommend installing [Miniconda](https://docs.conda.io/en/l
 
 There are several alternative options to install spatialdata-io:
 
-1. Install the latest release of `spatialdata-io` from `PyPI <https://pypi.org/project/spatialdata-io/>`\_:
+1. Install the latest release of `spatialdata-io` from [PyPI](https://pypi.org/project/spatialdata-io/):
 
 ```bash
 pip install spatialdata-io
