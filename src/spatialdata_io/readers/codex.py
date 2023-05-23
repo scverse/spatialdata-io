@@ -56,9 +56,8 @@ def codex(
     -------
     :class:`spatialdata.SpatialData`
     """
-
     path = Path(path)
-    patt = re.compile(f".*.fcs") if fcs else re.compile(f".*.csv")
+    patt = re.compile(".*.fcs") if fcs else re.compile(".*.csv")
     path_files = [i for i in os.listdir(path) if patt.match(i)]
     if path_files and ".fcs" or ".csv" in patt.pattern:
         fcs = (
@@ -67,14 +66,14 @@ def codex(
             else pd.read_csv(path_files[0], header=0, index_col=None)
         )
     else:
-        raise ValueError(f"Cannot determine data set. Expecting a file with format .fcs or .csv")
+        raise ValueError("Cannot determine data set. Expecting a file with format .fcs or .csv")
 
     adata = _codex_df_to_anndata(fcs)
 
     region = adata.obs["region"].unique()[0].tolist()
     table = TableModel.parse(adata, region=region, region_key="region", instance_key="cell_id")
 
-    im_patt = re.compile(f".*.tif")
+    im_patt = re.compile(".*.tif")
     path_files = [i for i in os.listdir(path) if im_patt.match(i)]
     if path_files and ".tif" in path_files[0]:
         image = iio.imread(path_files[0])
@@ -86,16 +85,14 @@ def codex(
         }
         sdata = SpatialData(images=images, table=table)
     else:
-        logger.warning(f"Cannot find .tif file. Will build spatialdata with table only.")
+        logger.warning("Cannot find .tif file. Will build spatialdata with table only.")
         sdata = SpatialData(table=table)
 
     return sdata
 
 
 def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
-    """
-    Convert a dataframe made from a codex formatted .fcs or .csv file to anndata.
-    """
+    """Convert a codex formatted .fcs dataframe or .csv file to anndata."""
     adata = ad.AnnData(df.filter(regex="cyc.*"))
     adata.obs = df[df.columns.drop(list(df.filter(regex="cyc.*")))]
     adata.obsm["spatial"] = df[["x", "y"]].values
