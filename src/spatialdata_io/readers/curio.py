@@ -49,7 +49,6 @@ def curio(
     -------
     :class:`spatialdata.SpatialData`
     """
-
     path = Path(path)
     path_files = [
         CurioKeys.ANNDATA_FILE,
@@ -64,7 +63,7 @@ def curio(
     else:
         file_names = []
         for file_name in path_files:
-            file_names.extend(path.glob(file_name))
+            file_names.extend(str(path.glob(file_name)))
 
     adata = ad.read_h5ad(path / file_names[0])
     cluster_assign = pd.read_csv(path / file_names[1], sep="\t", header=None)
