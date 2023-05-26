@@ -28,32 +28,29 @@ def _read_counts(
     **kwargs: Any,
 ) -> tuple[AnnData, str]:
     path = Path(path)
-    library_id_: Optional[str] = None
     if count_file.endswith(".h5"):
         adata: AnnData = _read_10x_h5(path / count_file, **kwargs)
         with File(path / count_file, mode="r") as f:
             attrs = dict(f.attrs)
-            try:
-                lid = attrs.pop("library_ids")[0]
-                library_id_ = lid.decode("utf-8") if isinstance(lid, bytes) else str(lid)
-            except ValueError:
-                raise KeyError("Unable to extract library id from attributes. Please specify one explicitly.") from None
-            if library_id is not None:
-                if library_id != library_id_:
-                    raise ValueError(
-                        f"library_id {library_id} does not match library_id {library_id_} in the file. Check the output file."
-                    )
+            if library_id is None:
+                try:
+                    lid = attrs.pop("library_ids")[0]
+                    library_id = lid.decode("utf-8") if isinstance(lid, bytes) else str(lid)
+                except ValueError:
+                    raise KeyError(
+                        "Unable to extract library id from attributes. Please specify one explicitly."
+                    ) from None
 
-            adata.uns["spatial"] = {library_id_: {"metadata": {}}}  # can overwrite
+            adata.uns["spatial"] = {library_id: {"metadata": {}}}  # can overwrite
             for key in ["chemistry_description", "software_version"]:
                 if key not in attrs:
                     continue
                 metadata = attrs[key].decode("utf-8") if isinstance(attrs[key], bytes) else attrs[key]
-                adata.uns["spatial"][library_id_]["metadata"][key] = metadata
+                adata.uns["spatial"][library_id]["metadata"][key] = metadata
 
-        return adata, library_id_
+        return adata, library_id
 
-    if library_id_ is None:
+    if library_id is None:
         raise ValueError("Please explicitly specify library id.")
 
     if count_file.endswith((".csv", ".txt")):
@@ -63,5 +60,5 @@ def _read_counts(
     else:
         raise NotImplementedError("TODO")
 
-    adata.uns["spatial"] = {library_id_: {"metadata": {}}}  # can overwrite
-    return adata, library_id_
+    adata.uns["spatial"] = {library_id: {"metadata": {}}}  # can overwrite
+    return adata, library_id
