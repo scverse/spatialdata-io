@@ -8,7 +8,7 @@ class CurioKeys(ModeEnum):
     """Keys for *Curio* formatted dataset."""
 
     # files and directories
-    ANNDATA_FILE = ".h5ad"
+    ANNDATA_FILE = "anndata.h5ad"
     CLUSTER_ASSIGNMENT = "cluster_assignment.txt"
     METRICS_FILE = "Metrics.csv"
     VAR_FEATURES_CLUSTERS = "variable_features_clusters.txt"

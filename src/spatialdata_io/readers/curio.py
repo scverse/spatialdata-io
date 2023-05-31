@@ -30,20 +30,12 @@ def curio(
         - ``<dataset_id>_`{vx.VAR_FEATURES_CLUSTERS!r}```: Variable features clusters file.
         - ``<dataset_id>_`{vx.VAR_FEATURES_MORANSI!r}```: Variable features Moran's I file.
 
-    .. seealso::
-
-        - `CODEX output <https://help.codex.bio/codex/processor/technical-notes/expected-output>`_.
-
     Parameters
     ----------
     path
         Path to the directory containing the data.
     dataset_id
         Dataset identifier.
-    imread_kwargs
-        Keyword arguments passed to :func:`dask_image.imread.imread`.
-    image_models_kwargs
-        Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
 
     Returns
     -------
