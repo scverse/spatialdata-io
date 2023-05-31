@@ -43,13 +43,13 @@ def curio(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
-    path_files = [
+    path_files = (
         CurioKeys.ANNDATA_FILE,
         CurioKeys.CLUSTER_ASSIGNMENT,
         CurioKeys.METRICS_FILE,
         CurioKeys.VAR_FEATURES_CLUSTERS,
         CurioKeys.VAR_FEATURES_MORANSI,
-    ]
+    )
 
     if dataset_id is not None:
         file_names = [f"{dataset_id}_{file_name}" for file_name in path_files]
