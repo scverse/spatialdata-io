@@ -12,7 +12,7 @@ class CurioKeys(ModeEnum):
     CLUSTER_ASSIGNMENT = "cluster_assignment.txt"
     METRICS_FILE = "Metrics.csv"
     VAR_FEATURES_CLUSTERS = "variable_features_clusters.txt"
-    VAR_FEATURES_MORANSI = "variable_features_moransi.txt"
+    VAR_FEATURES_MORANSI = "variable_features_spatial_moransi.txt"
     # metadata
     CATEGORY = "Category"
     TOP_CLUSTER_DEFINING_FEATURES = "Top_cluster_defining_features"

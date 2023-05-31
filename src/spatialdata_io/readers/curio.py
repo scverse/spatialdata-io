@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 import anndata as ad
+import os
 import pandas as pd
 from spatialdata import SpatialData
 from spatialdata.models import TableModel
@@ -54,8 +55,9 @@ def curio(
         file_names = [f"{dataset_id}_{file_name}" for file_name in path_files]
     else:
         file_names = []
-        for file_name in path_files:
-            file_names.extend(str(path.glob(file_name)))
+        for i in os.listdir(path):
+            if os.path.isfile(os.path.join(path,i)) and i.endswith(path_files):
+                file_names.append(i)
 
     adata = ad.read_h5ad(path / file_names[0])
     cluster_assign = pd.read_csv(path / file_names[1], sep="\t", header=None)
