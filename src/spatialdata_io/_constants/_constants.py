@@ -13,6 +13,7 @@ class CodexKeys(ModeEnum):
     # metadata
     REGION_KEY = "region"
     INSTANCE_KEY = "cell_id"
+    SPATIAL_KEY = "spatial"
     # images
     IMAGE_TIF = ".tif"
 

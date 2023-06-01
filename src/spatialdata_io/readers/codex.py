@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any
 
 import anndata as ad
 import imageio.v3 as iio
@@ -25,9 +22,6 @@ __all__ = ["codex"]
 def codex(
     path: str | Path,
     fcs: bool = True,
-    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    **kwargs: Any,
 ) -> SpatialData:
     """
     Read *CODEX* formatted dataset.
@@ -59,10 +53,10 @@ def codex(
     path = Path(path)
     patt = re.compile(".*.fcs") if fcs else re.compile(".*.csv")
     path_files = [i for i in os.listdir(path) if patt.match(i)]
-    if path_files and ".fcs" or ".csv" in patt.pattern:
+    if path_files and CodexKeys.FCS_FILE or CodexKeys.FCS_FILE_CSV in patt.pattern:
         fcs = (
             readfcs.ReadFCS(path / path_files[0]).data
-            if ".fcs" in path_files[0]
+            if CodexKeys.FCS_FILE in path_files[0]
             else pd.read_csv(path_files[0], header=0, index_col=None)
         )
     else:
@@ -70,12 +64,12 @@ def codex(
 
     adata = _codex_df_to_anndata(fcs)
 
-    region = adata.obs["region"].unique()[0].tolist()
-    table = TableModel.parse(adata, region=region, region_key="region", instance_key="cell_id")
+    region = adata.obs[CodexKeys.REGION_KEY].unique()[0].tolist()
+    table = TableModel.parse(adata, region=region, region_key=CodexKeys.REGION_KEY, instance_key=CodexKeys.INSTANCE_KEY)
 
     im_patt = re.compile(".*.tif")
     path_files = [i for i in os.listdir(path) if im_patt.match(i)]
-    if path_files and ".tif" in path_files[0]:
+    if path_files and CodexKeys.IMAGE_TIF in path_files[0]:
         image = iio.imread(path_files[0])
         images = {
             "images": Image2DModel.parse(
@@ -95,6 +89,6 @@ def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
     """Convert a codex formatted .fcs dataframe or .csv file to anndata."""
     adata = ad.AnnData(df.filter(regex="cyc.*"))
     adata.obs = df[df.columns.drop(list(df.filter(regex="cyc.*")))]
-    adata.obsm["spatial"] = df[["x", "y"]].values
+    adata.obsm[CodexKeys.SPATIAL] = df[["x", "y"]].values
     adata.var_names_make_unique()
     return adata
