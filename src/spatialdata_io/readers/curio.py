@@ -72,7 +72,9 @@ def curio(
         adata.uns[cat] = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
     adata.uns[CurioKeys.TOP_CLUSTER_DEFINING_FEATURES] = var_features_clusters
     adata.var.join(var_features_moransi, how="outer")
+    adata.obs[CurioKeys.REGION_KEY] = CurioKeys.REGION
+    adata.obs[CurioKeys.INSTANCE_KEY] = adata.obs.index
 
-    table = TableModel.parse(adata)
+    table = TableModel.parse(adata, region=CurioKeys.REGION, region_key=CurioKeys.REGION_KEY ,instance=CurioKeys.INSTANCE)
 
     return SpatialData(table=table)
