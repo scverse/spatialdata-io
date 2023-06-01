@@ -75,6 +75,8 @@ def curio(
     adata.obs[CurioKeys.REGION_KEY] = CurioKeys.REGION
     adata.obs[CurioKeys.INSTANCE_KEY] = adata.obs.index
 
-    table = TableModel.parse(adata, region=CurioKeys.REGION, region_key=CurioKeys.REGION_KEY ,instance=CurioKeys.INSTANCE)
+    table = TableModel.parse(
+        adata, region=CurioKeys.REGION, region_key=CurioKeys.REGION_KEY, instance=CurioKeys.INSTANCE
+    )
 
     return SpatialData(table=table)
