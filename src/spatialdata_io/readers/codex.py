@@ -89,6 +89,6 @@ def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
     """Convert a codex formatted .fcs dataframe or .csv file to anndata."""
     adata = ad.AnnData(df.filter(regex="cyc.*"))
     adata.obs = df[df.columns.drop(list(df.filter(regex="cyc.*")))]
-    adata.obsm[CodexKeys.SPATIAL] = df[["x", "y"]].values
+    adata.obsm[CodexKeys.SPATIAL_KEY] = df[["x", "y"]].values
     adata.var_names_make_unique()
     return adata
