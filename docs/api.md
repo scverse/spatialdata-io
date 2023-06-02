@@ -13,6 +13,7 @@ I/O for the `spatialdata` project.
     :toctree: generated
 
     codex
+    curio
     cosmx
     visium
     xenium

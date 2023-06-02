@@ -18,6 +18,20 @@ class CodexKeys(ModeEnum):
     IMAGE_TIF = ".tif"
 
 
+class CurioKeys(ModeEnum):
+    """Keys for *Curio* formatted dataset."""
+
+    # files and directories
+    ANNDATA_FILE = ".h5ad"
+    CLUSTER_ASSIGNMENT = "cluster_assignment.txt"
+    METRICS_FILE = "Metrics.csv"
+    VAR_FEATURES_CLUSTERS = "variable_features_clusters.txt"
+    VAR_FEATURES_MORANSI = "variable_features_moransi.txt"
+    # metadata
+    CATEGORY = "Category"
+    TOP_CLUSTER_DEFINING_FEATURES = "Top_cluster_defining_features"
+
+
 @unique
 class CosmxKeys(ModeEnum):
     """Keys for *Nanostring Cosmx* formatted dataset."""
