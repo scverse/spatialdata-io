@@ -19,11 +19,13 @@ This package contains reader functions to load common spatial omics formats into
 -   Curio
 
 Coming soon:
-- Vizgen MERSCOPE (MERFISH)
-- Spatial Genomics seqFISH
+
+-   Vizgen MERSCOPE (MERFISH)
+-   Spatial Genomics seqFISH
 
 Also coming soon:
-- Common image converters: .jpg <> .zarr
+
+-   Common image converters: .jpg <> .zarr
 
 ## Getting started
 
