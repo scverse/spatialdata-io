@@ -12,10 +12,18 @@
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
 -   NanoString CosMx
--   MCMICRO
--   Steinbock
+-   MCMICRO (output data)
+-   Steinbock (output data)
 -   10x Genomics Visium
 -   10x Genomics Xenium
+-   Curio
+
+Coming soon:
+- Vizgen MERSCOPE (MERFISH)
+- Spatial Genomics seqFISH
+
+Also coming soon:
+- Common image converters: .jpg <> .zarr
 
 ## Getting started
 
