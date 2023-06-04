@@ -12,10 +12,20 @@
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
 -   NanoString CosMx
--   MCMICRO
--   Steinbock
+-   MCMICRO (output data)
+-   Steinbock (output data)
 -   10x Genomics Visium
 -   10x Genomics Xenium
+-   Curio
+
+Coming soon:
+
+-   Vizgen MERSCOPE (MERFISH)
+-   Spatial Genomics seqFISH
+
+Also coming soon:
+
+-   Common image converters: .jpg <> .zarr
 
 ## Getting started
 
@@ -53,6 +63,6 @@ If you found a bug, please use the [issue tracker][issue-tracker].
 
 [scverse-discourse]: https://discourse.scverse.org/
 [issue-tracker]: https://github.com/scverse/spatialdata-io/issues
-[changelog]: https://spatialdata-io.readthedocs.io/latest/changelog.html
-[link-docs]: https://spatialdata-io.readthedocs.io
-[link-api]: https://spatialdata-io.readthedocs.io/latest/api.html
+[changelog]: https://spatialdata.scverse.org/projects/io/en/latest/changelog.html
+[link-docs]: https://spatialdata.scverse.org/projects/io/en/latest/
+[link-api]: https://spatialdata.scverse.org/projects/io/en/latest/api.html
