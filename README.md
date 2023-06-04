@@ -16,7 +16,7 @@ This package contains reader functions to load common spatial omics formats into
 -   Steinbock (output data)
 -   10x Genomics Visium
 -   10x Genomics Xenium
--   Curio
+-   Curio Seeker
 
 Coming soon:
 
