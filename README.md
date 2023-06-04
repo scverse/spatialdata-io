@@ -53,6 +53,6 @@ If you found a bug, please use the [issue tracker][issue-tracker].
 
 [scverse-discourse]: https://discourse.scverse.org/
 [issue-tracker]: https://github.com/scverse/spatialdata-io/issues
-[changelog]: https://spatialdata.scverse.org/en/latest/changelog.html
-[link-docs]: https://spatialdata.scverse.org
+[changelog]: https://spatialdata.scverse.org/projects/io/en/latest/changelog.html
+[link-docs]: https://spatialdata.scverse.org/projects/io/en/latest/
 [link-api]: https://spatialdata.scverse.org/projects/io/en/latest/api.html
