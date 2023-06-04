@@ -22,6 +22,7 @@ Coming soon:
 
 -   Vizgen MERSCOPE (MERFISH)
 -   Spatial Genomics seqFISH
+-   Akoya PhenoCycler (formerly CODEX)
 
 Also coming soon:
 
