@@ -61,7 +61,7 @@ def codex(
     adata = _codex_df_to_anndata(fcs)
 
     xy = adata.obsm[CodexKeys.SPATIAL_KEY]
-    shapes = ShapesModel.parse(xy, geometry=0, radius=10, index=adata.obs[CodexKeys.INSTANCE_KEY])
+    shapes = ShapesModel.parse(xy, geometry=0, radius=1, index=adata.obs[CodexKeys.INSTANCE_KEY])
     region = adata.obs[CodexKeys.REGION_KEY].unique()[0].tolist()
     table = TableModel.parse(adata, region=region, region_key=CodexKeys.REGION_KEY, instance_key=CodexKeys.INSTANCE_KEY)
 
