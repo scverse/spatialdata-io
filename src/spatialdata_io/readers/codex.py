@@ -82,6 +82,7 @@ def codex(
 
     return sdata
 
+
 def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
     """Convert a codex formatted .fcs dataframe or .csv file to anndata."""
     adata = ad.AnnData(df.filter(regex="cyc.*"))
