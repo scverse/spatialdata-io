@@ -10,7 +10,7 @@ import pandas as pd
 import readfcs
 from spatialdata import SpatialData
 from spatialdata._logging import logger
-from spatialdata.models import Image2DModel, TableModel
+from spatialdata.models import Image2DModel, ShapesModel, TableModel
 
 from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
@@ -41,10 +41,6 @@ def codex(
         Path to the directory containing the data.
     fcs
         Whether a .fcs file is provided. If False, a .csv file is expected.
-    imread_kwargs
-        Keyword arguments passed to :func:`dask_image.imread.imread`.
-    image_models_kwargs
-        Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
 
     Returns
     -------
@@ -64,6 +60,8 @@ def codex(
 
     adata = _codex_df_to_anndata(fcs)
 
+    xy = adata.obsm[CodexKeys.SPATIAL_KEY]
+    shapes = ShapesModel.parse(xy, geometry=0, radius=10, index=adata.obs[CodexKeys.INSTANCE_KEY])
     region = adata.obs[CodexKeys.REGION_KEY].unique()[0].tolist()
     table = TableModel.parse(adata, region=region, region_key=CodexKeys.REGION_KEY, instance_key=CodexKeys.INSTANCE_KEY)
 
@@ -77,13 +75,12 @@ def codex(
                 scale_factors=[2, 2],
             )
         }
-        sdata = SpatialData(images=images, table=table)
+        sdata = SpatialData(images=images, shapes=shapes, table=table)
     else:
-        logger.warning("Cannot find .tif file. Will build spatialdata with table only.")
-        sdata = SpatialData(table=table)
+        logger.warning("Cannot find .tif file. Will build spatialdata with shapes and table only.")
+        sdata = SpatialData(shapes=shapes, table=table)
 
     return sdata
-
 
 def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:
     """Convert a codex formatted .fcs dataframe or .csv file to anndata."""
