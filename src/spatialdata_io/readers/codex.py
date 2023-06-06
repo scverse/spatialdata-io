@@ -68,7 +68,6 @@ def codex(
 
     # convert list of one element to string
 
-
     im_patt = re.compile(".*.tif")
     path_files = [i for i in os.listdir(path) if im_patt.match(i)]
     if path_files and CodexKeys.IMAGE_TIF in path_files[0]:
@@ -79,10 +78,10 @@ def codex(
                 scale_factors=[2, 2],
             )
         }
-        sdata = SpatialData(images=images, shapes={''.join(str(x) for x in region): shapes}, table=table)
+        sdata = SpatialData(images=images, shapes={"".join(str(x) for x in region): shapes}, table=table)
     else:
         logger.warning("Cannot find .tif file. Will build spatialdata with shapes and table only.")
-        sdata = SpatialData(shapes={''.join(str(x) for x in region): shapes}, table=table)
+        sdata = SpatialData(shapes={"".join(str(x) for x in region): shapes}, table=table)
 
     return sdata
 
