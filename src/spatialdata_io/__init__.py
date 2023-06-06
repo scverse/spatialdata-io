@@ -6,6 +6,7 @@ from spatialdata_io.readers.mcmicro import mcmicro
 from spatialdata_io.readers.steinbock import steinbock
 from spatialdata_io.readers.visium import visium
 from spatialdata_io.readers.xenium import xenium
+from spatialdata_io.readers.iss import iss
 
 __all__ = [
     "curio",
@@ -14,6 +15,7 @@ __all__ = [
     "cosmx",
     "mcmicro",
     "steinbock",
+    "iss",
 ]
 
 __version__ = version("spatialdata-io")
