@@ -8,14 +8,6 @@ from spatialdata_io.readers.visium import visium
 from spatialdata_io.readers.xenium import xenium
 from spatialdata_io.utils.get_table import get_table
 
-__all__ = [
-    "curio",
-    "visium",
-    "xenium",
-    "cosmx",
-    "mcmicro",
-    "steinbock",
-    "get_table"
-]
+__all__ = ["curio", "visium", "xenium", "cosmx", "mcmicro", "steinbock", "get_table"]
 
 __version__ = version("spatialdata-io")
