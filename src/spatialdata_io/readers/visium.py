@@ -69,6 +69,9 @@ def visium(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
+    imread_kwargs = dict(imread_kwargs)
+    image_models_kwargs = dict(image_models_kwargs)
+
     # get library_id
     patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
     first_file = [i for i in os.listdir(path) if patt.match(i)][0]
@@ -140,6 +143,10 @@ def visium(
     if fullres_image_file is not None:
         fullres_image_file = path / Path(fullres_image_file)
         if fullres_image_file.exists():
+            if "MAX_IMAGE_PIXELS" in imread_kwargs:
+                from PIL import Image as ImagePIL
+
+                ImagePIL.MAX_IMAGE_PIXELS = imread_kwargs.pop("MAX_IMAGE_PIXELS")
             full_image = imread(fullres_image_file, **imread_kwargs).squeeze().transpose(2, 0, 1)
             full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
             images[dataset_id + "_full_image"] = Image2DModel.parse(
