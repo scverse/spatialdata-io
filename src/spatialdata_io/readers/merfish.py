@@ -77,7 +77,7 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
     microns_to_pixels = np.genfromtxt(images_dir / MerfishKeys.TRANSFORMATION_FILE)
     microns_to_pixels = Affine(microns_to_pixels, input_axes=("x", "y"), output_axes=("x", "y"))
 
-    ### Images
+    # Images
     images = {}
 
     stainings, z_levels = _scan_images(images_dir)
@@ -92,7 +92,7 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
         )
         images[f"z{z}"] = parsed_im
 
-    ### Transcripts
+    # Transcripts
     transcript_df = dd.read_csv(path / MerfishKeys.TRANSCRIPTS_FILE)
     transcripts = PointsModel.parse(
         transcript_df,
@@ -117,7 +117,7 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
         transcripts_subset = transcripts_subset.drop("z", axis=1)
         points[f"transcripts_z{int(z_level)}"] = transcripts_subset
 
-    ### Polygons
+    # Polygons
     geo_df = geopandas.read_parquet(boundaries_path)
     geo_df = geo_df.rename_geometry("geometry")
     geo_df.index = geo_df[MerfishKeys.INSTANCE_KEY].astype(str)
@@ -126,7 +126,7 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
     # polygons = ShapesModel.parse(geo_df, transformations={"microns": Identity(), "pixels": microns_to_pixels})
     shapes = {"polygons": polygons}
 
-    ### Table
+    # Table
     data = pd.read_csv(count_path, index_col=0, dtype={MerfishKeys.COUNTS_CELL_KEY: str})
     obs = pd.read_csv(obs_path, index_col=0, dtype={MerfishKeys.INSTANCE_KEY: str})
 
