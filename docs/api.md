@@ -12,6 +12,7 @@ I/O for the `spatialdata` project.
 .. autosummary::
     :toctree: generated
 
+    curio
     cosmx
     visium
     xenium

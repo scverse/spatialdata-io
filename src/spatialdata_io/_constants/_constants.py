@@ -4,6 +4,24 @@ from spatialdata_io._constants._enum import ModeEnum
 
 
 @unique
+class CurioKeys(ModeEnum):
+    """Keys for *Curio* formatted dataset."""
+
+    # files and directories
+    ANNDATA_FILE = "anndata.h5ad"
+    CLUSTER_ASSIGNMENT = "cluster_assignment.txt"
+    METRICS_FILE = "Metrics.csv"
+    VAR_FEATURES_CLUSTERS = "variable_features_clusters.txt"
+    VAR_FEATURES_MORANSI = "variable_features_spatial_moransi.txt"
+    # metadata
+    CATEGORY = "Category"
+    REGION = "cells"
+    REGION_KEY = "region"
+    INSTANCE_KEY = "instance_id"
+    TOP_CLUSTER_DEFINING_FEATURES = "Top_cluster_defining_features"
+
+
+@unique
 class CosmxKeys(ModeEnum):
     """Keys for *Nanostring Cosmx* formatted dataset."""
 
@@ -75,8 +93,6 @@ class VisiumKeys(ModeEnum):
     # images
     IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
     IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
-    IMAGE_TIF_SUFFIX = "_tissue_image.tif"
-    IMAGE_TIF_ALTERNATIVE_SUFFIX = "_image.tif"
 
     # scalefactors
     SCALEFACTORS_FILE = "spatial/scalefactors_json.json"
@@ -84,7 +100,8 @@ class VisiumKeys(ModeEnum):
     SCALEFACTORS_LOWRES = "tissue_lowres_scalef"
 
     # spots
-    SPOTS_FILE = "spatial/tissue_positions.csv"
+    SPOTS_FILE_1 = "spatial/tissue_positions_list.csv"
+    SPOTS_FILE_2 = "spatial/tissue_positions.csv"
     SPOTS_X = "pxl_row_in_fullres"
     SPOTS_Y = "pxl_col_in_fullres"
 
