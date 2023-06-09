@@ -93,8 +93,6 @@ class VisiumKeys(ModeEnum):
     # images
     IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
     IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
-    IMAGE_TIF_SUFFIX = "_tissue_image.tif"
-    IMAGE_TIF_ALTERNATIVE_SUFFIX = "_image.tif"
 
     # scalefactors
     SCALEFACTORS_FILE = "spatial/scalefactors_json.json"
@@ -102,7 +100,8 @@ class VisiumKeys(ModeEnum):
     SCALEFACTORS_LOWRES = "tissue_lowres_scalef"
 
     # spots
-    SPOTS_FILE = "spatial/tissue_positions.csv"
+    SPOTS_FILE_1 = "spatial/tissue_positions_list.csv"
+    SPOTS_FILE_2 = "spatial/tissue_positions.csv"
     SPOTS_X = "pxl_row_in_fullres"
     SPOTS_Y = "pxl_col_in_fullres"
 
