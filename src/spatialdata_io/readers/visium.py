@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -26,7 +28,7 @@ __all__ = ["visium"]
 def visium(
     path: str | Path,
     dataset_id: Optional[str] = None,
-    tiff_path: Optional[str | Path] = None,
+    fullres_image_file: Optional[str | Path] = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
@@ -42,6 +44,7 @@ def visium(
         - ``{vx.SCALEFACTORS_FILE!r}``: Scalefactors file.
         - ``{vx.SPOTS_FILE_1!r}`` (SpaceRanger 1) or ``{vx.SPOTS_FILE_2!r}`` (SpaceRanger 2):
             Spots positions file.
+        - ``fullres_image_file``: large microscopy image used as input for space ranger.
 
     .. seealso::
 
@@ -54,8 +57,8 @@ def visium(
     dataset_id
         Dataset identifier. If not given will be determined automatically
         from the ``{vx.COUNTS_FILE!r}`` file.
-    tiff_path
-        Path to the full-resolution TIFF image.
+    fullres_image_file
+        Path to the full-resolution image.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -66,8 +69,28 @@ def visium(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
+    # get library_id
+    patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
+    first_file = [i for i in os.listdir(path) if patt.match(i)][0]
+    if f"_{VisiumKeys.COUNTS_FILE}" in first_file:
+        library_id = first_file.replace(f"_{VisiumKeys.COUNTS_FILE}", "")
+    else:
+        raise ValueError(
+            f"Cannot determine the library_id. Expecting a file with format <library_id>_{VisiumKeys.COUNTS_FILE}. Has "
+            f"the files been renamed?"
+        )
+    if dataset_id is not None:
+        if dataset_id != library_id:
+            logger.warning(
+                f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` "
+                f"will be used to build SpatialData."
+            )
+    else:
+        dataset_id = library_id
 
-    adata, dataset_id = _read_counts(path, count_file=VisiumKeys.COUNTS_FILE, library_id=dataset_id, **kwargs)
+    adata, dataset_id = _read_counts(
+        path, count_file=f"{library_id}_{VisiumKeys.COUNTS_FILE}", library_id=dataset_id, **kwargs
+    )
 
     if (path / VisiumKeys.SPOTS_FILE_1).exists():
         coords = pd.read_csv(path / VisiumKeys.SPOTS_FILE_1, header=None, index_col=0)
@@ -114,20 +137,19 @@ def visium(
     table = TableModel.parse(adata, region=dataset_id, region_key="region", instance_key="spot_id")
 
     images = {}
-    if tiff_path is not None:
-        tiff_path = Path(tiff_path)
-        if tiff_path.exists():
-            full_image = imread(tiff_path, **imread_kwargs).squeeze().transpose(2, 0, 1)
+    if fullres_image_file is not None:
+        fullres_image_file = path / Path(fullres_image_file)
+        if fullres_image_file.exists():
+            full_image = imread(fullres_image_file, **imread_kwargs).squeeze().transpose(2, 0, 1)
             full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
+            images[dataset_id + "_full_image"] = Image2DModel.parse(
+                full_image,
+                scale_factors=[2, 2, 2, 2],
+                transformations={"global": transform_original},
+                **image_models_kwargs,
+            )
         else:
-            logger.warning(f"File {tiff_path} does not exist, skipping...")
-
-        images[dataset_id + "_full_image"] = Image2DModel.parse(
-            full_image,
-            scale_factors=[2, 2, 2, 2],
-            transformations={"global": transform_original},
-            **image_models_kwargs,
-        )
+            logger.warning(f"File {fullres_image_file} does not exist, skipping...")
 
     image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
     image_hires = DataArray(image_hires, dims=("c", "y", "x"), name=dataset_id)

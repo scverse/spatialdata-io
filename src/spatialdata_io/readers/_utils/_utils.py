@@ -29,6 +29,7 @@ def _read_counts(
 ) -> tuple[AnnData, str]:
     path = Path(path)
     if count_file.endswith(".h5"):
+        print(count_file)
         adata: AnnData = _read_10x_h5(path / count_file, **kwargs)
         with File(path / count_file, mode="r") as f:
             attrs = dict(f.attrs)
