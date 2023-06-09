@@ -62,7 +62,7 @@ def codex(
 
     xy = adata.obsm[CodexKeys.SPATIAL_KEY]
     shapes = ShapesModel.parse(xy, geometry=0, radius=1, index=adata.obs[CodexKeys.INSTANCE_KEY])
-    region = adata.obs[CodexKeys.REGION_KEY].unique()[0].tolist()
+    region = adata.obs[CodexKeys.REGION_KEY].unique()[0]
     adata.obs[CodexKeys.REGION_KEY] = adata.obs[CodexKeys.REGION_KEY].astype("category")
     table = TableModel.parse(adata, region=region, region_key=CodexKeys.REGION_KEY, instance_key=CodexKeys.INSTANCE_KEY)
 
@@ -78,7 +78,7 @@ def codex(
                 scale_factors=[2, 2],
             )
         }
-        sdata = SpatialData(images=images, shapes={"".join(str(x) for x in region): shapes}, table=table)
+        sdata = SpatialData(images=images, shapes={region: shapes}, table=table)
     else:
         logger.warning("Cannot find .tif file. Will build spatialdata with shapes and table only.")
         sdata = SpatialData(shapes={"".join(str(x) for x in region): shapes}, table=table)
