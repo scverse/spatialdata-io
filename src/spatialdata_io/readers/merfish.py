@@ -1,13 +1,13 @@
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import anndata
+import dask.dataframe as dd
 import geopandas
 import numpy as np
 import pandas as pd
 from dask import array as da
-from dask.dataframe import read_csv
 from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
@@ -17,13 +17,13 @@ from spatialdata_io._constants._constants import MerfishKeys
 from spatialdata_io._docs import inject_docs
 
 
-def _scan_images(images_dir: Path) -> Tuple[List]:
+def _scan_images(images_dir: Path) -> tuple[list, list]:
     """Searches inside the image directory and get all the different channels (stainings) and all the z-levels (usually 0...6)"""
     exp = r"mosaic_(?P<stain>[\w|-]+[0-9]?)_z(?P<z>[0-9]+).tif"
     matches = [re.search(exp, file.name) for file in images_dir.iterdir()]
 
-    stainings = set(match.group("stain") for match in matches if match)
-    z_levels = set(match.group("z") for match in matches if match)
+    stainings = {match.group("stain") for match in matches if match}
+    z_levels = {match.group("z") for match in matches if match}
 
     return list(stainings), list(z_levels)
 
@@ -81,7 +81,7 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
     microns_to_pixels = np.genfromtxt(images_dir / MerfishKeys.TRANSFORMATION_FILE)
     microns_to_pixels = Affine(microns_to_pixels, input_axes=("x", "y"), output_axes=("x", "y"))
 
-    ### Images
+    # Images
     images = {}
 
     stainings, z_levels = _scan_images(images_dir)
@@ -90,30 +90,48 @@ def merfish(path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict]
         parsed_im = Image2DModel.parse(
             im,
             dims=("c", "y", "x"),
-            transformations={"pixels": Identity(), "microns": microns_to_pixels.inverse()},
+            transformations={"pixels": Identity()},
+            # transformations={"pixels": Identity(), "microns": microns_to_pixels.inverse()},
             c_coords=stainings,
         )
         images[f"z{z}"] = parsed_im
 
-    ### Transcripts
-    transcript_df = read_csv(path / MerfishKeys.TRANSCRIPTS_FILE)
+    # Transcripts
+    transcript_df = dd.read_csv(path / MerfishKeys.TRANSCRIPTS_FILE)
     transcripts = PointsModel.parse(
         transcript_df,
         coordinates={"x": MerfishKeys.GLOBAL_X, "y": MerfishKeys.GLOBAL_Y, "z": MerfishKeys.GLOBAL_Z},
-        transformations={"microns": Identity(), "pixels": microns_to_pixels},
+        transformations={"pixels": Identity()},
+        # transformations={"microns": Identity(), "pixels": microns_to_pixels},
     )
-    points = {"transcripts": transcripts}
+    # points = {"transcripts": transcripts}
+    points = {}
+    gene_categorical = dd.from_pandas(
+        transcripts["gene"].compute().astype("category"), npartitions=transcripts.npartitions
+    ).reset_index(drop=True)
+    transcripts["gene"] = gene_categorical
 
-    ### Polygons
+    # split the transcripts into the different z-levels
+    z = transcripts["z"].compute()
+    z_levels = z.value_counts().index
+    z_levels = sorted(z_levels, key=lambda x: int(x))
+    for z_level in z_levels:
+        transcripts_subset = transcripts[z == z_level]
+        # temporary solution until the 3D support is better developed
+        transcripts_subset = transcripts_subset.drop("z", axis=1)
+        points[f"transcripts_z{int(z_level)}"] = transcripts_subset
+
+    # Polygons
     geo_df = geopandas.read_parquet(boundaries_path)
     geo_df = geo_df.rename_geometry("geometry")
     geo_df = geo_df[geo_df[MerfishKeys.Z_INDEX] == 0]  # Avoid duplicate boundaries on all z-levels
     geo_df.index = geo_df[MerfishKeys.INSTANCE_KEY].astype(str)
 
-    polygons = ShapesModel.parse(geo_df, transformations={"microns": Identity(), "pixels": microns_to_pixels})
+    polygons = ShapesModel.parse(geo_df, transformations={"pixels": microns_to_pixels})
+    # polygons = ShapesModel.parse(geo_df, transformations={"microns": Identity(), "pixels": microns_to_pixels})
     shapes = {"polygons": polygons}
 
-    ### Table
+    # Table
     data = pd.read_csv(count_path, index_col=0, dtype={MerfishKeys.COUNTS_CELL_KEY: str})
     obs = pd.read_csv(obs_path, index_col=0, dtype={MerfishKeys.INSTANCE_KEY: str})
 
