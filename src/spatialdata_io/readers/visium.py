@@ -28,6 +28,7 @@ __all__ = ["visium"]
 def visium(
     path: str | Path,
     dataset_id: Optional[str] = None,
+    counts_file: str = VisiumKeys.COUNTS_FILE,
     fullres_image_file: Optional[str | Path] = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -57,6 +58,8 @@ def visium(
     dataset_id
         Dataset identifier. If not given will be determined automatically
         from the ``{vx.COUNTS_FILE!r}`` file.
+    counts_file
+        Name of the counts file. Use only if counts is not in `h5` format.
     fullres_image_file
         Path to the full-resolution image.
     imread_kwargs
@@ -73,15 +76,26 @@ def visium(
     image_models_kwargs = dict(image_models_kwargs)
 
     # get library_id
-    patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
-    first_file = [i for i in os.listdir(path) if patt.match(i)][0]
-    if f"_{VisiumKeys.COUNTS_FILE}" in first_file:
-        library_id = first_file.replace(f"_{VisiumKeys.COUNTS_FILE}", "")
-    else:
-        raise ValueError(
-            f"Cannot determine the library_id. Expecting a file with format <library_id>_{VisiumKeys.COUNTS_FILE}. Has "
-            f"the files been renamed?"
-        )
+    try:
+        patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
+        first_file = [i for i in os.listdir(path) if patt.match(i)][0]
+
+        if f"_{VisiumKeys.COUNTS_FILE}" in first_file:
+            library_id = first_file.replace(f"_{VisiumKeys.COUNTS_FILE}", "")
+        else:
+            raise ValueError(
+                f"Cannot determine the library_id. Expecting a file with format <library_id>_{VisiumKeys.COUNTS_FILE}. Has "
+                f"the files been renamed?"
+            )
+        counts_file = f"{library_id}_{VisiumKeys.COUNTS_FILE}"
+    except IndexError as e:
+        logger.error(e)
+        if dataset_id is None:
+            raise ValueError("Cannot determine the `library_id`. Please provide `dataset_id`.")
+        library_id = dataset_id
+        if counts_file is None:
+            raise ValueError("Cannot determine the library_id. Please provide `counts_file`.")
+
     if dataset_id is not None:
         if dataset_id != library_id:
             logger.warning(
@@ -91,9 +105,7 @@ def visium(
     else:
         dataset_id = library_id
 
-    adata, dataset_id = _read_counts(
-        path, count_file=f"{library_id}_{VisiumKeys.COUNTS_FILE}", library_id=dataset_id, **kwargs
-    )
+    adata, dataset_id = _read_counts(path, counts_file=counts_file, library_id=dataset_id, **kwargs)
 
     if (path / VisiumKeys.SPOTS_FILE_1).exists():
         coords = pd.read_csv(path / VisiumKeys.SPOTS_FILE_1, header=None, index_col=0)
