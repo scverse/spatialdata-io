@@ -81,7 +81,6 @@ def visium(
     path = Path(path)
     imread_kwargs = dict(imread_kwargs)
     image_models_kwargs = dict(image_models_kwargs)
-
     # get library_id
     try:
         patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
