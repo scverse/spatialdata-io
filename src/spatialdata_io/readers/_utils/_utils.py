@@ -7,7 +7,6 @@ from typing import Any, Optional, Union
 import numpy as np
 from anndata import AnnData, read_text
 from h5py import File
-from scanpy.readwrite import read_10x_mtx
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
@@ -58,6 +57,10 @@ def _read_counts(
     if counts_file.endswith((".csv", ".txt")):
         adata = read_text(path / counts_file, **kwargs)
     elif counts_file.endswith(".mtx.gz"):
+        try:
+            from scanpy.readwrite import read_10x_mtx
+        except ImportError:
+            raise ImportError("Please install scanpy to read 10x mtx files, `pip install scanpy`.")
         prefix = counts_file.replace("matrix.mtx.gz", "")
         adata = read_10x_mtx(path, prefix=prefix, **kwargs)
     else:
