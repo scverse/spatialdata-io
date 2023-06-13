@@ -18,8 +18,11 @@ from spatialdata_io._docs import inject_docs
 
 
 def _scan_images(images_dir: Path) -> tuple[list[str], list[str]]:
-    """Searches inside the image directory and get all the different channels (stainings)
-    and all the z-levels (usually 0...6)"""
+    """
+    Gets images names inside a directory
+
+    It returns all the different channels (stainings) and all the z-levels (usually 0...6)
+    """
     exp = r"mosaic_(?P<stain>[\w|-]+[0-9]?)_z(?P<z>[0-9]+).tif"
     matches = [re.search(exp, file.name) for file in images_dir.iterdir()]
 
@@ -30,8 +33,11 @@ def _scan_images(images_dir: Path) -> tuple[list[str], list[str]]:
 
 
 def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict[str, Any]]]) -> tuple[Path, Path, Path]:
-    """Gets the file paths to (i) the file of transcript per cell,
-    (ii) the cell metadata file, and (iii) the cell boundary file"""
+    """
+    Gets the MERSCOPE file paths when vpt_outputs is provided
+
+    That is, (i) the file of transcript per cell, (ii) the cell metadata file, and (iii) the cell boundary file
+    """
     if vpt_outputs is None:
         return (
             path / MerscopeKeys.COUNTS_FILE,
@@ -114,15 +120,17 @@ def merscope(
 
     if read_tif:
         stainings, z_levels = _scan_images(images_dir)
-        for z in z_levels:
-            im = da.stack([imread(images_dir / f"mosaic_{stain}_z{z}.tif").squeeze() for stain in stainings], axis=0)
+        for z_level in z_levels:
+            im = da.stack(
+                [imread(images_dir / f"mosaic_{stain}_z{z_level}.tif").squeeze() for stain in stainings], axis=0
+            )
             parsed_im = Image3DModel.parse(
                 im,
                 dims=("c", "z", "y", "x"),
                 transformations={"pixels": Identity()},
                 c_coords=stainings,
             )
-            images[f"z{z}"] = parsed_im
+            images[f"z{z_level}"] = parsed_im
 
     # Transcripts
     transcript_df = dd.read_csv(path / MerscopeKeys.TRANSCRIPTS_FILE)
