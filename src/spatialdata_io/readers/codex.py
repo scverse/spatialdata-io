@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 
 import anndata as ad
-import imageio.v3 as iio
 import pandas as pd
 import readfcs
+from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
@@ -22,6 +25,7 @@ __all__ = ["codex"]
 def codex(
     path: str | Path,
     fcs: bool = True,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read *CODEX* formatted dataset.
@@ -71,7 +75,7 @@ def codex(
     im_patt = re.compile(".*.tif")
     path_files = [i for i in os.listdir(path) if im_patt.match(i)]
     if path_files and CodexKeys.IMAGE_TIF in path_files[0]:
-        image = iio.imread(path_files[0])
+        image = imread(path_files[0], **imread_kwargs)
         images = {
             "images": Image2DModel.parse(
                 image,
