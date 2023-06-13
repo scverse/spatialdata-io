@@ -47,7 +47,7 @@ def codex(
         Whether a .fcs file is provided. If False, a .csv file is expected.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
-    
+
     Returns
     -------
     :class:`spatialdata.SpatialData`
