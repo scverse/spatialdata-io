@@ -141,8 +141,8 @@ class McmicroKeys(ModeEnum):
 
 
 @unique
-class MerfishKeys(ModeEnum):
-    """Keys for *MERFISH* data (*MERSCOPE* plateform from Vizgen)"""
+class MerscopeKeys(ModeEnum):
+    """Keys for *MERSCOPE* data (Vizgen plateform)"""
 
     # files and directories
     IMAGES_DIR = "images"
