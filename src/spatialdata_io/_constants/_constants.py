@@ -4,6 +4,20 @@ from spatialdata_io._constants._enum import ModeEnum
 
 
 @unique
+class CodexKeys(ModeEnum):
+    """Keys for *CODEX* formatted dataset."""
+
+    # files and directories
+    FCS_FILE = ".fcs"
+    FCS_FILE_CSV = ".csv"
+    # metadata
+    REGION_KEY = "region"
+    INSTANCE_KEY = "cell_id"
+    SPATIAL_KEY = "spatial"
+    # images
+    IMAGE_TIF = ".tif"
+
+
 class CurioKeys(ModeEnum):
     """Keys for *Curio* formatted dataset."""
 
