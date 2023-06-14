@@ -10,26 +10,20 @@ import pandas as pd
 from dask import array as da
 from dask_image.imread import imread
 from spatialdata import SpatialData
-from spatialdata.models import Image3DModel, PointsModel, ShapesModel, TableModel
+from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
 from spatialdata.transformations import Affine, Identity
 
 from spatialdata_io._constants._constants import MerscopeKeys
 from spatialdata_io._docs import inject_docs
 
 
-def _scan_images(images_dir: Path) -> tuple[list[str], list[str]]:
-    """
-    Gets images names inside a directory
-
-    It returns all the different channels (stainings) and all the z-levels (usually 0...6)
-    """
+def _get_channel_names(images_dir: Path) -> list[str]:
     exp = r"mosaic_(?P<stain>[\w|-]+[0-9]?)_z(?P<z>[0-9]+).tif"
     matches = [re.search(exp, file.name) for file in images_dir.iterdir()]
 
     stainings = {match.group("stain") for match in matches if match}
-    z_levels = {match.group("z") for match in matches if match}
 
-    return list(stainings), list(z_levels)
+    return list(stainings)
 
 
 def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict[str, Any]]]) -> tuple[Path, Path, Path]:
@@ -78,7 +72,9 @@ def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict[str,
 
 @inject_docs(ms=MerscopeKeys)
 def merscope(
-    path: Union[str, Path], vpt_outputs: Optional[Union[Path, str, dict[str, Any]]] = None, read_tif: bool = True
+    path: str | Path,
+    vpt_outputs: Optional[Path | str | dict[str, Any]] = None,
+    z_layers: int | list[int] | None = 3,
 ) -> SpatialData:
     """
     Read *MERSCOPE* data from Vizgen.
@@ -101,8 +97,9 @@ def merscope(
         ``{ms.COUNTS_FILE!r}``, ``{ms.CELL_METADATA_FILE!r}``, and a boundary parquet file.
         If a dictionnary, then the following keys can be provided:
         ``{ms.VPT_NAME_COUNTS!r}``, ``{ms.VPT_NAME_OBS!r}``, ``{ms.VPT_NAME_BOUNDARIES!r}`` with the desired path as the value.
-    read_tif
-        Whether to read the tif images or not
+    z_layers
+        Indices of the z-layers to consider. Either one `int` index, or a list of `int` indices. If `None`, then no image is loaded.
+        By default, only the middle layer is considered (that is, layer 3).
 
     Returns
     -------
@@ -118,42 +115,32 @@ def merscope(
     # Images
     images = {}
 
-    if read_tif:
-        stainings, z_levels = _scan_images(images_dir)
-        for z_level in z_levels:
-            im = da.stack(
-                [imread(images_dir / f"mosaic_{stain}_z{z_level}.tif").squeeze() for stain in stainings], axis=0
-            )
-            parsed_im = Image3DModel.parse(
-                im,
-                dims=("c", "z", "y", "x"),
-                transformations={"pixels": Identity()},
-                c_coords=stainings,
-            )
-            images[f"z{z_level}"] = parsed_im
+    z_layers = [z_layers] if isinstance(z_layers, int) else z_layers or []
+
+    stainings = _get_channel_names(images_dir)
+    for z_layer in z_layers:
+        im = da.stack([imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif").squeeze() for stain in stainings], axis=0)
+        parsed_im = Image2DModel.parse(
+            im,
+            dims=("c", "y", "x"),
+            transformations={"pixels": Identity()},
+            c_coords=stainings,
+        )
+        images[f"z{z_layer}"] = parsed_im
 
     # Transcripts
     transcript_df = dd.read_csv(path / MerscopeKeys.TRANSCRIPTS_FILE)
     transcripts = PointsModel.parse(
         transcript_df,
-        coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y, "z": MerscopeKeys.GLOBAL_Z},
+        coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
         transformations={"pixels": Identity()},
     )
-    points = {}
     gene_categorical = dd.from_pandas(
         transcripts["gene"].compute().astype("category"), npartitions=transcripts.npartitions
     ).reset_index(drop=True)
     transcripts["gene"] = gene_categorical
 
-    # split the transcripts into the different z-levels
-    z = transcripts["z"].compute()
-    z_levels = z.value_counts().index
-    z_levels = sorted(z_levels, key=lambda x: int(x))
-    for z_level in z_levels:
-        transcripts_subset = transcripts[z == z_level]
-        # temporary solution until the 3D support is better developed
-        transcripts_subset = transcripts_subset.drop("z", axis=1)
-        points[f"transcripts_z{int(z_level)}"] = transcripts_subset
+    points = {"transcripts": transcripts}
 
     # Polygons
     geo_df = geopandas.read_parquet(boundaries_path)
@@ -162,6 +149,7 @@ def merscope(
     geo_df.index = geo_df[MerscopeKeys.INSTANCE_KEY].astype(str)
 
     polygons = ShapesModel.parse(geo_df, transformations={"pixels": microns_to_pixels})
+
     shapes = {"polygons": polygons}
 
     # Table
