@@ -72,9 +72,9 @@ def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict[str,
 
 @inject_docs(ms=MerscopeKeys)
 def merscope(
-    path: str | Path,
-    vpt_outputs: Optional[Path | str | dict[str, Any]] = None,
-    z_layers: int | list[int] | None = 3,
+    path: Union[str, Path],
+    vpt_outputs: Optional[Union[Path, str, dict[str, Any]]] = None,
+    z_layers: Union[int, list[int], None] = 3,
 ) -> SpatialData:
     """
     Read *MERSCOPE* data from Vizgen.
