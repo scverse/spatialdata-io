@@ -60,6 +60,38 @@ class CosmxKeys(ModeEnum):
 
 
 @unique
+class SeqfishKeys(ModeEnum):
+    """Keys for *Spatial Genomics SeqFISH* formatted dataset."""
+
+    # file extensions
+    CSV_FILE = ".csv"
+    TIFF_FILE = ".tiff"
+    OME_TIFF_FILE = ".ome.tiff"
+    # file identifiers
+    SECTION = "_section"
+    TRANSCRIPT_COORDINATES = "TranscriptCoordinates"
+    DAPI = "DAPI"
+    COUNTS_FILE = "CxG"
+    CELL_MASK_FILE = "CellMask"
+    CELL_COORDINATES = "CellCoordinates"
+    # transcripts
+    TRANSCRIPTS_X = "x"
+    TRANSCRIPTS_Y = "y"
+    FEATURE_KEY = "name"
+    INSTANCE_KEY_POINTS = "cell"
+    # cells
+    AREA = "area"
+    CELL_X = "center_x"
+    CELL_Y = "center_y"
+    # metadata
+    SPATIAL_KEY = "spatial"
+    REGION = "cells"
+    REGION_KEY = "region"
+    INSTANCE_KEY_TABLE = "instance_id"
+    SECTION_KEY = "section"
+
+
+@unique
 class XeniumKeys(ModeEnum):
     """Keys for *10X Genomics Xenium* formatted dataset."""
 
