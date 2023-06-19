@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import re
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import anndata
 import dask.dataframe as dd
@@ -26,7 +28,7 @@ def _get_channel_names(images_dir: Path) -> list[str]:
     return list(stainings)
 
 
-def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict[str, Any]]]) -> tuple[Path, Path, Path]:
+def _get_file_paths(path: Path, vpt_outputs: Path | str | dict[str, Any] | None) -> tuple[Path, Path, Path]:
     """
     Gets the MERSCOPE file paths when vpt_outputs is provided
 
@@ -72,9 +74,11 @@ def _get_file_paths(path: Path, vpt_outputs: Optional[Union[Path, str, dict[str,
 
 @inject_docs(ms=MerscopeKeys)
 def merscope(
-    path: Union[str, Path],
-    vpt_outputs: Optional[Union[Path, str, dict[str, Any]]] = None,
-    z_layers: Union[int, list[int], None] = 3,
+    path: str | Path,
+    vpt_outputs: Path | str | dict[str, Any] | None = None,
+    z_layers: int | list[int] | None = 3,
+    region_name: str | None = None,
+    slide_name: str | None = None,
 ) -> SpatialData:
     """
     Read *MERSCOPE* data from Vizgen.
@@ -90,16 +94,24 @@ def merscope(
     Parameters
     ----------
     path
-        Path to the root directory containing the *Merscope* files (e.g., `detected_transcripts.csv`).
+        Path to the region/root directory containing the *Merscope* files (e.g., `detected_transcripts.csv`).
     vpt_outputs
         Optional arguments to indicate the output of the vizgen-postprocessing-tool (VPT), when used.
         If a folder path is provided, it looks inside the folder for the following files:
-        ``{ms.COUNTS_FILE!r}``, ``{ms.CELL_METADATA_FILE!r}``, and a boundary parquet file.
-        If a dictionnary, then the following keys can be provided:
-        ``{ms.VPT_NAME_COUNTS!r}``, ``{ms.VPT_NAME_OBS!r}``, ``{ms.VPT_NAME_BOUNDARIES!r}`` with the desired path as the value.
+                - ``{ms.COUNTS_FILE!r}``
+                - ``{ms.CELL_METADATA_FILE!r}``
+                - ``{ms.BOUNDARIES_FILE!r}``
+        If a dictionnary, then the following keys should be provided with the desired path:
+                - ``{ms.VPT_NAME_COUNTS!r}``
+                - ``{ms.VPT_NAME_OBS!r}``
+                - ``{ms.VPT_NAME_BOUNDARIES!r}``
     z_layers
         Indices of the z-layers to consider. Either one `int` index, or a list of `int` indices. If `None`, then no image is loaded.
         By default, only the middle layer is considered (that is, layer 3).
+    region_name
+        Name of the region of interest, e.g., `'region_0'`. If `None` then the name of the `path` directory is used.
+    slide_name
+        Name of the slide/run. If `None` then the name of the parent directory of `path` is used (whose name starts with a date).
 
     Returns
     -------
@@ -111,6 +123,10 @@ def merscope(
 
     microns_to_pixels = np.genfromtxt(images_dir / MerscopeKeys.TRANSFORMATION_FILE)
     microns_to_pixels = Affine(microns_to_pixels, input_axes=("x", "y"), output_axes=("x", "y"))
+
+    region_name = path.name if region_name is None else region_name
+    slide_name = path.parent.name if slide_name is None else slide_name
+    dataset_id = f"{slide_name}_{region_name}"
 
     # Images
     images = {}
@@ -126,7 +142,7 @@ def merscope(
             transformations={"pixels": Identity()},
             c_coords=stainings,
         )
-        images[f"z{z_layer}"] = parsed_im
+        images[f"{dataset_id}_z{z_layer}"] = parsed_im
 
     # Transcripts
     transcript_df = dd.read_csv(path / MerscopeKeys.TRANSCRIPTS_FILE)
@@ -140,7 +156,7 @@ def merscope(
     ).reset_index(drop=True)
     transcripts["gene"] = gene_categorical
 
-    points = {"transcripts": transcripts}
+    points = {f"{dataset_id}_transcripts": transcripts}
 
     # Polygons
     geo_df = geopandas.read_parquet(boundaries_path)
@@ -150,7 +166,7 @@ def merscope(
 
     polygons = ShapesModel.parse(geo_df, transformations={"pixels": microns_to_pixels})
 
-    shapes = {"polygons": polygons}
+    shapes = {f"{dataset_id}_polygons": polygons}
 
     # Table
     data = pd.read_csv(count_path, index_col=0, dtype={MerscopeKeys.COUNTS_CELL_KEY: str})
@@ -161,7 +177,9 @@ def merscope(
 
     adata.obsm["blank"] = data.loc[:, ~is_gene]  # blank fields are excluded from adata.X
     adata.obsm["spatial"] = adata.obs[[MerscopeKeys.CELL_X, MerscopeKeys.CELL_Y]].values
-    adata.obs["region"] = pd.Series(path.stem, index=adata.obs_names, dtype="category")
+    adata.obs["region"] = pd.Series(region_name, index=adata.obs_names, dtype="category")
+    adata.obs["slide"] = pd.Series(slide_name, index=adata.obs_names, dtype="category")
+    adata.obs["dataset_id"] = pd.Series(dataset_id, index=adata.obs_names, dtype="category")
     adata.obs[MerscopeKeys.INSTANCE_KEY] = adata.obs.index
 
     table = TableModel.parse(
