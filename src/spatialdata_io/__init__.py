@@ -11,8 +11,7 @@ from spatialdata_io.readers.xenium import xenium
 
 __all__ = [
     "curio",
-    "seqfish"
-    "visium",
+    "seqfish" "visium",
     "xenium",
     "codex",
     "cosmx",
