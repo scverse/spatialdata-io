@@ -98,13 +98,16 @@ def merscope(
     vpt_outputs
         Optional arguments to indicate the output of the vizgen-postprocessing-tool (VPT), when used.
         If a folder path is provided, it looks inside the folder for the following files:
-                - ``{ms.COUNTS_FILE!r}``
-                - ``{ms.CELL_METADATA_FILE!r}``
-                - ``{ms.BOUNDARIES_FILE!r}``
+
+            - ``{ms.COUNTS_FILE!r}``
+            - ``{ms.CELL_METADATA_FILE!r}``
+            - ``{ms.BOUNDARIES_FILE!r}``
+
         If a dictionnary, then the following keys should be provided with the desired path:
-                - ``{ms.VPT_NAME_COUNTS!r}``
-                - ``{ms.VPT_NAME_OBS!r}``
-                - ``{ms.VPT_NAME_BOUNDARIES!r}``
+
+            - ``{ms.VPT_NAME_COUNTS!r}``
+            - ``{ms.VPT_NAME_OBS!r}``
+            - ``{ms.VPT_NAME_BOUNDARIES!r}``
     z_layers
         Indices of the z-layers to consider. Either one `int` index, or a list of `int` indices. If `None`, then no image is loaded.
         By default, only the middle layer is considered (that is, layer 3).
