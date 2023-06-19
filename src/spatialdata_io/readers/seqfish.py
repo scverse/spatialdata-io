@@ -79,16 +79,18 @@ def seqfish(
     transcript_file = [x for x in table_files if (f"{SeqfishKeys.TRANSCRIPT_COORDINATES}" in x)]
 
     images = {
-        f"label_{x}": Image2DModel.parse(imread(path / dapi_file[x-1], dims=("c", "y", "x")), **imread_kwargs)
+        f"label_{x}": Image2DModel.parse(imread(path / dapi_file[x - 1], dims=("c", "y", "x")), **imread_kwargs)
         for x in range(1, _sections + 2)
     }
     labels = {
-        f"image_{x}": Labels2DModel.parse(imread(path / cell_mask_file[x-1]).squeeze(), dims=("y", "x"), **imread_kwargs)
+        f"image_{x}": Labels2DModel.parse(
+            imread(path / cell_mask_file[x - 1]).squeeze(), dims=("y", "x"), **imread_kwargs
+        )
         for x in range(1, _sections + 2)
     }
     points = {
         f"transcripts_{x}": PointsModel.parse(
-            pd.read_csv(path / transcript_file[x-1], delimiter=","),
+            pd.read_csv(path / transcript_file[x - 1], delimiter=","),
             coordinates={"x": SeqfishKeys.TRANSCRIPTS_X, "y": SeqfishKeys.TRANSCRIPTS_Y},
             feature_key=SeqfishKeys.FEATURE_KEY,
             instance_key=SeqfishKeys.INSTANCE_KEY_POINTS,
