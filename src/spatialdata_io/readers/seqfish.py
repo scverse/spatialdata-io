@@ -56,17 +56,19 @@ def seqfish(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
-    patt = re.compile(r".*" + re.escape(SeqfishKeys.CSV_FILE))
+    csv_pattern = re.compile(r".*" + re.escape(SeqfishKeys.CSV_FILE))
 
-    table_files = [i for i in os.listdir(path) if patt.match(i)]
+    table_files = [i for i in os.listdir(path) if csv_pattern.match(i)]
     count_matrices = [x for x in table_files if (SeqfishKeys.COUNTS_FILE in x)]
+    
+    if not table_files or not count_matrices:
+        raise ValueError("No files required to build table were found.")
+
     adatas = {}
 
     for _sections, count_matrix in enumerate(count_matrices):
         section = int(re.findall(r"\d+", count_matrix)[0])
-        cell_file = [x for x in table_files if (f"{SeqfishKeys.CELL_COORDINATES}{SeqfishKeys.SECTION}{section}" in x)][
-            0
-        ]
+        cell_file = [x for x in table_files if (f"{SeqfishKeys.CELL_COORDINATES}{SeqfishKeys.SECTION}{section}" in x)][0]
         adata = ad.read_csv(path / count_matrix, delimiter=",")
         cell_info = pd.read_csv(path / cell_file, delimiter=",")
         adata.obsm[SeqfishKeys.SPATIAL_KEY] = cell_info[[SeqfishKeys.CELL_X, SeqfishKeys.CELL_Y]].to_numpy()
