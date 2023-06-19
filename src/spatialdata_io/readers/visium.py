@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from collections.abc import Mapping
+from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
@@ -26,7 +29,10 @@ __all__ = ["visium"]
 def visium(
     path: str | Path,
     dataset_id: Optional[str] = None,
-    tiff_path: Optional[str | Path] = None,
+    counts_file: str = VisiumKeys.COUNTS_FILE,
+    fullres_image_file: Optional[str | Path] = None,
+    tissue_positions_file: Optional[str | Path] = None,
+    scalefactors_file: Optional[str | Path] = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
@@ -42,6 +48,7 @@ def visium(
         - ``{vx.SCALEFACTORS_FILE!r}``: Scalefactors file.
         - ``{vx.SPOTS_FILE_1!r}`` (SpaceRanger 1) or ``{vx.SPOTS_FILE_2!r}`` (SpaceRanger 2):
             Spots positions file.
+        - ``fullres_image_file``: large microscopy image used as input for space ranger.
 
     .. seealso::
 
@@ -54,8 +61,14 @@ def visium(
     dataset_id
         Dataset identifier. If not given will be determined automatically
         from the ``{vx.COUNTS_FILE!r}`` file.
-    tiff_path
-        Path to the full-resolution TIFF image.
+    counts_file
+        Name of the counts file. Use only if counts is not in `h5` format.
+    fullres_image_file
+        Path to the full-resolution image.
+    tissue_positions_file
+        Path to the tissue positions file.
+    scalefactors_file
+        Path to the scalefactors file.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -66,17 +79,62 @@ def visium(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
+    imread_kwargs = dict(imread_kwargs)
+    image_models_kwargs = dict(image_models_kwargs)
+    # get library_id
+    try:
+        patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
+        first_file = [i for i in os.listdir(path) if patt.match(i)][0]
 
-    adata, dataset_id = _read_counts(path, count_file=VisiumKeys.COUNTS_FILE, library_id=dataset_id, **kwargs)
+        if f"_{VisiumKeys.COUNTS_FILE}" in first_file:
+            library_id = first_file.replace(f"_{VisiumKeys.COUNTS_FILE}", "")
+        else:
+            raise ValueError(
+                f"Cannot determine the library_id. Expecting a file with format <library_id>_{VisiumKeys.COUNTS_FILE}. Has "
+                f"the files been renamed?"
+            )
+        counts_file = f"{library_id}_{VisiumKeys.COUNTS_FILE}"
+    except IndexError as e:
+        logger.error(e)
+        if dataset_id is None:
+            raise ValueError("Cannot determine the `library_id`. Please provide `dataset_id`.")
+        library_id = dataset_id
+        if counts_file is None:
+            raise ValueError("Cannot determine the library_id. Please provide `counts_file`.")
 
-    if (path / VisiumKeys.SPOTS_FILE_1).exists():
-        coords = pd.read_csv(path / VisiumKeys.SPOTS_FILE_1, header=None, index_col=0)
+    if dataset_id is not None:
+        if dataset_id != library_id:
+            logger.warning(
+                f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` "
+                f"will be used to build SpatialData."
+            )
     else:
-        coords = pd.read_csv(
-            path / VisiumKeys.SPOTS_FILE_2,
-            header=0,
-            index_col=0,
+        dataset_id = library_id
+
+    adata, dataset_id = _read_counts(path, counts_file=counts_file, library_id=dataset_id, **kwargs)
+
+    if (path / "spatial" / VisiumKeys.SPOTS_FILE_1).exists() or (
+        tissue_positions_file is not None and str(VisiumKeys.SPOTS_FILE_1) in str(tissue_positions_file)
+    ):
+        read_coords = partial(pd.read_csv, header=None, index_col=0)
+        tissue_positions_file = (
+            path / "spatial" / VisiumKeys.SPOTS_FILE_1
+            if tissue_positions_file is None
+            else path / tissue_positions_file
         )
+    elif (path / "spatial" / VisiumKeys.SPOTS_FILE_2).exists() or (
+        tissue_positions_file is not None and str(VisiumKeys.SPOTS_FILE_2) in str(tissue_positions_file)
+    ):
+        read_coords = partial(pd.read_csv, header=1, index_col=0)
+        tissue_positions_file = (
+            path / "spatial" / VisiumKeys.SPOTS_FILE_2
+            if tissue_positions_file is None
+            else path / tissue_positions_file
+        )
+    else:
+        raise ValueError(f"Cannot find `tissue_positions` file in `{path}`.")
+    coords = read_coords(tissue_positions_file)
+
     coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
 
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
@@ -85,8 +143,13 @@ def visium(
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
     adata.obs["spot_id"] = np.arange(len(adata))
     adata.var_names_make_unique()
-
-    scalefactors = json.loads((path / VisiumKeys.SCALEFACTORS_FILE).read_bytes())
+    if (path / "spatial" / VisiumKeys.SCALEFACTORS_FILE).exists() or (
+        scalefactors_file is not None and (path / scalefactors_file).exists()
+    ):
+        scalefactors_file = (
+            path / "spatial" / VisiumKeys.SCALEFACTORS_FILE if scalefactors_file is None else path / scalefactors_file
+        )
+        scalefactors = json.loads(scalefactors_file.read_bytes())
 
     transform_original = Identity()
     transform_lowres = Scale(
@@ -114,32 +177,35 @@ def visium(
     table = TableModel.parse(adata, region=dataset_id, region_key="region", instance_key="spot_id")
 
     images = {}
-    if tiff_path is not None:
-        tiff_path = Path(tiff_path)
-        if tiff_path.exists():
-            full_image = imread(tiff_path, **imread_kwargs).squeeze().transpose(2, 0, 1)
+    if fullres_image_file is not None:
+        fullres_image_file = path / Path(fullres_image_file)
+        if fullres_image_file.exists():
+            if "MAX_IMAGE_PIXELS" in imread_kwargs:
+                from PIL import Image as ImagePIL
+
+                ImagePIL.MAX_IMAGE_PIXELS = imread_kwargs.pop("MAX_IMAGE_PIXELS")
+            full_image = imread(fullres_image_file, **imread_kwargs).squeeze().transpose(2, 0, 1)
             full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
+            images[dataset_id + "_full_image"] = Image2DModel.parse(
+                full_image,
+                scale_factors=[2, 2, 2, 2],
+                transformations={"global": transform_original},
+                **image_models_kwargs,
+            )
         else:
-            logger.warning(f"File {tiff_path} does not exist, skipping...")
+            logger.warning(f"File {fullres_image_file} does not exist, skipping...")
 
-        images[dataset_id + "_full_image"] = Image2DModel.parse(
-            full_image,
-            scale_factors=[2, 2, 2, 2],
-            transformations={"global": transform_original},
-            **image_models_kwargs,
+    if (path / VisiumKeys.IMAGE_HIRES_FILE).exists():
+        image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
+        image_hires = DataArray(image_hires, dims=("c", "y", "x"), name=dataset_id)
+        images[dataset_id + "_hires_image"] = Image2DModel.parse(
+            image_hires, transformations={"downscaled_hires": Identity()}
         )
-
-    image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-    image_hires = DataArray(image_hires, dims=("c", "y", "x"), name=dataset_id)
-
-    image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-    image_lowres = DataArray(image_lowres, dims=("c", "y", "x"), name=dataset_id)
-
-    images[dataset_id + "_hires_image"] = Image2DModel.parse(
-        image_hires, transformations={"downscaled_hires": Identity()}
-    )
-    images[dataset_id + "_lowres_image"] = Image2DModel.parse(
-        image_lowres, transformations={"downscaled_lowres": Identity()}
-    )
+    if (path / VisiumKeys.IMAGE_LOWRES_FILE).exists():
+        image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
+        image_lowres = DataArray(image_lowres, dims=("c", "y", "x"), name=dataset_id)
+        images[dataset_id + "_lowres_image"] = Image2DModel.parse(
+            image_lowres, transformations={"downscaled_lowres": Identity()}
+        )
 
     return SpatialData(images=images, shapes=shapes, table=table)
