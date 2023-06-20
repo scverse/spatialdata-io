@@ -18,5 +18,6 @@ I/O for the `spatialdata` project.
     visium
     xenium
     steinbock
+    merscope
     mcmicro
 ```
