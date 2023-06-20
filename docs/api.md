@@ -12,10 +12,12 @@ I/O for the `spatialdata` project.
 .. autosummary::
     :toctree: generated
 
+    codex
     curio
     cosmx
     visium
     xenium
     steinbock
+    merscope
     mcmicro
 ```
