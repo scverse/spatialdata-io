@@ -184,3 +184,33 @@ class McmicroKeys(ModeEnum):
     COORDS_X = "X_centroid"
     COORDS_Y = "Y_centroid"
     INSTANCE_KEY = "CellID"
+
+
+@unique
+class MerscopeKeys(ModeEnum):
+    """Keys for *MERSCOPE* data (Vizgen plateform)"""
+
+    # files and directories
+    IMAGES_DIR = "images"
+    TRANSFORMATION_FILE = "micron_to_mosaic_pixel_transform.csv"
+    TRANSCRIPTS_FILE = "detected_transcripts.csv"
+    BOUNDARIES_FILE = "cell_boundaries.parquet"
+    COUNTS_FILE = "cell_by_gene.csv"
+    CELL_METADATA_FILE = "cell_metadata.csv"
+
+    # VPT default outputs
+    CELLPOSE_BOUNDARIES = "cellpose_micron_space.parquet"
+    WATERSHED_BOUNDARIES = "watershed_micron_space.parquet"
+    VPT_NAME_COUNTS = "cell_by_gene"
+    VPT_NAME_OBS = "cell_metadata"
+    VPT_NAME_BOUNDARIES = "cell_boundaries"
+
+    # metadata
+    INSTANCE_KEY = "EntityID"
+    COUNTS_CELL_KEY = "cell"
+    CELL_X = "center_x"
+    CELL_Y = "center_y"
+    GLOBAL_X = "global_x"
+    GLOBAL_Y = "global_y"
+    GLOBAL_Z = "global_z"
+    Z_INDEX = "ZIndex"
