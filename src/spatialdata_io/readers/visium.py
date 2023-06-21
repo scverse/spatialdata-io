@@ -95,7 +95,9 @@ def visium(
             )
         counts_file = f"{library_id}_{VisiumKeys.COUNTS_FILE}"
     except IndexError as e:
-        logger.error(e)
+        logger.error(
+            f"{e}. \nError is due to the fact that the library id could not be found, this is the case when the `counts_file` is `.mtx`.",
+        )
         if dataset_id is None:
             raise ValueError("Cannot determine the `library_id`. Please provide `dataset_id`.")
         library_id = dataset_id
