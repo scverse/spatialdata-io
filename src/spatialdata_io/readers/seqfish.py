@@ -57,8 +57,10 @@ def seqfish(
     """
     path = Path(path)
     csv_pattern = re.compile(r".*" + re.escape(SeqfishKeys.CSV_FILE))
+    tiff_pattern = re.compile(r".*" + re.escape(SeqfishKeys.TIFF_FILE))
+    ome_tiff_pattern = re.compile(r".*" + re.escape(SeqfishKeys.OME_TIFF_FILE))
 
-    table_files = [i for i in os.listdir(path) if csv_pattern.match(i)]
+    table_files = [i for i in os.listdir(path) if csv_pattern.match(i) or tiff_pattern.match(i) or ome_tiff_pattern.match(i)]
     count_matrices = [x for x in table_files if (SeqfishKeys.COUNTS_FILE in x)]
 
     if not table_files or not count_matrices:
@@ -83,23 +85,22 @@ def seqfish(
     transcript_file = [x for x in table_files if (f"{SeqfishKeys.TRANSCRIPT_COORDINATES}" in x)]
 
     images = {
-        f"label_{x}": Image2DModel.parse(imread(path / dapi_file[x - 1], dims=("c", "y", "x")), **imread_kwargs)
-        for x in range(1, _sections + 2)
+        f"label_{x+1}": Image2DModel.parse(imread(path / dapi_file[x - 1], **imread_kwargs), dims=("c", "y", "x"))
+        for x in range(1, _sections + 1)
     }
     labels = {
-        f"image_{x}": Labels2DModel.parse(
-            imread(path / cell_mask_file[x - 1]).squeeze(), dims=("y", "x"), **imread_kwargs
-        )
-        for x in range(1, _sections + 2)
+        f"image_{x+1}": Labels2DModel.parse(
+            imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(), dims=("y", "x"))
+        for x in range(1, _sections + 1)
     }
     points = {
-        f"transcripts_{x}": PointsModel.parse(
+        f"transcripts_{x+1}": PointsModel.parse(
             pd.read_csv(path / transcript_file[x - 1], delimiter=","),
             coordinates={"x": SeqfishKeys.TRANSCRIPTS_X, "y": SeqfishKeys.TRANSCRIPTS_Y},
             feature_key=SeqfishKeys.FEATURE_KEY,
             instance_key=SeqfishKeys.INSTANCE_KEY_POINTS,
         )
-        for x in range(1, _sections + 2)
+        for x in range(1, _sections + 1)
     }
 
     adata = ad.concat(adatas)
