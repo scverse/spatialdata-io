@@ -72,8 +72,6 @@ def codex(
     adata.obs[CodexKeys.REGION_KEY] = adata.obs[CodexKeys.REGION_KEY].astype("category")
     table = TableModel.parse(adata, region=region, region_key=CodexKeys.REGION_KEY, instance_key=CodexKeys.INSTANCE_KEY)
 
-    # convert list of one element to string
-
     im_patt = re.compile(".*.tif")
     path_files = [i for i in os.listdir(path) if im_patt.match(i)]
     if path_files and CodexKeys.IMAGE_TIF in path_files[0]:
@@ -87,7 +85,7 @@ def codex(
         sdata = SpatialData(images=images, shapes={region: shapes}, table=table)
     else:
         logger.warning("Cannot find .tif file. Will build spatialdata with shapes and table only.")
-        sdata = SpatialData(shapes={"".join(str(x) for x in region): shapes}, table=table)
+        sdata = SpatialData(shapes={region: shapes}, table=table)
 
     return sdata
 
