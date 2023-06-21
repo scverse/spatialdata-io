@@ -60,7 +60,9 @@ def seqfish(
     tiff_pattern = re.compile(r".*" + re.escape(SeqfishKeys.TIFF_FILE))
     ome_tiff_pattern = re.compile(r".*" + re.escape(SeqfishKeys.OME_TIFF_FILE))
 
-    table_files = [i for i in os.listdir(path) if csv_pattern.match(i) or tiff_pattern.match(i) or ome_tiff_pattern.match(i)]
+    table_files = [
+        i for i in os.listdir(path) if csv_pattern.match(i) or tiff_pattern.match(i) or ome_tiff_pattern.match(i)
+    ]
     count_matrices = [x for x in table_files if (SeqfishKeys.COUNTS_FILE in x)]
 
     if not table_files or not count_matrices:
@@ -90,7 +92,8 @@ def seqfish(
     }
     labels = {
         f"image_{x+1}": Labels2DModel.parse(
-            imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(), dims=("y", "x"))
+            imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(), dims=("y", "x")
+        )
         for x in range(1, _sections + 1)
     }
     points = {
