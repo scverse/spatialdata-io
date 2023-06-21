@@ -82,10 +82,10 @@ def codex(
                 scale_factors=[2, 2],
             )
         }
-        sdata = SpatialData(images=images, shapes={region: shapes}, table=table)
+        sdata = SpatialData(images=images, shapes={str(region): shapes}, table=table)
     else:
         logger.warning("Cannot find .tif file. Will build spatialdata with shapes and table only.")
-        sdata = SpatialData(shapes={region: shapes}, table=table)
+        sdata = SpatialData(shapes={str(region): shapes}, table=table)
 
     return sdata
 
