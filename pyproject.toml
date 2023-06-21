@@ -29,6 +29,7 @@ dependencies = [
     "imagecodecs",
     "dask-image",
     "pyarrow",
+    "readfcs",
 ]
 
 [project.optional-dependencies]
