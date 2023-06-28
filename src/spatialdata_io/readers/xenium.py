@@ -186,7 +186,7 @@ def _get_tables_and_circles(
 ) -> AnnData | tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
-    np.testing.assert_array_equal(metadata.cell_id.str.decode("utf-8").values, adata.obs_names.values)
+    np.testing.assert_array_equal(metadata.cell_id.astype(str), adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     adata.obsm["spatial"] = circ
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
