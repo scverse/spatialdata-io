@@ -17,16 +17,8 @@ This package contains reader functions to load common spatial omics formats into
 -   10x Genomics Visium
 -   10x Genomics Xenium
 -   Curio Seeker
-
-Coming soon:
-
--   Vizgen MERSCOPE (MERFISH)
--   Spatial Genomics seqFISH
 -   Akoya PhenoCycler (formerly CODEX)
-
-Also coming soon:
-
--   Common image converters: .jpg <> .zarr
+-   Vizgen MERSCOPE (MERFISH)
 
 ## Getting started
 

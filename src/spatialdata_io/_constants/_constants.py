@@ -4,6 +4,20 @@ from spatialdata_io._constants._enum import ModeEnum
 
 
 @unique
+class CodexKeys(ModeEnum):
+    """Keys for *CODEX* formatted dataset."""
+
+    # files and directories
+    FCS_FILE = ".fcs"
+    FCS_FILE_CSV = ".csv"
+    # metadata
+    REGION_KEY = "region"
+    INSTANCE_KEY = "cell_id"
+    SPATIAL_KEY = "spatial"
+    # images
+    IMAGE_TIF = ".tif"
+
+
 class CurioKeys(ModeEnum):
     """Keys for *Curio* formatted dataset."""
 
@@ -93,16 +107,15 @@ class VisiumKeys(ModeEnum):
     # images
     IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
     IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
-    IMAGE_TIF_SUFFIX = "_tissue_image.tif"
-    IMAGE_TIF_ALTERNATIVE_SUFFIX = "_image.tif"
 
     # scalefactors
-    SCALEFACTORS_FILE = "spatial/scalefactors_json.json"
+    SCALEFACTORS_FILE = "scalefactors_json.json"
     SCALEFACTORS_HIRES = "tissue_hires_scalef"
     SCALEFACTORS_LOWRES = "tissue_lowres_scalef"
 
     # spots
-    SPOTS_FILE = "spatial/tissue_positions.csv"
+    SPOTS_FILE_1 = "tissue_positions_list.csv"
+    SPOTS_FILE_2 = "tissue_positions.csv"
     SPOTS_X = "pxl_row_in_fullres"
     SPOTS_Y = "pxl_col_in_fullres"
 
@@ -139,3 +152,33 @@ class McmicroKeys(ModeEnum):
     COORDS_X = "X_centroid"
     COORDS_Y = "Y_centroid"
     INSTANCE_KEY = "CellID"
+
+
+@unique
+class MerscopeKeys(ModeEnum):
+    """Keys for *MERSCOPE* data (Vizgen plateform)"""
+
+    # files and directories
+    IMAGES_DIR = "images"
+    TRANSFORMATION_FILE = "micron_to_mosaic_pixel_transform.csv"
+    TRANSCRIPTS_FILE = "detected_transcripts.csv"
+    BOUNDARIES_FILE = "cell_boundaries.parquet"
+    COUNTS_FILE = "cell_by_gene.csv"
+    CELL_METADATA_FILE = "cell_metadata.csv"
+
+    # VPT default outputs
+    CELLPOSE_BOUNDARIES = "cellpose_micron_space.parquet"
+    WATERSHED_BOUNDARIES = "watershed_micron_space.parquet"
+    VPT_NAME_COUNTS = "cell_by_gene"
+    VPT_NAME_OBS = "cell_metadata"
+    VPT_NAME_BOUNDARIES = "cell_boundaries"
+
+    # metadata
+    INSTANCE_KEY = "EntityID"
+    COUNTS_CELL_KEY = "cell"
+    CELL_X = "center_x"
+    CELL_Y = "center_y"
+    GLOBAL_X = "global_x"
+    GLOBAL_Y = "global_y"
+    GLOBAL_Z = "global_z"
+    Z_INDEX = "ZIndex"

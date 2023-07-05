@@ -136,7 +136,7 @@ def xenium(
     if morphology_focus:
         images["morphology_focus"] = _get_images(
             path,
-            XeniumKeys.MORPHOLOGY_MIP_FILE,
+            XeniumKeys.MORPHOLOGY_FOCUS_FILE,
             specs,
             imread_kwargs,
             image_models_kwargs,
@@ -173,7 +173,7 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     points = PointsModel.parse(
         table,
-        coordinates={"x": XeniumKeys.TRANSCRIPTS_X, "y": XeniumKeys.TRANSCRIPTS_Y, "z": XeniumKeys.TRANSCRIPTS_Y},
+        coordinates={"x": XeniumKeys.TRANSCRIPTS_X, "y": XeniumKeys.TRANSCRIPTS_Y, "z": XeniumKeys.TRANSCRIPTS_Z},
         feature_key=XeniumKeys.FEATURE_NAME,
         instance_key=XeniumKeys.CELL_ID,
         transformations={"global": transform},
@@ -186,7 +186,7 @@ def _get_tables_and_circles(
 ) -> AnnData | tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
-    np.testing.assert_array_equal(metadata.cell_id.astype(str).values, adata.obs_names.values)
+    np.testing.assert_array_equal(metadata.cell_id.astype(str), adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     adata.obsm["spatial"] = circ
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
