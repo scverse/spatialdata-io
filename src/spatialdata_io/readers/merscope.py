@@ -152,11 +152,10 @@ def merscope(
     transcripts = PointsModel.parse(
         transcript_df,
         coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
-        transformations={"pixels": Identity()},
+        transformations={"pixels": microns_to_pixels},
     )
-    gene_categorical = dd.from_pandas(
-        transcripts["gene"].compute().astype("category"), npartitions=transcripts.npartitions
-    ).reset_index(drop=True)
+    categories = transcripts["gene"].compute().astype("category")
+    gene_categorical = dd.from_pandas(categories, npartitions=transcripts.npartitions).reset_index(drop=True)
     transcripts["gene"] = gene_categorical
 
     points = {f"{dataset_id}_transcripts": transcripts}
