@@ -70,7 +70,7 @@ def seqfish(
 
     adatas = {}
 
-    for _sections, count_matrix in enumerate(count_matrices):
+    for count_matrix in count_matrices:
         section = int(re.findall(r"\d+", count_matrix)[0])
         cell_file = [x for x in table_files if (f"{SeqfishKeys.CELL_COORDINATES}{SeqfishKeys.SECTION}{section}" in x)][
             0
@@ -86,15 +86,17 @@ def seqfish(
     cell_mask_file = [x for x in table_files if (f"{SeqfishKeys.CELL_MASK_FILE}" in x)]
     transcript_file = [x for x in table_files if (f"{SeqfishKeys.TRANSCRIPT_COORDINATES}" in x)]
 
+    n = len(count_matrices)
+    scale_factors = [2, 2, 2, 2]
     images = {
-        f"label_{x+1}": Image2DModel.parse(imread(path / dapi_file[x - 1], **imread_kwargs), dims=("c", "y", "x"))
-        for x in range(1, _sections + 1)
+        f"label_{x+1}": Image2DModel.parse(imread(path / dapi_file[x - 1], **imread_kwargs), dims=("c", "y", "x"), scale_factors=scale_factors)
+        for x in range(1, n + 1)
     }
     labels = {
         f"image_{x+1}": Labels2DModel.parse(
-            imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(), dims=("y", "x")
+            imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(), dims=("y", "x"), scale_factors=scale_factors
         )
-        for x in range(1, _sections + 1)
+        for x in range(1, n + 1)
     }
     points = {
         f"transcripts_{x+1}": PointsModel.parse(
@@ -103,7 +105,7 @@ def seqfish(
             feature_key=SeqfishKeys.FEATURE_KEY,
             instance_key=SeqfishKeys.INSTANCE_KEY_POINTS,
         )
-        for x in range(1, _sections + 1)
+        for x in range(1, n + 1)
     }
 
     adata = ad.concat(adatas)
