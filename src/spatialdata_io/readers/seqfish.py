@@ -89,12 +89,16 @@ def seqfish(
     n = len(count_matrices)
     scale_factors = [2, 2, 2, 2]
     images = {
-        f"label_{x+1}": Image2DModel.parse(imread(path / dapi_file[x - 1], **imread_kwargs), dims=("c", "y", "x"), scale_factors=scale_factors)
+        f"label_{x+1}": Image2DModel.parse(
+            imread(path / dapi_file[x - 1], **imread_kwargs), dims=("c", "y", "x"), scale_factors=scale_factors
+        )
         for x in range(1, n + 1)
     }
     labels = {
         f"image_{x+1}": Labels2DModel.parse(
-            imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(), dims=("y", "x"), scale_factors=scale_factors
+            imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(),
+            dims=("y", "x"),
+            scale_factors=scale_factors,
         )
         for x in range(1, n + 1)
     }
