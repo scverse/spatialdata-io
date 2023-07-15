@@ -89,13 +89,13 @@ def seqfish(
     n = len(count_matrices)
     scale_factors = [2, 2, 2, 2]
     images = {
-        f"label_{x+1}": Image2DModel.parse(
+        f"label_{x}": Image2DModel.parse(
             imread(path / dapi_file[x - 1], **imread_kwargs), dims=("c", "y", "x"), scale_factors=scale_factors
         )
         for x in range(1, n + 1)
     }
     labels = {
-        f"image_{x+1}": Labels2DModel.parse(
+        f"image_{x}": Labels2DModel.parse(
             imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(),
             dims=("y", "x"),
             scale_factors=scale_factors,
@@ -103,7 +103,7 @@ def seqfish(
         for x in range(1, n + 1)
     }
     points = {
-        f"transcripts_{x+1}": PointsModel.parse(
+        f"transcripts_{x}": PointsModel.parse(
             pd.read_csv(path / transcript_file[x - 1], delimiter=","),
             coordinates={"x": SeqfishKeys.TRANSCRIPTS_X, "y": SeqfishKeys.TRANSCRIPTS_Y},
             feature_key=SeqfishKeys.FEATURE_KEY,
