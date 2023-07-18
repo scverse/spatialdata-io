@@ -136,6 +136,69 @@ class SteinbockKeys(ModeEnum):
 
 
 @unique
+class StereoseqKeys(ModeEnum):
+    """Keys for *Stereoseq* formatted dataset."""
+
+    # file extensions
+    GEF_FILE = ".gef"
+    TIF_FILE = ".tif"
+    # directories
+    MERGE = "01.merge"
+    COUNT = "02.count"
+    REGISTER = "03.register"
+    TISSUECUT = "04.tissuecut"
+    SPATIALCLUSTER = "05.spatialcluster"
+    SATURATION = "06.saturation"
+    CELLCUT = "041.cellcut"
+    CELLCLUSTER = "051.cellcluster"
+    # file identifiers
+    MASK_TIF = "_mask.tif"
+    REGIST_TIF = "_regist.tif"
+    TISSUE_TIF = "_tissue_cut.tif"
+    FOV_TIF = "_fov_stitched_transformed.tif"
+    CELL_CLUSTER_H5AD = "cell.cluster.h5ad"
+    RAW_GEF = ".raw.gef"
+    CELLBIN_GEF = ".cellbin.gef"
+    TISSUECUT_GEF = ".tissuecut.gef"
+    TISSUE_GEM = ".tissue.gem.gz"
+    # transcripts
+    TRANSCRIPTS_X = "x"
+    TRANSCRIPTS_Y = "y"
+    FEATURE_KEY = "gene"
+    GENE_NAME = "geneName"
+    GENE_OFFSET = "offset"
+    CELL_COUNT = "cellCount"
+    EXP_COUNT = "expCount"
+    MAX_MID_COUNT = "maxMIDcount"
+    GENE_EXP = "geneExp"
+    GENE_COUNT = "count"
+    EXPRESSION = "expression"
+    EXON = "exon"
+    # cells
+    CELL_ID = "id"
+    CELL_X = "x"
+    CELL_Y = "y"
+    CELL_OFFSET = "offset"
+    GENECOUNT = "geneCount"
+    EXPCOUNT = "expCount"
+    DNBCOUNT = "dnbCount"
+    CELL_AREA = "area"
+    CELL_TYPE_ID = "cellTypeID"
+    CLUSTER_ID = "clusterID"
+    CELL_BIN = "cellBin"
+    CELL_EXON = "cellExon"
+    CELL_DATASET = "cell"
+    GENE_DATASET = "gene"
+    GENE_EXON = "geneExon"
+    CELL_BORDER = "cellBorder"
+    # metadata
+    SPATIAL_KEY = "spatial"
+    REGION = "cells"
+    REGION_KEY = "region"
+    INSTANCE_KEY = "instance_id"
+
+
+@unique
 class McmicroKeys(ModeEnum):
     """Keys for *Mcmicro* formatted dataset."""
 
