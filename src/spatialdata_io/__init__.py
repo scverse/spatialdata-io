@@ -18,7 +18,8 @@ __all__ = [
     "cosmx",
     "mcmicro",
     "steinbock",
-    "stereoseq" "merscope",
+    "stereoseq",
+    "merscope",
 ]
 
 __version__ = version("spatialdata-io")
