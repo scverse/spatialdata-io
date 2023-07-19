@@ -183,7 +183,7 @@ class StereoseqKeys(ModeEnum):
     GENE_EXON = "geneExon"
     CELL_BORDER = "cellBorder"
     # metadata
-    EXP_COUNT
+    EXP_COUNT = "expCount"
     OFFSET = "offset"
     COORD_X = "x"
     COORD_Y = "y"
