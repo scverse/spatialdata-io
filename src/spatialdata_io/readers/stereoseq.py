@@ -90,11 +90,11 @@ def stereoseq(
         cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_DATASET][:],
         columns=[
             StereoseqKeys.CELL_ID,
-            StereoseqKeys.CELL_X,
-            StereoseqKeys.CELL_Y,
-            StereoseqKeys.CELL_OFFSET,
+            StereoseqKeys.COORD_X,
+            StereoseqKeys.COORD_Y,
+            StereoseqKeys.OFFSET,
             StereoseqKeys.GENECOUNT,
-            StereoseqKeys.EXPCOUNT,
+            StereoseqKeys.EXP_COUNT,
             StereoseqKeys.DNBCOUNT,
             StereoseqKeys.CELL_AREA,
             StereoseqKeys.CELL_TYPE_ID,
@@ -102,16 +102,16 @@ def stereoseq(
         ],
     )
 
-    obsm_spatial = obs[[StereoseqKeys.CELL_X, StereoseqKeys.CELL_Y]].to_numpy()
-    obs = obs.drop([StereoseqKeys.CELL_X, StereoseqKeys.CELL_Y], axis=1)
+    obsm_spatial = obs[[StereoseqKeys.COORD_X, StereoseqKeys.COORD_Y]].to_numpy()
+    obs = obs.drop([StereoseqKeys.COORD_X, StereoseqKeys.COORD_Y], axis=1)
     obs[StereoseqKeys.CELL_EXON] = cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_EXON][:]
 
     # add gene info to var
     var = pd.DataFrame(
-        cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.GENE_DATASET][:],
+        cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.FEATURE_KEY][:],
         columns=[
             StereoseqKeys.GENE_NAME,
-            StereoseqKeys.GENE_OFFSET,
+            StereoseqKeys.OFFSET,
             StereoseqKeys.CELL_COUNT,
             StereoseqKeys.EXP_COUNT,
             StereoseqKeys.MAX_MID_COUNT,
@@ -149,7 +149,7 @@ def stereoseq(
         # get gene info
         arr = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.FEATURE_KEY][:]
         df_gene = pd.DataFrame(
-            arr, columns=[StereoseqKeys.FEATURE_KEY, StereoseqKeys.GENE_OFFSET, StereoseqKeys.GENE_COUNT]
+            arr, columns=[StereoseqKeys.FEATURE_KEY, StereoseqKeys.OFFSET, StereoseqKeys.GENE_COUNT]
         )
         df_gene[StereoseqKeys.FEATURE_KEY] = df_gene[StereoseqKeys.FEATURE_KEY].str.decode("utf-8")
         df_gene = df_gene.rename(columns={"count": "counts"})  # #138 df_gene.count will throw error if not renamed
@@ -157,7 +157,7 @@ def stereoseq(
         # create df for points model
         arr = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.EXPRESSION][:]
         df_points = pd.DataFrame(
-            arr, columns=[StereoseqKeys.TRANSCRIPTS_X, StereoseqKeys.TRANSCRIPTS_Y, StereoseqKeys.GENE_COUNT]
+            arr, columns=[StereoseqKeys.COORD_X, StereoseqKeys.COORD_Y, StereoseqKeys.GENE_COUNT]
         )
         df_points = df_points.astype(np.float32)
         df_points[StereoseqKeys.EXON] = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.EXON][:]
@@ -189,7 +189,7 @@ def stereoseq(
     points = {
         f"transcripts_{bin}": PointsModel.parse(
             df,
-            coordinates={"x": StereoseqKeys.TRANSCRIPTS_X, "y": StereoseqKeys.TRANSCRIPTS_Y},
+            coordinates={"x": StereoseqKeys.COORD_X, "y": StereoseqKeys.COORD_Y},
             feature_key=StereoseqKeys.FEATURE_KEY,
         )
         for bin, df in df_by_bin.items()
