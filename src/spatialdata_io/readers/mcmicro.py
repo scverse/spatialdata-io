@@ -15,6 +15,7 @@ from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialI
 from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata.models import Image2DModel, Labels2DModel, TableModel
+from spatialdata.transformations import Identity
 from yaml.loader import SafeLoader
 
 from spatialdata_io._constants._constants import McmicroKeys
@@ -56,7 +57,8 @@ def mcmicro(
     """
     path = Path(path)
     params = _load_params(path)
-    tma = params["workflow"]["tma"]
+    tma: bool = params["workflow"]["tma"]
+    transformations = {"global": Identity()}
 
     if not tma:
         image_dir = path / McmicroKeys.IMAGES_DIR_WSI
@@ -78,6 +80,7 @@ def mcmicro(
 
         images[f"{image_id}_image"] = _get_images(
             sample,
+            transformations,
             imread_kwargs,
             image_models_kwargs,
         )
@@ -91,6 +94,7 @@ def mcmicro(
             segmentation_stem = label_path.with_name(label_path.stem).with_suffix("").stem
             labels[f"{image_id}_{segmentation_stem}"] = _get_labels(
                 label_path,
+                transformations,
                 imread_kwargs,
                 label_models_kwargs,
             )
@@ -118,15 +122,17 @@ def _load_params(path: Path) -> Any:
 
 def _get_images(
     path: Path,
+    transformations: Mapping[str, Identity],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(path, **imread_kwargs)
-    return Image2DModel.parse(image, **image_models_kwargs)
+    return Image2DModel.parse(image, transformations=transformations, **image_models_kwargs)
 
 
 def _get_labels(
     path: Path,
+    transformations: Mapping[str, Identity],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     label_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
@@ -134,7 +140,7 @@ def _get_labels(
         path,
         **imread_kwargs,
     ).squeeze()
-    return Labels2DModel.parse(image, **label_models_kwargs)
+    return Labels2DModel.parse(image, transformations=transformations, **label_models_kwargs)
 
 
 def _get_table(
