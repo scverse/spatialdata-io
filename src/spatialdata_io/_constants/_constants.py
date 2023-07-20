@@ -146,6 +146,7 @@ class McmicroKeys(ModeEnum):
     IMAGES_DIR_TMA = "dearray"
     IMAGE_SUFFIX = ".ome.tif"
     LABELS_DIR = "segmentation"
+    ILLUMINATION_DIR = "illumination"
     PARAMS_FILE = "qc/params.yml"
 
     # metadata

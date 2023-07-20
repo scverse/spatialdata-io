@@ -85,6 +85,15 @@ def mcmicro(
             image_models_kwargs,
         )
 
+    illumination_dir = path / McmicroKeys.ILLUMINATION_DIR
+    if illumination_dir.exists():
+        illumination_images = list(illumination_dir.glob("*"))
+        for illumination_image in illumination_images:
+            illumination_name = illumination_image.with_name(illumination_image.stem).with_suffix("").stem
+            images[illumination_name] = _get_images(
+                illumination_image, transformations, imread_kwargs, image_models_kwargs
+            )
+
     samples_labels = list((path / McmicroKeys.LABELS_DIR).glob("*/*" + McmicroKeys.IMAGE_SUFFIX))
 
     labels = {}
