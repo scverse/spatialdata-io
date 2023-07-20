@@ -176,7 +176,8 @@ def _create_anndata(
     tma: bool,
 ) -> tuple[AnnData, str]:
     label_basename = csv_path.stem.split("_")[-1]
-    sample_id_search = re.search(r"^([a-zA-Z0-9-]*)--", csv_path.stem)
+    pattern = r"^(.*?)--"
+    sample_id_search = re.search(pattern, csv_path.stem)
     sample_id = sample_id_search.groups()[0] if sample_id_search else None
     if not sample_id:
         raise ValueError(
