@@ -27,3 +27,6 @@ __pycache__/
 # docs
 /docs/generated/
 /docs/_build/
+
+# other
+_version.py
