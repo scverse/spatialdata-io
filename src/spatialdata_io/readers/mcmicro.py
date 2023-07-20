@@ -8,12 +8,14 @@ from typing import Any, Union
 
 import numpy as np
 import pandas as pd
+import yaml
 from anndata import AnnData
 from dask_image.imread import imread
 from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
 from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata.models import Image2DModel, Labels2DModel, TableModel
+from yaml.loader import SafeLoader
 
 from spatialdata_io._constants._constants import McmicroKeys
 
@@ -53,6 +55,7 @@ def mcmicro(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
+    _load_params(path)
 
     # Output directory dearray is specific for tissue micro array output of MCMICRO
     if (path / McmicroKeys.IMAGES_DIR_TMA).exists():
@@ -109,6 +112,13 @@ def mcmicro(
     table = _get_table(path, tma)
 
     return SpatialData(images=images, labels=labels, table=table)
+
+
+def _load_params(path: Path) -> Any:
+    params_path = path / McmicroKeys.PARAMS_FILE
+    with open(params_path) as fp:
+        params = yaml.load(fp, SafeLoader)
+    return params
 
 
 def _get_images(
