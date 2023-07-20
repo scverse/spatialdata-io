@@ -55,13 +55,8 @@ def mcmicro(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
-    _load_params(path)
-
-    # Output directory dearray is specific for tissue micro array output of MCMICRO
-    if (path / McmicroKeys.IMAGES_DIR_TMA).exists():
-        tma = True
-    else:
-        tma = False
+    params = _load_params(path)
+    tma = params["workflow"]["tma"]
 
     if not tma:
         image_dir = path / McmicroKeys.IMAGES_DIR_WSI
