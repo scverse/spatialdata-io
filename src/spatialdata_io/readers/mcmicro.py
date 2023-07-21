@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import anndata as ad
 import numpy as np
@@ -61,6 +61,10 @@ def mcmicro(
     tma: bool = params["workflow"]["tma"]
     transformations = {"global": Identity()}
 
+    markers = pd.read_csv(path / McmicroKeys.MARKERS_FILE)
+    markers.index = markers.marker_name
+    marker_names = markers.marker_name.tolist()
+
     if not tma:
         image_dir = path / McmicroKeys.IMAGES_DIR_WSI
         if not image_dir.exists():
@@ -84,6 +88,7 @@ def mcmicro(
             transformations,
             imread_kwargs,
             image_models_kwargs,
+            marker_names,
         )
 
     illumination_dir = path / McmicroKeys.ILLUMINATION_DIR
@@ -119,7 +124,7 @@ def mcmicro(
                 label_models_kwargs,
             )
 
-    table = _get_table(path, tma)
+    table = _get_table(path, markers, tma)
 
     return SpatialData(images=images, labels=labels, table=table)
 
@@ -136,9 +141,10 @@ def _get_images(
     transformations: Mapping[str, Identity],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    marker_names: Optional[list[str]] = None,
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(path, **imread_kwargs)
-    return Image2DModel.parse(image, transformations=transformations, **image_models_kwargs)
+    return Image2DModel.parse(image, transformations=transformations, c_coords=marker_names, **image_models_kwargs)
 
 
 def _get_labels(
@@ -156,11 +162,10 @@ def _get_labels(
 
 def _get_table(
     path: Path,
+    marker_df: pd.DataFrame,
     tma: bool,
 ) -> AnnData:
-    markers = pd.read_csv(path / McmicroKeys.MARKERS_FILE)
-    markers.index = markers.marker_name
-    var = markers.marker_name.tolist()
+    var = marker_df.marker_name.tolist()
     coords = [McmicroKeys.COORDS_X.value, McmicroKeys.COORDS_Y.value]
 
     table_paths = list((path / McmicroKeys.QUANTIFICATION_DIR).glob("*.csv"))
@@ -168,13 +173,13 @@ def _get_table(
     adatas = None
     for table_path in table_paths:
         if not tma:
-            adata, region = _create_anndata(table_path, markers, var, coords, tma)
+            adata, region = _create_anndata(table_path, marker_df, var, coords, tma)
 
             return TableModel.parse(
                 adata, region=region, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value
             )
         else:
-            adata, region = _create_anndata(table_path, markers, var, coords, tma)
+            adata, region = _create_anndata(table_path, marker_df, var, coords, tma)
             regions.append(region)
 
             if not adatas:
