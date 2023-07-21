@@ -151,7 +151,7 @@ def _load_params(path: Path) -> Any:
 
 def _get_images(
     path: Path,
-    transformations: Mapping[str, Identity],
+    transformations: dict[str, Identity],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     marker_names: Optional[list[str]] = None,
@@ -162,7 +162,7 @@ def _get_images(
 
 def _get_labels(
     path: Path,
-    transformations: Mapping[str, Identity],
+    transformations: dict[str, Identity],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     label_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
