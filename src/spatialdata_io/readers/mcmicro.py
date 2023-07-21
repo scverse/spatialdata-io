@@ -76,6 +76,8 @@ def mcmicro(
     else:
         image_dir = path / McmicroKeys.IMAGES_DIR_TMA
         samples = list(image_dir.glob("*" + McmicroKeys.IMAGE_SUFFIX))
+        image_dir_masks = image_dir / "masks"
+        samples_masks = list(image_dir_masks.glob("*"))
 
     images = {}
     for sample in samples:
@@ -119,6 +121,17 @@ def mcmicro(
             core_id = int(core_id_search.group()) if core_id_search else None
             labels[f"core_{core_id}_{segmentation_stem}"] = _get_labels(
                 label_path,
+                transformations,
+                imread_kwargs,
+                label_models_kwargs,
+            )
+
+    if tma:
+        for mask_path in samples_masks:
+            mask_stem = mask_path.stem
+
+            labels[f"core_{McmicroKeys.IMAGES_DIR_TMA}_{mask_stem}"] = _get_labels(
+                mask_path,
                 transformations,
                 imread_kwargs,
                 label_models_kwargs,
