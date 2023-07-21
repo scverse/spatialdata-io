@@ -6,6 +6,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Union
 
+import anndata as ad
 import numpy as np
 import pandas as pd
 import yaml
@@ -113,6 +114,7 @@ def mcmicro(
             core_id = int(core_id_search.group()) if core_id_search else None
             labels[f"core_{core_id}_{segmentation_stem}"] = _get_labels(
                 label_path,
+                transformations,
                 imread_kwargs,
                 label_models_kwargs,
             )
@@ -178,7 +180,7 @@ def _get_table(
             if not adatas:
                 adatas = adata
             else:
-                adatas = adatas.concatenate(adata, index_unique=None)
+                adatas = ad.concat([adatas, adata], index_unique=None)
 
     return TableModel.parse(adatas, region=regions, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value)
 
