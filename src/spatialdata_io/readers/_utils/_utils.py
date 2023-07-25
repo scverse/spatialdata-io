@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 import numpy as np
-from anndata import AnnData, read_mtx, read_text
+from anndata import AnnData, read_text
 from h5py import File
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
@@ -23,14 +23,15 @@ except (ImportError, TypeError):
 
 def _read_counts(
     path: str | Path,
-    count_file: str,
+    counts_file: str,
     library_id: Optional[str] = None,
     **kwargs: Any,
 ) -> tuple[AnnData, str]:
     path = Path(path)
-    if count_file.endswith(".h5"):
-        adata: AnnData = _read_10x_h5(path / count_file, **kwargs)
-        with File(path / count_file, mode="r") as f:
+    if counts_file.endswith(".h5"):
+        print(counts_file)
+        adata: AnnData = _read_10x_h5(path / counts_file, **kwargs)
+        with File(path / counts_file, mode="r") as f:
             attrs = dict(f.attrs)
             if library_id is None:
                 try:
@@ -53,10 +54,15 @@ def _read_counts(
     if library_id is None:
         raise ValueError("Please explicitly specify library id.")
 
-    if count_file.endswith((".csv", ".txt")):
-        adata = read_text(path / count_file, **kwargs)
-    elif count_file.endswith(".mtx"):
-        adata = read_mtx(path / count_file, **kwargs)
+    if counts_file.endswith((".csv", ".txt")):
+        adata = read_text(path / counts_file, **kwargs)
+    elif counts_file.endswith(".mtx.gz"):
+        try:
+            from scanpy.readwrite import read_10x_mtx
+        except ImportError:
+            raise ImportError("Please install scanpy to read 10x mtx files, `pip install scanpy`.")
+        prefix = counts_file.replace("matrix.mtx.gz", "")
+        adata = read_10x_mtx(path, prefix=prefix, **kwargs)
     else:
         raise NotImplementedError("TODO")
 
