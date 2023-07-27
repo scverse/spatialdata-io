@@ -112,6 +112,13 @@ def seqfish(
         for x in range(1, n + 1)
     }
 
+    shapes = {
+        f"{SeqfishKeys.REGION.value}_{section}": ShapesModel.parse(
+            adata.obsm[SeqfishKeys.SPATIAL_KEY], geometry=0, radius=10, index=adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE]
+        )
+        for section, adata in adatas.items()
+    }
+
     adata = ad.concat(adatas)
     adata.obs[SeqfishKeys.REGION_KEY] = SeqfishKeys.REGION
     adata.obs[SeqfishKeys.REGION_KEY] = adata.obs[SeqfishKeys.REGION_KEY].astype("category")
@@ -123,12 +130,7 @@ def seqfish(
         region_key=SeqfishKeys.REGION_KEY.value,
         instance_key=SeqfishKeys.INSTANCE_KEY_TABLE.value,
     )
-
-    shapes = {
-        SeqfishKeys.REGION.value: ShapesModel.parse(
-            adata.obsm[SeqfishKeys.SPATIAL_KEY], geometry=0, radius=10, index=adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE]
-        )
-    }
+    
     sdata = SpatialData(images=images, labels=labels, points=points, table=table, shapes=shapes)
 
     return sdata
