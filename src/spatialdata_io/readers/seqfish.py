@@ -130,7 +130,7 @@ def seqfish(
         region_key=SeqfishKeys.REGION_KEY.value,
         instance_key=SeqfishKeys.INSTANCE_KEY_TABLE.value,
     )
-    
+
     sdata = SpatialData(images=images, labels=labels, points=points, table=table, shapes=shapes)
 
     return sdata
