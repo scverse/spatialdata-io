@@ -143,8 +143,9 @@ def merscope(
     count_path, obs_path, boundaries_path = _get_file_paths(path, vpt_outputs)
     images_dir = path / MerscopeKeys.IMAGES_DIR
 
-    microns_to_pixels = np.genfromtxt(images_dir / MerscopeKeys.TRANSFORMATION_FILE)
-    microns_to_pixels = Affine(microns_to_pixels, input_axes=("x", "y"), output_axes=("x", "y"))
+    microns_to_pixels = Affine(
+        np.genfromtxt(images_dir / MerscopeKeys.TRANSFORMATION_FILE), input_axes=("x", "y"), output_axes=("x", "y")
+    )
 
     vizgen_region = path.name if region_name is None else region_name
     slide_name = path.parent.name if slide_name is None else slide_name
