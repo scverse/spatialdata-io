@@ -13,7 +13,13 @@ import numpy as np
 import pandas as pd
 from dask_image.imread import imread
 from spatialdata import SpatialData
-from spatialdata.models import Image2DModel, Labels2DModel, PointsModel, TableModel
+from spatialdata.models import (
+    Image2DModel,
+    Labels2DModel,
+    PointsModel,
+    ShapesModel,
+    TableModel,
+)
 
 from spatialdata_io._constants._constants import StereoseqKeys
 
@@ -196,11 +202,11 @@ def stereoseq(
         region_key=StereoseqKeys.REGION_KEY,
         instance_key=StereoseqKeys.INSTANCE_KEY,
     )
-    # shapes = {
-    #     StereoseqKeys.REGION_KEY: ShapesModel.parse(
-    #         adata.obsm[StereoseqKeys.SPATIAL_KEY], geometry=3, index=adata.obs[StereoseqKeys.INSTANCE_KEY]
-    #     )
-    # }
-    sdata = SpatialData(images=images, labels=labels, table=table, points=points)
+    shapes = {
+        StereoseqKeys.REGION_KEY: ShapesModel.parse(
+            adata.obsm[StereoseqKeys.SPATIAL_KEY], geometry=0, radius=1, index=adata.obs[StereoseqKeys.INSTANCE_KEY]
+        )
+    }
+    sdata = SpatialData(images=images, labels=labels, table=table, points=points, shapes=shapes)
 
     return sdata
