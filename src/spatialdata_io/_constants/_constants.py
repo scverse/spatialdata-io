@@ -206,7 +206,7 @@ class MerscopeKeys(ModeEnum):
     VPT_NAME_BOUNDARIES = "cell_boundaries"
 
     # metadata
-    INSTANCE_KEY = "EntityID"
+    METADATA_CELL_KEY = "EntityID"
     COUNTS_CELL_KEY = "cell"
     CELL_X = "center_x"
     CELL_Y = "center_y"
@@ -214,3 +214,4 @@ class MerscopeKeys(ModeEnum):
     GLOBAL_Y = "global_y"
     GLOBAL_Z = "global_z"
     Z_INDEX = "ZIndex"
+    REGION_KEY = "cells_region"
