@@ -112,9 +112,13 @@ def seqfish(
         for x in range(1, n + 1)
     }
 
+    radii = np.sqrt(adata.obs[SeqfishKeys.AREA].to_numpy() / np.pi)
     shapes = {
         f"{SeqfishKeys.REGION.value}_{section}": ShapesModel.parse(
-            adata.obsm[SeqfishKeys.SPATIAL_KEY], geometry=0, radius=10, index=adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE]
+            adata.obsm[SeqfishKeys.SPATIAL_KEY],
+            geometry=0,
+            radius=radii,
+            index=adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE],
         )
         for section, adata in adatas.items()
     }
