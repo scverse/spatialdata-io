@@ -121,7 +121,7 @@ def seqfish(
         adata,
         region=SeqfishKeys.REGION.value,
         region_key=SeqfishKeys.REGION_KEY.value,
-        instance_key=SeqfishKeys.INSTANCE_KEY_TABLE.value,
+        instance_key=SeqfishKeys.INSTANCE_KEY_TABLE,
     )
 
     radii = np.sqrt(adata.obs[SeqfishKeys.AREA].to_numpy() / np.pi)
