@@ -14,13 +14,12 @@ from spatialdata.models import Image2DModel, TableModel, Labels2DModel
 from spatialdata.transformations.transformations import Identity
 from xarray import DataArray
 
-from spatialdata_io._constants._constants import ISSKeys
 from spatialdata_io._docs import inject_docs
 
 __all__ = ["iss"]
 
 
-@inject_docs(vx=ISSKeys)
+@inject_docs()
 def iss(
     path: str | Path,
     raw_relative_path: str | Path,
@@ -42,20 +41,27 @@ def iss(
 
     Parameters
     ----------
-    path
+    path : str or Path
         Path to the directory containing the data.
-    dataset_id
+    raw_relative_path : str or Path
+        Relative path to the raw raster image file.
+    label_relative_path : str or Path
+        Relative path to the label image file.
+    h5ad_relative_path : str or Path
+        Relative path to the counts and metadata file.
+    dataset_id : str, optional
         Dataset identifier.
-    imread_kwargs
+    imread_kwargs : Mapping[str, Any], optional
         Keyword arguments passed to :func:`dask_image.imread.imread`.
-    image_models_kwargs
+    image_models_kwargs : Mapping[str, Any], optional
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
-    label_models_kwargs
+    label_models_kwargs : Mapping[str, Any], optional
         Keyword arguments passed to :class:`spatialdata.models.Label2DModel`.
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
+        The spatial data object containing the ISS data.
     """
     path = Path(path)
 
@@ -82,7 +88,6 @@ def iss(
 
     raw_image_parsed = Image2DModel.parse(
         raw_image,
-        # scale_factors=list(2**np.arange(8)),
         scale_factors=[2, 4, 8, 16],
         transformations={"global": transform_original},
         **image_models_kwargs,
