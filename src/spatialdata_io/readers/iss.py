@@ -5,12 +5,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
 
-import numpy as np
 import anndata as ad
+import numpy as np
 from dask_image.imread import imread
 from spatialdata import SpatialData
-from spatialdata._logging import logger
-from spatialdata.models import Image2DModel, TableModel, Labels2DModel
+from spatialdata.models import Image2DModel, Labels2DModel, TableModel
 from spatialdata.transformations.transformations import Identity
 from xarray import DataArray
 
@@ -96,5 +95,5 @@ def iss(
     return SpatialData(
         images={dataset_id + "_raw_image": raw_image_parsed},
         labels={dataset_id + "_label_image": label_image_parsed},
-        table=table
+        table=table,
     )
