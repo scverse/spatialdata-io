@@ -171,6 +171,7 @@ class StereoseqKeys(ModeEnum):
     EXPRESSION = "expression"
     EXON = "exon"
     # cells
+    CELL_AREA = "area"
     CELL_ID = "id"
     GENECOUNT = "geneCount"
     DNBCOUNT = "dnbCount"

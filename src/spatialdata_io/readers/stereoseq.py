@@ -201,9 +201,11 @@ def stereoseq(
         region_key=StereoseqKeys.REGION_KEY,
         instance_key=StereoseqKeys.INSTANCE_KEY,
     )
+
+    radii = np.sqrt(adata.obs[StereoseqKeys.CELL_AREA].to_numpy() / np.pi)
     shapes = {
         StereoseqKeys.REGION_KEY: ShapesModel.parse(
-            adata.obsm[StereoseqKeys.SPATIAL_KEY], geometry=0, radius=1, index=adata.obs[StereoseqKeys.INSTANCE_KEY]
+            adata.obsm[StereoseqKeys.SPATIAL_KEY], geometry=0, radius=radii, index=adata.obs[StereoseqKeys.INSTANCE_KEY]
         )
     }
     sdata = SpatialData(images=images, labels=labels, table=table, points=points, shapes=shapes)
