@@ -36,8 +36,8 @@ def iss(
     This function reads the following files:
 
         - ``<dataset_id>``: Counts and metadata file.
-        - ``{vx.RAW_IMAGE!r}``: Raw raster image.
-        - ``{vx.LABEL_IMAGE!r}``: Label image.
+        - ``<raw_relative_path>``: Raw raster image.
+        - ``<label_relative_path>``: Label image.
 
     Parameters
     ----------
