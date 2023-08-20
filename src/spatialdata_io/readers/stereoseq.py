@@ -60,7 +60,7 @@ def stereoseq(
 
         if gef_files:
             first_gef_file = gef_files[0]
-            dataset_id = first_gef_file.split(".")[0]
+            dataset_id = str(first_gef_file.split(".")[0])
 
     image_patterns = [
         re.compile(r".*" + re.escape(StereoseqKeys.MASK_TIF)),
