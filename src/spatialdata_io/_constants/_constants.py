@@ -144,7 +144,6 @@ class StereoseqKeys(ModeEnum):
     TIF_FILE = ".tif"
     # directories
     MERGE = "01.merge"
-    COUNT = "02.count"
     REGISTER = "03.register"
     TISSUECUT = "04.tissuecut"
     SPATIALCLUSTER = "05.spatialcluster"
@@ -167,12 +166,15 @@ class StereoseqKeys(ModeEnum):
     CELL_COUNT = "cellCount"
     MAX_MID_COUNT = "maxMIDcount"
     GENE_EXP = "geneExp"
-    GENE_COUNT = "count"
+    COUNT_GENE = "count"
     EXPRESSION = "expression"
     EXON = "exon"
+    GENE_ID = "geneID"
+    GENE_EXP_EXON = "geneExpExon"
     # cells
-    CELL_ID = "id"
-    GENECOUNT = "geneCount"
+    ID = "id"
+    CELL_ID = "cellID"
+    GENE_COUNT = "geneCount"
     DNBCOUNT = "dnbCount"
     CELL_AREA = "area"
     CELL_TYPE_ID = "cellTypeID"
@@ -182,6 +184,9 @@ class StereoseqKeys(ModeEnum):
     CELL_DATASET = "cell"
     GENE_EXON = "geneExon"
     CELL_BORDER = "cellBorder"
+    CELL_EXP = "cellExp"
+    COUNT_CELL = "count"
+    CELL_EXP_EXON = "cellExpExon"
     # metadata
     EXP_COUNT = "expCount"
     OFFSET = "offset"
@@ -191,6 +196,9 @@ class StereoseqKeys(ModeEnum):
     REGION = "cells"
     REGION_KEY = "region"
     INSTANCE_KEY = "instance_id"
+    BLOCK_INDEX = "blockIndex"
+    BLOCK_SIZE = "block_size"
+    CELL_TYPE_LIST = "cellTypeList"
 
 
 @unique
