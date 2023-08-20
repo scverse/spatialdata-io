@@ -5,7 +5,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Union, Optional
+from typing import Any, Optional, Union
 
 import anndata as ad
 import h5py
