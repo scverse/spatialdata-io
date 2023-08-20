@@ -144,6 +144,7 @@ class StereoseqKeys(ModeEnum):
     TIF_FILE = ".tif"
     # directories
     MERGE = "01.merge"
+    COUNT_DIRECTORY = "02.count"
     REGISTER = "03.register"
     TISSUECUT = "04.tissuecut"
     SPATIALCLUSTER = "05.spatialcluster"
@@ -196,7 +197,7 @@ class StereoseqKeys(ModeEnum):
     REGION_KEY = "region"
     INSTANCE_KEY = "instance_id"
     BLOCK_INDEX = "blockIndex"
-    BLOCK_SIZE = "block_size"
+    BLOCK_SIZE = "blockSize"
     CELL_TYPE_LIST = "cellTypeList"
 
 
