@@ -166,7 +166,6 @@ class StereoseqKeys(ModeEnum):
     CELL_COUNT = "cellCount"
     MAX_MID_COUNT = "maxMIDcount"
     GENE_EXP = "geneExp"
-    COUNT_GENE = "count"
     EXPRESSION = "expression"
     EXON = "exon"
     GENE_ID = "geneID"
@@ -185,9 +184,9 @@ class StereoseqKeys(ModeEnum):
     GENE_EXON = "geneExon"
     CELL_BORDER = "cellBorder"
     CELL_EXP = "cellExp"
-    COUNT_CELL = "count"
     CELL_EXP_EXON = "cellExpExon"
     # metadata
+    COUNT = "count"
     EXP_COUNT = "expCount"
     OFFSET = "offset"
     COORD_X = "x"
