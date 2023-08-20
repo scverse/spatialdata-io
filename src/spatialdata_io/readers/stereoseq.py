@@ -60,7 +60,7 @@ def stereoseq(
 
         if gef_files:
             first_gef_file = gef_files[0]
-            dataset_id = first_gef_file.split('.')[0]
+            dataset_id = first_gef_file.split(".")[0]
 
     image_patterns = [
         re.compile(r".*" + re.escape(StereoseqKeys.MASK_TIF)),
@@ -155,12 +155,12 @@ def stereoseq(
 
     # add all leftover columns in cellbin which don't fit .obs or .var to uns
     cellbin_uns = {
-        "geneID": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_EXP][StereoseqKeys.GENE_ID][:], 
+        "geneID": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_EXP][StereoseqKeys.GENE_ID][:],
         "cellExp": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_EXP][StereoseqKeys.COUNT][:],
-        "cellExpExon": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_EXP_EXON][:], 
-        "cellID": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.GENE_EXP][StereoseqKeys.CELL_ID][:], 
-        "geneExp": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.GENE_EXP][StereoseqKeys.COUNT][:], 
-        "geneExpExon": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.GENE_EXP_EXON][:], 
+        "cellExpExon": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_EXP_EXON][:],
+        "cellID": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.GENE_EXP][StereoseqKeys.CELL_ID][:],
+        "geneExp": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.GENE_EXP][StereoseqKeys.COUNT][:],
+        "geneExpExon": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.GENE_EXP_EXON][:],
     }
     cellbin_uns_df = pd.DataFrame(cellbin_uns)
 
