@@ -153,7 +153,7 @@ def stereoseq(
     adata.obs[StereoseqKeys.REGION_KEY] = adata.obs[StereoseqKeys.REGION_KEY].astype("category")
     adata.obs[StereoseqKeys.INSTANCE_KEY] = adata.obs.index
 
-    #add all leftover columns in cellbin which don't fit .obs or .var to uns
+    # add all leftover columns in cellbin which don't fit .obs or .var to uns
     cellbin_uns = {
         "geneID": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_EXP][StereoseqKeys.GENE_ID][:], 
         "cellExp": cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_EXP][StereoseqKeys.COUNT][:],
@@ -166,7 +166,7 @@ def stereoseq(
 
     adata.uns["cellBin_cell_gene_exon_exp"] = cellbin_uns_df
     adata.uns["cellBin_blockIndex"] = cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.BLOCK_INDEX][:]
-    adata.uns["cellBin_blockSize"] = cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.BLOCK_SIZE][:] 
+    adata.uns["cellBin_blockSize"] = cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.BLOCK_SIZE][:]
     adata.uns["cellBin_cellTypeList"] = cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_TYPE_LIST][:]
 
     # add cellbin attrs to uns
