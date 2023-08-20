@@ -28,7 +28,7 @@ __all__ = ["stereoseq"]
 
 def stereoseq(
     path: str | Path,
-    dataset_id: str = None,
+    dataset_id: Union[str, None],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
