@@ -5,7 +5,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import anndata as ad
 import h5py
@@ -28,7 +28,7 @@ __all__ = ["stereoseq"]
 
 def stereoseq(
     path: str | Path,
-    dataset_id: Union[Optional[str], None],
+    dataset_id: Union[str, None],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
