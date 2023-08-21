@@ -60,7 +60,9 @@ def stereoseq(
 
         if gef_files:
             first_gef_file = gef_files[0]
-            dataset_id = str(first_gef_file.split(".")[0])
+            square_bin = str(first_gef_file.split(".")[0]) + StereoseqKeys.GEF_FILE
+    else:
+        square_bin = dataset_id + StereoseqKeys.GEF_FILE
 
     image_patterns = [
         re.compile(r".*" + re.escape(StereoseqKeys.MASK_TIF)),
@@ -69,7 +71,6 @@ def stereoseq(
         re.compile(r".*" + re.escape(StereoseqKeys.FOV_TIF)),
     ]
 
-    square_bin = dataset_id + StereoseqKeys.GEF_FILE
     gef_patterns = [
         re.compile(r".*" + re.escape(StereoseqKeys.RAW_GEF)),
         re.compile(r".*" + re.escape(StereoseqKeys.CELLBIN_GEF)),
