@@ -216,5 +216,5 @@ def _get_images(
 ) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / file, **imread_kwargs)
     return Image2DModel.parse(
-        image, transformations={"global": Identity()}, dims=("c", "y", "x"), **image_models_kwargs
+        image, transformations={"global": Identity()}, dims=("c", "y", "x"), rgb=None, **image_models_kwargs
     )
