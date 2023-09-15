@@ -168,7 +168,7 @@ def _get_polygons(
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
-    table["feature_name"] = table["feature_name"].apply(lambda x: x.decode("utf-8"), meta=("feature_name", "object"))
+    table["feature_name"] = table["feature_name"].apply(lambda x: x.decode("utf-8") if isinstance(x, bytes) else str(x), meta=("feature_name", "object"))
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     points = PointsModel.parse(
