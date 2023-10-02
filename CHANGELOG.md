@@ -8,8 +8,51 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [Unreleased]
+## [0.0.8] - 2023-10-02
+
+### Fixed
+
+-   (Xenium) coerce cell id to str #64
+-   (MERSCOPE) fix coordinate transformation #68
+-   (MERSCOPE) Improvements/fixes: merscope reader #73
+
+## [0.0.7] - 2023-07-23
+
+### Fixed
+
+-   Bugs in Xenium and MERSCOPE
+
+## [0.0.5] - 2023-06-21
 
 ### Added
 
--   Basic tool, preprocessing and plotting functions
+-   MERFISH reader (from @quentinblampey)
+-   CODEX reader (from @LLehner)
+
+### Fixed
+
+-   Issues on Visium reader (thanks @ilia-kats) and Xenium reader
+
+## [0.0.4] - 2023-05-23
+
+### Added
+
+-   Curio reader
+
+## [0.0.3] - 2023-05-22
+
+### Merged
+
+-   Merge pull request #40 from scverse/fix/categories
+
+## [0.0.2] - 2023-05-04
+
+### Changed
+
+-   Revert version regex (#37)
+
+## [0.0.1] - 2023-05-04
+
+### Tested
+
+-   Test installation from pypi
