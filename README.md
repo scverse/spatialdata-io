@@ -4,11 +4,11 @@
 
 [![Tests][badge-tests]][link-tests]
 [![Documentation][badge-docs]][link-docs]
+[![DOI](https://zenodo.org/badge/544045123.svg)](https://zenodo.org/badge/latestdoi/544045123)
 
 [badge-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test_and_deploy.yaml/badge.svg
 [link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test_and_deploy.yaml
 [badge-docs]: https://img.shields.io/readthedocs/spatialdata-io
-[![DOI](https://zenodo.org/badge/544045123.svg)](https://zenodo.org/badge/latestdoi/544045123)
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
