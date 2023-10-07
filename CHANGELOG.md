@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.0.9] - tbd
 
+### Fixed
+
+-   (Xenium) bug when converting feature_name #81, from @fbnrst
+
 ## [0.0.8] - 2023-10-02
 
 ### Fixed
