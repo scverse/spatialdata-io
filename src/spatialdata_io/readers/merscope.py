@@ -200,7 +200,7 @@ def merscope(
     return SpatialData(shapes=shapes, points=points, images=images, table=table)
 
 
-def _get_points(transcript_path):
+def _get_points(transcript_path: Path):
     transcript_df = dd.read_csv(transcript_path)
     transcripts = PointsModel.parse(
         transcript_df,
@@ -213,7 +213,7 @@ def _get_points(transcript_path):
     return transcripts
 
 
-def _get_polygons(boundaries_path: str) -> geopandas.GeoDataFrame:
+def _get_polygons(boundaries_path: Path) -> geopandas.GeoDataFrame:
     geo_df = geopandas.read_parquet(boundaries_path)
     geo_df = geo_df.rename_geometry("geometry")
     geo_df = geo_df[geo_df[MerscopeKeys.Z_INDEX] == 0]  # Avoid duplicate boundaries on all z-levels
@@ -224,8 +224,8 @@ def _get_polygons(boundaries_path: str) -> geopandas.GeoDataFrame:
 
 
 def _get_table(
-    count_path: str,
-    obs_path: str,
+    count_path: Path,
+    obs_path: Path,
     vizgen_region: str,
     slide_name: str,
     dataset_id: str,
