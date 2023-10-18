@@ -204,7 +204,7 @@ def merscope(
     return SpatialData(shapes=shapes, points=points, images=images, table=table)
 
 
-def _get_points(transcript_path: Path):
+def _get_points(transcript_path: Path) -> dd.DataFrame:
     transcript_df = dd.read_csv(transcript_path)
     transcripts = PointsModel.parse(
         transcript_df,
