@@ -159,19 +159,23 @@ def merscope(
     z_layers = [z_layers] if isinstance(z_layers, int) else z_layers or []
 
     stainings = _get_channel_names(images_dir)
-    for z_layer in z_layers:
-        im = da.stack(
-            [imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif", **imread_kwargs).squeeze() for stain in stainings],
-            axis=0,
-        )
-        parsed_im = Image2DModel.parse(
-            im,
-            dims=("c", "y", "x"),
-            transformations={"microns": microns_to_pixels.inverse()},
-            c_coords=stainings,
-            **image_models_kwargs,
-        )
-        images[f"{dataset_id}_z{z_layer}"] = parsed_im
+    if stainings:
+        for z_layer in z_layers:
+            im = da.stack(
+                [
+                    imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif", **imread_kwargs).squeeze()
+                    for stain in stainings
+                ],
+                axis=0,
+            )
+            parsed_im = Image2DModel.parse(
+                im,
+                dims=("c", "y", "x"),
+                transformations={"microns": microns_to_pixels.inverse()},
+                c_coords=stainings,
+                **image_models_kwargs,
+            )
+            images[f"{dataset_id}_z{z_layer}"] = parsed_im
 
     # Transcripts
     points = {}
