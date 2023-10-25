@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Optional
+from typing import Any
 
 import anndata as ad
 import numpy as np
@@ -24,7 +24,7 @@ def iss(
     raw_relative_path: str | Path,
     label_relative_path: str | Path,
     h5ad_relative_path: str | Path,
-    dataset_id: Optional[str] = None,
+    dataset_id: str = "region",
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     label_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -48,7 +48,7 @@ def iss(
         Relative path to the label image file.
     h5ad_relative_path : str or Path
         Relative path to the counts and metadata file.
-    dataset_id : str, optional
+    dataset_id : str
         Dataset identifier.
     imread_kwargs : Mapping[str, Any], optional
         Keyword arguments passed to :func:`dask_image.imread.imread`.
@@ -73,7 +73,7 @@ def iss(
     transform_original = Identity()
 
     label_image = imread(path / label_relative_path, **imread_kwargs).squeeze()
-    label_image = DataArray(label_image, dims=("y", "x"), name=dataset_id + "_label_image")
+    label_image = DataArray(label_image, dims=("y", "x"), name=f"{dataset_id}_label_image")
 
     label_image_parsed = Labels2DModel.parse(
         label_image,
@@ -82,7 +82,7 @@ def iss(
         **label_models_kwargs,
     )
 
-    raw_image = imread(path / raw_relative_path, **imread_kwargs).squeeze()[[0]]
+    raw_image = imread(path / raw_relative_path, **imread_kwargs)
     raw_image = DataArray(raw_image, dims=("c", "y", "x"), name=dataset_id)
 
     raw_image_parsed = Image2DModel.parse(
@@ -93,7 +93,7 @@ def iss(
     )
 
     return SpatialData(
-        images={dataset_id + "_raw_image": raw_image_parsed},
-        labels={dataset_id + "_label_image": label_image_parsed},
+        images={f"{dataset_id}_raw_image": raw_image_parsed},
+        labels={f"{dataset_id}_label_image": label_image_parsed},
         table=table,
     )
