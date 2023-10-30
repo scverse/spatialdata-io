@@ -42,7 +42,7 @@ def visium(
 
     This function reads the following files:
 
-        - ``{vx.COUNTS_FILE!r}``: Counts and metadata file.
+        - ``(<dataset_id>_)`{vx.COUNTS_FILE!r}```: Counts and metadata file.
         - ``{vx.IMAGE_HIRES_FILE!r}``: High resolution image.
         - ``{vx.IMAGE_LOWRES_FILE!r}``: Low resolution image.
         - ``{vx.SCALEFACTORS_FILE!r}``: Scalefactors file.
@@ -59,8 +59,8 @@ def visium(
     path
         Path to the directory containing the data.
     dataset_id
-        Dataset identifier. If not given will be determined automatically
-        from the ``{vx.COUNTS_FILE!r}`` file.
+        Dataset identifier to name the constructed `SpatialData` elements. The reader will try to infer it from the
+        ``{vx.COUNTS_FILE!r}`` file name. If the file name does not contain the dataset id, it will try to infer it from the metadata, it needs to be provided.
     counts_file
         Name of the counts file. Use only if counts is not in `h5` format.
     fullres_image_file
@@ -81,39 +81,52 @@ def visium(
     path = Path(path)
     imread_kwargs = dict(imread_kwargs)
     image_models_kwargs = dict(image_models_kwargs)
-    # get library_id
+    # try to infer library_id from the counts file
+    library_id = None
     try:
         patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
         first_file = [i for i in os.listdir(path) if patt.match(i)][0]
 
         if f"_{VisiumKeys.COUNTS_FILE}" in first_file:
             library_id = first_file.replace(f"_{VisiumKeys.COUNTS_FILE}", "")
+            counts_file = f"{library_id}_{VisiumKeys.COUNTS_FILE}"
+        elif VisiumKeys.COUNTS_FILE == first_file:
+            library_id = None
+            counts_file = VisiumKeys.COUNTS_FILE
         else:
             raise ValueError(
-                f"Cannot determine the library_id. Expecting a file with format <library_id>_{VisiumKeys.COUNTS_FILE}. Has "
-                f"the files been renamed?"
+                f"Cannot determine the library_id. Expecting a file with format (<library_id>_){VisiumKeys.COUNTS_FILE}"
+                f". If the files have been renamed you may need to specify their file names (not their paths), with "
+                f"some of the following arguments: `counts_file`, `fullres_image_file`, `tissue_positions_file`, "
+                f"`scalefactors_file` arguments."
             )
-        counts_file = f"{library_id}_{VisiumKeys.COUNTS_FILE}"
     except IndexError as e:
-        logger.error(
-            f"{e}. \nError is due to the fact that the library id could not be found, this is the case when the `counts_file` is `.mtx`.",
-        )
-        if dataset_id is None:
-            raise ValueError("Cannot determine the `library_id`. Please provide `dataset_id`.")
-        library_id = dataset_id
         if counts_file is None:
-            raise ValueError("Cannot determine the library_id. Please provide `counts_file`.")
+            logger.error(
+                f"{e}. \nError is due to the fact that the library id could not be found, this is the case when the `counts_file` is `.mtx`.",
+            )
+            raise e
+    assert counts_file is not None
+
+    if library_id is None and dataset_id is None:
+        raise ValueError("Cannot determine the `library_id`. Please provide `dataset_id`.")
 
     if dataset_id is not None:
-        if dataset_id != library_id:
+        if dataset_id != library_id and library_id is not None:
             logger.warning(
                 f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` "
                 f"will be used to build SpatialData."
             )
     else:
         dataset_id = library_id
+    assert dataset_id is not None
 
-    adata, dataset_id = _read_counts(path, counts_file=counts_file, library_id=dataset_id, **kwargs)
+    # Yhe second element of the returned tuple is the full library as contained in the metadata of
+    # VisiumKeys.COUNTS_FILE. For instance for the spatialdata-sandbox/visium dataset it is:
+    #     spaceranger100_count_30458_ST8059048_mm10-3_0_0_premrna
+    # We discard this value and use the one inferred from the filename of VisiumKeys.COUNTS_FILE, or the one provided by
+    # the user in dataset_id
+    adata, _ = _read_counts(path, counts_file=counts_file, library_id=library_id, **kwargs)
 
     if (path / "spatial" / VisiumKeys.SPOTS_FILE_1).exists() or (
         tissue_positions_file is not None and str(VisiumKeys.SPOTS_FILE_1) in str(tissue_positions_file)
@@ -142,6 +155,7 @@ def visium(
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
     adata.obsm["spatial"] = coords
+    adata.obs = pd.DataFrame(adata.obs)
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
     adata.obs["spot_id"] = np.arange(len(adata))
     adata.var_names_make_unique()
@@ -187,7 +201,7 @@ def visium(
 
                 ImagePIL.MAX_IMAGE_PIXELS = imread_kwargs.pop("MAX_IMAGE_PIXELS")
             full_image = imread(fullres_image_file, **imread_kwargs).squeeze().transpose(2, 0, 1)
-            full_image = DataArray(full_image, dims=("c", "y", "x"), name=dataset_id)
+            full_image = DataArray(full_image, dims=("c", "y", "x"))
             images[dataset_id + "_full_image"] = Image2DModel.parse(
                 full_image,
                 scale_factors=[2, 2, 2, 2],
@@ -199,13 +213,13 @@ def visium(
 
     if (path / VisiumKeys.IMAGE_HIRES_FILE).exists():
         image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-        image_hires = DataArray(image_hires, dims=("c", "y", "x"), name=dataset_id)
+        image_hires = DataArray(image_hires, dims=("c", "y", "x"))
         images[dataset_id + "_hires_image"] = Image2DModel.parse(
             image_hires, transformations={"downscaled_hires": Identity()}
         )
     if (path / VisiumKeys.IMAGE_LOWRES_FILE).exists():
         image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
-        image_lowres = DataArray(image_lowres, dims=("c", "y", "x"), name=dataset_id)
+        image_lowres = DataArray(image_lowres, dims=("c", "y", "x"))
         images[dataset_id + "_lowres_image"] = Image2DModel.parse(
             image_lowres, transformations={"downscaled_lowres": Identity()}
         )
