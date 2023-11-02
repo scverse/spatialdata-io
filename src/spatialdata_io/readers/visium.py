@@ -103,7 +103,7 @@ def visium(
     except IndexError as e:
         if counts_file is None:
             logger.error(
-                f"{e}. \nError is due to the fact that the library id could not be found, this is the case when the `counts_file` is `.mtx`.",
+                f"{e}. \nError is due to the fact that the library id could not be found, if the counts file is `.mtx` (or else), Please provide a `counts_file`.",
             )
             raise e
     assert counts_file is not None
