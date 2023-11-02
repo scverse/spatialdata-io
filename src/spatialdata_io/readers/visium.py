@@ -117,6 +117,7 @@ def visium(
                 f"`dataset_id: {dataset_id}` does not match `library_id: {library_id}`. `dataset_id: {dataset_id}` "
                 f"will be used to build SpatialData."
             )
+        library_id = dataset_id
     else:
         dataset_id = library_id
     assert dataset_id is not None
