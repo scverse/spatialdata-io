@@ -200,6 +200,7 @@ def cosmx(
                         "global_only_image": aff,
                     },
                     dims=("y", "x", "c"),
+                    rgb=None,
                     **image_models_kwargs,
                 )
                 images[f"{fov}_image"] = parsed_im

@@ -168,6 +168,7 @@ def merscope(
             dims=("c", "y", "x"),
             transformations={"microns": microns_to_pixels.inverse()},
             c_coords=stainings,
+            rgb=True,
             **image_models_kwargs,
         )
         images[f"{dataset_id}_z{z_layer}"] = parsed_im

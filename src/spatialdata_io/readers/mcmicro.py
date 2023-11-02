@@ -91,7 +91,7 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(path / McmicroKeys.IMAGES_DIR / f"{sample}{McmicroKeys.IMAGE_SUFFIX}", **imread_kwargs)
-    return Image2DModel.parse(image, **image_models_kwargs)
+    return Image2DModel.parse(image, rgb=None, **image_models_kwargs)
 
 
 def _get_labels(

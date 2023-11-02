@@ -97,7 +97,7 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(path / SteinbockKeys.IMAGES_DIR / f"{sample}{SteinbockKeys.IMAGE_SUFFIX}", **imread_kwargs)
-    return Image2DModel.parse(data=image, transformations={sample: Identity()}, **image_models_kwargs)
+    return Image2DModel.parse(data=image, transformations={sample: Identity()}, rgb=None, **image_models_kwargs)
 
 
 def _get_labels(

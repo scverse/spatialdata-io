@@ -80,6 +80,7 @@ def codex(
             "images": Image2DModel.parse(
                 image,
                 scale_factors=[2, 2],
+                rgb=None,
             )
         }
         sdata = SpatialData(images=images, shapes={str(region): shapes}, table=table)
