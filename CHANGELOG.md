@@ -8,11 +8,14 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [0.0.9] - tbd
+## [0.0.10] - tbd
+
+## [0.0.9] - 2023-11-06
 
 ### Fixed
 
 -   (Xenium) bug when converting feature_name #81, from @fbnrst
+-   (Visium) visium() supports file counts without dataset_id #91
 
 ## [0.0.8] - 2023-10-02
 
