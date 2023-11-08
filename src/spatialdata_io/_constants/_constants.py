@@ -18,6 +18,16 @@ class CodexKeys(ModeEnum):
     IMAGE_TIF = ".tif"
 
 
+@unique
+class MacsimaKeys(ModeEnum):
+    """Keys for *MACSima* formatted dataset."""
+
+    # images
+    METADATA_SUFFIX = ".QiPattern.txt"
+    IMAGE_OMETIF = ".ome.tif"
+    IMAGE_QPTIF = ".qptif"
+
+
 class CurioKeys(ModeEnum):
     """Keys for *Curio* formatted dataset."""
 
