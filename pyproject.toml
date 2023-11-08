@@ -33,6 +33,8 @@ dependencies = [
     "dask-image",
     "pyarrow",
     "readfcs",
+    "ome-types",
+    "aicsimageio",
 ]
 
 [project.optional-dependencies]
