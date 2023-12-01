@@ -83,14 +83,13 @@ def DBiT(
 
     Parameters
     ----------
-    path : str | Path
-        Path to the directory containing the data.
     anndata_path : str | Path
         path to the counts and metadata file.
     barcode_position : str | Path
         path to the barcode coordinates file.
     dataset_id : Optional[str], optional
         Dataset identifier to name the constructed `SpatialData` elements.
+        If not given, filename is used as dataset_id
         The default is None.
     image_path : Optional[str | Path], optional
         path to the low resolution image.
@@ -207,7 +206,7 @@ def DBiT(
     # create SpatialData object!
     sdata = sd.SpatialData(table=table_data, shapes={dataset_id:grid})
     # TODO: how to name images? dataset_id not usable.
-    # option: concat sha256(timestamp)[:6] to dataset_id
+    # option: concat sha256(timestamp)[:6] to dataset_id, instead of concat '_img'
     if hasimage:
         imgname = dataset_id+'_img'
         sdata.add_image(name=imgname, image=image_sd)
