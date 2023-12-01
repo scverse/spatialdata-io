@@ -1,9 +1,3 @@
-"""
-Created on Tue Nov 14 10:01:30 2023
-
-@author: lillux
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,8 +17,6 @@ import shapely
 from xarray import DataArray
 from dask_image.imread import imread
 
-#TODO add testfo ID, Image (rotation), Data
- 
 def xy2edges(xy:list[int], scale:float = 1.0, border:bool = True, border_scale: float = 1) -> ndarray:
     """
     Construct vertex coordinate of a square from the barcode coordinates.
@@ -211,4 +203,3 @@ def DBiT(
         imgname = dataset_id+'_img'
         sdata.add_image(name=imgname, image=image_sd)
     return sdata
-    
