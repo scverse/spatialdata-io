@@ -94,9 +94,8 @@ def DBiT(
         The default is None.
     image_path : Optional[str | Path], optional
         path to the low resolution image.
+        It expect the image to be correctly cropped and transformed.
         The default is None.
-    tissue_positions : Optional[str | Path], optional
-        path with the coordinate decribing the position of the grid on the main image. The default is None.
 
     Returns
     -------
@@ -168,7 +167,7 @@ def DBiT(
     
     
     # read and convert image for SparialData
-    #TODO: check if image actually exists, and has been passed as argument
+    # check if image exist, and has been passed as argument
     hasimage = False
     if image_path is not None:
         try:
@@ -177,19 +176,22 @@ def DBiT(
             image_sd = sd.models.Image2DModel.parse(image)
             hasimage = True
         except:
+            print('No image passed.') # TODO: should we handle missing images in some other way?
             pass
     # calculate scale factor of the grid wrt the histological image.
     # this is needed because we want to mantain the original histological image
     # dimensions, and scale the grid accordingly in such a way that the grid
     # overlaps with the histological image.
+    # TODO: Option #1
     # grid_length is calculated by taking the max number of lines between the array A and B.
     # this value is 50 if the experiment follow the standard DBiT protocol.
-    # TODO: should we hardcode 50, or infer it from data?
+    # grid_length = np.max([adata.obs['array_A'].max(), adata.obs['array_B'].max()])
+    # TODO: Option #2
+    # should we hardcode 50, or infer it from data?
     # We assume that the grid is a square, and indeed it is if we follow the protocol,
     # but should we allow for non-square geometry?
     ## You only need a single scale value, since the microfluidic chip wells are square
-    # grid_length = 50 # hardcoded lines number
-    grid_length = np.max([adata.obs['array_A'].max(), adata.obs['array_B'].max()])
+    grid_length = 50 # hardcoded lines number
     # TODO: we are passing an image, that is supposed to be perfectly
     # cropped to match the tissue part from which the data are collected.
     # We assume the user has already cropped and transformed everything correctly.
