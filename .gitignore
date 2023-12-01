@@ -23,6 +23,7 @@ __pycache__/
 # IDEs
 /.idea/
 /.vscode/
+/.spyproject/
 
 # docs
 /docs/generated/
