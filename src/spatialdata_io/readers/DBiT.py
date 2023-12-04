@@ -17,6 +17,8 @@ import shapely
 from xarray import DataArray
 from dask_image.imread import imread
 
+__all__ = ["DBiT"]
+
 def xy2edges(xy:list[int], scale:float = 1.0, border:bool = True, border_scale: float = 1) -> ndarray:
     """
     Construct vertex coordinate of a square from the barcode coordinates.
