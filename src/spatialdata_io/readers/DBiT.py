@@ -27,7 +27,7 @@ def xy2edges(xy:list[int], scale:float = 1.0, border:bool = True, border_scale: 
     Parameters
     ----------
     xy : list[int]
-        coordinate of the spot identified by its barcode barcode.
+        coordinate of the spot identified by its barcode.
     scale : float, optional
         Resize the square.
         The default is 1.0.
@@ -74,6 +74,8 @@ def DBiT(
         ) -> SpatialData:
     """
     Read DBiT experiment data (Deterministic Barcoding in Tissue)
+    As published here: https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8
+    DOI: https://doi.org/10.1016/j.cell.2020.10.026
 
     Parameters
     ----------
@@ -159,7 +161,7 @@ def DBiT(
     table_data = sd.models.TableModel.parse(adata)
     
     
-    # read and convert image for SparialData
+    # read and convert image for SpatialData
     # check if image exist, and has been passed as argument
     hasimage = False
     if image_path is not None:
@@ -181,7 +183,7 @@ def DBiT(
     # grid_length = np.max([adata.obs['array_A'].max(), adata.obs['array_B'].max()])
     # TODO: Option #2
     # should we hardcode 50, or infer it from data?
-    # We assume that the grid is a square, and indeed it is if we follow the protocol,
+    # We assume that the grid is a square, and indeed it is if we follow the DBiT protocol,
     # but should we allow for non-square geometry?
     ## You only need a single scale value, since the microfluidic chip wells are square
     grid_length = 50 # hardcoded lines number
@@ -200,7 +202,7 @@ def DBiT(
     # create SpatialData object!
     sdata = sd.SpatialData(table=table_data, shapes={dataset_id:grid})
     # TODO: how to name images? dataset_id not usable.
-    # option: concat sha256(timestamp)[:6] to dataset_id, instead of concat '_img'
+    # option (not used): concat sha256(timestamp)[:6] to dataset_id, instead of concat '_img'
     if hasimage:
         imgname = dataset_id+'_img'
         sdata.add_image(name=imgname, image=image_sd)
