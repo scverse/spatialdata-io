@@ -183,3 +183,16 @@ class MerscopeKeys(ModeEnum):
     GLOBAL_Z = "global_z"
     Z_INDEX = "ZIndex"
     REGION_KEY = "cells_region"
+    
+    
+@unique
+class DBiTKeys(ModeEnum):
+    """Keys for DBiT formatted dataset."""
+
+    # files and directories
+    COUNTS_FILE = ".h5ad"
+    # barcodes_file
+    BARCODE_POSITION = "barcode_list"    
+    # image
+    IMAGE_LOWRES_FILE = "tissue_lowres_image.png"
+    

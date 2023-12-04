@@ -1,5 +1,7 @@
 from __future__ import annotations
+import warnings
 
+import os
 from pathlib import Path
 from typing import Optional
 import re
@@ -12,6 +14,7 @@ import scanpy as sc
 
 import spatialdata as sd
 from spatialdata import SpatialData
+from spatialdata_io._constants._constants import DBiTKeys
 
 import shapely
 from xarray import DataArray
@@ -67,8 +70,9 @@ def xy2edges(xy:list[int], scale:float = 1.0, border:bool = True, border_scale: 
     
 
 def DBiT(
-        anndata_path: str | Path,
-        barcode_position: str | Path,
+        path: str | Path,
+        anndata_path: Optional[str | Path] = None,
+        barcode_position: Optional[str | Path] = None,
         dataset_id: Optional[str] = None,
         image_path: Optional[str | Path] = None,
         ) -> SpatialData:
@@ -79,10 +83,14 @@ def DBiT(
 
     Parameters
     ----------
-    anndata_path : str | Path
+    path : str | Path
+        Path to the directory containing the data.
+    anndata_path : Optional[str | Path], optional
         path to the counts and metadata file.
-    barcode_position : str | Path
+        The default is None.
+    barcode_position : Optional[str | Path], optional
         path to the barcode coordinates file.
+        The default is None.
     dataset_id : Optional[str], optional
         Dataset identifier to name the constructed `SpatialData` elements.
         If not given, filename is used as dataset_id
@@ -98,6 +106,60 @@ def DBiT(
         :class:`spatialdata.SpatialData`.
 
     """
+    
+    path = Path(path)
+    # if path is invalid, raise error
+    if not os.path.isdir(path):
+        raise FileNotFoundError(f'The path you have passed: {path} has not been found. A correct path to the data directory is needed.')
+    # compile regex pattern to find file name in path, according to _constants.DBiTKeys()
+    else:
+        patt_h5ad = re.compile(f".*{DBiTKeys.COUNTS_FILE}")
+        patt_barcode = re.compile(f".*{DBiTKeys.BARCODE_POSITION}.*")
+        patt_lowres = re.compile(f".*{DBiTKeys.IMAGE_LOWRES_FILE}")
+
+        # search for files paths. Gives priority to files mathing the pattern found in path.  
+        # check for .h5ad counts file
+        try:
+            counts_file = [i for i in os.listdir(path) if patt_h5ad.match(i)][0] # this is the filename
+            anndata_path = Path.joinpath(path, counts_file)
+        except IndexError:
+            # handle case in which the anndata path is not in the same directory as path
+            if anndata_path is not None:
+                if os.path.isfile(anndata_path):
+                    anndata_path = Path(anndata_path)
+                    pass
+                else:
+                    raise FileNotFoundError(f"{anndata_path} is not a valid path for a .h5ad file.")
+            else:       
+                raise FileNotFoundError(f"No file with extension .h5ad found in folder {path}.")
+        # check for barcode file
+        try:
+            barcode_file = [i for i in os.listdir(path) if patt_barcode.match(i)][0]
+            barcode_position = Path.joinpath(path, barcode_file)
+        except IndexError:
+            if barcode_position is not None:
+                if os.path.isfile(barcode_position):
+                    pass
+                else:
+                    raise FileNotFoundError(f"{barcode_position} is not a valid path for the barcode file.")
+            else:
+                raise FileNotFoundError(f"No file named {DBiTKeys.BARCODE_POSITION} found in folder {path}.")
+        # check for image file
+        # use hasimage flag to track image availability
+        hasimage = False
+        try:
+            image_file = [i for i in os.listdir(path) if patt_lowres.match(i)][0]
+            image_path = Path.joinpath(path, image_file)
+            hasimage = True
+        except IndexError:
+            if image_path is not None:
+                if os.path.isfile(image_path):
+                    hasimage = True
+                    pass
+                else:
+                    warnings.warn(f"{image_path} is not a valid path for the tissue_lowres_image. No image will be used.")
+            else:        
+                warnings.warn(f"No file named {DBiTKeys.IMAGE_LOWRES_FILE} found in folder {path}. No image will be used.")
     
     # read annData. Scanpy already check if file exist and handles errors
     adata = sc.read(anndata_path)
@@ -138,10 +200,9 @@ def DBiT(
     adata.obs.sort_values(by=['array_A','array_B'], inplace=True)
         
     # populate annData
-    dataset_id = None
     if dataset_id is None: #if no dataset_id, use file name as id.
         print('No dataset_id received as input.')
-        dataset_id = '.'.join(anndata_path.split('/')[-1].split('.')[:-1])
+        dataset_id = '.'.join(anndata_path.name.split('.')[:-1]) # this is the filename stripped from the file extension
         print(f'{dataset_id} is used as dataset_id.')
     
     adata.obs['region'] = dataset_id
@@ -163,29 +224,20 @@ def DBiT(
     
     # read and convert image for SpatialData
     # check if image exist, and has been passed as argument
-    hasimage = False
-    if image_path is not None:
+    if hasimage:
         try:
             image = imread(image_path).squeeze().transpose(2, 0, 1) # channel, y, x
             image = DataArray(image, dims=("c", "y", "x"), name=dataset_id)
             image_sd = sd.models.Image2DModel.parse(image)
-            hasimage = True
-        except:
-            print('No image passed.') # TODO: should we handle missing images in some other way?
-            pass
+        except Exception as e:
+            print(e) # TODO: should we handle incorrect images in some other way?
     # calculate scale factor of the grid wrt the histological image.
     # this is needed because we want to mantain the original histological image
     # dimensions, and scale the grid accordingly in such a way that the grid
     # overlaps with the histological image.
     # TODO: Option #1
-    # grid_length is calculated by taking the max number of lines between the array A and B.
-    # this value is 50 if the experiment follow the standard DBiT protocol.
-    # grid_length = np.max([adata.obs['array_A'].max(), adata.obs['array_B'].max()])
-    # TODO: Option #2
     # should we hardcode 50, or infer it from data?
-    # We assume that the grid is a square, and indeed it is if we follow the DBiT protocol,
-    # but should we allow for non-square geometry?
-    ## You only need a single scale value, since the microfluidic chip wells are square
+    # We assume that the grid is a square, and indeed it is if we follow the DBiT protocol.
     grid_length = 50 # hardcoded lines number
     # TODO: we are passing an image, that is supposed to be perfectly
     # cropped to match the tissue part from which the data are collected.
