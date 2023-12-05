@@ -10,12 +10,11 @@ import pandas as pd
 import numpy as np
 from numpy import ndarray
 
-import scanpy as sc
+import anndata as ad
 
 import spatialdata as sd
 from spatialdata import SpatialData
-from spatialdata_io._constants._constants import DBiTKeys
-
+from _constants._constants import DBiTKeys
 import shapely
 from xarray import DataArray
 from dask_image.imread import imread
@@ -162,7 +161,7 @@ def DBiT(
                 warnings.warn(f"No file named {DBiTKeys.IMAGE_LOWRES_FILE} found in folder {path}. No image will be used.")
     
     # read annData. Scanpy already check if file exist and handles errors
-    adata = sc.read(anndata_path)
+    adata = ad.read(anndata_path)
     
     # Read barcode. We want it to accept 2 columns: [Barcode index, Barcode sequence]
     try:
