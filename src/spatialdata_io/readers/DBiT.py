@@ -6,12 +6,12 @@ import warnings
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
 import anndata as ad
-from _constants._constants import DBiTKeys
+import numpy as np
 import pandas as pd
 import shapely
 import spatialdata as sd
+from _constants._constants import DBiTKeys
 from dask_image.imread import imread
 from numpy import ndarray
 from spatialdata import SpatialData
