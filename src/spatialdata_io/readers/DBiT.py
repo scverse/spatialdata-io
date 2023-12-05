@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import shapely
 import spatialdata as sd
-from _constants._constants import DBiTKeys
+from spatialdata_io._constants._constants import DBiTKeys
 from dask_image.imread import imread
 from numpy import ndarray
 from spatialdata import SpatialData
