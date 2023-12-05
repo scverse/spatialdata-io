@@ -22,7 +22,6 @@ __all__ = ["DBiT"]
 
 
 def xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> NDArray:
-    
     """
     Construct vertex coordinate of a square from the barcode coordinates.
     The constructed square can have a border, that is scalable
@@ -72,7 +71,6 @@ def DBiT(
     dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
 ) -> SpatialData:
-    
     """
     Read DBiT experiment data (Deterministic Barcoding in Tissue)
     As published here: https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8
@@ -156,12 +154,12 @@ def DBiT(
                 else:
                     warnings.warn(
                         f"{image_path} is not a valid path for the tissue_lowres_image. No image will be used.",
-                        stacklevel=2
+                        stacklevel=2,
                     )
             else:
                 warnings.warn(
                     f"No file named {DBiTKeys.IMAGE_LOWRES_FILE} found in folder {path}. No image will be used.",
-                    stacklevel=2
+                    stacklevel=2,
                 )
 
     # read annData.
@@ -187,7 +185,7 @@ def DBiT(
         r"(^[A|B])([\d]{1,2}$)"
     )  # match A or B at the start, then match 1 or 2 numbers at the end
     patt_barcode = re.compile(r"^[A|a|T|t|C|c|G|g]{8}$")  # match nucleotides string of 8 char. Case insensitive.
-    bc_positions: dict[str, dict[str,str]] = {}  # dict, used to collect data after matching
+    bc_positions: dict[str, dict[str, str]] = {}  # dict, used to collect data after matching
     for (
         line
     ) in (
