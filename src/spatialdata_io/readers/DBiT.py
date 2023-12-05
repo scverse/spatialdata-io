@@ -206,10 +206,10 @@ def DBiT(
             bc_positions[barcode] = {}
             bc_positions[barcode][letter] = line[1][0][1:]
     # convert to pandas.DataFrame, (pseudo)long form
-    bc_positions = pd.DataFrame(bc_positions).transpose()
+    bc_df = pd.DataFrame(bc_positions).transpose()
     # add barcode positions to annData
-    adata.obs["array_B"] = [int(bc_positions.loc[x[:8], "B"]) for x in adata.obs_names]
-    adata.obs["array_A"] = [int(bc_positions.loc[x[8:16], "A"]) for x in adata.obs_names]
+    adata.obs["array_B"] = [int(bc_df.loc[x[:8], "B"]) for x in adata.obs_names]
+    adata.obs["array_A"] = [int(bc_df.loc[x[8:16], "A"]) for x in adata.obs_names]
     # sort annData by barcode position. Barcode A first, then Barcode B
     adata.obs.sort_values(by=["array_A", "array_B"], inplace=True)
 
