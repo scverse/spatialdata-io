@@ -23,7 +23,7 @@ __all__ = ["DBiT"]
 
 def xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> NDArray[np.double]:
     """Construct vertex coordinate of a square from the barcode coordinates.
-    
+
     The constructed square has a scalable border.
 
     Parameters
@@ -72,7 +72,7 @@ def DBiT(
     image_path: Optional[str | Path] = None,
 ) -> SpatialData:
     """Read DBiT experiment data (Deterministic Barcoding in Tissue)
-    
+
     As published here: https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8
     DOI: https://doi.org/10.1016/j.cell.2020.10.026
 
