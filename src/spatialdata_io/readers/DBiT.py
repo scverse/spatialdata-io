@@ -101,7 +101,6 @@ def DBiT(
         :class:`spatialdata.SpatialData`.
 
     """
-
     path = Path(path)
     # if path is invalid, raise error
     if not os.path.isdir(path):
