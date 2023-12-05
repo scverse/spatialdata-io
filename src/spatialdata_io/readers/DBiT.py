@@ -12,7 +12,7 @@ import pandas as pd
 import shapely
 import spatialdata as sd
 from dask_image.imread import imread
-from numpy import ndarray
+from numpy.typing import NDArray
 from spatialdata import SpatialData
 from xarray import DataArray
 
@@ -21,7 +21,8 @@ from spatialdata_io._constants._constants import DBiTKeys
 __all__ = ["DBiT"]
 
 
-def xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> ndarray:
+def xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> NDArray:
+    
     """
     Construct vertex coordinate of a square from the barcode coordinates.
     The constructed square can have a border, that is scalable
@@ -71,6 +72,7 @@ def DBiT(
     dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
 ) -> SpatialData:
+    
     """
     Read DBiT experiment data (Deterministic Barcoding in Tissue)
     As published here: https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8
@@ -153,11 +155,13 @@ def DBiT(
                     hasimage = True
                 else:
                     warnings.warn(
-                        f"{image_path} is not a valid path for the tissue_lowres_image. No image will be used."
+                        f"{image_path} is not a valid path for the tissue_lowres_image. No image will be used.",
+                        stacklevel=2
                     )
             else:
                 warnings.warn(
-                    f"No file named {DBiTKeys.IMAGE_LOWRES_FILE} found in folder {path}. No image will be used."
+                    f"No file named {DBiTKeys.IMAGE_LOWRES_FILE} found in folder {path}. No image will be used.",
+                    stacklevel=2
                 )
 
     # read annData.
@@ -183,17 +187,17 @@ def DBiT(
         r"(^[A|B])([\d]{1,2}$)"
     )  # match A or B at the start, then match 1 or 2 numbers at the end
     patt_barcode = re.compile(r"^[A|a|T|t|C|c|G|g]{8}$")  # match nucleotides string of 8 char. Case insensitive.
-    bc_positions = {}  # dict, used to collect data after matching
+    bc_positions: dict[str, dict[str,str]] = {}  # dict, used to collect data after matching
     for (
         line
     ) in (
         df.iterrows()
     ):  # line[0]: row index, line[1] row values. line[1][0] : barcode coordinates, line[1][1] : barcode
-        if bool(patt_position.fullmatch(line[1][0])) != True:
+        if not bool(patt_position.fullmatch(line[1][0])):
             raise ValueError(
                 f"Row {line[0]}, has an incorrect positional id: {line[1][0]}, \nThe correct pattern for the position is a str, containing a letter between A or B, and one or two digits. Case insensitive."
             )
-        if bool(patt_barcode.fullmatch(line[1][1])) != True:
+        if not bool(patt_barcode.fullmatch(line[1][1])):
             raise ValueError(
                 f"Row {line[0]} has an incorrect barcode: {line[1][1]}, \nThe correct pattern for a barcode is a str of 8 nucleotides, each char is a letter between A,T,C,G. Case insensitive."
             )
