@@ -21,10 +21,10 @@ from spatialdata_io._constants._constants import DBiTKeys
 __all__ = ["DBiT"]
 
 
-def xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> NDArray:
-    """
-    Construct vertex coordinate of a square from the barcode coordinates.
-    The constructed square can have a border, that is scalable
+def xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> NDArray[np.double]:
+    """Construct vertex coordinate of a square from the barcode coordinates.
+    
+    The constructed square has a scalable border.
 
     Parameters
     ----------
@@ -71,8 +71,8 @@ def DBiT(
     dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
 ) -> SpatialData:
-    """
-    Read DBiT experiment data (Deterministic Barcoding in Tissue)
+    """Read DBiT experiment data (Deterministic Barcoding in Tissue)
+    
     As published here: https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8
     DOI: https://doi.org/10.1016/j.cell.2020.10.026
 
@@ -239,12 +239,9 @@ def DBiT(
     # read and convert image for SpatialData
     # check if image exist, and has been passed as argument
     if hasimage:
-        try:
-            image = imread(image_path).squeeze().transpose(2, 0, 1)  # channel, y, x
-            image = DataArray(image, dims=("c", "y", "x"), name=dataset_id)
-            image_sd = sd.models.Image2DModel.parse(image)
-        except Exception as e:
-            print(e)  # TODO: should we handle incorrect images in some other way?
+        image = imread(image_path).squeeze().transpose(2, 0, 1)  # channel, y, x
+        image = DataArray(image, dims=("c", "y", "x"), name=dataset_id)
+        image_sd = sd.models.Image2DModel.parse(image)
     # calculate scale factor of the grid wrt the histological image.
     # this is needed because we want to mantain the original histological image
     # dimensions, and scale the grid accordingly in such a way that the grid
