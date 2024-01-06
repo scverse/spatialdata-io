@@ -148,11 +148,14 @@ class McmicroKeys(ModeEnum):
     LABELS_DIR = "segmentation"
     ILLUMINATION_DIR = "illumination"
     PARAMS_FILE = "qc/params.yml"
+    RAW_DIR = "raw"
 
     # metadata
     COORDS_X = "X_centroid"
     COORDS_Y = "Y_centroid"
     INSTANCE_KEY = "CellID"
+    ILLUMINATION_SUFFIX_DFP = "-dfp"
+    ILLUMINATION_SUFFIX_FFP = "-ffp"
 
 
 @unique

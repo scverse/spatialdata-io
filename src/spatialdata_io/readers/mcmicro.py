@@ -28,7 +28,7 @@ def mcmicro(
     path: str | Path,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    label_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read a *Mcmicro* output into a SpatialData object.
@@ -49,8 +49,8 @@ def mcmicro(
         Keyword arguments to pass to the image reader.
     image_models_kwargs
         Keyword arguments to pass to the image models.
-    label_models_kwargs
-        Keyword arguments to pass to the label models
+    labels_models_kwargs
+        Keyword arguments to pass to the labels models
 
     Returns
     -------
@@ -63,6 +63,7 @@ def mcmicro(
 
     markers = pd.read_csv(path / McmicroKeys.MARKERS_FILE)
     markers.index = markers.marker_name
+    assert markers.channel_number.is_monotonic_increasing
     marker_names = markers.marker_name.tolist()
 
     if not tma:
@@ -93,37 +94,47 @@ def mcmicro(
             marker_names,
         )
 
+    # in exemplar-001 the raw images are aligned with the illumination images, not with the registration image
+    raw_dir = path / McmicroKeys.RAW_DIR
+    if raw_dir.exists():
+        raw_images = list(raw_dir.glob("*"))
+        for raw_image in raw_images:
+            raw_name = raw_image.with_name(raw_image.stem).with_suffix("").stem
+            images[raw_name] = _get_images(raw_image, {raw_name: Identity()}, imread_kwargs, image_models_kwargs)
+
     illumination_dir = path / McmicroKeys.ILLUMINATION_DIR
     if illumination_dir.exists():
         illumination_images = list(illumination_dir.glob("*"))
         for illumination_image in illumination_images:
             illumination_name = illumination_image.with_name(illumination_image.stem).with_suffix("").stem
+            raw_name = illumination_name.removesuffix(McmicroKeys.ILLUMINATION_SUFFIX_DFP)
+            raw_name = raw_name.removesuffix(McmicroKeys.ILLUMINATION_SUFFIX_FFP)
             images[illumination_name] = _get_images(
-                illumination_image, transformations, imread_kwargs, image_models_kwargs
+                illumination_image, {raw_name: Identity()}, imread_kwargs, image_models_kwargs
             )
 
     samples_labels = list((path / McmicroKeys.LABELS_DIR).glob("*/*" + McmicroKeys.IMAGE_SUFFIX))
 
     labels = {}
-    for label_path in samples_labels:
+    for labels_path in samples_labels:
         if not tma:
             # TODO: when support python >= 3.9 chance to str.removesuffix(McmicroKeys.IMAGE_SUFFIX)
-            segmentation_stem = label_path.with_name(label_path.stem).with_suffix("").stem
+            segmentation_stem = labels_path.with_name(labels_path.stem).with_suffix("").stem
             labels[f"{image_id}_{segmentation_stem}"] = _get_labels(
-                label_path,
+                labels_path,
                 transformations,
                 imread_kwargs,
-                label_models_kwargs,
+                labels_models_kwargs,
             )
         else:
-            segmentation_stem = label_path.with_name(label_path.stem).with_suffix("").stem
-            core_id_search = re.search(r"\d+$", label_path.parent.stem)
+            segmentation_stem = labels_path.with_name(labels_path.stem).with_suffix("").stem
+            core_id_search = re.search(r"\d+$", labels_path.parent.stem)
             core_id = int(core_id_search.group()) if core_id_search else None
             labels[f"core_{core_id}_{segmentation_stem}"] = _get_labels(
-                label_path,
+                labels_path,
                 transformations,
                 imread_kwargs,
-                label_models_kwargs,
+                labels_models_kwargs,
             )
 
     if tma:
@@ -134,7 +145,7 @@ def mcmicro(
                 mask_path,
                 transformations,
                 imread_kwargs,
-                label_models_kwargs,
+                labels_models_kwargs,
             )
 
     table = _get_table(path, markers, tma)
@@ -164,13 +175,13 @@ def _get_labels(
     path: Path,
     transformations: dict[str, Identity],
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    label_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> Union[SpatialImage, MultiscaleSpatialImage]:
     image = imread(
         path,
         **imread_kwargs,
     ).squeeze()
-    return Labels2DModel.parse(image, transformations=transformations, **label_models_kwargs)
+    return Labels2DModel.parse(image, transformations=transformations, **labels_models_kwargs)
 
 
 def _get_table(
@@ -186,13 +197,14 @@ def _get_table(
     adatas = None
     for table_path in table_paths:
         if not tma:
-            adata, region = _create_anndata(table_path, marker_df, var, coords, tma)
+            assert len(table_paths) == 1
+            adata, region = _create_anndata(csv_path=table_path, markers=marker_df, var=var, coords=coords, tma=tma)
 
             return TableModel.parse(
                 adata, region=region, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value
             )
         else:
-            adata, region = _create_anndata(table_path, marker_df, var, coords, tma)
+            adata, region = _create_anndata(csv_path=table_path, markers=marker_df, var=var, coords=coords, tma=tma)
             regions.append(region)
 
             if not adatas:
@@ -210,23 +222,22 @@ def _create_anndata(
     coords: list[str],
     tma: bool,
 ) -> tuple[AnnData, str]:
-    label_basename = csv_path.stem.split("_")[-1]
+    labels_basename = csv_path.stem.split("_")[-1]
     pattern = r"^(.*?)--"
     sample_id_search = re.search(pattern, csv_path.stem)
     sample_id = sample_id_search.groups()[0] if sample_id_search else None
     if not sample_id:
         raise ValueError(
-            f"Csv filename should be in form <SAMPLE_ID>--<SEGMENTATION>_<LABEL_NAME>, got {csv_path.stem} "
+            f"Csv filename should be in form <SAMPLE_ID>--<SEGMENTATION>_<labels_NAME>, got {csv_path.stem} "
         )
     table = pd.read_csv(csv_path)
 
     if not tma:
-        region_value = sample_id + "_" + label_basename
+        region_value = sample_id + "_" + labels_basename
     else:
         # Ensure unique CellIDs when concatenating anndata objects. Ensures unique values for INSTANCE_KEY
-        region_value = "core_" + sample_id + "_" + label_basename
+        region_value = "core_" + sample_id + "_" + labels_basename
         table[McmicroKeys.INSTANCE_KEY] = "core_" + sample_id + "_" + table[McmicroKeys.INSTANCE_KEY].astype(str)
-    table.index = table[McmicroKeys.INSTANCE_KEY]
     adata = AnnData(
         table[var].to_numpy(),
         obs=table.drop(columns=var + coords),
