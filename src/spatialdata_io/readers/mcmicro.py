@@ -59,10 +59,6 @@ def mcmicro(
     ----------
     path
         Path to the dataset.
-    dataset_id
-        Dataset identifier.
-    tma
-        Whether output is from a tissue microarray analysis
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
