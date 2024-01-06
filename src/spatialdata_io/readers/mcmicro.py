@@ -195,13 +195,6 @@ def _load_params(path: Path) -> Any:
     return params
 
 
-#     image = imread(
-#         path,
-#         **imread_kwargs,
-#     ).squeeze()
-#     return Labels2DModel.parse(image, transformations=transformations, **labels_models_kwargs)
-
-
 def _get_table(
     path: Path,
     marker_df: pd.DataFrame,
