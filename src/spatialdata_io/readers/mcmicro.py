@@ -33,6 +33,8 @@ def _get_transformation(
         assert tma_centroids is None
         return {"global": Identity()}
     else:
+        assert tma_centroids is not None
+        assert raster_data is not None
         xy_centroids = tma_centroids[["x", "y"]].loc[tma].to_numpy()
         x_offset = np.median(raster_data["x"])
         y_offset = np.median(raster_data["y"])
@@ -124,9 +126,8 @@ def mcmicro(
         samples_masks = list(image_dir_masks.glob("*"))
 
     for sample in samples:
-        core_id = sample.with_name(sample.stem).with_suffix("").stem
+        core_id: str = sample.with_name(sample.stem).with_suffix("").stem
         if tma:
-            core_id = int(core_id)
             image_id = f"core_{core_id}"
         else:
             image_id = core_id
@@ -134,7 +135,7 @@ def mcmicro(
         data = imread(sample, **imread_kwargs)
         data = Image2DModel.parse(data, c_coords=marker_names, **image_models_kwargs)
         transformations = _get_transformation(
-            tma=core_id if tma else None, tma_centroids=tma_centroids, raster_data=data
+            tma=int(core_id) if tma else None, tma_centroids=tma_centroids, raster_data=data
         )
         set_transformation(data, transformation=transformations, set_all=True)
         images[f"{image_id}_image"] = data
@@ -176,22 +177,26 @@ def mcmicro(
         else:
             segmentation_stem = labels_path.with_name(labels_path.stem).with_suffix("").stem
             core_id_search = re.search(r"\d+$", labels_path.parent.stem)
-            core_id = int(core_id_search.group()) if core_id_search else None
+            if core_id_search is None:
+                raise ValueError(f"Cannot infer core_id from {labels_path.parent}")
+            else:
+                core_id = core_id_search.group()
+                assert core_id is not None
 
             data = imread(labels_path, **imread_kwargs).squeeze()
             data = Labels2DModel.parse(data, **labels_models_kwargs)
-            transformations = _get_transformation(tma=core_id, tma_centroids=tma_centroids, raster_data=data)
+            transformations = _get_transformation(tma=int(core_id), tma_centroids=tma_centroids, raster_data=data)
             set_transformation(data, transformation=transformations, set_all=True)
             labels[f"core_{core_id}_{segmentation_stem}"] = data
 
     if tma:
         for mask_path in samples_masks:
             mask_stem = mask_path.stem
-            core_id = int(mask_stem.split("_")[0])
+            core_id = mask_stem.split("_")[0]
 
             data = imread(mask_path, **imread_kwargs).squeeze()
             data = Labels2DModel.parse(data, **labels_models_kwargs)
-            transformations = _get_transformation(tma=core_id, tma_centroids=tma_centroids, raster_data=data)
+            transformations = _get_transformation(tma=int(core_id), tma_centroids=tma_centroids, raster_data=data)
             set_transformation(data, transformation=transformations, set_all=True)
             labels[f"core_{McmicroKeys.IMAGES_DIR_TMA}_{mask_stem}"] = data
 
