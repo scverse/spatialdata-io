@@ -149,6 +149,8 @@ class McmicroKeys(ModeEnum):
     ILLUMINATION_DIR = "illumination"
     PARAMS_FILE = "qc/params.yml"
     RAW_DIR = "raw"
+    COREOGRAPH_CENTROIDS = "qc/coreograph/centroidsY-X.txt"
+    COREOGRAPH_TMA_MAP = "qc/coreograph/TMA_MAP.tif"
 
     # metadata
     COORDS_X = "X_centroid"
