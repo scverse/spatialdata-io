@@ -82,19 +82,6 @@ def mcmicro(
 
     images = {}
     if tma:
-        # tma_map_file = path / McmicroKeys.COREOGRAPH_TMA_MAP
-        # if not tma_map_file.exists():
-        #     raise ValueError(
-        #         f"{path} does not contain {McmicroKeys.COREOGRAPH_TMA_MAP} file, cannot map the TMA cores "
-        #         f"to the global image"
-        #     )
-        #
-        # data = imread(tma_map_file, **imread_kwargs).squeeze(0)
-        # data = Image2DModel.parse(
-        #     data, transformations=_get_transformation(), dims=("y", "x", "c"), **image_models_kwargs
-        # )
-        # images["tma_map"] = data
-
         centroids_file = path / McmicroKeys.COREOGRAPH_CENTROIDS
         tma_centroids = pd.read_csv(centroids_file, header=None, names=["y", "x"], index_col=False, sep=" ")
         tma_centroids.index = tma_centroids.index + 1
