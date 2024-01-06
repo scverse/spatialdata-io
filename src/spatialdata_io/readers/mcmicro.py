@@ -246,7 +246,6 @@ def _create_anndata(
     if not tma:
         region_value = sample_id + "_" + labels_basename
     else:
-        # Ensure unique CellIDs when concatenating anndata objects. Ensures unique values for INSTANCE_KEY
         region_value = "core_" + sample_id + "_" + labels_basename
         table[McmicroKeys.INSTANCE_KEY] = table[McmicroKeys.INSTANCE_KEY]
     adata = AnnData(
