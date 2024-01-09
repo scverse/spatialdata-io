@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.0.10] - tbd
 
+### Fixed
+
+-   (MERSCOPE) don't try to load unexisting elements #87
+
 ## [0.0.9] - 2023-11-06
 
 ### Fixed

@@ -140,18 +140,24 @@ class McmicroKeys(ModeEnum):
     """Keys for *Mcmicro* formatted dataset."""
 
     # files and directories
-    CELL_FEATURES_SUFFIX = "--unmicst_cell.csv"
     QUANTIFICATION_DIR = "quantification"
     MARKERS_FILE = "markers.csv"
-    IMAGES_DIR = "registration"
+    IMAGES_DIR_WSI = "registration"
+    IMAGES_DIR_TMA = "dearray"
     IMAGE_SUFFIX = ".ome.tif"
     LABELS_DIR = "segmentation"
-    LABELS_PREFIX = "unmicst-"
+    ILLUMINATION_DIR = "illumination"
+    PARAMS_FILE = "qc/params.yml"
+    RAW_DIR = "raw"
+    COREOGRAPH_CENTROIDS = "qc/coreograph/centroidsY-X.txt"
+    COREOGRAPH_TMA_MAP = "qc/coreograph/TMA_MAP.tif"
 
     # metadata
     COORDS_X = "X_centroid"
     COORDS_Y = "Y_centroid"
     INSTANCE_KEY = "CellID"
+    ILLUMINATION_SUFFIX_DFP = "-dfp"
+    ILLUMINATION_SUFFIX_FFP = "-ffp"
 
 
 @unique
