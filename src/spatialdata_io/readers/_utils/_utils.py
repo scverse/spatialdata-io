@@ -10,7 +10,7 @@ from h5py import File
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
-PathLike = Union[os.PathLike, str]
+PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
 
 try:
     from numpy.typing import NDArray

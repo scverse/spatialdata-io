@@ -141,7 +141,7 @@ def visium(
     elif (path / "spatial" / VisiumKeys.SPOTS_FILE_2).exists() or (
         tissue_positions_file is not None and str(VisiumKeys.SPOTS_FILE_2) in str(tissue_positions_file)
     ):
-        read_coords = partial(pd.read_csv, header=1, index_col=0)
+        read_coords = partial(pd.read_csv, header=0, index_col=0)
         tissue_positions_file = (
             path / "spatial" / VisiumKeys.SPOTS_FILE_2
             if tissue_positions_file is None
@@ -151,7 +151,13 @@ def visium(
         raise ValueError(f"Cannot find `tissue_positions` file in `{path}`.")
     coords = read_coords(tissue_positions_file)
 
-    coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
+    # to handle spaceranger_version < 2.0.0, where no column names are provided
+    # in fact, from spaceranger 2.0.0, the column names are provided in the file, and
+    # are "pxl_col_in_fullres", "pxl_row_in_fullres" are inverted.
+    # But, in the case of CytAssist, the column names provided but the image is flipped
+    # so we need to invert the columns.
+    if "in_tissue" not in coords.columns or "CytAssist" in str(fullres_image_file):
+        coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
 
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
