@@ -192,7 +192,7 @@ class MerscopeKeys(ModeEnum):
 
 
 @unique
-class DBiTKeys(ModeEnum):
+class DbitKeys(ModeEnum):
     """Keys for DBiT formatted dataset."""
 
     # files and directories
