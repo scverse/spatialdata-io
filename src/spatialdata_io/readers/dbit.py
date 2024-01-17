@@ -14,10 +14,10 @@ import spatialdata as sd
 from dask_image.imread import imread
 from numpy.typing import NDArray
 from spatialdata import SpatialData
+from spatialdata._logging import logger
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import DbitKeys
-from spatialdata._logging import logger
 
 __all__ = ["dbit"]
 
@@ -69,19 +69,19 @@ def dbit(
     dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
     border: bool = True,
-    border_scale: float = 1
+    border_scale: float = 1,
 ) -> SpatialData:
     """Read DBiT experiment data (Deterministic Barcoding in Tissue)
-    
+
     This function reads the following files:
-        
+
         - ''{DbitKeys.COUNTS_FILE!r}'' : Counts matrix
         - ''{DbitKeys.BARCODE_POSITION!r}'' : Barcode file
         - ''{DbitKeys.IMAGE_LOWRES_FILE!r}'' : Histological image
 
 
     .. seealso::
-        
+
         - `High-Spatial-Resolution Multi-Omics Sequencing via Deterministic Barcoding in Tissue <https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8/>`_.
 
 
@@ -106,7 +106,7 @@ def dbit(
         Value passed internally to _xy2edges()
         The factor by which the border is scaled.
         The default is 1. It corresponds to a border length of (0.125 * length of the square's edge)
-    
+
     Returns
     -------
     SpatialData
@@ -131,7 +131,7 @@ def dbit(
         anndata_path = Path.joinpath(path, counts_file)
     except IndexError:
         # handle case in which the anndata path is not in the same directory as path
-        
+
         if anndata_path is not None:
             if os.path.isfile(anndata_path):
                 anndata_path = Path(anndata_path)
@@ -139,11 +139,11 @@ def dbit(
                 raise FileNotFoundError(f"{anndata_path} is not a valid path for a .h5ad file.")
         else:
             raise FileNotFoundError(f"No file with extension .h5ad found in folder {path}.")
-        
-        #if anndata_path is None or not os.path.isfile(anndata_path):
-         #   	raise FileNotFoundError(f"{anndata_path} is not a valid path for a .h5ad file.")
-       # anndata_path = Path(anndata_path)
-            
+
+        # if anndata_path is None or not os.path.isfile(anndata_path):
+        #   	raise FileNotFoundError(f"{anndata_path} is not a valid path for a .h5ad file.")
+    # anndata_path = Path(anndata_path)
+
     # check for barcode file
     try:
         barcode_file = [i for i in os.listdir(path) if patt_barcode.match(i)][0]
@@ -203,7 +203,7 @@ def dbit(
     patt_barcode = re.compile(r"^[A|a|T|t|C|c|G|g]{8}$")  # match nucleotides string of 8 char. Case insensitive.
     bc_positions: dict[str, dict[str, str]] = {}  # dict, used to collect data after matching
     # line[0]: row index, line[1] row values. line[1][0] : barcode coordinates, line[1][1] : barcode
-    for line in df.iterrows():  
+    for line in df.iterrows():
         if not bool(patt_position.fullmatch(line[1][0])):
             raise ValueError(
                 f"Row {line[0]}, has an incorrect positional id: {line[1][0]}, \nThe correct pattern for the position is a str, containing a letter between A or B, and one or two digits. Case insensitive."
@@ -227,7 +227,7 @@ def dbit(
     adata.obs["array_B"] = [int(bc_df.loc[x[:8], "B"]) for x in adata.obs_names]
     # sort annData by barcode position. Barcode A first, then Barcode B
     adata.obs.sort_values(by=["array_A", "array_B"], inplace=True)
-        
+
     # populate annData
     if dataset_id is None:  # if no dataset_id, use file name as id.
         logger.warning("No dataset_id received as input.")
@@ -272,7 +272,7 @@ def dbit(
     # contruct polygon grid with grid coordinates
     xy = adata.obs[["array_A", "array_B"]].values.astype(int)
     f = np.array(
-        [_xy2edges(x, scale=scale_factor, border=border, border_scale=scale_factor*border_scale) for x in xy]
+        [_xy2edges(x, scale=scale_factor, border=border, border_scale=scale_factor * border_scale) for x in xy]
     )
     ra = shapely.to_ragged_array([shapely.Polygon(x) for x in f])
     grid = sd.models.ShapesModel.parse(ra[1], geometry=ra[0], offsets=ra[2], index=adata.obs["pixel_id"].copy())
