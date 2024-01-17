@@ -24,10 +24,11 @@ __all__ = ["dbit"]
 
 def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
     """Check that the barcode file is formatted as expected.
-        What do we expect:
-            A tab separated file, headless, with 2 columns:
-        # column 0 : str, composed by "A" or "B", followed by a number, like 'A6', 'A22','B7'
-        # column 1 : str, of 8 chars representing nucleotides, like 'AACTGCTA'
+        
+    What do we expect:
+        A tab separated file, headless, with 2 columns:
+            column 0 : str, composed by "A" or "B", followed by a number, like 'A6', 'A22','B7'
+            column 1 : str, of 8 chars representing nucleotides, like 'AACTGCTA'
 
     Parameters
     ----------
