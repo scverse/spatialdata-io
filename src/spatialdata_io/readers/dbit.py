@@ -23,7 +23,7 @@ __all__ = ["dbit"]
 
 
 def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
-    '''Check that the barcode file is formatted as expected.
+    """Check that the barcode file is formatted as expected.
         What do we expect:
             A tab separated file, headless, with 2 columns:
         # column 0 : str, composed by "A" or "B", followed by a number, like 'A6', 'A22','B7'
@@ -32,7 +32,7 @@ def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
     Parameters
     ----------
     barcode_position :
-        The path to the barcode file, that is a tab separated 
+        The path to the barcode file, that is a tab separated
 
     Raises
     ------
@@ -45,16 +45,16 @@ def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
     bc_df : pandas.DataFrame
         A pandas.DataFrame with 2 columns, named 'A' and 'B', with a barcode as row index.
         Columns 'A' and 'B' contains an int each, that are the spatial coordinate of the barcode.
-        The columns are ordered in ascending order.            
+        The columns are ordered in ascending order.
 
-    '''    
+    """
     df = pd.read_csv(barcode_position, header=None, sep="\t")
     # check if there are 2 columns
     if len(df.columns) != 2:
         raise ValueError(
             f"The barcode file you passed at {barcode_position} does not have 2 columns.\nYour file has to be formatted with 2 columns, the first for positions, the second for the barcode, as follows:\n\nA1 AACCTTGG\nA2 GGCATGTA\nA3 GCATATGC\n..."
         )
-    # check if the data in the columns are correct. 
+    # check if the data in the columns are correct.
     # Pattern 1: match A or B at the start, then match 1 or 2 numbers at the end. Case sensitive.
     patt_position = re.compile(r"(^[A|B])([\d]{1,2}$)")
     # Pattern 2: match nucleotides string of 8 char. Case insensitive.
@@ -62,7 +62,7 @@ def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
     # dict, used to collect data after matching
     bc_positions: dict[str, dict[str, str]] = {}
     # line[0]: row index, line[1] row values. line[1][0] : barcode coordinates, line[1][1] : barcode
-    for line in df.iterrows():  
+    for line in df.iterrows():
         if not bool(patt_position.fullmatch(line[1][0])):
             raise ValueError(
                 f"Row {line[0]}, has an incorrect positional id: {line[1][0]}, \nThe correct pattern for the position is a str, containing a letter between A or B, and one or two digits. Case insensitive."
@@ -129,8 +129,8 @@ def dbit(
     dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
     border: bool = True,
-    border_scale: float = 1
-    ) -> SpatialData:
+    border_scale: float = 1,
+) -> SpatialData:
     """Read DBiT experiment data (Deterministic Barcoding in Tissue)
 
     This function reads the following files:
@@ -194,7 +194,7 @@ def dbit(
                 raise FileNotFoundError(f"{anndata_path} is not a valid path for a {DbitKeys.COUNTS_FILE} file.")
         else:
             raise FileNotFoundError(f"No file with extension {DbitKeys.COUNTS_FILE} found in folder {path}.")
-            
+
     # check for barcode file
     try:
         barcode_file = [i for i in os.listdir(path) if patt_barcode.match(i)][0]
@@ -204,10 +204,12 @@ def dbit(
             if os.path.isfile(barcode_position):
                 barcode_position = Path(barcode_position)
             else:
-                raise FileNotFoundError(f"{barcode_position} is not a valid path for the {DbitKeys.BARCODE_POSITION} file.")
+                raise FileNotFoundError(
+                    f"{barcode_position} is not a valid path for the {DbitKeys.BARCODE_POSITION} file."
+                )
         else:
             raise FileNotFoundError(f"No file named {DbitKeys.BARCODE_POSITION} found in folder {path}.")
-    
+
     # check for image file
     # use hasimage flag to track image availability
     hasimage = False
@@ -235,7 +237,7 @@ def dbit(
     adata = ad.read(anndata_path)
     # Read barcode. We want it to accept 2 columns: [Barcode index, Barcode sequence]
     bc_df = _barcode_check(barcode_position=barcode_position)
-    
+
     # add barcode positions to annData.
     # A and B naming follow original publication and protocol
     adata.obs["array_A"] = [int(bc_df.loc[x[8:16], "A"]) for x in adata.obs_names]
