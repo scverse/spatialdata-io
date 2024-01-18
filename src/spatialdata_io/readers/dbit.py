@@ -122,6 +122,7 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
 
     return np.array(square) * scale
 
+
 @inject_docs(vx=DbitKeys)
 def dbit(
     path: str | Path,
