@@ -18,6 +18,7 @@ from xarray import DataArray
 
 from spatialdata_io._constants._constants import DbitKeys
 from spatialdata_io._docs import inject_docs
+
 __all__ = ["dbit"]
 
 
@@ -121,6 +122,7 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
 
     return np.array(square) * scale
 
+
 @inject_docs(vx=DbitKeys)
 def dbit(
     path: str | Path,
@@ -129,7 +131,8 @@ def dbit(
     dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
     border: bool = True,
-    border_scale: float = 1) -> SpatialData:
+    border_scale: float = 1,
+) -> SpatialData:
     """Read DBiT experiment data (Deterministic Barcoding in Tissue)
 
     This function reads the following files:
