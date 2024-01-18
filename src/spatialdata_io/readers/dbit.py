@@ -21,9 +21,9 @@ from spatialdata_io._docs import inject_docs
 
 __all__ = ["dbit"]
 
-
 def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
-    """Check that the barcode file is formatted as expected.
+    """
+    Check that the barcode file is formatted as expected.
 
     What do we expect :
         A tab separated file, headless, with 2 columns:
@@ -84,7 +84,8 @@ def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
 
 
 def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> NDArray[np.double]:
-    """Construct vertex coordinate of a square from the barcode coordinates.
+    """
+    Construct vertex coordinate of a square from the barcode coordinates.
 
     The constructed square has a scalable border.
 
@@ -133,7 +134,8 @@ def dbit(
     border: bool = True,
     border_scale: float = 1,
 ) -> SpatialData:
-    """Read DBiT experiment data (Deterministic Barcoding in Tissue)
+    """
+    Read DBiT experiment data (Deterministic Barcoding in Tissue)
 
     This function reads the following files:
 
@@ -143,7 +145,7 @@ def dbit(
 
     .. seealso::
 
-        - `High-Spatial-Resolution Multi-Omics Sequencing via Deterministic
+        - `High-Spatial-Resolution Multi-Omics Sequencing via Deterministic 
             Barcoding in Tissue <https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8/>`_.
 
     Parameters
