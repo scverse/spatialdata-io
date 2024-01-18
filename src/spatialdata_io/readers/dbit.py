@@ -17,7 +17,6 @@ from spatialdata._logging import logger
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import DbitKeys
-from spatialdata_io._docs import inject_docs
 
 __all__ = ["dbit"]
 
@@ -123,7 +122,6 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
     return np.array(square) * scale
 
 
-@inject_docs(vx=DbitKeys)
 def dbit(
     path: str | Path,
     anndata_path: Optional[str | Path] = None,
