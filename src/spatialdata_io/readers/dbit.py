@@ -31,18 +31,12 @@ def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
 
     Parameters
     ----------
-    barcode_position :
+    barcode_position
         The path to the barcode file.
-
-    Raises
-    ------
-    ValueError
-        ValueError is raised if a field of the file does not comply with the expected pattern.
-        Appropriate error message is printed.
 
     Returns
     -------
-    pd.DataFrame :
+    pd.DataFrame
         A pandas.DataFrame with 2 columns, named 'A' and 'B', with a barcode as row index.
         Columns 'A' and 'B' contains an int each, that are the spatial coordinate of the barcode.
         The columns are ordered in ascending order.
