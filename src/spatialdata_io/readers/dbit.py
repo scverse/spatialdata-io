@@ -137,9 +137,9 @@ def dbit(
 
     This function reads the following files:
 
-        - ''{vx.DbitKeys.COUNTS_FILE!r}'' : Counts matrix
-        - ''{vx.DbitKeys.BARCODE_POSITION!r}'' : Barcode file
-        - ''{vx.DbitKeys.IMAGE_LOWRES_FILE!r}'' : Histological image | Optional
+        - ''{vx.COUNTS_FILE!r}'' : Counts matrix
+        - ''{vx.BARCODE_POSITION!r}'' : Barcode file
+        - ''{vx.IMAGE_LOWRES_FILE!r}'' : Histological image | Optional
 
     .. seealso::
 
