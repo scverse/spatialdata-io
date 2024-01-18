@@ -32,7 +32,7 @@ def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
     Parameters
     ----------
     barcode_position :
-        The path to the barcode file
+        The path to the barcode file.
 
     Raises
     ------
