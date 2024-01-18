@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning][].
 
 -   (MERSCOPE) don't try to load unexisting elements #87
 -   (Visium) fixed axes ordering
+-   (Xenium) fixed index (fail on write)
 
 ## [0.0.9] - 2023-11-06
 

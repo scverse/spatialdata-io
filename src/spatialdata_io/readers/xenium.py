@@ -114,10 +114,15 @@ def xenium(
             XeniumKeys.NUCLEUS_BOUNDARIES_FILE,
             specs,
             n_jobs,
+            idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
 
     polygons["cell_boundaries"] = _get_polygons(
-        path, XeniumKeys.CELL_BOUNDARIES_FILE, specs, n_jobs, idx=table.obs[str(XeniumKeys.CELL_ID)].copy()
+        path,
+        XeniumKeys.CELL_BOUNDARIES_FILE,
+        specs,
+        n_jobs,
+        idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
     )
 
     points = {}
@@ -194,6 +199,9 @@ def _get_tables_and_circles(
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
     adata.obs = metadata
     adata.obs["region"] = specs["region"]
+    adata.obs["region"] = adata.obs["region"].astype("category")
+    if isinstance(adata.obs[XeniumKeys.CELL_ID].iloc[0], bytes):
+        adata.obs[XeniumKeys.CELL_ID] = adata.obs[XeniumKeys.CELL_ID].apply(lambda x: x.decode("utf-8"))
     table = TableModel.parse(adata, region=specs["region"], region_key="region", instance_key=str(XeniumKeys.CELL_ID))
     if cells_as_shapes:
         transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
