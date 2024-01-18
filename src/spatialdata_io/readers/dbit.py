@@ -146,8 +146,7 @@ def dbit(
 
     .. seealso::
 
-        - `High-Spatial-Resolution Multi-Omics Sequencing via Deterministic
-            Barcoding in Tissue <https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8/>`_.
+        - `High-Spatial-Resolution Multi-Omics Sequencing via Deterministic Barcoding in Tissue <https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8/>`_.
 
     Parameters
     ----------
@@ -173,8 +172,7 @@ def dbit(
 
     Returns
     -------
-    SpatialData
-        :class:`spatialdata.SpatialData`.
+    :class:`spatialdata.SpatialData`.
     """
     path = Path(path)
     # if path is invalid, raise error
