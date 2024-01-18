@@ -21,6 +21,7 @@ from spatialdata_io._docs import inject_docs
 
 __all__ = ["dbit"]
 
+
 def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
     """
     Check that the barcode file is formatted as expected.
@@ -145,7 +146,7 @@ def dbit(
 
     .. seealso::
 
-        - `High-Spatial-Resolution Multi-Omics Sequencing via Deterministic 
+        - `High-Spatial-Resolution Multi-Omics Sequencing via Deterministic
             Barcoding in Tissue <https://www.cell.com/cell/fulltext/S0092-8674(20)31390-8/>`_.
 
     Parameters
