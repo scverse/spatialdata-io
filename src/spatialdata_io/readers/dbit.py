@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -224,18 +223,18 @@ def dbit(
                 image_path = Path(image_path)
                 hasimage = True
             else:
-                warnings.warn(
+                logger.warning(
                     f"{image_path} is not a valid path for {DbitKeys.IMAGE_LOWRES_FILE}. No image will be used.",
                     stacklevel=2,
                 )
         else:
-            warnings.warn(
+            logger.warning(
                 f"No file named {DbitKeys.IMAGE_LOWRES_FILE} found in folder {path}. No image will be used.",
                 stacklevel=2,
             )
 
     # read annData.
-    adata = ad.read(anndata_path)
+    adata = ad.read_h5ad(anndata_path)
     # Read barcode. We want it to accept 2 columns: [Barcode index, Barcode sequence]
     bc_df = _barcode_check(barcode_position=barcode_position)
 
