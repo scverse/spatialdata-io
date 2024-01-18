@@ -17,7 +17,7 @@ from spatialdata._logging import logger
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import DbitKeys
-
+from spatialdata_io._docs import inject_docs
 __all__ = ["dbit"]
 
 
@@ -31,12 +31,18 @@ def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
 
     Parameters
     ----------
-    barcode_position
+    barcode_position :
         The path to the barcode file.
+
+    Raises
+    ------
+    ValueError :
+        ValueError is raised if a field of the file does not comply with the expected pattern.
+        Appropriate error message is printed.
 
     Returns
     -------
-    pd.DataFrame
+    pd.DataFrame :
         A pandas.DataFrame with 2 columns, named 'A' and 'B', with a barcode as row index.
         Columns 'A' and 'B' contains an int each, that are the spatial coordinate of the barcode.
         The columns are ordered in ascending order.
@@ -115,7 +121,7 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
 
     return np.array(square) * scale
 
-
+@inject_docs(vx=DbitKeys)
 def dbit(
     path: str | Path,
     anndata_path: Optional[str | Path] = None,
@@ -123,15 +129,14 @@ def dbit(
     dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
     border: bool = True,
-    border_scale: float = 1,
-) -> SpatialData:
+    border_scale: float = 1) -> SpatialData:
     """Read DBiT experiment data (Deterministic Barcoding in Tissue)
 
     This function reads the following files:
 
-        - ''{DbitKeys.COUNTS_FILE!r}'' : Counts matrix
-        - ''{DbitKeys.BARCODE_POSITION!r}'' : Barcode file
-        - ''{DbitKeys.IMAGE_LOWRES_FILE!r}'' : Histological image
+        - ''{vx.DbitKeys.COUNTS_FILE!r}'' : Counts matrix
+        - ''{vx.DbitKeys.BARCODE_POSITION!r}'' : Barcode file
+        - ''{vx.DbitKeys.IMAGE_LOWRES_FILE!r}'' : Histological image | Optional
 
     .. seealso::
 
