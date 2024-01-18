@@ -42,7 +42,7 @@ def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
 
     Returns
     -------
-    bc_df : pandas.DataFrame
+    pd.DataFrame :
         A pandas.DataFrame with 2 columns, named 'A' and 'B', with a barcode as row index.
         Columns 'A' and 'B' contains an int each, that are the spatial coordinate of the barcode.
         The columns are ordered in ascending order.
@@ -129,8 +129,8 @@ def dbit(
     dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
     border: bool = True,
-    border_scale: float = 1,
-) -> SpatialData:
+    border_scale: float = 1
+    ) -> SpatialData:
     """Read DBiT experiment data (Deterministic Barcoding in Tissue)
 
     This function reads the following files:
@@ -266,7 +266,7 @@ def dbit(
     adata.obsm["spatial"] = adata.obs[["array_A", "array_B"]].values
     # parse data from annData using SpatialData parser
     table_data = sd.models.TableModel.parse(adata)
-
+    
     # read and convert image for SpatialData
     # check if image exist, and has been passed as argument
     if hasimage:
