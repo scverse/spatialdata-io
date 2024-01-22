@@ -296,7 +296,10 @@ def xenium_aligned_image(
     # Depending on the version of pipeline that was used, some images have shape (1, y, x, 3) and others (3, y, x)
     # since y and x are always different from 1, let's differentiate from the two cases here, independently of the
     # pipeline version.
-    # Note that a more robust approach is to look at the xml metadata in the ome.tif; we could use this in a future PR.
+    # Note that a more robust approach is to look at the xml metadata in the ome.tif; we should use this in a future PR.
+    # In fact, it could be that the len(image.shape) == 4 has actually dimes (1, x, y, c) and not (1, y, x, c). This is
+    # not a problem because the transformation is constructed to be consistent, but if is the case, the data orientation
+    # would be transposed compared to the original image, not ideal.
     print(image.shape)
     if len(image.shape) == 4:
         assert image.shape[0] == 1
