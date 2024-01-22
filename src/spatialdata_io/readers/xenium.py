@@ -36,7 +36,7 @@ __all__ = ["xenium"]
 def xenium(
     path: str | Path,
     n_jobs: int = 1,
-    cells_as_circles: bool = False,
+    cells_as_circles: bool = True,
     nucleus_boundaries: bool = True,
     transcripts: bool = True,
     morphology_mip: bool = True,
