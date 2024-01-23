@@ -64,13 +64,13 @@ def _check_path(
     flag = False
     try:
         checked_file = [i for i in os.listdir(path) if pattern.match(i)][0]  # this is the filename
-        path_specific = Path.joinpath(path, checked_file)
+        file_path = Path.joinpath(path, checked_file)
         flag = True
     except IndexError:
         # handle case in which the searched file is not in the same directory as path
         if path_specific is not None:
             if os.path.isfile(path_specific):
-                path_specific = Path(path_specific)
+                file_path = Path(path_specific)
                 flag = True
             else:
                 if optional_arg:
@@ -83,8 +83,8 @@ def _check_path(
             else:
                 raise FileNotFoundError(f"No file with extension {key} found in folder {path}.")
     if return_flag:
-        return path_specific, flag
-    return path_specific
+        return file_path, flag
+    return file_path
 
 
 def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
