@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional, Union, Type
+from typing import Optional, Type, Union
 
 import anndata as ad
 import numpy as np
@@ -27,7 +27,7 @@ def _check_path(
     path: str | Path,
     path_specific: Optional[str | Path],
     pattern: Pattern[str],
-    key: Type[DbitKeys],
+    key: type[DbitKeys],
     return_flag: bool = False,
     optional_arg: bool = False,
 ) -> Union[str, Path, None] | tuple[Union[str, Path, None], bool]:
