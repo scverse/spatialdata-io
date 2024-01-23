@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional
+from typing import Optional, Union, Type
 
 import anndata as ad
 import numpy as np
@@ -27,10 +27,10 @@ def _check_path(
     path: str | Path,
     path_specific: Optional[str | Path],
     pattern: Pattern[str],
-    key: type[str],
+    key: Type[DbitKeys],
     return_flag: bool = False,
     optional_arg: bool = False,
-) -> Path | tuple[Path, bool]:
+) -> Union[str, Path, None] | tuple[Union[str, Path, None], bool]:
     """
     Check that the path is valid and match a regex pattern.
 
