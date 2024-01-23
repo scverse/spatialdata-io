@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Optional, Type
+
+from typing import Optional
 from re import Pattern
+
 
 import anndata as ad
 import numpy as np
@@ -31,6 +33,7 @@ def _check_path(
     return_flag: bool = False,
     optional_arg: bool = False,
 ):
+
     """
     Check that the path is valid and match a regex pattern.
 
