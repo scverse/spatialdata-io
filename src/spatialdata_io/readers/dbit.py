@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Optional, Type, Pattern
+from typing import Optional, Type
+from re import Pattern
 
 import anndata as ad
 import numpy as np
@@ -22,9 +23,16 @@ from spatialdata_io._docs import inject_docs
 __all__ = ["dbit"]
 
 
-def _check_path(path: str | Path, path_specific: Optional[str | Path], pattern: Pattern[str], key: Type[DbitKeys], return_flag: bool = False, optional_arg: bool = False):
+def _check_path(
+    path: str | Path,
+    path_specific: Optional[str | Path],
+    pattern: Pattern[str],
+    key: type[DbitKeys],
+    return_flag: bool = False,
+    optional_arg: bool = False,
+):
     """
-    Check that the path is valid and match a regex pattern. 
+    Check that the path is valid and match a regex pattern.
 
     Parameters
     ----------
@@ -41,7 +49,7 @@ def _check_path(path: str | Path, path_specific: Optional[str | Path], pattern: 
     optional_arg :
         User specify if the file to search in mandatory (optional_arg=True, raise an Error if not found)
         or optional (optional_arg=False, rais a warning if not found).
-        
+
     Raises
     ------
     FileNotFoundError
@@ -67,7 +75,7 @@ def _check_path(path: str | Path, path_specific: Optional[str | Path], pattern: 
             else:
                 if optional_arg:
                     logger.warning(f"{path_specific} is not a valid path for {key}. No {key} will be used.")
-                else:                    
+                else:
                     raise FileNotFoundError(f"{path_specific} is not a valid path for a {key} file.")
         else:
             if optional_arg:
@@ -77,7 +85,6 @@ def _check_path(path: str | Path, path_specific: Optional[str | Path], pattern: 
     if return_flag:
         return path_specific, flag
     return path_specific
-
 
 
 def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
@@ -242,11 +249,20 @@ def dbit(
     patt_h5ad = re.compile(f".*{DbitKeys.COUNTS_FILE}")
     patt_barcode = re.compile(f".*{DbitKeys.BARCODE_POSITION}.*")
     patt_lowres = re.compile(f".*{DbitKeys.IMAGE_LOWRES_FILE}")
-    
+
     # search for files paths. Gives priority to files matching the pattern found in path.
     anndata_path = _check_path(path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE)
-    barcode_position = _check_path(path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION)
-    image_path, hasimage = _check_path(path=path, path_specific=image_path, pattern=patt_lowres, key=DbitKeys.IMAGE_LOWRES_FILE, return_flag=True, optional_arg=True)
+    barcode_position = _check_path(
+        path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION
+    )
+    image_path, hasimage = _check_path(
+        path=path,
+        path_specific=image_path,
+        pattern=patt_lowres,
+        key=DbitKeys.IMAGE_LOWRES_FILE,
+        return_flag=True,
+        optional_arg=True,
+    )
 
     # read annData.
     adata = ad.read_h5ad(anndata_path)
