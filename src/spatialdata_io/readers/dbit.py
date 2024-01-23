@@ -27,7 +27,7 @@ def _check_path(
     path: str | Path,
     path_specific: Optional[str | Path],
     pattern: Pattern[str],
-    key: type[DbitKeys],
+    key: DbitKeys,
     return_flag: bool = False,
     optional_arg: bool = False,
 ) -> Union[str, Path, None]:
