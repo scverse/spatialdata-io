@@ -92,9 +92,17 @@ class XeniumKeys(ModeEnum):
     CELL_AREA = "cell_area"
     CELL_NUCLEUS_AREA = "nucleus_area"
 
-    # morphology iamges
+    # morphology images
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"
     MORPHOLOGY_FOCUS_FILE = "morphology_focus.ome.tif"
+
+    # post-xenium images
+    ALIGNED_IF_IMAGE_SUFFIX = "if_image.ome.tif"
+    ALIGNED_HE_IMAGE_SUFFIX = "he_image.ome.tif"
+
+    # image alignment suffix
+    ALIGNMENT_FILE_SUFFIX_TO_REMOVE = ".ome.tif"
+    ALIGNMENT_FILE_SUFFIX_TO_ADD = "alignment.csv"
 
 
 @unique
