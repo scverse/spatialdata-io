@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Type, Pattern
 
 import anndata as ad
 import numpy as np
@@ -20,6 +20,64 @@ from spatialdata_io._constants._constants import DbitKeys
 from spatialdata_io._docs import inject_docs
 
 __all__ = ["dbit"]
+
+
+def _check_path(path: str | Path, path_specific: Optional[str | Path], pattern: Pattern[str], key: Type[DbitKeys], return_flag: bool = False, optional_arg: bool = False):
+    """
+    Check that the path is valid and match a regex pattern. 
+
+    Parameters
+    ----------
+    path :
+        The path of the main directory where to search for the path.
+    path_specific :
+        path to the file, if it is not in the main directory.
+    pattern : Pattern[str]
+        regex pattern.
+    key : Type[DbitKeys]
+        String to match in the path or path_specific path.
+    return_flag :
+        If True it returns a bool that indicate if the path have been matched.
+    optional_arg :
+        User specify if the file to search in mandatory (optional_arg=True, raise an Error if not found)
+        or optional (optional_arg=False, rais a warning if not found).
+        
+    Raises
+    ------
+    FileNotFoundError
+        The error is raised if no match is found in the given paths and optional_arg=True.
+
+    Returns
+    -------
+    pathlib.PosixPath
+        pathlib.PosixPath is returned if the path is found
+        if return_flag=True return a tuple(pathlib.PosixPath, bool). The bool is a flag that indicate if one of the supplied path arguments points to a file that match the key.
+    """
+    flag = False
+    try:
+        checked_file = [i for i in os.listdir(path) if pattern.match(i)][0]  # this is the filename
+        path_specific = Path.joinpath(path, checked_file)
+        flag = True
+    except IndexError:
+        # handle case in which the searched file is not in the same directory as path
+        if path_specific is not None:
+            if os.path.isfile(path_specific):
+                path_specific = Path(path_specific)
+                flag = True
+            else:
+                if optional_arg:
+                    logger.warning(f"{path_specific} is not a valid path for {key}. No {key} will be used.")
+                else:                    
+                    raise FileNotFoundError(f"{path_specific} is not a valid path for a {key} file.")
+        else:
+            if optional_arg:
+                logger.warning(f"No file named {key} found in folder {path}. No {key} will be used.")
+            else:
+                raise FileNotFoundError(f"No file with extension {key} found in folder {path}.")
+    if return_flag:
+        return path_specific, flag
+    return path_specific
+
 
 
 def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
@@ -184,58 +242,11 @@ def dbit(
     patt_h5ad = re.compile(f".*{DbitKeys.COUNTS_FILE}")
     patt_barcode = re.compile(f".*{DbitKeys.BARCODE_POSITION}.*")
     patt_lowres = re.compile(f".*{DbitKeys.IMAGE_LOWRES_FILE}")
+    
     # search for files paths. Gives priority to files matching the pattern found in path.
-    # check for .h5ad counts file
-    try:
-        counts_file = [i for i in os.listdir(path) if patt_h5ad.match(i)][0]  # this is the filename
-        anndata_path = Path.joinpath(path, counts_file)
-    except IndexError:
-        # handle case in which the anndata path is not in the same directory as path
-        if anndata_path is not None:
-            if os.path.isfile(anndata_path):
-                anndata_path = Path(anndata_path)
-            else:
-                raise FileNotFoundError(f"{anndata_path} is not a valid path for a {DbitKeys.COUNTS_FILE} file.")
-        else:
-            raise FileNotFoundError(f"No file with extension {DbitKeys.COUNTS_FILE} found in folder {path}.")
-
-    # check for barcode file
-    try:
-        barcode_file = [i for i in os.listdir(path) if patt_barcode.match(i)][0]
-        barcode_position = Path.joinpath(path, barcode_file)
-    except IndexError:
-        if barcode_position is not None:
-            if os.path.isfile(barcode_position):
-                barcode_position = Path(barcode_position)
-            else:
-                raise FileNotFoundError(
-                    f"{barcode_position} is not a valid path for the {DbitKeys.BARCODE_POSITION} file."
-                )
-        else:
-            raise FileNotFoundError(f"No file named {DbitKeys.BARCODE_POSITION} found in folder {path}.")
-
-    # check for image file
-    # use hasimage flag to track image availability
-    hasimage = False
-    try:
-        image_file = [i for i in os.listdir(path) if patt_lowres.match(i)][0]
-        image_path = Path.joinpath(path, image_file)
-        hasimage = True
-    except IndexError:
-        if image_path is not None:
-            if os.path.isfile(image_path):
-                image_path = Path(image_path)
-                hasimage = True
-            else:
-                logger.warning(
-                    f"{image_path} is not a valid path for {DbitKeys.IMAGE_LOWRES_FILE}. No image will be used.",
-                    stacklevel=2,
-                )
-        else:
-            logger.warning(
-                f"No file named {DbitKeys.IMAGE_LOWRES_FILE} found in folder {path}. No image will be used.",
-                stacklevel=2,
-            )
+    anndata_path = _check_path(path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE)
+    barcode_position = _check_path(path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION)
+    image_path, hasimage = _check_path(path=path, path_specific=image_path, pattern=patt_lowres, key=DbitKeys.IMAGE_LOWRES_FILE, return_flag=True, optional_arg=True)
 
     # read annData.
     adata = ad.read_h5ad(anndata_path)
