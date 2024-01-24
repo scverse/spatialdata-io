@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional
+from typing import Optional, Union, Type, Tuple
 
 import anndata as ad
 import numpy as np
@@ -25,12 +25,12 @@ __all__ = ["dbit"]
 
 def _check_path(
     path: str,
-    path_specific: str | Path,
     pattern: Pattern[str],
     key: DbitKeys,
+    path_specific: str | Path = None,
     return_flag: bool = False,
     optional_arg: bool = False,
-) -> str | Path | None | tuple[str | Path | None, bool]:
+) -> Path | Tuple[Path | None, bool]:
     """
     Check that the path is valid and match a regex pattern.
 
@@ -40,9 +40,9 @@ def _check_path(
         The path of the main directory where to search for the path.
     path_specific :
         path to the file, if it is not in the main directory.
-    pattern : Pattern[str]
+    pattern :
         regex pattern.
-    key : Type[DbitKeys]
+    key :
         String to match in the path or path_specific path.
     return_flag :
         If True it returns a bool that indicate if the path have been matched.
