@@ -4,7 +4,8 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional, Iterable
+from typing import Optional
+from collections.abc import Iterable
 
 import anndata as ad
 import numpy as np
