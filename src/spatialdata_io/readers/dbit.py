@@ -5,7 +5,6 @@ import re
 from pathlib import Path
 from re import Pattern
 from typing import Optional
-from collections.abc import Iterable
 
 import anndata as ad
 import numpy as np
@@ -267,7 +266,7 @@ def dbit(
         return_flag=True,
         optional_arg=True,
     )
-    
+
     image_path_checked = image_path_res[0]
     hasimage = image_path_res[1]
 
