@@ -31,7 +31,7 @@ def _check_path(
     path_specific: Optional[str | Path] = None,
     return_flag: bool = False,
     optional_arg: bool = False,
-) -> Optional[Path] | None | Iterable[Path | None, bool]:
+) -> Optional[Path] | None | tuple[Path | None, bool]:
     """
     Check that the path is valid and match a regex pattern.
 
@@ -259,7 +259,7 @@ def dbit(
     barcode_position_checked = _check_path(
         path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION
     )
-    image_path_checked, hasimage = _check_path(
+    image_path_res = _check_path(
         path=path,
         path_specific=image_path,
         pattern=patt_lowres,
@@ -267,6 +267,9 @@ def dbit(
         return_flag=True,
         optional_arg=True,
     )
+    
+    image_path_checked = image_path_res[0]
+    hasimage = image_path_res[1]
 
     # read annData.
     adata = ad.read_h5ad(anndata_path_checked)
