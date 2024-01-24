@@ -80,9 +80,9 @@ def _check_path(
                     raise FileNotFoundError(f"{path_specific} is not a valid path for a {key} file.")
         else:
             if optional_arg:
-                logger.warning(f"No file named {key} found in folder {path}. No {key} will be used.")
+                logger.warning(f"No file containing {key} found in folder {path}. No {key} will be used.")
             else:
-                raise FileNotFoundError(f"No file with extension {key} found in folder {path}.")
+                raise FileNotFoundError(f"No file containing {key} found in folder {path}.")
     if return_flag:
         return file_path, flag
     return file_path
