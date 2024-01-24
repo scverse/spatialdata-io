@@ -30,7 +30,7 @@ def _check_path(
     path_specific: Optional[str | Path] = None,
     return_flag: bool = False,
     optional_arg: bool = False,
-) -> Path | tuple[Path | None, bool]:
+) -> Optional[Path] | None | tuple[Path | None, bool]:
     """
     Check that the path is valid and match a regex pattern.
 
