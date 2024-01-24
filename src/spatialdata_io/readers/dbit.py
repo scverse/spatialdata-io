@@ -24,10 +24,10 @@ __all__ = ["dbit"]
 
 
 def _check_path(
-    path: str,
+    path: Path,
     pattern: Pattern[str],
     key: DbitKeys,
-    path_specific: str | Path = None,
+    path_specific: Optional[str | Path] = None,
     return_flag: bool = False,
     optional_arg: bool = False,
 ) -> Path | tuple[Path | None, bool]:
@@ -62,6 +62,7 @@ def _check_path(
         if return_flag=True return a tuple(pathlib.PosixPath, bool). The bool is a flag that indicate if one of the supplied path arguments points to a file that match the key.
     """
     flag = False
+    file_path = None
     try:
         checked_file = [i for i in os.listdir(path) if pattern.match(i)][0]  # this is the filename
         file_path = Path.joinpath(path, checked_file)
