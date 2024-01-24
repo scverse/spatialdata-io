@@ -283,7 +283,7 @@ def dbit(
     if dataset_id is None:  # if no dataset_id, use file name as id.
         logger.warning("No dataset_id received as input.")
         dataset_id = ".".join(
-            anndata_path.name.split(".")[:-1]
+            anndata_path_checked.name.split(".")[:-1]
         )  # this is the filename stripped from the file extension
         logger.warning(f"{dataset_id} is used as dataset_id.")
 
