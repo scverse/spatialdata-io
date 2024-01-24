@@ -252,11 +252,11 @@ def dbit(
     patt_lowres = re.compile(f".*{DbitKeys.IMAGE_LOWRES_FILE}")
 
     # search for files paths. Gives priority to files matching the pattern found in path.
-    anndata_path = _check_path(path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE)
-    barcode_position = _check_path(
+    anndata_path_checked = _check_path(path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE)
+    barcode_position_checked = _check_path(
         path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION
     )
-    image_path, hasimage = _check_path(
+    image_path_checked, hasimage = _check_path(
         path=path,
         path_specific=image_path,
         pattern=patt_lowres,
@@ -266,9 +266,9 @@ def dbit(
     )
 
     # read annData.
-    adata = ad.read_h5ad(anndata_path)
+    adata = ad.read_h5ad(anndata_path_checked)
     # Read barcode. We want it to accept 2 columns: [Barcode index, Barcode sequence]
-    bc_df = _barcode_check(barcode_position=barcode_position)
+    bc_df = _barcode_check(barcode_position=barcode_position_checked)
 
     # add barcode positions to annData.
     # A and B naming follow original publication and protocol
@@ -302,7 +302,7 @@ def dbit(
     # read and convert image for SpatialData
     # check if image exist, and has been passed as argument
     if hasimage:
-        image = imread(image_path).squeeze().transpose(2, 0, 1)  # channel, y, x
+        image = imread(image_path_checked).squeeze().transpose(2, 0, 1)  # channel, y, x
         image = DataArray(image, dims=("c", "y", "x"), name=dataset_id)
         image_sd = sd.models.Image2DModel.parse(image)
     # calculate scale factor of the grid wrt the histological image.
