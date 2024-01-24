@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional, Tuple
+from typing import Optional
 
 import anndata as ad
 import numpy as np
