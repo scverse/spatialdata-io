@@ -252,7 +252,9 @@ def dbit(
     patt_lowres = re.compile(f".*{DbitKeys.IMAGE_LOWRES_FILE}")
 
     # search for files paths. Gives priority to files matching the pattern found in path.
-    anndata_path_checked = _check_path(path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE)
+    anndata_path_checked = _check_path(
+        path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE
+    )
     barcode_position_checked = _check_path(
         path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION
     )
