@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional
+from typing import Optional, Iterable
 
 import anndata as ad
 import numpy as np
@@ -30,7 +30,7 @@ def _check_path(
     path_specific: Optional[str | Path] = None,
     return_flag: bool = False,
     optional_arg: bool = False,
-) -> Optional[Path] | None | tuple[Path | None, bool]:
+) -> Optional[Path] | None | Iterable[Path | None, bool]:
     """
     Check that the path is valid and match a regex pattern.
 
