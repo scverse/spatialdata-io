@@ -82,7 +82,7 @@ def _check_path(
     return file_path, flag
 
 
-def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
+def _barcode_check(barcode_position: Path) -> pd.DataFrame:
     """
     Check that the barcode file is formatted as expected.
 
@@ -257,7 +257,6 @@ def dbit(
         path_specific=image_path,
         pattern=patt_lowres,
         key=DbitKeys.IMAGE_LOWRES_FILE,
-        return_flag=True,
         optional_arg=True,
     )
 
