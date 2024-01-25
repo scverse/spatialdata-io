@@ -30,3 +30,5 @@ __pycache__/
 
 # other
 _version.py
+.code-workspace
+temp/

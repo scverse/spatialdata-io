@@ -92,9 +92,17 @@ class XeniumKeys(ModeEnum):
     CELL_AREA = "cell_area"
     CELL_NUCLEUS_AREA = "nucleus_area"
 
-    # morphology iamges
+    # morphology images
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"
     MORPHOLOGY_FOCUS_FILE = "morphology_focus.ome.tif"
+
+    # post-xenium images
+    ALIGNED_IF_IMAGE_SUFFIX = "if_image.ome.tif"
+    ALIGNED_HE_IMAGE_SUFFIX = "he_image.ome.tif"
+
+    # image alignment suffix
+    ALIGNMENT_FILE_SUFFIX_TO_REMOVE = ".ome.tif"
+    ALIGNMENT_FILE_SUFFIX_TO_ADD = "alignment.csv"
 
 
 @unique
@@ -140,18 +148,24 @@ class McmicroKeys(ModeEnum):
     """Keys for *Mcmicro* formatted dataset."""
 
     # files and directories
-    CELL_FEATURES_SUFFIX = "--unmicst_cell.csv"
     QUANTIFICATION_DIR = "quantification"
     MARKERS_FILE = "markers.csv"
-    IMAGES_DIR = "registration"
+    IMAGES_DIR_WSI = "registration"
+    IMAGES_DIR_TMA = "dearray"
     IMAGE_SUFFIX = ".ome.tif"
     LABELS_DIR = "segmentation"
-    LABELS_PREFIX = "unmicst-"
+    ILLUMINATION_DIR = "illumination"
+    PARAMS_FILE = "qc/params.yml"
+    RAW_DIR = "raw"
+    COREOGRAPH_CENTROIDS = "qc/coreograph/centroidsY-X.txt"
+    COREOGRAPH_TMA_MAP = "qc/coreograph/TMA_MAP.tif"
 
     # metadata
     COORDS_X = "X_centroid"
     COORDS_Y = "Y_centroid"
     INSTANCE_KEY = "CellID"
+    ILLUMINATION_SUFFIX_DFP = "-dfp"
+    ILLUMINATION_SUFFIX_FFP = "-ffp"
 
 
 @unique
