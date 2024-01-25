@@ -9,7 +9,7 @@ def to_legacy_anndata(sdata: SpatialData) -> AnnData:
     Convert SpatialData object to a (legacy) spatial AnnData object.
 
     This is useful for converting a Spatialdata object with Visium data for the use
-    with packages using spatial information in AnnData as used by scanpy and older versions of Squidpy.
+    with packages using spatial information in AnnData as used by Scanpy and older versions of Squidpy.
     Using this format for any new package is not recommended.
 
     Parameters
