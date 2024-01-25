@@ -8,6 +8,8 @@
 
 I/O for the `spatialdata` project.
 
+### Readers
+
 ```{eval-rst}
 .. autosummary::
     :toctree: generated
@@ -20,4 +22,13 @@ I/O for the `spatialdata` project.
     steinbock
     merscope
     mcmicro
+```
+
+### Conversion functions
+
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+
+    to_legacy_anndata
 ```

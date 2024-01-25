@@ -9,6 +9,8 @@ from spatialdata_io.readers.steinbock import steinbock
 from spatialdata_io.readers.visium import visium
 from spatialdata_io.readers.xenium import xenium
 
+from spatialdata_io.converters.legacy_anndata import to_legacy_anndata
+
 __all__ = [
     "curio",
     "visium",
@@ -18,6 +20,7 @@ __all__ = [
     "mcmicro",
     "steinbock",
     "merscope",
+    "to_legacy_anndata",
 ]
 
 __version__ = version("spatialdata-io")
