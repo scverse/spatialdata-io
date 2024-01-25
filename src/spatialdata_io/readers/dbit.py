@@ -28,9 +28,8 @@ def _check_path(
     pattern: Pattern[str],
     key: DbitKeys,
     path_specific: Optional[str | Path] = None,
-    return_flag: bool = False,
     optional_arg: bool = False,
-) -> Optional[Path] | None | tuple[Path | None, bool]:
+) -> tuple[Path | None, bool]:
     """
     Check that the path is valid and match a regex pattern.
 
@@ -44,11 +43,9 @@ def _check_path(
         regex pattern.
     key :
         String to match in the path or path_specific path.
-    return_flag :
-        If True it returns a bool that indicate if the path have been matched.
     optional_arg :
-        User specify if the file to search in mandatory (optional_arg=True, raise an Error if not found)
-        or optional (optional_arg=False, rais a warning if not found).
+        User specify if the file to search is mandatory (optional_arg=True, raise an Error if not found)
+        or optional (optional_arg=False, raise a Warning if not found).
 
     Raises
     ------
@@ -57,9 +54,8 @@ def _check_path(
 
     Returns
     -------
-    pathlib.PosixPath
-        pathlib.PosixPath is returned if the path is found
-        if return_flag=True return a tuple(pathlib.PosixPath, bool). The bool is a flag that indicate if one of the supplied path arguments points to a file that match the key.
+    tuple(pathlib.PosixPath, bool)
+        return a tuple(pathlib.PosixPath, bool). The bool is a flag that indicate if one of the supplied path arguments points to a file that match the supplied key.
     """
     flag = False
     file_path = None
@@ -83,9 +79,7 @@ def _check_path(
                 logger.warning(f"No file containing {key} found in folder {path}. No {key} will be used.")
             else:
                 raise FileNotFoundError(f"No file containing {key} found in folder {path}.")
-    if return_flag:
-        return file_path, flag
-    return file_path
+    return file_path, flag
 
 
 def _barcode_check(barcode_position: str | Path) -> pd.DataFrame:
@@ -196,8 +190,8 @@ def dbit(
     path: str | Path,
     anndata_path: Optional[str | Path] = None,
     barcode_position: Optional[str | Path] = None,
-    dataset_id: Optional[str] = None,
     image_path: Optional[str | Path] = None,
+    dataset_id: Optional[str] = None,
     border: bool = True,
     border_scale: float = 1,
 ) -> SpatialData:
@@ -254,10 +248,10 @@ def dbit(
     # search for files paths. Gives priority to files matching the pattern found in path.
     anndata_path_checked = _check_path(
         path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE
-    )
+    )[0]
     barcode_position_checked = _check_path(
         path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION
-    )
+    )[0]
     image_path_checked, hasimage = _check_path(
         path=path,
         path_specific=image_path,
