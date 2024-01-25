@@ -82,7 +82,7 @@ def _check_path(
     return file_path, flag
 
 
-def _barcode_check(barcode_position: Path) -> pd.DataFrame:
+def _barcode_check(barcode_file: Path) -> pd.DataFrame:
     """
     Check that the barcode file is formatted as expected.
 
@@ -93,7 +93,7 @@ def _barcode_check(barcode_position: Path) -> pd.DataFrame:
 
     Parameters
     ----------
-    barcode_position :
+    barcode_file :
         The path to the barcode file.
 
     Raises
@@ -110,11 +110,11 @@ def _barcode_check(barcode_position: Path) -> pd.DataFrame:
         The columns are ordered in ascending order.
 
     """
-    df = pd.read_csv(barcode_position, header=None, sep="\t")
+    df = pd.read_csv(barcode_file, header=None, sep="\t")
     # check if there are 2 columns
     if len(df.columns) != 2:
         raise ValueError(
-            f"The barcode file you passed at {barcode_position} does not have 2 columns.\nYour file has to be formatted with 2 columns, the first for positions, the second for the barcode, as follows:\n\nA1 AACCTTGG\nA2 GGCATGTA\nA3 GCATATGC\n..."
+            f"The barcode file you passed at {barcode_file} does not have 2 columns.\nYour file has to be formatted with 2 columns, the first for positions, the second for the barcode, as follows:\n\nA1 AACCTTGG\nA2 GGCATGTA\nA3 GCATATGC\n..."
         )
     # check if the data in the columns are correct.
     # Pattern 1: match A or B at the start, then match 1 or 2 numbers at the end. Case sensitive.
