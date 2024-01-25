@@ -27,7 +27,7 @@ def _check_path(
     path: Path,
     pattern: Pattern[str],
     key: DbitKeys,
-    path_specific: Optional[str] = None,
+    path_specific: Optional[str | Path] = None,
     optional_arg: bool = False,
 ) -> tuple[Path | None, bool]:
     """
