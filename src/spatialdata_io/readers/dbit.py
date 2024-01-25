@@ -188,9 +188,9 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
 @inject_docs(vx=DbitKeys)
 def dbit(
     path: str | Path,
-    anndata_path: Optional[str | Path] = None,
-    barcode_position: Optional[str | Path] = None,
-    image_path: Optional[str | Path] = None,
+    anndata_path: Optional[str] = None,
+    barcode_position: Optional[str] = None,
+    image_path: Optional[str] = None,
     dataset_id: Optional[str] = None,
     border: bool = True,
     border_scale: float = 1,
@@ -263,7 +263,7 @@ def dbit(
     # read annData.
     adata = ad.read_h5ad(anndata_path_checked)
     # Read barcode. We want it to accept 2 columns: [Barcode index, Barcode sequence]
-    bc_df = _barcode_check(barcode_position=barcode_position_checked)
+    bc_df = _barcode_check(barcode_file=barcode_position_checked)
 
     # add barcode positions to annData.
     # A and B naming follow original publication and protocol
