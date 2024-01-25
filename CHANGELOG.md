@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning][].
 
 -   (MCMICRO) support for TMAs (such as the data of exemplar-002)
 -   (Xenium) support for post-xenium aligned images (IF, HE)
+-   converter function `to_legacy_anndata()`
 
 ### Fixed
 

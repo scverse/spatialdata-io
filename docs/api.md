@@ -30,5 +30,6 @@ I/O for the `spatialdata` project.
 .. autosummary::
     :toctree: generated
 
+    from_legacy_anndata
     to_legacy_anndata
 ```
