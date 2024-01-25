@@ -1,7 +1,7 @@
+import numpy as np
 from anndata import AnnData
 from spatialdata import SpatialData
 from spatialdata.transformations import get_transformation
-import numpy as np
 
 
 def to_legacy_anndata(sdata: SpatialData) -> AnnData:
