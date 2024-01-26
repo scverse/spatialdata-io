@@ -2,41 +2,143 @@ import warnings
 
 import numpy as np
 from anndata import AnnData
-from spatialdata import SpatialData
+from dask.dataframe import DataFrame as DaskDataFrame
+from geopandas import GeoDataFrame
+from spatialdata import SpatialData, transform
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata.transformations import Identity, Scale, get_transformation
 
 
-def to_legacy_anndata(sdata: SpatialData) -> AnnData:
+def to_legacy_anndata(sdata: SpatialData, coordinate_system: str | None = None) -> AnnData:
     """
-    Convert SpatialData object to a (legacy) spatial AnnData object.
+    Convert a SpatialData object to a (legacy) spatial AnnData object.
 
-    This is useful for converting a Spatialdata object with Visium data for the use
-    with packages using spatial information in AnnData as used by Scanpy and older versions of Squidpy.
-    Using this format for any new package is not recommended.
+    This is useful for using packages expecting spatial information in AnnData, for example Scanpy and older versions
+    of Squidpy. Using this format for any new package is not recommended.
 
     Parameters
     ----------
     sdata
         SpatialData object
+    coordinate_system
+        The coordinate system to consider. The AnnData object will be populated with the data aligned to this coordinate
+        system.
 
+    Returns
+    -------
+    The legacy spatial AnnData object
+
+    Notes
+    -----
+    Limitations and edge cases:
+
+        - The Table can only annotate Shapes, not Labels. If labels are needed, please manually compute the centroids,
+          approximate radii from the Labels areas, add this as a Shapes element to the SpatialData object and make the
+          table annotate the Shapes element.
+        - The Table cannot annotate more than one Shapes element. If more than one Shapes element are present, please
+          merge them into a single Shapes element and make the table annotate the new Shapes element.
+        - Table rows not annotating geometries in the coordinate system will be dropped. Similarly, Shapes rows
+          not annotated by Table rows will be dropped.
+
+    How resolutions, coordinates, indices and Table rows will be affected:
+
+        - The Images will be scaled (see later) and will not maintain the original resolution.
+        - The Shapes centroids will likely change to match to the image bounding boxes (see below) and coordinate
+          systems.
+        - The Table and Shapes rows will have the same indices but, as mentioned above, some rows may be dropped.
+
+    The AnnData object does support only low-resolution images and limited coordinate transformations; eventual
+    transformations are applied before conversion. Precisely, this is how the Images are prepared for the AnnData
+    object:
+
+        - For each Image aligned to the specified coordinate system, the coordinate transformation to the coordinate
+          system is applied; all the Images are rendered to a common target bounding box, which is the bounding box of
+          the union of the Images aligned to the target coordinate system.
+        - Practically the above implies that if the Images have very dissimilar locations, most the rendered Images will
+          have empty spaces.
+        - Each Image is downscaled during rendering to fit a 2000x2000 pixels image (downscaled_hires) and a 600x600
+          pixels image (downscaled_lowres).
     """
-    adata = sdata.table.copy()
-    for dataset_id in adata.uns["spatial"]:
-        adata.uns["spatial"][dataset_id]["images"] = {
-            "hires": np.array(sdata.images[f"{dataset_id}_hires_image"]).transpose([1, 2, 0]),
-            "lowres": np.array(sdata.images[f"{dataset_id}_lowres_image"]).transpose([1, 2, 0]),
-        }
-        adata.uns["spatial"][dataset_id]["scalefactors"] = {
-            "tissue_hires_scalef": get_transformation(
-                sdata.shapes[dataset_id], to_coordinate_system="downscaled_hires"
-            ).scale[0],
-            "tissue_lowres_scalef": get_transformation(
-                sdata.shapes[dataset_id], to_coordinate_system="downscaled_lowres"
-            ).scale[0],
-            "spot_diameter_fullres": sdata.shapes[dataset_id]["radius"][0] * 2,
-        }
+    # check that coordinate system is valid
+    css = sdata.coordinate_systems
+    if coordinate_system is None:
+        assert len(css) == 1, "The SpatialData object has more than one coordinate system. Please specify one."
+        coordinate_system = css[0]
+    else:
+        assert (
+            coordinate_system in css
+        ), f"The SpatialData object does not have the coordinate system {coordinate_system}."
+    sdata = sdata.filter_by_coordinate_system(coordinate_system)
 
+    def _get_region(sdata: SpatialData) -> list[str]:
+        region = sdata.table.uns[TableModel.ATTRS_KEY]["region"]
+        if not isinstance(region, list):
+            region = [region]
+        return region
+
+    # the table needs to annotate exactly one Shapes element
+    region = _get_region(sdata)
+    if len(region) != 1:
+        raise ValueError(f"The table needs to annotate exactly one Shapes element. Found {len(region)}.")
+    if region[0] not in sdata.shapes:
+        raise ValueError(f"The table needs to annotate a Shapes element, not Labels or Points.")
+    shapes = sdata[region[0]]
+
+    # matches the table and the shapes geometries
+    # useful code to be refactored into spatialdata/_core/query/relational_query.py
+    instance_key = sdata.table.uns[TableModel.ATTRS_KEY]["instance_key"]
+    table_instances = sdata.table.obs[instance_key].values
+    shapes_instances = shapes.index.values
+    common = np.intersect1d(table_instances, shapes_instances)
+    new_table = sdata.table[sdata.table.obs[instance_key].isin(common)]
+    new_shapes = shapes.loc[new_table.obs[instance_key].values]
+    t = get_transformation(new_shapes, to_coordinate_system=coordinate_system)
+    new_shapes = transform(new_shapes, t)
+
+    # the table after the filtering must not be empty
+    assert len(new_table) > 0, "The table does not annotate any geometry in the Shapes element."
+
+    # get the centroids
+    # useful function to move to spatialdata
+    def get_centroids(shapes: GeoDataFrame) -> DaskDataFrame:
+        if shapes.iloc[0].geometry.type in ["Polygon", "MultiPolygon"]:
+            return np.array((shapes.geometry.centroid.x, shapes.geometry.centroid.y)).T
+        elif shapes.iloc[0].geometry.type == "Point":
+            return np.array((shapes.geometry.x, shapes.geometry.y)).T
+        else:
+            raise ValueError(f"Unexpected geometry type: {shapes.iloc[0].geometry.type}")
+
+    # need to recompute because we don't support in-memory points yet
+    xy = get_centroids(new_shapes)
+
+    # get the average radius; approximates polygons/multipolygons as circles
+    if new_shapes.iloc[0] == "Point":
+        np.mean(new_shapes["radius"])
+    else:
+        np.mean(np.sqrt(new_shapes.geometry.area / np.pi))
+
+    adata = new_table.copy()
+    adata.obsm["spatial"] = xy
+    # # process the images
+    # sdata_images = sdata.subset(element_names=list(sdata.images.keys()))
+    # bb = get_extent(sdata_images)
+
+    #     adata = sdata.table.copy()
+    #     for dataset_id in adata.uns["spatial"]:
+    #         adata.uns["spatial"][dataset_id]["images"] = {
+    #             "hires": np.array(sdata.images[f"{dataset_id}_hires_image"]).transpose([1, 2, 0]),
+    #             "lowres": np.array(sdata.images[f"{dataset_id}_lowres_image"]).transpose([1, 2, 0]),
+    #         }
+    #         adata.uns["spatial"][dataset_id]["scalefactors"] = {
+    #             "tissue_hires_scalef": get_transformation(
+    #                 sdata.shapes[dataset_id], to_coordinate_system="downscaled_hires"
+    #             ).scale[0],
+    #             "tissue_lowres_scalef": get_transformation(
+    #                 sdata.shapes[dataset_id], to_coordinate_system="downscaled_lowres"
+    #             ).scale[0],
+    #             "spot_diameter_fullres": sdata.shapes[dataset_id]["radius"][0] * 2,
+    #         }
+    #
     return adata
 
 
@@ -51,6 +153,14 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
     ----------
     adata
         (legacy) spatial AnnData object
+
+    Returns
+    -------
+    The SpatialData object
+
+    Notes
+    -----
+    The SpatialData object will have one hires and one lores image for each dataset in the AnnData object.
     """
     # AnnData keys
     SPATIAL = "spatial"
