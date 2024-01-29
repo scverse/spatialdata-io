@@ -29,7 +29,7 @@ def _check_path(
     key: DbitKeys,
     path_specific: Optional[str | Path] = None,
     optional_arg: bool = False,
-) -> tuple[Path | None, bool]:
+) -> tuple[Path, bool]:
     """
     Check that the path is valid and match a regex pattern.
 
