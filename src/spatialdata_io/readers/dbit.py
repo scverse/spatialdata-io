@@ -263,7 +263,7 @@ def dbit(
     # read annData.
     adata = ad.read_h5ad(anndata_path_checked)
     # Read barcode.
-    bc_df = _barcode_check(barcode_file=barcode_position_checked) # type: ignore
+    bc_df = _barcode_check(barcode_file=barcode_position_checked)  # type: ignore
 
     # add barcode positions to annData.
     # A and B naming follow original publication and protocol
@@ -276,7 +276,7 @@ def dbit(
     if dataset_id is None:  # if no dataset_id, use file name as id.
         logger.warning("No dataset_id received as input.")
         dataset_id = ".".join(
-            anndata_path_checked.name.split(".")[:-1] # type: ignore
+            anndata_path_checked.name.split(".")[:-1]  # type: ignore
         )  # this is the filename stripped from the file extension
         logger.warning(f"{dataset_id} is used as dataset_id.")
 
