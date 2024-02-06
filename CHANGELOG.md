@@ -16,7 +16,6 @@ and this project adheres to [Semantic Versioning][].
 -   (Xenium) support for post-xenium aligned images (IF, HE)
 -   DBiT-seq reader
 
-
 ### Fixed
 
 -   (MERSCOPE) don't try to load unexisting elements #87
