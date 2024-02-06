@@ -35,15 +35,15 @@ def _check_path(
 
     Parameters
     ----------
-    path :
+    path
         The path of the main directory where to search for the path.
-    path_specific :
+    path_specific
         path to the file, if it is not in the main directory.
-    pattern :
+    pattern
         regex pattern.
-    key :
+    key
         String to match in the path or path_specific path.
-    optional_arg :
+    optional_arg
         User specify if the file to search is mandatory (optional_arg=True, raise an Error if not found)
         or optional (optional_arg=False, raise a Warning if not found).
 
@@ -93,22 +93,21 @@ def _barcode_check(barcode_file: Path) -> pd.DataFrame:
 
     Parameters
     ----------
-    barcode_file :
+    barcode_file
         The path to the barcode file.
 
     Raises
     ------
-    ValueError :
+    ValueError
         ValueError is raised if a field of the file does not comply with the expected pattern.
         Appropriate error message is printed.
 
     Returns
     -------
-    pd.DataFrame :
+    pd.DataFrame
         A pandas.DataFrame with 2 columns, named 'A' and 'B', with a barcode as row index.
         Columns 'A' and 'B' contains an int each, that are the spatial coordinate of the barcode.
         The columns are ordered in ascending order.
-
     """
     df = pd.read_csv(barcode_file, header=None, sep="\t")
     # check if there are 2 columns
@@ -152,13 +151,13 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
 
     Parameters
     ----------
-    xy :
+    xy
         coordinate of the spot identified by its barcode.
-    scale :
+    scale
         Resize the square.
-    border :
+    border
         If True, the square is shrinked toward its center, leaving an empty border.
-    border_scale :
+    border_scale
         The factor by which the border is scaled.
         The default is 1. It corresponds to a border length of 0.125 * length of the square's edge
 
@@ -166,7 +165,6 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
     -------
     ndarray
         The resized square derived from the barcoded reads coordinates of a certain spot.
-
     """
     # unpack coordinates
     x, y = xy
@@ -210,22 +208,22 @@ def dbit(
 
     Parameters
     ----------
-    path :
+    path
         Path to the directory containing the data.
-    anndata_path :
+    anndata_path
         path to the counts and metadata file.
-    barcode_position :
+    barcode_position
         path to the barcode coordinates file.
-    dataset_id :
+    dataset_id
         Dataset identifier to name the constructed `SpatialData` elements.
         If not given, filename is used as dataset_id
-    image_path :
+    image_path
         path to the low resolution image.
         It expect the image to be correctly cropped and transformed.
-    border :
+    border
         Value passed internally to _xy2edges()
         If True, the square is shrinked toward its center, leaving an empty border.
-    border_scale :
+    border_scale
         Value passed internally to _xy2edges()
         The factor by which the border is scaled.
         The default is 1. It corresponds to a border length of (0.125 * length of the square's edge)
