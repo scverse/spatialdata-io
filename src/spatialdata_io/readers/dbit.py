@@ -301,11 +301,11 @@ def dbit(
         image = DataArray(image, dims=("c", "y", "x"), name=dataset_id)
         image_sd = sd.models.Image2DModel.parse(image)
     # calculate scale factor of the grid wrt the histological image.
-    # this is needed because we want to mantain the original histological image
-    # dimensions, and scale the grid accordingly in such a way that the grid
+    # We want to mantain the original histological image dimensions
+    # and scale the grid accordingly in such a way that the grid
     # overlaps with the histological image.
     # We assume that the grid is a square, and indeed it is if we follow the DBiT protocol.
-    grid_length = 50  # hardcoded lines number
+    grid_length = bc_df.shape[0]  # len of the side of the square grid is the number of barcodes.
     # we are passing an image, that is supposed to be perfectly
     # cropped to match the tissue part from which the data are collected.
     # We assume the user has already cropped and transformed everything correctly.
