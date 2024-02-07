@@ -348,4 +348,3 @@ def xenium_explorer_selection(path: str | Path, pixelsize: float = 0.2125) -> Po
     """
     df = pd.read_csv(path, skiprows=2)
     return Polygon(df.values / pixelsize)
-

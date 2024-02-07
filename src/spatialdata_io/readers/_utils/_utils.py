@@ -5,10 +5,8 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 import numpy as np
-import pandas as pd
 from anndata import AnnData, read_text
 from h5py import File
-from shapely.geometry import Polygon
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
@@ -68,4 +66,3 @@ def _read_counts(
 
     adata.uns["spatial"] = {library_id: {"metadata": {}}}  # can overwrite
     return adata, library_id
-
