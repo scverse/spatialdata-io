@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning][].
 
 -   (Xenium) bug when converting feature_name #81, from @fbnrst
 
+### Added
+-   (Xenium) reader for the selection coordinates file from the Xenium Explorer
+
 ## [0.0.8] - 2023-10-02
 
 ### Fixed
