@@ -32,3 +32,4 @@ __pycache__/
 _version.py
 .code-workspace
 temp/
+node_modules/
