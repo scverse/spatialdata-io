@@ -25,6 +25,7 @@ I/O for the `spatialdata` project.
 ```
 
 ### Utility functions
+
 ```{eval-rst}
 .. autosummary::
     :toctree: generated
@@ -32,4 +33,3 @@ I/O for the `spatialdata` project.
     xenium_aligned_image
     xenium_explorer_selection
 ```
-
