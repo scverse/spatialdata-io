@@ -344,7 +344,7 @@ def xenium_explorer_selection(path: str | Path, pixelsize: float = 0.2125) -> Po
 
     Returns
     -------
-    :class:`shapely.geometry.Polygon`
+    :class:`shapely.geometry.polygon.Polygon`
     """
     df = pd.read_csv(path, skiprows=2)
     return Polygon(df.values / pixelsize)
