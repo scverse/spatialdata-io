@@ -8,6 +8,8 @@
 
 I/O for the `spatialdata` project.
 
+### Readers
+
 ```{eval-rst}
 .. autosummary::
     :toctree: generated
@@ -21,3 +23,13 @@ I/O for the `spatialdata` project.
     merscope
     mcmicro
 ```
+
+### Utility functions
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+
+    xenium_aligned_image
+    xenium_explorer_selection
+```
+
