@@ -25,7 +25,7 @@ __all__ = [
     "merscope",
     "xenium_aligned_image",
     "xenium_explorer_selection",
-    "dbit"
+    "dbit",
 ]
 
 __version__ = version("spatialdata-io")
