@@ -8,8 +8,24 @@ from spatialdata_io.readers.mcmicro import mcmicro
 from spatialdata_io.readers.merscope import merscope
 from spatialdata_io.readers.steinbock import steinbock
 from spatialdata_io.readers.visium import visium
-from spatialdata_io.readers.xenium import xenium
+from spatialdata_io.readers.xenium import (
+    xenium,
+    xenium_aligned_image,
+    xenium_explorer_selection,
+)
 
-__all__ = ["curio", "visium", "xenium", "codex", "cosmx", "mcmicro", "steinbock", "merscope", "dbit"]
+__all__ = [
+    "curio",
+    "visium",
+    "xenium",
+    "codex",
+    "cosmx",
+    "mcmicro",
+    "steinbock",
+    "merscope",
+    "xenium_aligned_image",
+    "xenium_explorer_selection",
+    "dbit"
+]
 
 __version__ = version("spatialdata-io")
