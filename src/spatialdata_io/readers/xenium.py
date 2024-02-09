@@ -300,7 +300,6 @@ def xenium_aligned_image(
     # In fact, it could be that the len(image.shape) == 4 has actually dimes (1, x, y, c) and not (1, y, x, c). This is
     # not a problem because the transformation is constructed to be consistent, but if is the case, the data orientation
     # would be transposed compared to the original image, not ideal.
-    print(image.shape)
     if len(image.shape) == 4:
         assert image.shape[0] == 1
         assert image.shape[-1] == 3
