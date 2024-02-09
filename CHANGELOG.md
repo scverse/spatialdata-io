@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning][].
 -   (MCMICRO) support for TMAs (such as the data of exemplar-002)
 -   (Xenium) support for post-xenium aligned images (IF, HE)
 -   (Xenium) reader for the selection coordinates file from the Xenium Explorer
+-   DBiT-seq reader
 
 ### Fixed
 
