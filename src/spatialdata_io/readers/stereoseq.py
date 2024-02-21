@@ -42,11 +42,11 @@ def stereoseq(
     path
         Path to the directory containing the data.
     dataset_id
-        Dataset identifier. If not given will be determined automatically
+        Dataset identifier. If not given will be determined automatically.
     read_square_bin
-        If True, will read '*_square_bin.gef' file and build corresponding points model
+        If True, will read '_square_bin.gef' file and build corresponding points model.
     optional_tif
-        If True, will read '*_tissue_cut.tif' files
+        If True, will read '_tissue_cut.tif' files.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
