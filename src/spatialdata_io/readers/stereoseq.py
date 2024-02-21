@@ -29,6 +29,8 @@ __all__ = ["stereoseq"]
 def stereoseq(
     path: str | Path,
     dataset_id: Union[str, None] = None,
+    read_square_bin: bool = True,
+    optional_tif: bool = False,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
@@ -41,6 +43,10 @@ def stereoseq(
         Path to the directory containing the data.
     dataset_id
         Dataset identifier. If not given will be determined automatically
+    read_square_bin
+        If True, will read '*_square_bin.gef' file and build corresponding points model
+    optional_tif
+        If True, will read '*_tissue_cut.tif' files
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -67,9 +73,10 @@ def stereoseq(
     image_patterns = [
         re.compile(r".*" + re.escape(StereoseqKeys.MASK_TIF)),
         re.compile(r".*" + re.escape(StereoseqKeys.REGIST_TIF)),
-        re.compile(r".*" + re.escape(StereoseqKeys.TISSUE_TIF)),
-        re.compile(r".*" + re.escape(StereoseqKeys.FOV_TIF)),
     ]
+    if optional_tif:
+        image_patterns.append(re.compile(r".*" + re.escape(StereoseqKeys.TISSUE_TIF)),
+)
 
     gef_patterns = [
         re.compile(r".*" + re.escape(StereoseqKeys.RAW_GEF)),
@@ -176,35 +183,6 @@ def stereoseq(
         cellbin_attrs[i] = cellbin_gef.attrs[i]
     adata.uns["cellBin_attrs"] = cellbin_attrs
 
-    # create points model using SquareBin.gef
-    path_squarebin = path / StereoseqKeys.TISSUECUT / squarebin_gef_filename[0]
-    squarebin_gef = h5py.File(str(path_squarebin), "r")
-
-    df_by_bin = {}
-    for i in squarebin_gef[StereoseqKeys.GENE_EXP].keys():
-        # get gene info
-        arr = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.FEATURE_KEY][:]
-        df_gene = pd.DataFrame(arr, columns=[StereoseqKeys.FEATURE_KEY, StereoseqKeys.OFFSET, StereoseqKeys.COUNT])
-        df_gene[StereoseqKeys.FEATURE_KEY] = df_gene[StereoseqKeys.FEATURE_KEY].str.decode("utf-8")
-        df_gene = df_gene.rename(columns={"count": "counts"})  # #138 df_gene.count will throw error if not renamed
-
-        # create df for points model
-        arr = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.EXPRESSION][:]
-        df_points = pd.DataFrame(arr, columns=[StereoseqKeys.COORD_X, StereoseqKeys.COORD_Y, StereoseqKeys.COUNT])
-        df_points = df_points.astype(np.float32)
-        df_points[StereoseqKeys.EXON] = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.EXON][:]
-        df_points[StereoseqKeys.FEATURE_KEY] = [
-            name for name, cell_count in zip(df_gene.gene, df_gene.counts) for _ in range(cell_count)
-        ]  # unroll gene names by count such that there exists a mapping between coordinate counts and gene names
-        df_by_bin[i] = df_points
-
-        # add more gene info to var
-        df_gene = df_gene.rename(columns={"counts": "count"})
-        df_gene = df_gene.set_index(StereoseqKeys.FEATURE_KEY)
-        df_gene.index.name = None
-        df_gene = df_gene.add_suffix("_" + str(i))
-        adata.var = pd.concat([adata.var, df_gene], axis=1)
-
     images = {
         f"{name}": Image2DModel.parse(
             imread(path / StereoseqKeys.REGISTER / name, **imread_kwargs), dims=("c", "y", "x"), **image_models_kwargs
@@ -219,14 +197,6 @@ def stereoseq(
         for cell_mask_name in cell_mask_file
     }
 
-    points = {
-        f"transcripts_{bin}": PointsModel.parse(
-            df,
-            coordinates={"x": StereoseqKeys.COORD_X, "y": StereoseqKeys.COORD_Y},
-            feature_key=StereoseqKeys.FEATURE_KEY,
-        )
-        for bin, df in df_by_bin.items()
-    }
     table = TableModel.parse(
         adata,
         region=StereoseqKeys.REGION,
@@ -240,6 +210,46 @@ def stereoseq(
             adata.obsm[StereoseqKeys.SPATIAL_KEY], geometry=0, radius=radii, index=adata.obs[StereoseqKeys.INSTANCE_KEY]
         )
     }
-    sdata = SpatialData(images=images, labels=labels, table=table, points=points, shapes=shapes)
+
+    if read_square_bin:
+        # create points model using SquareBin.gef
+        path_squarebin = path / StereoseqKeys.TISSUECUT / squarebin_gef_filename[0]
+        squarebin_gef = h5py.File(str(path_squarebin), "r")
+
+        df_by_bin = {}
+        for i in squarebin_gef[StereoseqKeys.GENE_EXP].keys():
+            # get gene info
+            arr = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.FEATURE_KEY][:]
+            df_gene = pd.DataFrame(arr, columns=[StereoseqKeys.FEATURE_KEY, StereoseqKeys.OFFSET, StereoseqKeys.COUNT])
+            df_gene[StereoseqKeys.FEATURE_KEY] = df_gene[StereoseqKeys.FEATURE_KEY].str.decode("utf-8")
+            df_gene = df_gene.rename(columns={"count": "counts"})  # #138 df_gene.count will throw error if not renamed
+
+            # create df for points model
+            arr = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.EXPRESSION][:]
+            df_points = pd.DataFrame(arr, columns=[StereoseqKeys.COORD_X, StereoseqKeys.COORD_Y, StereoseqKeys.COUNT])
+            df_points = df_points.astype(np.float32)
+            df_points[StereoseqKeys.EXON] = squarebin_gef[StereoseqKeys.GENE_EXP][i][StereoseqKeys.EXON][:]
+            df_points[StereoseqKeys.FEATURE_KEY] = [
+                name for name, cell_count in zip(df_gene.gene, df_gene.counts) for _ in range(cell_count)
+            ]  # unroll gene names by count such that there exists a mapping between coordinate counts and gene names
+            df_by_bin[i] = df_points
+
+            # add more gene info to var
+            df_gene = df_gene.rename(columns={"counts": "count"})
+            df_gene = df_gene.set_index(StereoseqKeys.FEATURE_KEY)
+            df_gene.index.name = None
+            df_gene = df_gene.add_suffix("_" + str(i))
+            adata.var = pd.concat([adata.var, df_gene], axis=1)
+        points = {
+        f"transcripts_{bin}": PointsModel.parse(
+            df,
+            coordinates={"x": StereoseqKeys.COORD_X, "y": StereoseqKeys.COORD_Y},
+            feature_key=StereoseqKeys.FEATURE_KEY,
+        )
+        for bin, df in df_by_bin.items()
+    }
+        sdata = SpatialData(images=images, labels=labels, table=table, points=points, shapes=shapes)
+    else:
+        sdata = SpatialData(images=images, labels=labels, table=table, shapes=shapes)
 
     return sdata

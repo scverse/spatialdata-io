@@ -155,7 +155,6 @@ class StereoseqKeys(ModeEnum):
     MASK_TIF = "_mask.tif"
     REGIST_TIF = "_regist.tif"
     TISSUE_TIF = "_tissue_cut.tif"
-    FOV_TIF = "_fov_stitched_transformed.tif"
     CELL_CLUSTER_H5AD = "cell.cluster.h5ad"
     RAW_GEF = ".raw.gef"
     CELLBIN_GEF = ".cellbin.gef"
