@@ -93,8 +93,17 @@ class XeniumKeys(ModeEnum):
     CELL_NUCLEUS_AREA = "nucleus_area"
 
     # morphology images
+    # before version 2.0.0
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"
     MORPHOLOGY_FOCUS_FILE = "morphology_focus.ome.tif"
+    # from version 2.0.0
+    MORPHOLOGY_FOCUS_DIR = "morphology_focus"
+    MORPHOLOGY_FOCUS_CHANNEL_IMAGE = "morphology_focus_{:04}.ome.tif"
+    # from analysis_summary.html > Image QC of https://www.10xgenomics.com/datasets/preview-data-ffpe-human-lung-cancer-with-xenium-multimodal-cell-segmentation-1-standard
+    MORPHOLOGY_FOCUS_CHANNEL_0 = "DAPI"  # nuclear
+    MORPHOLOGY_FOCUS_CHANNEL_1 = "ATP1A1/CD45/E-Cadherin"  # interior - RNA
+    MORPHOLOGY_FOCUS_CHANNEL_2 = "18S"  # boundary
+    MORPHOLOGY_FOCUS_CHANNEL_3 = "AlphaSMA/Vimentin"  # interior - protein
 
     # post-xenium images
     ALIGNED_IF_IMAGE_SUFFIX = "if_image.ome.tif"
@@ -103,6 +112,9 @@ class XeniumKeys(ModeEnum):
     # image alignment suffix
     ALIGNMENT_FILE_SUFFIX_TO_REMOVE = ".ome.tif"
     ALIGNMENT_FILE_SUFFIX_TO_ADD = "alignment.csv"
+
+    # specs keys
+    ANALYSIS_SW_VERSION = "analysis_sw_version"
 
 
 @unique
