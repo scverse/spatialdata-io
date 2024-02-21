@@ -85,7 +85,7 @@ def stereoseq(
     image_filenames.remove(cell_mask_file[0])
 
     cellbin_gef_filename = [
-        i for i in os.listdir(path / StereoseqKeys.REGISTER) if any(pattern.match(i) for pattern in gef_patterns)
+        i for i in os.listdir(path / StereoseqKeys.CELLCUT) if any(pattern.match(i) for pattern in gef_patterns)
     ]
     squarebin_gef_filename = [
         i for i in os.listdir(path / StereoseqKeys.TISSUECUT) if any(pattern.match(i) for pattern in gef_patterns)
@@ -213,9 +213,10 @@ def stereoseq(
     }
 
     labels = {
-        f"{cell_mask_file[0]}": Labels2DModel.parse(
-            imread(path / StereoseqKeys.REGISTER / cell_mask_file[0], **imread_kwargs).squeeze(), dims=("y", "x")
+        f"{cell_mask_name}": Labels2DModel.parse(
+            imread(path / StereoseqKeys.REGISTER / cell_mask_name, **imread_kwargs).squeeze(), dims=("y", "x")
         )
+        for cell_mask_name in cell_mask_file
     }
 
     points = {
