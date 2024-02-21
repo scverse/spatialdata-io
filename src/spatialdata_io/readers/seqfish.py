@@ -80,6 +80,8 @@ def seqfish(
         adata.obsm[SeqfishKeys.SPATIAL_KEY] = cell_info[[SeqfishKeys.CELL_X, SeqfishKeys.CELL_Y]].to_numpy()
         adata.obs[SeqfishKeys.AREA] = np.reshape(cell_info[SeqfishKeys.AREA].to_numpy(), (-1, 1))
         adata.obs[SeqfishKeys.SECTION_KEY] = section
+        adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE] = adata.obs.index
+        adata.obs["radius"] = np.sqrt(adata.obs[SeqfishKeys.AREA].to_numpy() / np.pi)
         adatas[section] = adata
 
     dapi_file = [x for x in table_files if (f"{SeqfishKeys.DAPI}" in x)]
@@ -115,8 +117,7 @@ def seqfish(
     adata = ad.concat(adatas)
     adata.obs[SeqfishKeys.REGION_KEY] = SeqfishKeys.REGION
     adata.obs[SeqfishKeys.REGION_KEY] = adata.obs[SeqfishKeys.REGION_KEY].astype("category")
-    adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE] = adata.obs.index
-
+    adata.obs = adata.obs.reset_index(drop=True)
     table = TableModel.parse(
         adata,
         region=SeqfishKeys.REGION.value,
@@ -124,13 +125,12 @@ def seqfish(
         instance_key=SeqfishKeys.INSTANCE_KEY_TABLE,
     )
 
-    radii = np.sqrt(adata.obs[SeqfishKeys.AREA].to_numpy() / np.pi)
     shapes = {
         f"{SeqfishKeys.REGION.value}_{section}": ShapesModel.parse(
             adata.obsm[SeqfishKeys.SPATIAL_KEY],
             geometry=0,
-            radius=radii,
-            index=adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE],
+            radius=adata.obs["radius"],
+            index=adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE].copy(),
         )
         for section, adata in adatas.items()
     }
