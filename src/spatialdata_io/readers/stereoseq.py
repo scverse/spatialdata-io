@@ -75,8 +75,9 @@ def stereoseq(
         re.compile(r".*" + re.escape(StereoseqKeys.REGIST_TIF)),
     ]
     if optional_tif:
-        image_patterns.append(re.compile(r".*" + re.escape(StereoseqKeys.TISSUE_TIF)),
-)
+        image_patterns.append(
+            re.compile(r".*" + re.escape(StereoseqKeys.TISSUE_TIF)),
+        )
 
     gef_patterns = [
         re.compile(r".*" + re.escape(StereoseqKeys.RAW_GEF)),
@@ -241,13 +242,13 @@ def stereoseq(
             df_gene = df_gene.add_suffix("_" + str(i))
             adata.var = pd.concat([adata.var, df_gene], axis=1)
         points = {
-        f"transcripts_{bin}": PointsModel.parse(
-            df,
-            coordinates={"x": StereoseqKeys.COORD_X, "y": StereoseqKeys.COORD_Y},
-            feature_key=StereoseqKeys.FEATURE_KEY,
-        )
-        for bin, df in df_by_bin.items()
-    }
+            f"transcripts_{bin}": PointsModel.parse(
+                df,
+                coordinates={"x": StereoseqKeys.COORD_X, "y": StereoseqKeys.COORD_Y},
+                feature_key=StereoseqKeys.FEATURE_KEY,
+            )
+            for bin, df in df_by_bin.items()
+        }
         sdata = SpatialData(images=images, labels=labels, table=table, points=points, shapes=shapes)
     else:
         sdata = SpatialData(images=images, labels=labels, table=table, shapes=shapes)
