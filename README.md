@@ -51,6 +51,15 @@ pip install git+https://github.com/scverse/spatialdata-io.git@main
 For questions and help requests, you can reach out in the [scverse discourse][scverse-discourse].
 If you found a bug, please use the [issue tracker][issue-tracker].
 
+## Readers from third-party libraries
+
+Technologies that can be read into `SpatialData` objects using third-party libraries:
+
+-   METASPACE (MALDI, ...): [metaspace-converter](https://github.com/metaspace2020/metaspace-converter)
+-   PhenoCycler: [SOPA](https://github.com/gustaveroussy/sopa)
+-   MACSima: [SOPA](https://github.com/gustaveroussy/sopa)
+-   Hyperion (Imaging Mass Cytometry): [SOPA](https://github.com/gustaveroussy/sopa)
+
 ## Citation
 
 [L Marconato*, G Palla*, KA Yamauchi*, I Virshup*, E Heidari, T Treis, M Toth, R Shrestha, H Vöhringer, W Huber, M Gerstung, J Moore, FJ Theis, O Stegle, bioRxiv, 2023](https://www.biorxiv.org/content/10.1101/2023.05.05.539647v1). \* = equal contribution

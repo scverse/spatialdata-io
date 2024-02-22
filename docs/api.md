@@ -22,6 +22,17 @@ I/O for the `spatialdata` project.
     steinbock
     merscope
     mcmicro
+    dbit
+```
+
+### Utility functions
+
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+
+    xenium_aligned_image
+    xenium_explorer_selection
 ```
 
 ### Conversion functions
