@@ -141,6 +141,13 @@ def xenium(
         table, circles = return_values
     else:
         table = return_values
+
+    if version >= packaging.version.parse("2.0.0"):
+        cell_summary_table = _get_cells_metadata_table_from_zarr(path, XeniumKeys.CELLS_ZARR, specs)
+        assert cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID])
+        table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL]
+        table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT]
+
     polygons = {}
     labels = {}
 
@@ -316,12 +323,35 @@ def _get_labels(
                 masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs
             )
 
-            # cells.zarr.zip/cells_summary/ are different from version 2.0.0
-            # version = _parse_version_of_xenium_analyzer(specs)
-            # if version is not None and version < packaging.version.parse("2.0.0"):
-            #     pass
-            # else:
-            #     pass
+
+@inject_docs(xx=XeniumKeys)
+def _get_cells_metadata_table_from_zarr(
+    path: Path,
+    file: str,
+    specs: dict[str, Any],
+) -> AnnData:
+    """
+    Read cells metadata from ``{xx.CELLS_ZARR}``.
+
+    Read the cells summary table, which contains the z_level information for versions < 2.0.0, and also the
+    nucleus_count for versions >= 2.0.0.
+    """
+    # for version >= 2.0.0, in this function we could also parse the segmentation method used to obtain the masks
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_file = path / XeniumKeys.CELLS_ZARR
+        with zipfile.ZipFile(zip_file, "r") as zip_ref:
+            zip_ref.extractall(tmpdir)
+
+        with zarr.open(str(tmpdir), mode="r") as z:
+            x = z["cell_summary"][...]
+            column_names = z["cell_summary"].attrs["column_names"]
+            df = pd.DataFrame(x, columns=column_names)
+            cell_id_prefix = z["cell_id"][:, 0]
+            dataset_suffix = z["cell_id"][:, 1]
+
+            cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+            df[XeniumKeys.CELL_ID] = cell_id_str
+            return df
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
@@ -531,3 +561,15 @@ def _parse_version_of_xenium_analyzer(
         if not hide_warning:
             warnings.warn(warning_message, stacklevel=2)
         return None
+
+
+def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
+    # explained here: https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
+    cell_id_prefix_hex = [hex(x)[2:] for x in cell_id_prefix]
+    hex_shift = {str(i): chr(ord("a") + i) for i in range(10)} | {
+        chr(ord("a") + i): chr(ord("a") + 10 + i) for i in range(6)
+    }
+    cell_id_prefix_hex_shifted = ["".join([hex_shift[c] for c in x]) for x in cell_id_prefix_hex]
+    cell_id_str = [str(x[0]).rjust(8, "a") + f"-{x[1]}" for x in zip(cell_id_prefix_hex_shifted, dataset_suffix)]
+
+    return np.array(cell_id_str)

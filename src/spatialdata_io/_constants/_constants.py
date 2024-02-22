@@ -116,8 +116,10 @@ class XeniumKeys(ModeEnum):
     # specs keys
     ANALYSIS_SW_VERSION = "analysis_sw_version"
 
-    # cells labels
+    # zarr file with labels file and cell summary keys
     CELLS_ZARR = "cells.zarr.zip"
+    NUCLEUS_COUNT = "nucleus_count"
+    Z_LEVEL = "z_level"
 
 
 @unique
