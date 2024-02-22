@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 import warnings
+import zipfile
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -15,6 +17,7 @@ import packaging.version
 import pandas as pd
 import pyarrow.parquet as pq
 import tifffile
+import zarr
 from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
@@ -26,7 +29,13 @@ from shapely import Polygon
 from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata._types import ArrayLike
-from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
+from spatialdata.models import (
+    Image2DModel,
+    Labels2DModel,
+    PointsModel,
+    ShapesModel,
+    TableModel,
+)
 from spatialdata.transformations.transformations import Affine, Identity, Scale
 
 from spatialdata_io._constants._constants import XeniumKeys
@@ -45,11 +54,14 @@ def xenium(
     cells_as_circles: bool = True,
     cell_boundaries: bool = True,
     nucleus_boundaries: bool = True,
+    cell_labels: bool = True,
+    nucleus_labels: bool = True,
     transcripts: bool = True,
     morphology_mip: bool = True,
     morphology_focus: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read a *10X Genomics Xenium* dataset into a SpatialData object.
@@ -81,6 +93,12 @@ def xenium(
         Whether to read cell boundaries (polygons).
     nucleus_boundaries
         Whether to read nucleus boundaries (polygons).
+    cell_labels
+        Whether to read cell labels (raster). The polygonal version of the cell labels are simplified
+        for visualization purposes, and using the raster version is recommended for analysis.
+    nucleus_labels
+        Whether to read nucleus labels (raster). The polygonal version of the nucleus labels are simplified
+        for visualization purposes, and using the raster version is recommended for analysis.
     transcripts
         Whether to read transcripts.
     morphology_mip
@@ -91,21 +109,24 @@ def xenium(
         Keyword arguments to pass to the image reader.
     image_models_kwargs
         Keyword arguments to pass to the image models.
+    labels_models_kwargs
+        Keyword arguments to pass to the labels models.
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
     """
+    image_models_kwargs = dict(image_models_kwargs)
     if "chunks" not in image_models_kwargs:
-        if isinstance(image_models_kwargs, MappingProxyType):
-            image_models_kwargs = {}
-        assert isinstance(image_models_kwargs, dict)
         image_models_kwargs["chunks"] = (1, 4096, 4096)
     if "scale_factors" not in image_models_kwargs:
-        if isinstance(image_models_kwargs, MappingProxyType):
-            image_models_kwargs = {}
-        assert isinstance(image_models_kwargs, dict)
         image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
+
+    labels_models_kwargs = dict(labels_models_kwargs)
+    if "chunks" not in labels_models_kwargs:
+        labels_models_kwargs["chunks"] = (4096, 4096)
+    if "scale_factors" not in labels_models_kwargs:
+        labels_models_kwargs["scale_factors"] = [2, 2, 2, 2]
 
     path = Path(path)
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
@@ -121,6 +142,26 @@ def xenium(
     else:
         table = return_values
     polygons = {}
+    labels = {}
+
+    if nucleus_labels:
+        labels["nucleus_labels"] = _get_labels(
+            path,
+            XeniumKeys.CELLS_ZARR,
+            specs,
+            mask_index=0,
+            idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
+            labels_models_kwargs=labels_models_kwargs,
+        )
+    if cell_labels:
+        labels["cell_labels"] = _get_labels(
+            path,
+            XeniumKeys.CELLS_ZARR,
+            specs,
+            mask_index=1,
+            idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
+            labels_models_kwargs=labels_models_kwargs,
+        )
 
     if nucleus_boundaries:
         polygons["nucleus_boundaries"] = _get_polygons(
@@ -201,10 +242,10 @@ def xenium(
             del image_models_kwargs["c_coords"]
             logger.removeFilter(IgnoreSpecificMessage())
 
+    elements_dict = {"images": images, "labels": labels, "points": points, "table": table, "shapes": polygons}
     if cells_as_circles:
-        sdata = SpatialData(images=images, shapes=polygons | {specs["region"]: circles}, points=points, table=table)
-    else:
-        sdata = SpatialData(images=images, shapes=polygons, points=points, table=table)
+        elements_dict["shapes"][specs["region"]] = circles
+    sdata = SpatialData(**elements_dict)
 
     # find and add additional aligned images
     aligned_images = _add_aligned_images(path, imread_kwargs, image_models_kwargs)
@@ -254,6 +295,33 @@ def _get_polygons(
             )
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
+
+
+def _get_labels(
+    path: Path,
+    file: str,
+    specs: dict[str, Any],
+    mask_index: int,
+    idx: Optional[ArrayLike] = None,
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+) -> GeoDataFrame:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_file = path / XeniumKeys.CELLS_ZARR
+        with zipfile.ZipFile(zip_file, "r") as zip_ref:
+            zip_ref.extractall(tmpdir)
+
+        with zarr.open(str(tmpdir), mode="r") as z:
+            masks = z["masks"][f"{mask_index}"][...]
+            return Labels2DModel.parse(
+                masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs
+            )
+
+            # cells.zarr.zip/cells_summary/ are different from version 2.0.0
+            # version = _parse_version_of_xenium_analyzer(specs)
+            # if version is not None and version < packaging.version.parse("2.0.0"):
+            #     pass
+            # else:
+            #     pass
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
