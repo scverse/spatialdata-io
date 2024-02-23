@@ -4,14 +4,16 @@ import warnings
 
 import numpy as np
 from anndata import AnnData
-from dask.dataframe import DataFrame as DaskDataFrame
-from geopandas import GeoDataFrame
-from spatialdata import SpatialData, transform
-from spatialdata.models import Image2DModel, ShapesModel, TableModel
-from spatialdata.transformations import Identity, Scale, get_transformation
+from multiscale_spatial_image import MultiscaleSpatialImage
+from spatial_image import SpatialImage
+from spatialdata import SpatialData, join_sdata_spatialelement_table
+from spatialdata.models import Image2DModel, ShapesModel, TableModel, get_table_keys
+from spatialdata.transformations import Identity, Scale
 
 
-def to_legacy_anndata(sdata: SpatialData, coordinate_system: str | None = None) -> AnnData:
+def to_legacy_anndata(
+    sdata: SpatialData, coordinate_system: str | None = None, table_name: str | None = None
+) -> AnnData:
     """
     Convert a SpatialData object to a (legacy) spatial AnnData object.
 
@@ -23,8 +25,11 @@ def to_legacy_anndata(sdata: SpatialData, coordinate_system: str | None = None) 
     sdata
         SpatialData object
     coordinate_system
-        The coordinate system to consider. The AnnData object will be populated with the data aligned to this coordinate
-        system.
+        The coordinate system to consider. The AnnData object will be populated with the data transformed to this
+        coordinate system.
+    table_name
+        The name of the table in the SpatialData object to consider. If None and the SpatialData object has only one
+        table, that table will be used.
 
     Returns
     -------
@@ -32,34 +37,48 @@ def to_legacy_anndata(sdata: SpatialData, coordinate_system: str | None = None) 
 
     Notes
     -----
-    Limitations and edge cases:
+    Edge cases and limitations:
 
-        - The Table can only annotate Shapes, not Labels. If labels are needed, please manually compute the centroids,
-          approximate radii from the Labels areas, add this as a Shapes element to the SpatialData object and make the
-          table annotate the Shapes element.
-        - The Table cannot annotate more than one Shapes element. If more than one Shapes element are present, please
-          merge them into a single Shapes element and make the table annotate the new Shapes element.
-        - Table rows not annotating geometries in the coordinate system will be dropped. Similarly, Shapes rows
-          not annotated by Table rows will be dropped.
+        - The Table can only annotate Shapes or Labels.
+        - Labels will be approximated to circles by using the centroids of each label and an average approximated
+          radius.
+        - The Table cannot annotate more than one Shapes element. If multiple Shapes elements are present, please merge
+          them into a single Shapes element and make the table annotate the new Shapes element.
+        - Table rows not annotating geometries in the coordinate system will be dropped. Similarly, Shapes rows (in the
+          case of Labels, the circle rows approximating the Labels) not annotated by Table rows will be dropped.
 
     How resolutions, coordinates, indices and Table rows will be affected:
 
         - The Images will be scaled (see later) and will not maintain the original resolution.
-        - The Shapes centroids will likely change to match to the image bounding boxes (see below) and coordinate
-          systems.
-        - The Table and Shapes rows will have the same indices but, as mentioned above, some rows may be dropped.
+        - The Shapes centroids will likely change to match the alignment in the specified coordinate system, and to the
+          images bounding boxes (see below).
+        - The Table and Shapes rows will have the same indices as before the conversion, which is useful for plugging
+          results back to the SpatialData object, but as mentioned above, some rows may be dropped.
 
-    The AnnData object does support only low-resolution images and limited coordinate transformations; eventual
-    transformations are applied before conversion. Precisely, this is how the Images are prepared for the AnnData
-    object:
+    The generated AnnData object will contain only low-resolution images and their origin will be reset to the pixel
+    (0, 0). In particular, the ImageContainer class used by Squidpy is not used. Eventual transformations are applied
+    before conversion. Precisely, this is how the Images are prepared for the AnnData object:
 
         - For each Image aligned to the specified coordinate system, the coordinate transformation to the coordinate
           system is applied; all the Images are rendered to a common target bounding box, which is the bounding box of
           the union of the Images aligned to the target coordinate system.
-        - Practically the above implies that if the Images have very dissimilar locations, most the rendered Images will
-          have empty spaces.
+        - The origins of the new images will match the pixel (0, 0) of the target bounding box.
         - Each Image is downscaled during rendering to fit a 2000x2000 pixels image (downscaled_hires) and a 600x600
           pixels image (downscaled_lowres).
+        - Practically the above implies that if the Images have very dissimilar locations, most the rendered Images will
+          have empty spaces; in such cases it is recommended to drop or crop some images before the conversion.
+
+    Matching of spatial coordinates and pixel coordinates:
+
+        - The coordinates in `obsm['spatial']` will match the high-resolution (generated) images (i.e. coordinate (x, y)
+          will match with the pixel (y, x) in the image).
+        - The above matching is not perfect due to this bug: https://github.com/scverse/spatialdata/issues/165, which
+          will eventually be addressed.
+
+    Final consideration:
+
+        - Due to the legacy nature of the AnnData object generated, this function may not handle all the edge cases,
+          please report any issue you may find.
     """
     # check that coordinate system is valid
     css = sdata.coordinate_systems
@@ -72,46 +91,44 @@ def to_legacy_anndata(sdata: SpatialData, coordinate_system: str | None = None) 
         ), f"The SpatialData object does not have the coordinate system {coordinate_system}."
     sdata = sdata.filter_by_coordinate_system(coordinate_system)
 
-    def _get_region(sdata: SpatialData) -> list[str]:
-        region = sdata.table.uns[TableModel.ATTRS_KEY]["region"]
-        if not isinstance(region, list):
-            region = [region]
-        return region
+    if table_name is None:
+        assert (
+            len(sdata.tables) == 1
+        ), "When the table_name is not specified, the SpatialData object must have exactly one table."
+        table_name = next(iter(sdata.tables))
+    else:
+        assert table_name in sdata.tables, f"The table {table_name} is not present in the SpatialData object."
+
+    table = sdata[table_name]
+    (
+        region,
+        _,
+        instance_key,
+    ) = get_table_keys(table)
+    if not isinstance(region, list):
+        region = [region]
 
     # the table needs to annotate exactly one Shapes element
-    region = _get_region(sdata)
     if len(region) != 1:
-        raise ValueError(f"The table needs to annotate exactly one Shapes element. Found {len(region)}.")
-    if region[0] not in sdata.shapes:
-        raise ValueError(f"The table needs to annotate a Shapes element, not Labels or Points.")
-    shapes = sdata[region[0]]
+        raise ValueError(f"The table needs to annotate exactly one element. Found {len(region)}.")
+    if region[0] not in sdata.shapes and region[0] not in sdata.labels:
+        raise ValueError(f"The table needs to annotate a Shapes or Labels element, not Points.")
+    element = sdata[region[0]]
 
-    # matches the table and the shapes geometries
-    # useful code to be refactored into spatialdata/_core/query/relational_query.py
-    instance_key = sdata.table.uns[TableModel.ATTRS_KEY]["instance_key"]
-    table_instances = sdata.table.obs[instance_key].values
-    shapes_instances = shapes.index.values
-    common = np.intersect1d(table_instances, shapes_instances)
-    new_table = sdata.table[sdata.table.obs[instance_key].isin(common)]
-    new_shapes = shapes.loc[new_table.obs[instance_key].values]
-    t = get_transformation(new_shapes, to_coordinate_system=coordinate_system)
-    new_shapes = transform(new_shapes, t)
+    # TODO: call get_centroids() here and convert polygons/multipolygons/labels to circles
+
+    if isinstance(element, (SpatialImage, MultiscaleSpatialImage)):
+        table.obs[instance_key] = table.obs[instance_key].astype(element.dtype)
+    joined_elements, new_table = join_sdata_spatialelement_table(
+        sdata=sdata, spatial_element_name=region[0], table_name=table_name, how="inner", match_rows="left"
+    )
+    joined_elements[region[0]]
 
     # the table after the filtering must not be empty
-    assert len(new_table) > 0, "The table does not annotate any geometry in the Shapes element."
-
-    # get the centroids
-    # useful function to move to spatialdata
-    def get_centroids(shapes: GeoDataFrame) -> DaskDataFrame:
-        if shapes.iloc[0].geometry.type in ["Polygon", "MultiPolygon"]:
-            return np.array((shapes.geometry.centroid.x, shapes.geometry.centroid.y)).T
-        elif shapes.iloc[0].geometry.type == "Point":
-            return np.array((shapes.geometry.x, shapes.geometry.y)).T
-        else:
-            raise ValueError(f"Unexpected geometry type: {shapes.iloc[0].geometry.type}")
-
-    # need to recompute because we don't support in-memory points yet
-    xy = get_centroids(new_shapes)
+    assert len(new_table) > 0, (
+        "The table does not annotate any geometry in the Shapes element. This could also be caused by a mismatch "
+        "between the type of the indices of the geometries and the type of the INSTANCE_KEY column of the table."
+    )
 
     # get the average radius; approximates polygons/multipolygons as circles
     if new_shapes.iloc[0] == "Point":

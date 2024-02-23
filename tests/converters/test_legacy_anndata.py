@@ -1,48 +1,28 @@
 from typing import Literal
 
+import pytest
 from anndata import AnnData
 from anndata.tests.helpers import assert_equal
+from spatialdata._core.query.relational_query import _get_unique_label_values_as_index
+from spatialdata._utils import _assert_spatialdata_objects_seem_identical
 from spatialdata.datasets import blobs
 from spatialdata.models import TableModel
 
 from spatialdata_io import from_legacy_anndata, to_legacy_anndata
 
-# from spatialdata.
-
 
 def blobs_annotating_element(name: Literal["blobs_labels", "blobs_circles", "blobs_polygons", "blobs_multipolygons"]):
     sdata = blobs()
-    n = len(sdata[name])
-    new_table = AnnData(shape=(n, 0), obs={"region": [name for _ in range(n)], "instance_id": sdata[name].index})
+    if name == "blobs_labels":
+        instance_id = _get_unique_label_values_as_index(sdata[name]).tolist()
+    else:
+        instance_id = sdata[name].index.tolist()
+    n = len(instance_id)
+    new_table = AnnData(shape=(n, 0), obs={"region": [name for _ in range(n)], "instance_id": instance_id})
     new_table = TableModel.parse(new_table, region=name, region_key="region", instance_key="instance_id")
     del sdata.table
     sdata.table = new_table
-    # TODO: call helper function to shuffle the order of the rows of the table and of the shapes
     return sdata
-
-
-def test_invalid_coordinate_system():
-    pass
-    # coordinate system not passed but multiple present
-    # coordinate system passed but multiple present, not matching
-
-
-def test_invalid_annotations():
-    pass
-    # table annotating labels
-    # table annotating multiple shapes
-    # table not annotating any shapes
-    # table annotating a shapes but with instance_key not matching
-
-
-# valid coordinate systems combinations:
-# not passed but only one present
-# passed and multiple present, matching with one of them
-# valid shapes combinations: polygons, multipolygons, circles
-# images: no images, one image, multiple images, negative translation and rotation
-def test_bidectional_convesion():
-    pass
-    # test idempotency
 
 
 def idempotency_check_to_anndata(sdata):
@@ -53,13 +33,14 @@ def idempotency_check_to_anndata(sdata):
 
 def idempotency_check_from_anndata(adata):
     sdata = from_legacy_anndata(adata)
-    from_legacy_anndata(to_legacy_anndata(sdata))
+    sdata1 = from_legacy_anndata(to_legacy_anndata(sdata))
+    _assert_spatialdata_objects_seem_identical(sdata, sdata1)
 
-    # assert_spatialdata_objects_seem_equal(sdata, sdata2)
 
+@pytest.mark.parametrize("name", ["blobs_labels", "blobs_circles", "blobs_polygons", "blobs_multipolygons"])
+def test_bidectional_convesion(name):
+    sdata = blobs_annotating_element(name)
+    adata = to_legacy_anndata(sdata)
 
-# new branch in spatialdata
-# TODO: make assert spatialdata objects seem equal public
-# TODO: make get_centroids public
-# TODO: make a simple helper function in relational query
-# TODO: create _util function transform_to_data_extent() in spatialdata
+    idempotency_check_to_anndata(sdata)
+    idempotency_check_from_anndata(adata)
