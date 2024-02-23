@@ -104,7 +104,7 @@ def stereoseq(
 
     # create table using .h5ad and cellbin.gef
     adata = ad.read_h5ad(path / StereoseqKeys.CELLCLUSTER / table_filename[0])
-    path_cellbin = path / StereoseqKeys.REGISTER / cellbin_gef_filename[0]
+    path_cellbin = path / StereoseqKeys.CELLCUT / cellbin_gef_filename[0]
     cellbin_gef = h5py.File(str(path_cellbin), "r")
 
     # add cell info to obs
