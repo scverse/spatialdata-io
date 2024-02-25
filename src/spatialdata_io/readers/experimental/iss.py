@@ -40,21 +40,21 @@ def iss(
 
     Parameters
     ----------
-    path : str or Path
+    path
         Path to the directory containing the data.
-    raw_relative_path : str or Path
+    raw_relative_path
         Relative path to the raw raster image file.
-    label_relative_path : str or Path
+    label_relative_path
         Relative path to the label image file.
-    h5ad_relative_path : str or Path
+    h5ad_relative_path
         Relative path to the counts and metadata file.
-    dataset_id : str
+    dataset_id
         Dataset identifier.
-    imread_kwargs : Mapping[str, Any], optional
+    imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
-    image_models_kwargs : Mapping[str, Any], optional
+    image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
-    label_models_kwargs : Mapping[str, Any], optional
+    label_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Label2DModel`.
 
     Returns
@@ -77,7 +77,7 @@ def iss(
 
     label_image_parsed = Labels2DModel.parse(
         label_image,
-        scale_factors=[2, 4, 8, 16],
+        scale_factors=[2, 2, 2, 2],
         transformations={"global": transform_original},
         **label_models_kwargs,
     )
@@ -87,7 +87,7 @@ def iss(
 
     raw_image_parsed = Image2DModel.parse(
         raw_image,
-        scale_factors=[2, 4, 8, 16],
+        scale_factors=[2, 2, 2, 2],
         transformations={"global": transform_original},
         **image_models_kwargs,
     )

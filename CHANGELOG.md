@@ -13,3 +13,4 @@ and this project adheres to [Semantic Versioning][].
 ### Added
 
 -   Basic tool, preprocessing and plotting functions
+-   An experimental loader to load elemental ISS data objects, e.g. raw.tif, label.tif and anndata.h5ad

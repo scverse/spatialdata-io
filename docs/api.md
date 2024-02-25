@@ -20,4 +20,6 @@ I/O for the `spatialdata` project.
     steinbock
     merscope
     mcmicro
+
+    experimental - iss
 ```
