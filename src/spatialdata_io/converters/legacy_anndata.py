@@ -3,22 +3,43 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pandas as pd
 from anndata import AnnData
 from multiscale_spatial_image import MultiscaleSpatialImage
+from shapely import MultiPolygon, Polygon
 from spatial_image import SpatialImage
-from spatialdata import SpatialData, join_sdata_spatialelement_table
-from spatialdata.models import Image2DModel, ShapesModel, TableModel, get_table_keys
+from spatialdata import (
+    SpatialData,
+    aggregate,
+    get_centroids,
+    get_extent,
+    join_sdata_spatialelement_table,
+)
+from spatialdata.models import (
+    Image2DModel,
+    Image3DModel,
+    ShapesModel,
+    TableModel,
+    get_axes_names,
+    get_table_keys,
+)
 from spatialdata.transformations import Identity, Scale
 
 
 def to_legacy_anndata(
-    sdata: SpatialData, coordinate_system: str | None = None, table_name: str | None = None
+    sdata: SpatialData,
+    coordinate_system: str | None = None,
+    table_name: str | None = None,
+    include_images: bool = False,
 ) -> AnnData:
     """
     Convert a SpatialData object to a (legacy) spatial AnnData object.
 
     This is useful for using packages expecting spatial information in AnnData, for example Scanpy and older versions
     of Squidpy. Using this format for any new package is not recommended.
+
+    This function by default ignores images (recommended); setting the `include_images` parameter to `True` will
+    include a downscaled version of the images in the output AnnData object.
 
     Parameters
     ----------
@@ -30,10 +51,13 @@ def to_legacy_anndata(
     table_name
         The name of the table in the SpatialData object to consider. If None and the SpatialData object has only one
         table, that table will be used.
+    include_images
+        If True, includes downscaled versions of the images in the output AnnData object. It is recommended to handle
+        the full resolution images separately and keep them in the SpatialData object.
 
     Returns
     -------
-    The legacy spatial AnnData object
+    The legacy spatial AnnData object.
 
     Notes
     -----
@@ -49,15 +73,17 @@ def to_legacy_anndata(
 
     How resolutions, coordinates, indices and Table rows will be affected:
 
-        - The Images will be scaled (see later) and will not maintain the original resolution.
+        - When `include_images` is `True`, the Images will be scaled (see later) and will not maintain the original
+          resolution.
         - The Shapes centroids will likely change to match the alignment in the specified coordinate system, and to the
-          images bounding boxes (see below).
+          images bounding boxes when `include_images` is `True` (see below).
         - The Table and Shapes rows will have the same indices as before the conversion, which is useful for plugging
           results back to the SpatialData object, but as mentioned above, some rows may be dropped.
 
-    The generated AnnData object will contain only low-resolution images and their origin will be reset to the pixel
-    (0, 0). In particular, the ImageContainer class used by Squidpy is not used. Eventual transformations are applied
-    before conversion. Precisely, this is how the Images are prepared for the AnnData object:
+    When `inlcude_images` is `True`, the generated AnnData object will contain low-resolution images and their origin
+    will be reset to the pixel (0, 0). In particular, the ImageContainer class used by Squidpy is not used. Eventual
+    transformations are applied before conversion. Precisely, this is how the Images are prepared for the AnnData
+    object:
 
         - For each Image aligned to the specified coordinate system, the coordinate transformation to the coordinate
           system is applied; all the Images are rendered to a common target bounding box, which is the bounding box of
@@ -70,8 +96,10 @@ def to_legacy_anndata(
 
     Matching of spatial coordinates and pixel coordinates:
 
-        - The coordinates in `obsm['spatial']` will match the high-resolution (generated) images (i.e. coordinate (x, y)
-          will match with the pixel (y, x) in the image).
+        - When `include_images` is `True`, the coordinates in `obsm['spatial']` will match the downscaled (generated)
+          image with suffix "*_downscaled_hires" (i.e. coordinate (x, y) will match with the pixel (y, x) in the image).
+          Please note that the suffix "_hires" is used for legacy reasons, but the image is actually downscaled and
+          fairly low resolution.
         - The above matching is not perfect due to this bug: https://github.com/scverse/spatialdata/issues/165, which
           will eventually be addressed.
 
@@ -114,15 +142,60 @@ def to_legacy_anndata(
     if region[0] not in sdata.shapes and region[0] not in sdata.labels:
         raise ValueError(f"The table needs to annotate a Shapes or Labels element, not Points.")
     element = sdata[region[0]]
+    region_name = region[0]
 
-    # TODO: call get_centroids() here and convert polygons/multipolygons/labels to circles
-
+    # convert polygons, multipolygons and labels to circles
+    obs = None
     if isinstance(element, (SpatialImage, MultiscaleSpatialImage)):
-        table.obs[instance_key] = table.obs[instance_key].astype(element.dtype)
+        # find the area of labels, estimate the radius from it; find the centroids
+        if isinstance(element, MultiscaleSpatialImage):
+            shape = element["scale0"].values().__iter__().__next__().shape
+        else:
+            shape = element.shape
+
+        axes = get_axes_names(element)
+        if "z" in axes:
+            model = Image3DModel
+        else:
+            model = Image2DModel
+        ones = model.parse(np.ones((1,) + shape), dims=("c",) + axes)
+        aggregated = aggregate(values=ones, by=element, agg_func="sum").table
+        areas = aggregated.X.todense().A1.reshape(-1)
+        aobs = aggregated.obs
+        aobs["areas"] = areas
+        aobs["radius"] = np.sqrt(areas / np.pi)
+
+        # get the centroids; remove the background if present (the background is not considered during aggregation)
+        centroids = get_centroids(element, coordinate_system=coordinate_system).compute()
+        if 0 in centroids.index:
+            centroids = centroids.drop(index=0)
+        centroids.index = centroids.index
+        aobs.index = aobs[instance_key]
+        assert len(aobs) == len(centroids)
+        obs = pd.merge(aobs, centroids, left_index=True, right_index=True, how="inner")
+        assert len(obs) == len(centroids)
+    elif isinstance(element.geometry.iloc[0], (Polygon, MultiPolygon)):
+        radius = np.sqrt(element.geometry.area / np.pi)
+        centroids = get_centroids(element, coordinate_system=coordinate_system).compute()
+        obs = pd.DataFrame({"radius": radius})
+        obs = pd.merge(obs, centroids, left_index=True, right_index=True, how="inner")
+    if obs is not None:
+        spatial_axes = sorted(get_axes_names(element))
+        centroids = obs[spatial_axes].values
+        shapes = ShapesModel.parse(
+            centroids,
+            geometry=0,
+            index=obs.index,
+            radius=obs["radius"].values,
+            transformations={coordinate_system: Identity()},
+        )
+    else:
+        shapes = sdata[region_name]
+    circles_sdata = SpatialData(tables={table_name: table}, shapes={region_name: shapes})
+
     joined_elements, new_table = join_sdata_spatialelement_table(
-        sdata=sdata, spatial_element_name=region[0], table_name=table_name, how="inner", match_rows="left"
+        sdata=circles_sdata, spatial_element_name=region_name, table_name=table_name, how="inner", match_rows="left"
     )
-    joined_elements[region[0]]
 
     # the table after the filtering must not be empty
     assert len(new_table) > 0, (
@@ -130,34 +203,46 @@ def to_legacy_anndata(
         "between the type of the indices of the geometries and the type of the INSTANCE_KEY column of the table."
     )
 
-    # get the average radius; approximates polygons/multipolygons as circles
-    if new_shapes.iloc[0] == "Point":
-        np.mean(new_shapes["radius"])
+    sdata_pre_rasterize = SpatialData(
+        tables={table_name: new_table}, shapes={region_name: joined_elements[region_name]}
+    )
+
+    # process the images
+    if not include_images:
+        sdata_post_rasterize = sdata_pre_rasterize
     else:
-        np.mean(np.sqrt(new_shapes.geometry.area / np.pi))
+        sdata_images = sdata.subset(element_names=list(sdata.images.keys()))
+        for image_name, image in sdata_images.images.items():
+            sdata_pre_rasterize[image_name] = image
+        get_extent(sdata_images)
 
-    adata = new_table.copy()
-    adata.obsm["spatial"] = xy
-    # # process the images
-    # sdata_images = sdata.subset(element_names=list(sdata.images.keys()))
-    # bb = get_extent(sdata_images)
+        # TODO: transform to data extent highres
+        # TODO: transform to data extent lowres
 
-    #     adata = sdata.table.copy()
-    #     for dataset_id in adata.uns["spatial"]:
-    #         adata.uns["spatial"][dataset_id]["images"] = {
-    #             "hires": np.array(sdata.images[f"{dataset_id}_hires_image"]).transpose([1, 2, 0]),
-    #             "lowres": np.array(sdata.images[f"{dataset_id}_lowres_image"]).transpose([1, 2, 0]),
-    #         }
-    #         adata.uns["spatial"][dataset_id]["scalefactors"] = {
-    #             "tissue_hires_scalef": get_transformation(
-    #                 sdata.shapes[dataset_id], to_coordinate_system="downscaled_hires"
-    #             ).scale[0],
-    #             "tissue_lowres_scalef": get_transformation(
-    #                 sdata.shapes[dataset_id], to_coordinate_system="downscaled_lowres"
-    #             ).scale[0],
-    #             "spot_diameter_fullres": sdata.shapes[dataset_id]["radius"][0] * 2,
-    #         }
-    #
+        for image_name, image in sdata_images.images.items():
+            if "spatial" not in adata.uns:
+                adata.uns["spatial"] = {}
+            adata.uns["spatial"][image_name] = {}
+            adata.uns["spatial"][image_name]["images"] = {}
+            adata.uns["spatial"][image_name]["scalefactors"] = {}
+
+    # for dataset_id in adata.uns["spatial"]:
+    #     adata.uns["spatial"][dataset_id]["images"] = {
+    #         "hires": np.array(sdata.images[f"{dataset_id}_hires_image"]).transpose([1, 2, 0]),
+    #         "lowres": np.array(sdata.images[f"{dataset_id}_lowres_image"]).transpose([1, 2, 0]),
+    #     }
+    #     adata.uns["spatial"][dataset_id]["scalefactors"] = {
+    #         "tissue_hires_scalef": get_transformation(
+    #             sdata.shapes[dataset_id], to_coordinate_system="downscaled_hires"
+    #         ).scale[0],
+    #         "tissue_lowres_scalef": get_transformation(
+    #             sdata.shapes[dataset_id], to_coordinate_system="downscaled_lowres"
+    #         ).scale[0],
+    #         "spot_diameter_fullres": sdata.shapes[dataset_id]["radius"][0] * 2,
+    #     }
+
+    adata = sdata_post_rasterize[table_name].copy()
+    adata.obsm["spatial"] = get_centroids(sdata_post_rasterize[region_name]).compute().values
     return adata
 
 
@@ -282,6 +367,8 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
 
         # link the shapes to the table
         new_table = adata.copy()
+        if TableModel.ATTRS_KEY in new_table.uns:
+            del new_table.uns[TableModel.ATTRS_KEY]
         new_table.obs[REGION_KEY] = REGION
         new_table.obs[REGION_KEY] = new_table.obs[REGION_KEY].astype("category")
         new_table.obs[INSTANCE_KEY] = shapes[REGION].index.values

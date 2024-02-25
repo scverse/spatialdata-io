@@ -39,8 +39,9 @@ def idempotency_check_from_anndata(adata):
 
 @pytest.mark.parametrize("name", ["blobs_labels", "blobs_circles", "blobs_polygons", "blobs_multipolygons"])
 def test_bidectional_convesion(name):
-    sdata = blobs_annotating_element(name)
-    adata = to_legacy_anndata(sdata)
+    sdata0 = blobs_annotating_element(name)
+    adata0 = to_legacy_anndata(sdata0)
+    sdata1 = from_legacy_anndata(adata0)
 
-    idempotency_check_to_anndata(sdata)
-    idempotency_check_from_anndata(adata)
+    idempotency_check_to_anndata(sdata1)
+    idempotency_check_from_anndata(adata0)
