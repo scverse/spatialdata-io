@@ -90,7 +90,7 @@ def stereoseq(
         i for i in os.listdir(path / StereoseqKeys.REGISTER) if any(pattern.match(i) for pattern in image_patterns)
     ]
     cell_mask_file = [x for x in image_filenames if (f"{StereoseqKeys.MASK_TIF}" in x)]
-    image_filenames.remove(cell_mask_file[0])
+    image_filenames = [x for x in image_filenames if x not in cell_mask_file]
 
     cellbin_gef_filename = [
         i for i in os.listdir(path / StereoseqKeys.CELLCUT) if any(pattern.match(i) for pattern in gef_patterns)
