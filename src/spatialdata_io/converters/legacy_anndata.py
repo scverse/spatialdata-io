@@ -15,6 +15,7 @@ from spatialdata import (
     get_extent,
     join_sdata_spatialelement_table,
 )
+from spatialdata._core.operations._utils import transform_to_data_extent
 from spatialdata.models import (
     Image2DModel,
     Image3DModel,
@@ -80,7 +81,7 @@ def to_legacy_anndata(
         - The Table and Shapes rows will have the same indices as before the conversion, which is useful for plugging
           results back to the SpatialData object, but as mentioned above, some rows may be dropped.
 
-    When `inlcude_images` is `True`, the generated AnnData object will contain low-resolution images and their origin
+    When `include_images` is `True`, the generated AnnData object will contain low-resolution images and their origin
     will be reset to the pixel (0, 0). In particular, the ImageContainer class used by Squidpy is not used. Eventual
     transformations are applied before conversion. Precisely, this is how the Images are prepared for the AnnData
     object:
@@ -89,25 +90,34 @@ def to_legacy_anndata(
           system is applied; all the Images are rendered to a common target bounding box, which is the bounding box of
           the union of the Images aligned to the target coordinate system.
         - The origins of the new images will match the pixel (0, 0) of the target bounding box.
-        - Each Image is downscaled during rendering to fit a 2000x2000 pixels image (downscaled_hires) and a 600x600
-          pixels image (downscaled_lowres).
+        - Each Image is downscaled (or upscaled) during rendering to fit a 2000x2000 pixels image (downscaled_hires) and
+          a 600x600 pixels image (downscaled_lowres).
         - Practically the above implies that if the Images have very dissimilar locations, most the rendered Images will
           have empty spaces; in such cases it is recommended to drop or crop some images before the conversion.
 
     Matching of spatial coordinates and pixel coordinates:
 
         - When `include_images` is `True`, the coordinates in `obsm['spatial']` will match the downscaled (generated)
-          image with suffix "*_downscaled_hires" (i.e. coordinate (x, y) will match with the pixel (y, x) in the image).
-          Please note that the suffix "_hires" is used for legacy reasons, but the image is actually downscaled and
-          fairly low resolution.
+          image "hires" (i.e. coordinate (x, y) will match with the pixel (y, x) in the image). Please note that the
+          "hires" naming is used for legacy reasons, but the image is actually downscaled and fairly low resolution.
         - The above matching is not perfect due to this bug: https://github.com/scverse/spatialdata/issues/165, which
           will eventually be addressed.
+
+    Imperfect downscaling:
+
+        - Due to the bug mentioned above, https://github.com/scverse/spatialdata/issues/165, when the downscaling factor
+          is large, the error between the original and the downscale image can be significant. This is another reason to
+          not recommend using include_images=True. Note, however, that the error can be large only between the original
+          and the downscaled images, not between the downscaled images and the new spatial coordinates. Thus the use
+          may be acceptable for some use cases.
 
     Final consideration:
 
         - Due to the legacy nature of the AnnData object generated, this function may not handle all the edge cases,
           please report any issue you may find.
     """
+    DOWNSCALED_HIRES_LENGTH = 2000
+    DOWNSCALED_LOWRES_LENGTH = 600
     # check that coordinate system is valid
     css = sdata.coordinate_systems
     if coordinate_system is None:
@@ -140,7 +150,7 @@ def to_legacy_anndata(
     if len(region) != 1:
         raise ValueError(f"The table needs to annotate exactly one element. Found {len(region)}.")
     if region[0] not in sdata.shapes and region[0] not in sdata.labels:
-        raise ValueError(f"The table needs to annotate a Shapes or Labels element, not Points.")
+        raise ValueError("The table needs to annotate a Shapes or Labels element, not Points.")
     element = sdata[region[0]]
     region_name = region[0]
 
@@ -171,6 +181,7 @@ def to_legacy_anndata(
             centroids = centroids.drop(index=0)
         centroids.index = centroids.index
         aobs.index = aobs[instance_key]
+        aobs.index.name = None
         assert len(aobs) == len(centroids)
         obs = pd.merge(aobs, centroids, left_index=True, right_index=True, how="inner")
         assert len(obs) == len(centroids)
@@ -208,40 +219,56 @@ def to_legacy_anndata(
     )
 
     # process the images
+    downscaled_images_hires = {}
+    downscaled_images_lowres = {}
+    sdata_post_rasterize = None
     if not include_images:
         sdata_post_rasterize = sdata_pre_rasterize
     else:
         sdata_images = sdata.subset(element_names=list(sdata.images.keys()))
         for image_name, image in sdata_images.images.items():
             sdata_pre_rasterize[image_name] = image
-        get_extent(sdata_images)
+        bb = get_extent(sdata_images)
 
         # TODO: transform to data extent highres
         # TODO: transform to data extent lowres
+        parameters_dict = {"x": "target_width", "y": "target_height", "z": "target_depth"}
+        longest_side = max(bb, key=bb.get)
+        parameter_hires = {parameters_dict[longest_side]: DOWNSCALED_HIRES_LENGTH}
+        parameter_lowres = {parameters_dict[longest_side]: DOWNSCALED_LOWRES_LENGTH}
+        downscaled_hires = transform_to_data_extent(
+            sdata_pre_rasterize, coordinate_system=coordinate_system, maintain_positioning=False, **parameter_hires
+        )
+        downscaled_lowres = transform_to_data_extent(
+            sdata_pre_rasterize, coordinate_system=coordinate_system, maintain_positioning=False, **parameter_lowres
+        )
+        for image_name in sdata_images.images.keys():
+            downscaled_images_hires[image_name] = downscaled_hires[image_name]
+            downscaled_images_lowres[image_name] = downscaled_lowres[image_name]
 
-        for image_name, image in sdata_images.images.items():
+        if sdata_post_rasterize is None:
+            sdata_post_rasterize = downscaled_hires
+
+    adata = sdata_post_rasterize[table_name].copy()
+
+    if len(downscaled_images_hires) > 0:
+        for image_name in sdata_images.images.keys():
             if "spatial" not in adata.uns:
                 adata.uns["spatial"] = {}
             adata.uns["spatial"][image_name] = {}
-            adata.uns["spatial"][image_name]["images"] = {}
-            adata.uns["spatial"][image_name]["scalefactors"] = {}
+            adata.uns["spatial"][image_name]["images"] = {
+                "hires": downscaled_images_hires[image_name].data.compute().transpose([1, 2, 0]),
+                "lowres": downscaled_images_lowres[image_name].data.compute().transpose([1, 2, 0]),
+            }
+            try:
+                adata.uns["spatial"][image_name]["scalefactors"] = {
+                    "tissue_hires_scalef": 1.0,
+                    "tissue_lowres_scalef": DOWNSCALED_LOWRES_LENGTH / DOWNSCALED_HIRES_LENGTH,
+                    "spot_diameter_fullres": sdata_post_rasterize.shapes[region_name]["radius"].iloc[0] * 2,
+                }
+            except KeyError:
+                pass
 
-    # for dataset_id in adata.uns["spatial"]:
-    #     adata.uns["spatial"][dataset_id]["images"] = {
-    #         "hires": np.array(sdata.images[f"{dataset_id}_hires_image"]).transpose([1, 2, 0]),
-    #         "lowres": np.array(sdata.images[f"{dataset_id}_lowres_image"]).transpose([1, 2, 0]),
-    #     }
-    #     adata.uns["spatial"][dataset_id]["scalefactors"] = {
-    #         "tissue_hires_scalef": get_transformation(
-    #             sdata.shapes[dataset_id], to_coordinate_system="downscaled_hires"
-    #         ).scale[0],
-    #         "tissue_lowres_scalef": get_transformation(
-    #             sdata.shapes[dataset_id], to_coordinate_system="downscaled_lowres"
-    #         ).scale[0],
-    #         "spot_diameter_fullres": sdata.shapes[dataset_id]["radius"][0] * 2,
-    #     }
-
-    adata = sdata_post_rasterize[table_name].copy()
     adata.obsm["spatial"] = get_centroids(sdata_post_rasterize[region_name]).compute().values
     return adata
 
@@ -264,19 +291,19 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
 
     Notes
     -----
-    The SpatialData object will have one hires and one lores image for each dataset in the AnnData object.
+    The SpatialData object will have one hires and one lowres image for each dataset in the AnnData object.
     """
     # AnnData keys
     SPATIAL = "spatial"
 
     SCALEFACTORS = "scalefactors"
     TISSUE_HIRES_SCALEF = "tissue_hires_scalef"
-    TISSUE_LORES_SCALEF = "tissue_lowres_scalef"
+    TISSUE_LOWRES_SCALEF = "tissue_lowres_scalef"
     SPOT_DIAMETER_FULLRES = "spot_diameter_fullres"
 
     IMAGES = "images"
     HIRES = "hires"
-    LORES = "lowres"
+    LOWRES = "lowres"
 
     # SpatialData keys
     REGION = "locations"
@@ -295,21 +322,21 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
             # read the image data and the scale factors for the shapes
             keys = set(adata.uns[SPATIAL][dataset_id].keys())
             tissue_hires_scalef = None
-            tissue_lores_scalef = None
+            tissue_lowres_scalef = None
             if SCALEFACTORS in keys:
                 scalefactors = adata.uns[SPATIAL][dataset_id][SCALEFACTORS]
                 if TISSUE_HIRES_SCALEF in scalefactors:
                     tissue_hires_scalef = scalefactors[TISSUE_HIRES_SCALEF]
-                if TISSUE_LORES_SCALEF in scalefactors:
-                    tissue_lores_scalef = scalefactors[TISSUE_LORES_SCALEF]
+                if TISSUE_LOWRES_SCALEF in scalefactors:
+                    tissue_lowres_scalef = scalefactors[TISSUE_LOWRES_SCALEF]
                 if SPOT_DIAMETER_FULLRES in scalefactors:
                     spot_diameter_fullres_list.append(scalefactors[SPOT_DIAMETER_FULLRES])
             if IMAGES in keys:
                 image_data = adata.uns[SPATIAL][dataset_id][IMAGES]
                 if HIRES in image_data:
                     hires = image_data[HIRES]
-                if LORES in image_data:
-                    lores = image_data[LORES]
+                if LOWRES in image_data:
+                    lowres = image_data[LOWRES]
 
             # construct the spatialdata elements
             if hires is not None:
@@ -325,19 +352,19 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
                 # prepare the transformation to the hires image for the shapes
                 scale_hires = Scale([tissue_hires_scalef, tissue_hires_scalef], axes=("x", "y"))
                 shapes_transformations[f"{dataset_id}_downscaled_hires"] = scale_hires
-            if lores is not None:
-                # prepare the lores image
+            if lowres is not None:
+                # prepare the lowres image
                 assert (
-                    tissue_lores_scalef is not None
-                ), "tissue_lores_scalef is required when an the lores image is present"
-                lores_image = Image2DModel.parse(
-                    lores, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_lowres": Identity()}
+                    tissue_lowres_scalef is not None
+                ), "tissue_lowres_scalef is required when an the lowres image is present"
+                lowres_image = Image2DModel.parse(
+                    lowres, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_lowres": Identity()}
                 )
-                images[f"{dataset_id}_lowres_image"] = lores_image
+                images[f"{dataset_id}_lowres_image"] = lowres_image
 
-                # prepare the transformation to the lores image for the shapes
-                scale_lores = Scale([tissue_lores_scalef, tissue_lores_scalef], axes=("x", "y"))
-                shapes_transformations[f"{dataset_id}_downscaled_lowres"] = scale_lores
+                # prepare the transformation to the lowres image for the shapes
+                scale_lowres = Scale([tissue_lowres_scalef, tissue_lowres_scalef], axes=("x", "y"))
+                shapes_transformations[f"{dataset_id}_downscaled_lowres"] = scale_lowres
 
     # validate the spot_diameter_fullres value
     if len(spot_diameter_fullres_list) > 0:
@@ -375,7 +402,7 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
         new_table = TableModel.parse(new_table, region=REGION, region_key=REGION_KEY, instance_key=INSTANCE_KEY)
     else:
         new_table = adata.copy()
-        # workaround for https://github.com/scverse/spatialdata/issues/306, not anymore needed as soona ss the
+        # workaround for https://github.com/scverse/spatialdata/issues/306, not anymore needed as soon as the
         # multi_table branch is merged
         new_table.obs[REGION_KEY] = "dummy"
         new_table.obs[REGION_KEY] = new_table.obs[REGION_KEY].astype("category")
