@@ -124,7 +124,7 @@ def _barcode_check(barcode_file: Path) -> pd.DataFrame:
     # Pattern 2: match nucleotides string of 8 char. Case insensitive.
     patt_barcode = re.compile(r"^[A|a|T|t|C|c|G|g]{8}$")
     # dict, used to collect data after matching
-    bc_positions: dict[str, dict[str, str]] = {}
+    bc_positions: dict[int, dict[str, str]] = {}
     # line[0]: row index, line[1] row values. line[1][0] : barcode coordinates, line[1][1] : barcode
     for line in df.iterrows():
         if not bool(patt_position.fullmatch(line[1][0])):
