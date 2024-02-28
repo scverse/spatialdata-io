@@ -269,9 +269,9 @@ def dbit(
 
     # add barcode positions to annData.
     # A and B naming follow original publication and protocol
-    adata.obs["array_A"] = [bc_df[bc_df.loc[:,'A']==x[8:16]].index[0] for x in adata.obs_names]
-    adata.obs["array_B"] = [bc_df[bc_df.loc[:,'B']==x[:8]].index[0] for x in adata.obs_names]
-   # sort annData by barcode position. Barcode A first, then Barcode B
+    adata.obs["array_A"] = [bc_df[bc_df.loc[:, "A"] == x[8:16]].index[0] for x in adata.obs_names]
+    adata.obs["array_B"] = [bc_df[bc_df.loc[:, "B"] == x[:8]].index[0] for x in adata.obs_names]
+    # sort annData by barcode position. Barcode A first, then Barcode B
     adata.obs.sort_values(by=["array_A", "array_B"], inplace=True)
 
     # populate annData
