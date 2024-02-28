@@ -20,6 +20,7 @@ This package contains reader functions to load common spatial omics formats into
 -   Curio Seeker
 -   Akoya PhenoCycler (formerly CODEX)
 -   Vizgen MERSCOPE (MERFISH)
+-   DBiT-seq
 
 ## Getting started
 
