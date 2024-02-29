@@ -105,8 +105,11 @@ def _barcode_check(barcode_file: Path) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        A pandas.DataFrame with 2 columns, named 'A' and 'B', with a barcode as row index.
-        Columns 'A' and 'B' contains an int each, that are the spatial coordinate of the barcode.
+        A pandas.DataFrame with 2 columns, named 'A' and 'B', with a number
+        (from 1 to 50, extreme included) as row index.
+        Columns 'A' and 'B' contains a 8 nucleotides barcode.
+        The header of the column and the row index are the spatial coordinate of the barcode.
+        For example, the element of row 1, column 'A' is the barcode with coordinate A1.
         The columns are ordered in ascending order.
     """
     df = pd.read_csv(barcode_file, header=None, sep="\t")
@@ -121,7 +124,7 @@ def _barcode_check(barcode_file: Path) -> pd.DataFrame:
     # Pattern 2: match nucleotides string of 8 char. Case insensitive.
     patt_barcode = re.compile(r"^[A|a|T|t|C|c|G|g]{8}$")
     # dict, used to collect data after matching
-    bc_positions: dict[str, dict[str, str]] = {}
+    bc_positions: dict[int, dict[str, str]] = {}
     # line[0]: row index, line[1] row values. line[1][0] : barcode coordinates, line[1][1] : barcode
     for line in df.iterrows():
         if not bool(patt_position.fullmatch(line[1][0])):
@@ -134,11 +137,12 @@ def _barcode_check(barcode_file: Path) -> pd.DataFrame:
             )
         barcode = line[1][1]
         letter = line[1][0][0]
+        num = int(line[1][0][1:])
         try:
-            bc_positions[barcode][letter] = line[1][0][1:]
+            bc_positions[num][letter] = barcode
         except KeyError:
-            bc_positions[barcode] = {}
-            bc_positions[barcode][letter] = line[1][0][1:]
+            bc_positions[num] = {}
+            bc_positions[num][letter] = barcode
     # return pandas.DataFrame, in (pseudo)long form
     return pd.DataFrame(bc_positions).transpose()
 
@@ -265,8 +269,8 @@ def dbit(
 
     # add barcode positions to annData.
     # A and B naming follow original publication and protocol
-    adata.obs["array_A"] = [int(bc_df.loc[x[8:16], "A"]) for x in adata.obs_names]
-    adata.obs["array_B"] = [int(bc_df.loc[x[:8], "B"]) for x in adata.obs_names]
+    adata.obs["array_A"] = [bc_df[bc_df.loc[:, "A"] == x[8:16]].index[0] for x in adata.obs_names]
+    adata.obs["array_B"] = [bc_df[bc_df.loc[:, "B"] == x[:8]].index[0] for x in adata.obs_names]
     # sort annData by barcode position. Barcode A first, then Barcode B
     adata.obs.sort_values(by=["array_A", "array_B"], inplace=True)
 
