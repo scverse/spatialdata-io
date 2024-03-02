@@ -183,9 +183,9 @@ def mcmicro(
             set_transformation(data, transformation=transformations, set_all=True)
             labels[f"core_{McmicroKeys.IMAGES_DIR_TMA}_{mask_stem}"] = data
 
-    table = _get_table(path, markers, tma)
+    tables_dict = _get_tables(path, markers, tma)
 
-    return SpatialData(images=images, labels=labels, table=table)
+    return SpatialData(images=images, labels=labels, tables=tables_dict)
 
 
 def _load_params(path: Path) -> Any:
@@ -195,35 +195,39 @@ def _load_params(path: Path) -> Any:
     return params
 
 
-def _get_table(
+def _get_tables(
     path: Path,
     marker_df: pd.DataFrame,
     tma: bool,
-) -> AnnData:
+) -> dict[str, AnnData]:
     var = marker_df.marker_name.tolist()
     coords = [McmicroKeys.COORDS_X.value, McmicroKeys.COORDS_Y.value]
 
     table_paths = list((path / McmicroKeys.QUANTIFICATION_DIR).glob("*.csv"))
     regions = []
     adatas = None
+    tables_dict = {}
     for table_path in table_paths:
         if not tma:
-            assert len(table_paths) == 1
+            table_name = table_path.stem
             adata, region = _create_anndata(csv_path=table_path, markers=marker_df, var=var, coords=coords, tma=tma)
-
-            return TableModel.parse(
+            table = TableModel.parse(
                 adata, region=region, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value
             )
+            tables_dict[table_name] = table
         else:
             adata, region = _create_anndata(csv_path=table_path, markers=marker_df, var=var, coords=coords, tma=tma)
             regions.append(region)
-
+            # TODO: check validity of output
             if not adatas:
                 adatas = adata
             else:
                 adatas = ad.concat([adatas, adata], index_unique=None)
+            table = TableModel.parse(adatas, region=regions, region_key="region",
+                                     instance_key=McmicroKeys.INSTANCE_KEY.value)
+            tables_dict['segmentation_table'] = table
 
-    return TableModel.parse(adatas, region=regions, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value)
+    return tables_dict
 
 
 def _create_anndata(
