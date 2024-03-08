@@ -20,6 +20,7 @@ This package contains reader functions to load common spatial omics formats into
 -   Curio Seeker
 -   Akoya PhenoCycler (formerly CODEX)
 -   Vizgen MERSCOPE (MERFISH)
+-   DBiT-seq
 
 ## Getting started
 
@@ -50,6 +51,15 @@ pip install git+https://github.com/scverse/spatialdata-io.git@main
 
 For questions and help requests, you can reach out in the [scverse discourse][scverse-discourse].
 If you found a bug, please use the [issue tracker][issue-tracker].
+
+## Readers from third-party libraries
+
+Technologies that can be read into `SpatialData` objects using third-party libraries:
+
+-   METASPACE (MALDI, ...): [metaspace-converter](https://github.com/metaspace2020/metaspace-converter)
+-   PhenoCycler: [SOPA](https://github.com/gustaveroussy/sopa)
+-   MACSima: [SOPA](https://github.com/gustaveroussy/sopa)
+-   Hyperion (Imaging Mass Cytometry): [SOPA](https://github.com/gustaveroussy/sopa)
 
 ## Citation
 
