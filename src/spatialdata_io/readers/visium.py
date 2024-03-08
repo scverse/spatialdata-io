@@ -212,7 +212,26 @@ def visium(
                 from PIL import Image as ImagePIL
 
                 ImagePIL.MAX_IMAGE_PIXELS = imread_kwargs.pop("MAX_IMAGE_PIXELS")
-            full_image = imread(fullres_image_file, **imread_kwargs).squeeze().transpose(2, 0, 1)
+            # Depending on the versions of the pipeline, the axes of the image file from the tiff data is ordered in
+            # different ways; here let's implement a simple check on the shape to determine the axes ordering.
+            # Note that a more robust check could be implemented; this could be the work of a future PR. Unfortunately,
+            # the tif data does not (or does not always) have OME metadata, so even such more general parser could lead
+            # to edge cases that could be addressed by a more interoperable file format.
+            im = imread(fullres_image_file, **imread_kwargs).squeeze()
+            if len(im.shape) not in [3, 4]:
+                raise ValueError(f"Image shape {im.shape} is not supported.")
+            if len(im.shape) == 4:
+                if im.shape[0] == 1:
+                    im = im.squeeze(0)
+                else:
+                    raise ValueError(f"Image shape {im.shape} is not supported.")
+            if im.shape[0] in [3, 4]:
+                full_image = im
+            elif im.shape[2] in [3, 4]:
+                full_image = im.transpose(2, 0, 1)
+            else:
+                raise ValueError(f"Image shape {im.shape} is not supported.")
+
             full_image = DataArray(full_image, dims=("c", "y", "x"))
             images[dataset_id + "_full_image"] = Image2DModel.parse(
                 full_image,
