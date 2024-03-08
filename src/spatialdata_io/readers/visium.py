@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from dask_image.imread import imread
+from imageio import imread as imread2
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
@@ -212,12 +213,16 @@ def visium(
                 from PIL import Image as ImagePIL
 
                 ImagePIL.MAX_IMAGE_PIXELS = imread_kwargs.pop("MAX_IMAGE_PIXELS")
+            if fullres_image_file.suffix != ".btf":
+                im = imread(fullres_image_file, **imread_kwargs)
+            else:
+                # dask_image doesn't recognize .btf automatically
+                im = imread2(fullres_image_file, **imread_kwargs)
             # Depending on the versions of the pipeline, the axes of the image file from the tiff data is ordered in
             # different ways; here let's implement a simple check on the shape to determine the axes ordering.
             # Note that a more robust check could be implemented; this could be the work of a future PR. Unfortunately,
             # the tif data does not (or does not always) have OME metadata, so even such more general parser could lead
             # to edge cases that could be addressed by a more interoperable file format.
-            im = imread(fullres_image_file, **imread_kwargs).squeeze()
             if len(im.shape) not in [3, 4]:
                 raise ValueError(f"Image shape {im.shape} is not supported.")
             if len(im.shape) == 4:
@@ -225,9 +230,9 @@ def visium(
                     im = im.squeeze(0)
                 else:
                     raise ValueError(f"Image shape {im.shape} is not supported.")
-            if im.shape[0] in [3, 4]:
+            if im.shape[0] in [2, 3, 4]:
                 full_image = im
-            elif im.shape[2] in [3, 4]:
+            elif im.shape[2] in [2, 3, 4]:
                 full_image = im.transpose(2, 0, 1)
             else:
                 raise ValueError(f"Image shape {im.shape} is not supported.")
