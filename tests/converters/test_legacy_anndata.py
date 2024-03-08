@@ -5,9 +5,9 @@ from anndata import AnnData
 from anndata.tests.helpers import assert_equal
 from spatialdata import SpatialData
 from spatialdata._core.query.relational_query import _get_unique_label_values_as_index
-from spatialdata._utils import _assert_spatialdata_objects_seem_identical
 from spatialdata.datasets import blobs
 from spatialdata.models import TableModel
+from spatialdata.testing import assert_spatial_data_objects_are_identical
 from spatialdata.transformations import get_transformation, set_transformation
 
 from spatialdata_io import from_legacy_anndata, to_legacy_anndata
@@ -60,7 +60,7 @@ def idempotency_check_from_anndata(adata0: SpatialData, include_images: bool) ->
     adata1 = to_legacy_anndata(sdata0, include_images=include_images)
     sdata1 = from_legacy_anndata(adata1)
     sdata1 = _adjust_table_for_idempotency_check(sdata1, include_images=include_images)
-    _assert_spatialdata_objects_seem_identical(sdata0, sdata1)
+    assert_spatial_data_objects_are_identical(sdata0, sdata1)
 
 
 @pytest.mark.parametrize("name", ["blobs_labels", "blobs_circles", "blobs_polygons", "blobs_multipolygons"])
