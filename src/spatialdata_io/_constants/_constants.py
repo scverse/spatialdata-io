@@ -110,7 +110,8 @@ class VisiumKeys(ModeEnum):
     """Keys for *10X Genomics Visium* formatted dataset."""
 
     # files and directories
-    COUNTS_FILE = "filtered_feature_bc_matrix.h5"
+    FILTERED_COUNTS_FILE = "filtered_feature_bc_matrix.h5"
+    RAW_COUNTS_FILE = "raw_feature_bc_matrix.h5"
 
     # images
     IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"

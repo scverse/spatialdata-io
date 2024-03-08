@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning][].
 -   (Xenium) support for post-xenium aligned images (IF, HE)
 -   (Xenium) reader for the selection coordinates file from the Xenium Explorer
 -   DBiT-seq reader
+-   (Visium) support for raw reads (capture locations not under tissue)
 
 ### Fixed
 

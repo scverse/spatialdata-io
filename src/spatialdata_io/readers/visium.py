@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -28,11 +28,11 @@ __all__ = ["visium"]
 @inject_docs(vx=VisiumKeys)
 def visium(
     path: str | Path,
-    dataset_id: Optional[str] = None,
-    counts_file: str = VisiumKeys.COUNTS_FILE,
-    fullres_image_file: Optional[str | Path] = None,
-    tissue_positions_file: Optional[str | Path] = None,
-    scalefactors_file: Optional[str | Path] = None,
+    dataset_id: str | None = None,
+    counts_file: str = VisiumKeys.FILTERED_COUNTS_FILE,
+    fullres_image_file: str | Path | None = None,
+    tissue_positions_file: str | Path | None = None,
+    scalefactors_file: str | Path | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
@@ -42,7 +42,7 @@ def visium(
 
     This function reads the following files:
 
-        - ``(<dataset_id>_)`{vx.COUNTS_FILE!r}```: Counts and metadata file.
+        - ``(<dataset_id>_)`{vx.FILTERED_COUNTS_FILE!r}```: Counts and metadata file.
         - ``{vx.IMAGE_HIRES_FILE!r}``: High resolution image.
         - ``{vx.IMAGE_LOWRES_FILE!r}``: Low resolution image.
         - ``{vx.SCALEFACTORS_FILE!r}``: Scalefactors file.
@@ -60,9 +60,12 @@ def visium(
         Path to the directory containing the data.
     dataset_id
         Dataset identifier to name the constructed `SpatialData` elements. The reader will try to infer it from the
-        ``{vx.COUNTS_FILE!r}`` file name. If the file name does not contain the dataset id, it will try to infer it from the metadata, it needs to be provided.
+        counts_file filen name (which defaults to ``{vx.FILTERED_COUNTS_FILE!r}``) file name. If the file name does not
+        contain the dataset id, it needs to be provided.
     counts_file
-        Name of the counts file. Use only if counts is not in `h5` format.
+        Name of the counts file, defaults to ``{vx.FILTERED_COUNTS_FILE!r}``; a common alternative is
+        ``{vx.RAW_COUNTS_FILE!r}``. Also, use when the file names are not following the standard SpaceRanger
+        conventions.
     fullres_image_file
         Path to the full-resolution image.
     tissue_positions_file
@@ -81,29 +84,31 @@ def visium(
     path = Path(path)
     imread_kwargs = dict(imread_kwargs)
     image_models_kwargs = dict(image_models_kwargs)
+
     # try to infer library_id from the counts file
     library_id = None
     try:
-        patt = re.compile(f".*{VisiumKeys.COUNTS_FILE}")
+        patt = re.compile(f".*{counts_file}")
         first_file = [i for i in os.listdir(path) if patt.match(i)][0]
 
-        if f"_{VisiumKeys.COUNTS_FILE}" in first_file:
-            library_id = first_file.replace(f"_{VisiumKeys.COUNTS_FILE}", "")
-            counts_file = f"{library_id}_{VisiumKeys.COUNTS_FILE}"
-        elif VisiumKeys.COUNTS_FILE == first_file:
+        if f"_{counts_file}" in first_file:
+            library_id = first_file.replace(f"_{counts_file}", "")
+            counts_file = f"{library_id}_{counts_file}"
+        elif counts_file == first_file:
             library_id = None
-            counts_file = VisiumKeys.COUNTS_FILE
+            counts_file = counts_file
         else:
             raise ValueError(
-                f"Cannot determine the library_id. Expecting a file with format (<library_id>_){VisiumKeys.COUNTS_FILE}"
-                f". If the files have been renamed you may need to specify their file names (not their paths), with "
-                f"some of the following arguments: `counts_file`, `fullres_image_file`, `tissue_positions_file`, "
-                f"`scalefactors_file` arguments."
+                f"Cannot determine the library_id. Expecting a file with format (<library_id>_)"
+                f"{counts_file}. If the files have been renamed you may need to specify their file "
+                f"names (not their paths), with some of the following arguments: `counts_file`, `fullres_image_file`, "
+                f"`tissue_positions_file`, `scalefactors_file` arguments."
             )
     except IndexError as e:
         if counts_file is None:
             logger.error(
-                f"{e}. \nError is due to the fact that the library id could not be found, if the counts file is `.mtx` (or else), Please provide a `counts_file`.",
+                f"{e}. \nError is due to the fact that the library id could not be found, if the counts file is `.mtx` "
+                f"(or else), Please provide a `counts_file`.",
             )
             raise e
     assert counts_file is not None
@@ -122,11 +127,11 @@ def visium(
         dataset_id = library_id
     assert dataset_id is not None
 
-    # Yhe second element of the returned tuple is the full library as contained in the metadata of
-    # VisiumKeys.COUNTS_FILE. For instance for the spatialdata-sandbox/visium dataset it is:
+    # The second element of the returned tuple is the full library as contained in the metadata of
+    # VisiumKeys.FILTERED_COUNTS_FILE. For instance for the spatialdata-sandbox/visium dataset it is:
     #     spaceranger100_count_30458_ST8059048_mm10-3_0_0_premrna
-    # We discard this value and use the one inferred from the filename of VisiumKeys.COUNTS_FILE, or the one provided by
-    # the user in dataset_id
+    # We discard this value and use the one inferred from the filename of VisiumKeys.FILTERED_COUNTS_FILE, or the one
+    # provided by the user in dataset_id
     adata, _ = _read_counts(path, counts_file=counts_file, library_id=library_id, **kwargs)
 
     if (path / "spatial" / VisiumKeys.SPOTS_FILE_1).exists() or (
