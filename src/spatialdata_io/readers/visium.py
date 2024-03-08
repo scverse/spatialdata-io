@@ -30,7 +30,6 @@ def visium(
     path: str | Path,
     dataset_id: str | None = None,
     counts_file: str = VisiumKeys.FILTERED_COUNTS_FILE,
-    filtered_counts_file: bool | None = None,
     fullres_image_file: str | Path | None = None,
     tissue_positions_file: str | Path | None = None,
     scalefactors_file: str | Path | None = None,
@@ -64,11 +63,9 @@ def visium(
         counts_file filen name (which defaults to ``{vx.FILTERED_COUNTS_FILE!r}``) file name. If the file name does not
         contain the dataset id, it needs to be provided.
     counts_file
-        Name of the counts file, defaults to ``{vx.FILTERED_COUNTS_FILE!r}``. Use when the file names are not following
-        the standard SpaceRanger conventions. The `filtered_counts_file` argument has precendence over this argument.
-    filtered_counts_file
-        When this argument is not `None`, it sets the value of `counts_file` to `{vx.FILTERED_COUNTS_FILE!r}` (when
-        `True`) or to `{vx.RAW_COUNTS_FILE!r}` (when `False`).
+        Name of the counts file, defaults to ``{vx.FILTERED_COUNTS_FILE!r}``; a common alternative is
+        ``{vx.RAW_COUNTS_FILE!r}``. Also, use when the file names are not following the standard SpaceRanger
+        conventions.
     fullres_image_file
         Path to the full-resolution image.
     tissue_positions_file
@@ -87,9 +84,6 @@ def visium(
     path = Path(path)
     imread_kwargs = dict(imread_kwargs)
     image_models_kwargs = dict(image_models_kwargs)
-
-    if filtered_counts_file is not None:
-        counts_file = VisiumKeys.FILTERED_COUNTS_FILE if filtered_counts_file else VisiumKeys.RAW_COUNTS_FILE
 
     # try to infer library_id from the counts file
     library_id = None
