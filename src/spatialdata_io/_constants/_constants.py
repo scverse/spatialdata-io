@@ -125,8 +125,8 @@ class VisiumKeys(ModeEnum):
     # spots
     SPOTS_FILE_1 = "tissue_positions_list.csv"
     SPOTS_FILE_2 = "tissue_positions.csv"
-    SPOTS_X = "pxl_row_in_fullres"
-    SPOTS_Y = "pxl_col_in_fullres"
+    SPOTS_X = "pxl_col_in_fullres"
+    SPOTS_Y = "pxl_row_in_fullres"
 
 
 @unique

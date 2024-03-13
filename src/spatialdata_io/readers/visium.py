@@ -158,10 +158,21 @@ def visium(
     coords = read_coords(tissue_positions_file)
 
     # to handle spaceranger_version < 2.0.0, where no column names are provided
-    # in fact, from spaceranger 2.0.0, the column names are provided in the file, and
-    # are "pxl_col_in_fullres", "pxl_row_in_fullres" are inverted.
+
+    # print(coords.columns)
+    # ##
+    # import matplotlib.pyplot as plt
+    #
+    # c = coords[coords[1] == True]
+    # plt.scatter(c[3].values, c[2].values)
+    # # plt.scatter(c['array_col'].values, c['array_row'].values)
+    # plt.show()
+    # plt.scatter(c[5].values, c[4].values)
+    # # plt.scatter(c['pxl_col_in_fullres'].values, c['pxl_row_in_fullres'].values)
+    # plt.show()
+    ##
     if "in_tissue" not in coords.columns:
-        coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
+        coords.columns = ["in_tissue", "array_row", "array_col", "pxl_row_in_fullres", "pxl_col_in_fullres"]
 
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
@@ -213,11 +224,11 @@ def visium(
                 ImagePIL.MAX_IMAGE_PIXELS = imread_kwargs.pop("MAX_IMAGE_PIXELS")
             if fullres_image_file.suffix != ".btf":
                 im = imread(fullres_image_file, **imread_kwargs)
-                # print(_read_tiff_axes_metadata(fullres_image_file))
+                print(_read_tiff_axes_metadata(fullres_image_file))
             else:
                 # dask_image doesn't recognize .btf automatically
                 im = imread2(fullres_image_file, **imread_kwargs)
-                # print(_read_tiff_axes_metadata(fullres_image_file))
+                print(_read_tiff_axes_metadata(fullres_image_file))
             # Depending on the versions of the pipeline, the axes of the image file from the tiff data is ordered in
             # different ways; here let's implement a simple check on the shape to determine the axes ordering.
             # Note that a more robust check could be implemented; this could be the work of a future PR. Unfortunately,
