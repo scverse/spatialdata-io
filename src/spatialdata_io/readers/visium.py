@@ -32,7 +32,6 @@ def visium(
     dataset_id: str | None = None,
     counts_file: str = VisiumKeys.FILTERED_COUNTS_FILE,
     fullres_image_file: str | Path | None = None,
-    cytassist_image_file: str | Path | None = None,
     tissue_positions_file: str | Path | None = None,
     scalefactors_file: str | Path | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -70,9 +69,6 @@ def visium(
         conventions.
     fullres_image_file
         Path to the full-resolution image.
-    cytassist_image_file
-        Path to the cytassist image file, defaults to `None`. When available, this file is usually stored in
-        ``{vx.CYTASSIST_IMAGE_FILE!r}``.
     tissue_positions_file
         Path to the tissue positions file.
     scalefactors_file
@@ -222,7 +218,7 @@ def visium(
     if fullres_image_file is not None:
         fullres_image_file = path / Path(fullres_image_file)
         if fullres_image_file.exists():
-            image = read_image(fullres_image_file, imread_kwargs)
+            image = _read_image(fullres_image_file, imread_kwargs)
             full_image = DataArray(image, dims=("c", "y", "x"))
             images[dataset_id + "_full_image"] = Image2DModel.parse(
                 full_image,
@@ -232,34 +228,6 @@ def visium(
             )
         else:
             logger.warning(f"File {fullres_image_file} does not exist, skipping...")
-    if cytassist_image_file is not None:
-        cytassist_image_file = path / Path(cytassist_image_file)
-        if cytassist_image_file.exists():
-            image = read_image(cytassist_image_file, imread_kwargs)
-            cytassist_image = DataArray(image, dims=("c", "y", "x"))
-            ##
-            transform_cytassist = Scale(
-                np.array(
-                    [
-                        1
-                        / scalefactors[VisiumKeys.SCALEFACTORS_REGIST_TARGET_IMG]
-                        / scalefactors[VisiumKeys.SCALEFACTORS_HIRES],
-                        1
-                        / scalefactors[VisiumKeys.SCALEFACTORS_REGIST_TARGET_IMG]
-                        / scalefactors[VisiumKeys.SCALEFACTORS_LOWRES],
-                    ]
-                ),
-                axes=("y", "x"),
-            )
-            ##
-            images[dataset_id + "_cytassist_image"] = Image2DModel.parse(
-                cytassist_image,
-                scale_factors=[2, 2, 2, 2],
-                transformations={"global": transform_cytassist},
-                **image_models_kwargs,
-            )
-        else:
-            logger.warning(f"File {cytassist_image_file} does not exist, skipping...")
 
     if (path / VisiumKeys.IMAGE_HIRES_FILE).exists():
         image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
@@ -284,7 +252,7 @@ def _read_tiff_axes_metadata(tiff_file: Path) -> Any:
         return tif.pages[0].axes
 
 
-def read_image(image_file: Path, imread_kwargs) -> Any:
+def _read_image(image_file: Path, imread_kwargs: dict[str, Any]) -> Any:
     if "MAX_IMAGE_PIXELS" in imread_kwargs:
         from PIL import Image as ImagePIL
 
