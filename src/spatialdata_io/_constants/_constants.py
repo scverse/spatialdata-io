@@ -116,11 +116,13 @@ class VisiumKeys(ModeEnum):
     # images
     IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
     IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
+    CYTASSIST_IMAGE_FILE = "spatial/cytassist_image.tiff"
 
     # scalefactors
     SCALEFACTORS_FILE = "scalefactors_json.json"
     SCALEFACTORS_HIRES = "tissue_hires_scalef"
     SCALEFACTORS_LOWRES = "tissue_lowres_scalef"
+    SCALEFACTORS_REGIST_TARGET_IMG = "regist_target_img_scalef"
 
     # spots
     SPOTS_FILE_1 = "tissue_positions_list.csv"
