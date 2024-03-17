@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from dask_image.imread import imread
+from imageio import imread as imread2
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
@@ -128,7 +129,7 @@ def visium(
     assert dataset_id is not None
 
     # The second element of the returned tuple is the full library as contained in the metadata of
-    # VisiumKeys.FILTERED_COUNTS_FILE. For instance for the spatialdata-sandbox/visium dataset it is:
+    # VisiumKeys.FILTERED_COUNTS_FILE. For instance, for the spatialdata-sandbox/visium dataset it is:
     #     spaceranger100_count_30458_ST8059048_mm10-3_0_0_premrna
     # We discard this value and use the one inferred from the filename of VisiumKeys.FILTERED_COUNTS_FILE, or the one
     # provided by the user in dataset_id
@@ -157,12 +158,8 @@ def visium(
     coords = read_coords(tissue_positions_file)
 
     # to handle spaceranger_version < 2.0.0, where no column names are provided
-    # in fact, from spaceranger 2.0.0, the column names are provided in the file, and
-    # are "pxl_col_in_fullres", "pxl_row_in_fullres" are inverted.
-    # But, in the case of CytAssist, the column names provided but the image is flipped
-    # so we need to invert the columns.
-    if "in_tissue" not in coords.columns or "CytAssist" in str(fullres_image_file):
-        coords.columns = ["in_tissue", "array_row", "array_col", "pxl_col_in_fullres", "pxl_row_in_fullres"]
+    if "in_tissue" not in coords.columns:
+        coords.columns = ["in_tissue", "array_row", "array_col", "pxl_row_in_fullres", "pxl_col_in_fullres"]
 
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
     coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
@@ -208,12 +205,8 @@ def visium(
     if fullres_image_file is not None:
         fullres_image_file = path / Path(fullres_image_file)
         if fullres_image_file.exists():
-            if "MAX_IMAGE_PIXELS" in imread_kwargs:
-                from PIL import Image as ImagePIL
-
-                ImagePIL.MAX_IMAGE_PIXELS = imread_kwargs.pop("MAX_IMAGE_PIXELS")
-            full_image = imread(fullres_image_file, **imread_kwargs).squeeze().transpose(2, 0, 1)
-            full_image = DataArray(full_image, dims=("c", "y", "x"))
+            image = _read_image(fullres_image_file, imread_kwargs)
+            full_image = DataArray(image, dims=("c", "y", "x"))
             images[dataset_id + "_full_image"] = Image2DModel.parse(
                 full_image,
                 scale_factors=[2, 2, 2, 2],
@@ -237,3 +230,37 @@ def visium(
         )
 
     return SpatialData(images=images, shapes=shapes, table=table)
+
+
+def _read_image(image_file: Path, imread_kwargs: dict[str, Any]) -> Any:
+    if "MAX_IMAGE_PIXELS" in imread_kwargs:
+        from PIL import Image as ImagePIL
+
+        ImagePIL.MAX_IMAGE_PIXELS = imread_kwargs.pop("MAX_IMAGE_PIXELS")
+    if image_file.suffix != ".btf":
+        im = imread(image_file, **imread_kwargs)
+    else:
+        # dask_image doesn't recognize .btf automatically
+        im = imread2(image_file, **imread_kwargs)
+        # Depending on the versions of the pipeline, the axes of the image file from the tiff data is ordered in
+        # different ways; here let's implement a simple check on the shape to determine the axes ordering.
+        # Note that a more robust check could be implemented; this could be the work of a future PR. Unfortunately,
+        # the tif data does not (or does not always) have OME metadata, so even such more general parser could lead
+        # to edge cases that could be addressed by a more interoperable file format.
+    if len(im.shape) not in [3, 4]:
+        raise ValueError(f"Image shape {im.shape} is not supported.")
+    if len(im.shape) == 4:
+        if im.shape[0] == 1:
+            im = im.squeeze(0)
+        else:
+            raise ValueError(f"Image shape {im.shape} is not supported.")
+    # for immunofluerence images there could be an arbitrary number of channels (usually, 2, 3 or 4); we can detect this
+    # as the dimension which has the minimum size
+    min_size = np.argmin(im.shape)
+    if min_size == 0:
+        image = im
+    elif min_size == 2:
+        image = im.transpose(2, 0, 1)
+    else:
+        raise ValueError(f"Image shape {im.shape} is not supported.")
+    return image
