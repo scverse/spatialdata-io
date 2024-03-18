@@ -10,7 +10,7 @@ from spatialdata.models import TableModel
 from spatialdata.testing import assert_spatial_data_objects_are_identical
 from spatialdata.transformations import get_transformation, set_transformation
 
-from spatialdata_io import from_legacy_anndata, to_legacy_anndata
+from spatialdata_io.experimental import from_legacy_anndata, to_legacy_anndata
 
 BlobsTypes = Literal["blobs_labels", "blobs_circles", "blobs_polygons", "blobs_multipolygons"]
 
