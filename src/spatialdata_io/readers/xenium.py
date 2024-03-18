@@ -88,7 +88,10 @@ def xenium(
     n_jobs
         Number of jobs to use for parallel processing.
     cells_as_circles
-        Whether to read cells also as circles. Useful for performant visualization.
+        Whether to read cells also as circles. Useful for performant visualization. The radii of the nuclei,
+        not the ones of cells, will be used; using the radii of cells would make the visualization too cluttered
+        as the cell boundaries are computed as a maximum expansion of the nuclei location and therefore the 
+        corresponding circles would present considerable overlap.
     cell_boundaries
         Whether to read cell boundaries (polygons).
     nucleus_boundaries
