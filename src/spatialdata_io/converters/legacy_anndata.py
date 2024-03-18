@@ -347,11 +347,4 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
         new_table = TableModel.parse(new_table, region=REGION, region_key=REGION_KEY, instance_key=INSTANCE_KEY)
     else:
         new_table = adata.copy()
-        # workaround for https://github.com/scverse/spatialdata/issues/306, not anymore needed as soon as the
-        # multi_table branch is merged
-        new_table.obs[REGION_KEY] = "dummy"
-        new_table.obs[REGION_KEY] = new_table.obs[REGION_KEY].astype("category")
-        new_table.obs[INSTANCE_KEY] = np.arange(len(new_table))
-
-        new_table = TableModel.parse(new_table, region="dummy", region_key=REGION_KEY, instance_key=INSTANCE_KEY)
     return SpatialData(table=new_table, images=images, shapes=shapes)
