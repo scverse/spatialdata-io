@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning][].
 -   (Xenium) support for post-xenium aligned images (IF, HE)
 -   (Xenium) reader for the selection coordinates file from the Xenium Explorer
 -   (DBiT-seq) reader
--   converter functions `to_legacy_anndata()` and `from_legacy_anndata()`
+-   converter functions `experimental.to_legacy_anndata()` and `experimental.from_legacy_anndata()`
+-   (Visium) support for raw reads (capture locations not under tissue)
 
 ### Fixed
 
