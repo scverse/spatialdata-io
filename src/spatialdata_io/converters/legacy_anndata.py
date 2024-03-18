@@ -3,27 +3,16 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-import pandas as pd
 from anndata import AnnData
-from multiscale_spatial_image import MultiscaleSpatialImage
-from shapely import MultiPolygon, Polygon
-from spatial_image import SpatialImage
 from spatialdata import (
     SpatialData,
-    aggregate,
     get_centroids,
     get_extent,
     join_sdata_spatialelement_table,
+    to_circles,
 )
 from spatialdata._core.operations._utils import transform_to_data_extent
-from spatialdata.models import (
-    Image2DModel,
-    Image3DModel,
-    ShapesModel,
-    TableModel,
-    get_axes_names,
-    get_table_keys,
-)
+from spatialdata.models import Image2DModel, ShapesModel, TableModel, get_table_keys
 from spatialdata.transformations import Identity, Scale
 
 
@@ -130,9 +119,11 @@ def to_legacy_anndata(
     sdata = sdata.filter_by_coordinate_system(coordinate_system)
 
     if table_name is None:
-        assert (
-            len(sdata.tables) == 1
-        ), "When the table_name is not specified, the SpatialData object must have exactly one table."
+        assert len(sdata.tables) == 1, (
+            "When the table_name is not specified, the SpatialData object must have exactly one table. The specified "
+            f"sdata object, after being filtered for the coordinate system {coordinate_system}, has "
+            f"{len(sdata.tables)} tables."
+        )
         table_name = next(iter(sdata.tables))
     else:
         assert table_name in sdata.tables, f"The table {table_name} is not present in the SpatialData object."
@@ -154,54 +145,55 @@ def to_legacy_anndata(
     element = sdata[region[0]]
     region_name = region[0]
 
-    # convert polygons, multipolygons and labels to circles
-    obs = None
-    if isinstance(element, (SpatialImage, MultiscaleSpatialImage)):
-        # find the area of labels, estimate the radius from it; find the centroids
-        if isinstance(element, MultiscaleSpatialImage):
-            shape = element["scale0"].values().__iter__().__next__().shape
-        else:
-            shape = element.shape
-
-        axes = get_axes_names(element)
-        if "z" in axes:
-            model = Image3DModel
-        else:
-            model = Image2DModel
-        ones = model.parse(np.ones((1,) + shape), dims=("c",) + axes)
-        aggregated = aggregate(values=ones, by=element, agg_func="sum").table
-        areas = aggregated.X.todense().A1.reshape(-1)
-        aobs = aggregated.obs
-        aobs["areas"] = areas
-        aobs["radius"] = np.sqrt(areas / np.pi)
-
-        # get the centroids; remove the background if present (the background is not considered during aggregation)
-        centroids = get_centroids(element, coordinate_system=coordinate_system).compute()
-        if 0 in centroids.index:
-            centroids = centroids.drop(index=0)
-        centroids.index = centroids.index
-        aobs.index = aobs[instance_key]
-        aobs.index.name = None
-        assert len(aobs) == len(centroids)
-        obs = pd.merge(aobs, centroids, left_index=True, right_index=True, how="inner")
-        assert len(obs) == len(centroids)
-    elif isinstance(element.geometry.iloc[0], (Polygon, MultiPolygon)):
-        radius = np.sqrt(element.geometry.area / np.pi)
-        centroids = get_centroids(element, coordinate_system=coordinate_system).compute()
-        obs = pd.DataFrame({"radius": radius})
-        obs = pd.merge(obs, centroids, left_index=True, right_index=True, how="inner")
-    if obs is not None:
-        spatial_axes = sorted(get_axes_names(element))
-        centroids = obs[spatial_axes].values
-        shapes = ShapesModel.parse(
-            centroids,
-            geometry=0,
-            index=obs.index,
-            radius=obs["radius"].values,
-            transformations={coordinate_system: Identity()},
-        )
-    else:
-        shapes = sdata[region_name]
+    # # convert polygons, multipolygons and labels to circles
+    shapes = to_circles(element)
+    # obs = None
+    # if isinstance(element, (SpatialImage, MultiscaleSpatialImage)):
+    #     # find the area of labels, estimate the radius from it; find the centroids
+    #     if isinstance(element, MultiscaleSpatialImage):
+    #         shape = element["scale0"].values().__iter__().__next__().shape
+    #     else:
+    #         shape = element.shape
+    #
+    #     axes = get_axes_names(element)
+    #     if "z" in axes:
+    #         model = Image3DModel
+    #     else:
+    #         model = Image2DModel
+    #     ones = model.parse(np.ones((1,) + shape), dims=("c",) + axes)
+    #     aggregated = aggregate(values=ones, by=element, agg_func="sum").table
+    #     areas = aggregated.X.todense().A1.reshape(-1)
+    #     aobs = aggregated.obs
+    #     aobs["areas"] = areas
+    #     aobs["radius"] = np.sqrt(areas / np.pi)
+    #
+    #     # get the centroids; remove the background if present (the background is not considered during aggregation)
+    #     centroids = get_centroids(element, coordinate_system=coordinate_system).compute()
+    #     if 0 in centroids.index:
+    #         centroids = centroids.drop(index=0)
+    #     centroids.index = centroids.index
+    #     aobs.index = aobs[instance_key]
+    #     aobs.index.name = None
+    #     assert len(aobs) == len(centroids)
+    #     obs = pd.merge(aobs, centroids, left_index=True, right_index=True, how="inner")
+    #     assert len(obs) == len(centroids)
+    # elif isinstance(element.geometry.iloc[0], (Polygon, MultiPolygon)):
+    #     radius = np.sqrt(element.geometry.area / np.pi)
+    #     centroids = get_centroids(element, coordinate_system=coordinate_system).compute()
+    #     obs = pd.DataFrame({"radius": radius})
+    #     obs = pd.merge(obs, centroids, left_index=True, right_index=True, how="inner")
+    # if obs is not None:
+    #     spatial_axes = sorted(get_axes_names(element))
+    #     centroids = obs[spatial_axes].values
+    #     shapes = ShapesModel.parse(
+    #         centroids,
+    #         geometry=0,
+    #         index=obs.index,
+    #         radius=obs["radius"].values,
+    #         transformations={coordinate_system: Identity()},
+    #     )
+    # else:
+    #     shapes = sdata[region_name]
     circles_sdata = SpatialData(tables={table_name: table}, shapes={region_name: shapes})
 
     joined_elements, new_table = join_sdata_spatialelement_table(
@@ -269,7 +261,9 @@ def to_legacy_anndata(
             except KeyError:
                 pass
 
-    adata.obsm["spatial"] = get_centroids(sdata_post_rasterize[region_name]).compute().values
+    adata.obsm["spatial"] = (
+        get_centroids(sdata_post_rasterize[region_name], coordinate_system=coordinate_system).compute().values
+    )
     return adata
 
 
