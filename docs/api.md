@@ -25,6 +25,8 @@ I/O for the `spatialdata` project.
     dbit
 ```
 
+### Conversion functions
+
 ### Utility functions
 
 ```{eval-rst}
@@ -35,9 +37,13 @@ I/O for the `spatialdata` project.
     xenium_explorer_selection
 ```
 
-### Conversion functions
+### Experimental readers
+
+### Experimental conversion functions
 
 ```{eval-rst}
+.. currentmodule:: spatialdata_io.experimental
+
 .. autosummary::
     :toctree: generated
 
