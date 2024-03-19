@@ -223,9 +223,10 @@ def _get_tables(
                 adatas = adata
             else:
                 adatas = ad.concat([adatas, adata], index_unique=None)
-            table = TableModel.parse(adatas, region=regions, region_key="region",
-                                     instance_key=McmicroKeys.INSTANCE_KEY.value)
-            tables_dict['segmentation_table'] = table
+            table = TableModel.parse(
+                adatas, region=regions, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value
+            )
+            tables_dict["segmentation_table"] = table
 
     return tables_dict
 
