@@ -9,6 +9,9 @@ import sys
 from datetime import datetime
 from importlib.metadata import metadata
 from pathlib import Path
+import spatialdata_io.experimental
+
+_ = spatialdata_io.experimental
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE / "extensions"))
