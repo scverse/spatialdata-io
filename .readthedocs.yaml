@@ -13,5 +13,4 @@ python:
           path: .
           extra_requirements:
               - doc
-          extra_pip_args:
-              - "--pre"
+              - pre
