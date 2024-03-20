@@ -55,6 +55,10 @@ test = [
     "pytest",
     "pytest-cov",
 ]
+# this will be used by readthedocs and will make pip also look for pre-releases, generally installing the latest available version
+pre = [
+    "spatialdata>=0.1.0-pre0"
+]
 
 [tool.coverage.run]
 source = ["spatialdata_io"]
