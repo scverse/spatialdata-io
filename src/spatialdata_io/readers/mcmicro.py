@@ -222,7 +222,7 @@ def _get_tables(
             if not adatas:
                 adatas = adata
             else:
-                adatas = ad.concat([adatas, adata], index_unique=None)
+                adatas = ad.concat([adatas, adata], index_unique="_")
             table = TableModel.parse(
                 adatas, region=regions, region_key="region", instance_key=McmicroKeys.INSTANCE_KEY.value
             )
