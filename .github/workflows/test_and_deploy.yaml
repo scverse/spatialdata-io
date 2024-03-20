@@ -49,7 +49,7 @@ jobs:
                   pip install pytest-cov
             - name: Install dependencies
               run: |
-                  pip install -e --pre ".[dev,test]"
+                  pip install --pre -e ".[dev,test]"
             - name: Test
               env:
                   MPLBACKEND: agg
