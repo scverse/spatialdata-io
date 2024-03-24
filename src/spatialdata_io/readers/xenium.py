@@ -377,65 +377,51 @@ def _get_labels_and_indices_mapping(
 
             # build the matching table
             version = _parse_version_of_xenium_analyzer(specs)
+            if mask_index == 0:
+                # nuclei currently not supported
+                return labels, None
             if version is not None and version < packaging.version.parse("1.3.0"):
                 # supported in version 1.3.0 and not supported in version 1.0.2; conservatively, let's assume it is not
                 # supported in versions < 1.3.0
-                indices_mapping = None
-            elif mask_index == 0:
-                # nuclei currently not supported
-                indices_mapping = None
+                return labels, None
+
+            cell_id, dataset_suffix = z["cell_id"][...].T
+            cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
+
+            # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
+            # release notes mentioned above)
+            real_label_index = _get_unique_label_values_as_index(labels)
+
+            # background removal
+            if real_label_index[0] == 0:
+                real_label_index = real_label_index[1:]
+
+            if version < packaging.version.parse("2.0.0"):
+                expected_label_index = z["seg_mask_value"][...]
+                real_label_index = _get_unique_label_values_as_index(labels).values
+
+                if not np.array_equal(expected_label_index, real_label_index):
+                    raise ValueError(
+                        "The label indices from the labels differ from the ones from the input data. Please report "
+                        f"this issue. Real label indices: {real_label_index}, expected label indices: "
+                        f"{expected_label_index}."
+                    )
             else:
-                version = _parse_version_of_xenium_analyzer(specs)
-                if version is None or version < packaging.version.parse("2.0.0"):
-                    expected_label_index = z["seg_mask_value"][...]
-                    real_label_index = _get_unique_label_values_as_index(labels).values
-
-                    # background removal
-                    if real_label_index[0] == 0:
-                        real_label_index = real_label_index[1:]
-
-                    if not np.array_equal(expected_label_index, real_label_index):
-                        raise ValueError(
-                            "The label indices from the labels differ from the ones from the input data. Please report "
-                            f"this issue. Real label indices: {real_label_index}, expected label indices: "
-                            f"{expected_label_index}."
-                        )
-                    cell_id, dataset_suffix = z["cell_id"][...].T
-                    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
-
-                    # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
-                    indices_mapping = pd.DataFrame(
-                        {
-                            "region": labels_name,
-                            "cell_id": cell_id_str,
-                            "label_index": real_label_index.astype(np.int64),
-                        }
+                labels_positional_indices = z["polygon_sets"][mask_index]["cell_index"][...]
+                if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
+                    raise ValueError(
+                        "The positional indices of the labels do not match the expected range. Please report this "
+                        "issue."
                     )
-                else:
-                    labels_positional_indices = z["polygon_sets"][mask_index]["cell_index"][...]
-                    if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
-                        raise ValueError(
-                            "The positional indices of the labels do not match the expected range. Please report this "
-                            "issue."
-                        )
-                    # this information will probably be available in the `label_id` column (see public release notes
-                    # mentioned above)
-                    real_label_index = _get_unique_label_values_as_index(labels)
-                    cell_id, dataset_suffix = z["cell_id"][...].T
-                    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
 
-                    # background removal
-                    if real_label_index[0] == 0:
-                        real_label_index = real_label_index[1:]
-
-                    # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
-                    indices_mapping = pd.DataFrame(
-                        {
-                            "region": labels_name,
-                            "cell_id": cell_id_str,
-                            "label_index": real_label_index.astype(np.int64),
-                        }
-                    )
+            # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
+            indices_mapping = pd.DataFrame(
+                {
+                    "region": labels_name,
+                    "cell_id": cell_id_str,
+                    "label_index": real_label_index.astype(np.int64),
+                }
+            )
             return labels, indices_mapping
 
 
