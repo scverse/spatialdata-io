@@ -4,7 +4,9 @@ import json
 import logging
 import os
 import re
+import tempfile
 import warnings
+import zipfile
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -16,6 +18,7 @@ import packaging.version
 import pandas as pd
 import pyarrow.parquet as pq
 import tifffile
+import zarr
 from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
@@ -26,8 +29,15 @@ from pyarrow import Table
 from shapely import Polygon
 from spatial_image import SpatialImage
 from spatialdata import SpatialData
+from spatialdata._core.query.relational_query import _get_unique_label_values_as_index
 from spatialdata._types import ArrayLike
-from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
+from spatialdata.models import (
+    Image2DModel,
+    Labels2DModel,
+    PointsModel,
+    ShapesModel,
+    TableModel,
+)
 from spatialdata.transformations.transformations import Affine, Identity, Scale
 
 from spatialdata_io._constants._constants import XeniumKeys
@@ -46,11 +56,14 @@ def xenium(
     cells_as_circles: bool = True,
     cell_boundaries: bool = True,
     nucleus_boundaries: bool = True,
+    cell_labels: bool = True,
+    nucleus_labels: bool = True,
     transcripts: bool = True,
     morphology_mip: bool = True,
     morphology_focus: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read a *10X Genomics Xenium* dataset into a SpatialData object.
@@ -77,11 +90,20 @@ def xenium(
     n_jobs
         Number of jobs to use for parallel processing.
     cells_as_circles
-        Whether to read cells also as circles. Useful for performant visualization.
+        Whether to read cells also as circles. Useful for performant visualization. The radii of the nuclei,
+        not the ones of cells, will be used; using the radii of cells would make the visualization too cluttered
+        (the cell boundaries are computed as a maximum expansion of the nuclei location and therefore the
+        corresponding circles would show considerable overlap).
     cell_boundaries
         Whether to read cell boundaries (polygons).
     nucleus_boundaries
         Whether to read nucleus boundaries (polygons).
+    cell_labels
+        Whether to read cell labels (raster). The polygonal version of the cell labels are simplified
+        for visualization purposes, and using the raster version is recommended for analysis.
+    nucleus_labels
+        Whether to read nucleus labels (raster). The polygonal version of the nucleus labels are simplified
+        for visualization purposes, and using the raster version is recommended for analysis.
     transcripts
         Whether to read transcripts.
     morphology_mip
@@ -92,21 +114,24 @@ def xenium(
         Keyword arguments to pass to the image reader.
     image_models_kwargs
         Keyword arguments to pass to the image models.
+    labels_models_kwargs
+        Keyword arguments to pass to the labels models.
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
     """
+    image_models_kwargs = dict(image_models_kwargs)
     if "chunks" not in image_models_kwargs:
-        if isinstance(image_models_kwargs, MappingProxyType):
-            image_models_kwargs = {}
-        assert isinstance(image_models_kwargs, dict)
         image_models_kwargs["chunks"] = (1, 4096, 4096)
     if "scale_factors" not in image_models_kwargs:
-        if isinstance(image_models_kwargs, MappingProxyType):
-            image_models_kwargs = {}
-        assert isinstance(image_models_kwargs, dict)
         image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
+
+    labels_models_kwargs = dict(labels_models_kwargs)
+    if "chunks" not in labels_models_kwargs:
+        labels_models_kwargs["chunks"] = (4096, 4096)
+    if "scale_factors" not in labels_models_kwargs:
+        labels_models_kwargs["scale_factors"] = [2, 2, 2, 2]
 
     path = Path(path)
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
@@ -121,7 +146,61 @@ def xenium(
         table, circles = return_values
     else:
         table = return_values
+
+    if version >= packaging.version.parse("2.0.0"):
+        cell_summary_table = _get_cells_metadata_table_from_zarr(path, XeniumKeys.CELLS_ZARR, specs)
+        if not cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID]):
+            warnings.warn(
+                'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
+                " table. This could be due to trying to read a new version that is not supported yet. Please "
+                "report this issue.",
+                UserWarning,
+                stacklevel=2,
+            )
+        table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL]
+        table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT]
+
     polygons = {}
+    labels = {}
+    tables = {}
+    points = {}
+    images = {}
+
+    # From the public release notes here:
+    # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa
+    # we see that for distinguishing between the nuclei of polinucleated cells, the `label_id` column is used.
+    # This column is currently not found in the preview data, while I think it is needed in order to unambiguously match
+    # nuclei to cells. Therefore for the moment we only link the table to the cell labels, and not to the nucleus
+    # labels.
+    if nucleus_labels:
+        labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
+            path,
+            XeniumKeys.CELLS_ZARR,
+            specs,
+            mask_index=0,
+            labels_name="nucleus_labels",
+            labels_models_kwargs=labels_models_kwargs,
+        )
+    if cell_labels:
+        labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
+            path,
+            XeniumKeys.CELLS_ZARR,
+            specs,
+            mask_index=1,
+            labels_name="cell_labels",
+            labels_models_kwargs=labels_models_kwargs,
+        )
+    if cell_labels_indices_mapping is not None:
+        if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
+            warnings.warn(
+                "The cell_id column in the cell_labels_table does not match the cell_id column derived from the cell "
+                "labels data. This could be due to trying to read a new version that is not supported yet. Please "
+                "report this issue.",
+                UserWarning,
+                stacklevel=2,
+            )
+        else:
+            table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
 
     if nucleus_boundaries:
         polygons["nucleus_boundaries"] = _get_polygons(
@@ -141,11 +220,9 @@ def xenium(
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
 
-    points = {}
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
 
-    images = {}
     if version < packaging.version.parse("2.0.0"):
         if morphology_mip:
             images["morphology_mip"] = _get_images(
@@ -217,10 +294,12 @@ def xenium(
             del image_models_kwargs["c_coords"]
             logger.removeFilter(IgnoreSpecificMessage())
 
+    tables["table"] = table
+
+    elements_dict = {"images": images, "labels": labels, "points": points, "tables": tables, "shapes": polygons}
     if cells_as_circles:
-        sdata = SpatialData(images=images, shapes=polygons | {specs["region"]: circles}, points=points, table=table)
-    else:
-        sdata = SpatialData(images=images, shapes=polygons, points=points, table=table)
+        elements_dict["shapes"][specs["region"]] = circles
+    sdata = SpatialData(**elements_dict)
 
     # find and add additional aligned images
     aligned_images = _add_aligned_images(path, imread_kwargs, image_models_kwargs)
@@ -265,11 +344,114 @@ def _get_polygons(
         if not np.unique(geo_df.index).size == len(geo_df):
             warnings.warn(
                 "Found non-unique polygon indices, this will be addressed in a future version of the reader. For the "
-                "time being please consider merging non-unique polygons into single multi-polygons.",
+                "time being please consider merging polygons with non-unique indices into single multi-polygons.",
+                UserWarning,
                 stacklevel=2,
             )
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
+
+
+def _get_labels_and_indices_mapping(
+    path: Path,
+    file: str,
+    specs: dict[str, Any],
+    mask_index: int,
+    labels_name: str,
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+) -> tuple[GeoDataFrame, pd.DataFrame | None]:
+    if mask_index not in [0, 1]:
+        raise ValueError(f"mask_index must be 0 or 1, found {mask_index}.")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_file = path / XeniumKeys.CELLS_ZARR
+        with zipfile.ZipFile(zip_file, "r") as zip_ref:
+            zip_ref.extractall(tmpdir)
+
+        with zarr.open(str(tmpdir), mode="r") as z:
+            # get the labels
+            masks = z["masks"][f"{mask_index}"][...]
+            labels = Labels2DModel.parse(
+                masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs
+            )
+
+            # build the matching table
+            version = _parse_version_of_xenium_analyzer(specs)
+            if mask_index == 0:
+                # nuclei currently not supported
+                return labels, None
+            if version is not None and version < packaging.version.parse("1.3.0"):
+                # supported in version 1.3.0 and not supported in version 1.0.2; conservatively, let's assume it is not
+                # supported in versions < 1.3.0
+                return labels, None
+
+            cell_id, dataset_suffix = z["cell_id"][...].T
+            cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
+
+            # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
+            # release notes mentioned above)
+            real_label_index = _get_unique_label_values_as_index(labels).values
+
+            # background removal
+            if real_label_index[0] == 0:
+                real_label_index = real_label_index[1:]
+
+            if version < packaging.version.parse("2.0.0"):
+                expected_label_index = z["seg_mask_value"][...]
+
+                if not np.array_equal(expected_label_index, real_label_index):
+                    raise ValueError(
+                        "The label indices from the labels differ from the ones from the input data. Please report "
+                        f"this issue. Real label indices: {real_label_index}, expected label indices: "
+                        f"{expected_label_index}."
+                    )
+            else:
+                labels_positional_indices = z["polygon_sets"][mask_index]["cell_index"][...]
+                if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
+                    raise ValueError(
+                        "The positional indices of the labels do not match the expected range. Please report this "
+                        "issue."
+                    )
+
+            # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
+            indices_mapping = pd.DataFrame(
+                {
+                    "region": labels_name,
+                    "cell_id": cell_id_str,
+                    "label_index": real_label_index.astype(np.int64),
+                }
+            )
+            return labels, indices_mapping
+
+
+@inject_docs(xx=XeniumKeys)
+def _get_cells_metadata_table_from_zarr(
+    path: Path,
+    file: str,
+    specs: dict[str, Any],
+) -> AnnData:
+    """
+    Read cells metadata from ``{xx.CELLS_ZARR}``.
+
+    Read the cells summary table, which contains the z_level information for versions < 2.0.0, and also the
+    nucleus_count for versions >= 2.0.0.
+    """
+    # for version >= 2.0.0, in this function we could also parse the segmentation method used to obtain the masks
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_file = path / XeniumKeys.CELLS_ZARR
+        with zipfile.ZipFile(zip_file, "r") as zip_ref:
+            zip_ref.extractall(tmpdir)
+
+        with zarr.open(str(tmpdir), mode="r") as z:
+            x = z["cell_summary"][...]
+            column_names = z["cell_summary"].attrs["column_names"]
+            df = pd.DataFrame(x, columns=column_names)
+            cell_id_prefix = z["cell_id"][:, 0]
+            dataset_suffix = z["cell_id"][:, 1]
+
+            cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+            df[XeniumKeys.CELL_ID] = cell_id_str
+            return df
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
@@ -325,10 +507,10 @@ def _get_images(
 ) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / file, **imread_kwargs)
     if "c_coords" in image_models_kwargs and "dummy" in image_models_kwargs["c_coords"]:
-        # Napari currently interprets 4 channel images as RGB; a series of PRs to fix this is almost ready but they will not
-        # be merged soon.
-        # Here, since the new data from the xenium analyzer version 2.0.0 gives 4-channel images that are not RGBA, let's
-        # add a dummy channel as a temporary workaround.
+        # Napari currently interprets 4 channel images as RGB; a series of PRs to fix this is almost ready but they will
+        # not be merged soon.
+        # Here, since the new data from the xenium analyzer version 2.0.0 gives 4-channel images that are not RGBA,
+        # let's add a dummy channel as a temporary workaround.
         image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
     return Image2DModel.parse(
         image, transformations={"global": Identity()}, dims=("c", "y", "x"), **image_models_kwargs
@@ -399,7 +581,6 @@ def xenium_aligned_image(
     # In fact, it could be that the len(image.shape) == 4 has actually dimes (1, x, y, c) and not (1, y, x, c). This is
     # not a problem because the transformation is constructed to be consistent, but if is the case, the data orientation
     # would be transposed compared to the original image, not ideal.
-    # print(image.shape)
     if len(image.shape) == 4:
         assert image.shape[0] == 1
         assert image.shape[-1] == 3
@@ -466,7 +647,11 @@ def _parse_version_of_xenium_analyzer(
     # Input: xenium-2.0.0.6-35-ga7e17149a
     # Output: 2.0.0.6-35
 
-    warning_message = f"Could not parse the version of the Xenium Analyzer from the string: {string}. This may happen for experimental version of the data. Please report in GitHub https://github.com/scverse/spatialdata-io/issues.\nThe reader will continue assuming the latest version of the Xenium Analyzer."
+    warning_message = (
+        f"Could not parse the version of the Xenium Analyzer from the string: {string}. This may happen for "
+        "experimental version of the data. Please report in GitHub https://github.com/scverse/spatialdata-io/issues.\n"
+        "The reader will continue assuming the latest version of the Xenium Analyzer."
+    )
 
     if result is None:
         if not hide_warning:
@@ -480,3 +665,38 @@ def _parse_version_of_xenium_analyzer(
         if not hide_warning:
             warnings.warn(warning_message, stacklevel=2)
         return None
+
+
+def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
+    # explained here:
+    # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
+    # convert to hex, remove the 0x prefix
+    cell_id_prefix_hex = [hex(x)[2:] for x in cell_id_prefix]
+
+    # shift the hex values
+    hex_shift = {str(i): chr(ord("a") + i) for i in range(10)} | {
+        chr(ord("a") + i): chr(ord("a") + 10 + i) for i in range(6)
+    }
+    cell_id_prefix_hex_shifted = ["".join([hex_shift[c] for c in x]) for x in cell_id_prefix_hex]
+
+    # merge the prefix and the suffix
+    cell_id_str = [str(x[0]).rjust(8, "a") + f"-{x[1]}" for x in zip(cell_id_prefix_hex_shifted, dataset_suffix)]
+
+    return np.array(cell_id_str)
+
+
+def prefix_suffix_uint32_from_cell_id_str(cell_id_str: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
+    # parse the string into the prefix and suffix
+    cell_id_prefix_str, dataset_suffix = zip(*[x.split("-") for x in cell_id_str])
+    dataset_suffix_int = [int(x) for x in dataset_suffix]
+
+    # reverse the shifted hex conversion
+    hex_unshift = {chr(ord("a") + i): str(i) for i in range(10)} | {
+        chr(ord("a") + 10 + i): chr(ord("a") + i) for i in range(6)
+    }
+    cell_id_prefix_hex = ["".join([hex_unshift[c] for c in x]) for x in cell_id_prefix_str]
+
+    # Convert hex (no need to add the 0x prefix)
+    cell_id_prefix = [int(x, 16) for x in cell_id_prefix_hex]
+
+    return np.array(cell_id_prefix, dtype=np.uint32), np.array(dataset_suffix_int)
