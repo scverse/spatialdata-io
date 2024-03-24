@@ -101,8 +101,8 @@ class XeniumKeys(ModeEnum):
     MORPHOLOGY_FOCUS_CHANNEL_IMAGE = "morphology_focus_{:04}.ome.tif"
     # from analysis_summary.html > Image QC of https://www.10xgenomics.com/datasets/preview-data-ffpe-human-lung-cancer-with-xenium-multimodal-cell-segmentation-1-standard
     MORPHOLOGY_FOCUS_CHANNEL_0 = "DAPI"  # nuclear
-    MORPHOLOGY_FOCUS_CHANNEL_1 = "ATP1A1/CD45/E-Cadherin"  # interior - RNA
-    MORPHOLOGY_FOCUS_CHANNEL_2 = "18S"  # boundary
+    MORPHOLOGY_FOCUS_CHANNEL_1 = "ATP1A1/CD45/E-Cadherin"  # boundary
+    MORPHOLOGY_FOCUS_CHANNEL_2 = "18S"  # interior - RNA
     MORPHOLOGY_FOCUS_CHANNEL_3 = "AlphaSMA/Vimentin"  # interior - protein
 
     # post-xenium images
