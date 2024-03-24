@@ -390,7 +390,7 @@ def _get_labels_and_indices_mapping(
 
             # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
             # release notes mentioned above)
-            real_label_index = _get_unique_label_values_as_index(labels)
+            real_label_index = _get_unique_label_values_as_index(labels).values
 
             # background removal
             if real_label_index[0] == 0:
@@ -398,7 +398,6 @@ def _get_labels_and_indices_mapping(
 
             if version < packaging.version.parse("2.0.0"):
                 expected_label_index = z["seg_mask_value"][...]
-                real_label_index = _get_unique_label_values_as_index(labels).values
 
                 if not np.array_equal(expected_label_index, real_label_index):
                     raise ValueError(
