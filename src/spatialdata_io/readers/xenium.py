@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import tempfile
@@ -215,19 +216,34 @@ def xenium(
         if morphology_focus:
             morphology_focus_dir = path / XeniumKeys.MORPHOLOGY_FOCUS_DIR
             files = {f for f in os.listdir(morphology_focus_dir) if f.endswith(".ome.tif")}
-            assert files == {XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.format(i) for i in range(4)}  # type: ignore[str-format]
+            if len(files) not in [1, 4]:
+                raise ValueError(
+                    "Expected 1 (no segmentation kit) or 4 (segmentation kit) files in the morphology focus directory, "
+                    f"found {len(files)}: {files}"
+                )
+            if files != {XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(i) for i in range(len(files))}:
+                raise ValueError(
+                    "Expected files in the morphology focus directory to be named as "
+                    f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)} to "
+                    f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(len(files) - 1)}, found {files}"
+                )
             # the 'dummy' channel is a temporary workaround, see _get_images() for more details
-            channel_names = {
-                0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0,
-                1: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_1,
-                2: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_2,
-                3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3,
-                4: "dummy",
-            }
-            # this reads the scale 0 for all the 4 channels (the other files are parsed automatically)
-            # dask.image.imread will call tifffile.imread which will give a warning saying that reading multi-file pyramids
-            # is not supported; since we are reading the full scale image and reconstructing the pyramid, we can ignore this
-            import logging
+            if len(files) == 1:
+                channel_names = {
+                    0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
+                }
+            else:
+                channel_names = {
+                    0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
+                    1: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_1.value,
+                    2: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_2.value,
+                    3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3.value,
+                    4: "dummy",
+                }
+            # this reads the scale 0 for all the 1 or 4 channels (the other files are parsed automatically)
+            # dask.image.imread will call tifffile.imread which will give a warning saying that reading multi-file
+            # pyramids is not supported; since we are reading the full scale image and reconstructing the pyramid, we
+            # can ignore this
 
             class IgnoreSpecificMessage(logging.Filter):
                 def filter(self, record: logging.LogRecord) -> bool:
@@ -409,11 +425,12 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / file, **imread_kwargs)
-    # Napari currently interprets 4 channel images as RGB; a series of PRs to fix this is almost ready but they will not
-    # be merged soon.
-    # Here, since the new data from the xenium analyzer version 2.0.0 gives 4-channel images that are not RGBA, let's
-    # add a dummy channel as a temporary workaround.
-    image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
+    if "c_coords" in image_models_kwargs and "dummy" in image_models_kwargs["c_coords"]:
+        # Napari currently interprets 4 channel images as RGB; a series of PRs to fix this is almost ready but they will not
+        # be merged soon.
+        # Here, since the new data from the xenium analyzer version 2.0.0 gives 4-channel images that are not RGBA, let's
+        # add a dummy channel as a temporary workaround.
+        image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
     return Image2DModel.parse(
         image, transformations={"global": Identity()}, dims=("c", "y", "x"), **image_models_kwargs
     )

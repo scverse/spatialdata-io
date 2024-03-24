@@ -8,14 +8,16 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [0.0.10] - tbd
+## [0.1.0] - 2024-03-24
 
 ### Added
 
 -   (MCMICRO) support for TMAs (such as the data of exemplar-002)
 -   (Xenium) support for post-xenium aligned images (IF, HE)
 -   (Xenium) reader for the selection coordinates file from the Xenium Explorer
--   DBiT-seq reader
+-   (DBiT-seq) reader
+-   converter functions `experimental.to_legacy_anndata()` and `experimental.from_legacy_anndata()`
+-   (Visium) support for raw reads (capture locations not under tissue)
 
 ### Fixed
 
