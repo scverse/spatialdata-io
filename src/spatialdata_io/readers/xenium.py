@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import re
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Optional
 
+import dask.array as da
 import numpy as np
+import packaging.version
 import pandas as pd
 import pyarrow.parquet as pq
+import tifffile
 from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
@@ -37,6 +44,7 @@ def xenium(
     path: str | Path,
     n_jobs: int = 1,
     cells_as_circles: bool = True,
+    cell_boundaries: bool = True,
     nucleus_boundaries: bool = True,
     transcripts: bool = True,
     morphology_mip: bool = True,
@@ -70,8 +78,10 @@ def xenium(
         Number of jobs to use for parallel processing.
     cells_as_circles
         Whether to read cells also as circles. Useful for performant visualization.
+    cell_boundaries
+        Whether to read cell boundaries (polygons).
     nucleus_boundaries
-        Whether to read nucleus boundaries.
+        Whether to read nucleus boundaries (polygons).
     transcripts
         Whether to read transcripts.
     morphology_mip
@@ -101,8 +111,11 @@ def xenium(
     path = Path(path)
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)
+    # to trigger the warning if the version cannot be parsed
+    version = _parse_version_of_xenium_analyzer(specs, hide_warning=False)
 
     specs["region"] = "cell_circles" if cells_as_circles else "cell_boundaries"
+
     return_values = _get_tables_and_circles(path, cells_as_circles, specs)
     if cells_as_circles:
         table, circles = return_values
@@ -119,33 +132,91 @@ def xenium(
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
 
-    polygons["cell_boundaries"] = _get_polygons(
-        path,
-        XeniumKeys.CELL_BOUNDARIES_FILE,
-        specs,
-        n_jobs,
-        idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
-    )
+    if cell_boundaries:
+        polygons["cell_boundaries"] = _get_polygons(
+            path,
+            XeniumKeys.CELL_BOUNDARIES_FILE,
+            specs,
+            n_jobs,
+            idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
+        )
 
     points = {}
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
 
     images = {}
-    if morphology_mip:
-        images["morphology_mip"] = _get_images(
-            path,
-            XeniumKeys.MORPHOLOGY_MIP_FILE,
-            imread_kwargs,
-            image_models_kwargs,
-        )
-    if morphology_focus:
-        images["morphology_focus"] = _get_images(
-            path,
-            XeniumKeys.MORPHOLOGY_FOCUS_FILE,
-            imread_kwargs,
-            image_models_kwargs,
-        )
+    if version < packaging.version.parse("2.0.0"):
+        if morphology_mip:
+            images["morphology_mip"] = _get_images(
+                path,
+                XeniumKeys.MORPHOLOGY_MIP_FILE,
+                imread_kwargs,
+                image_models_kwargs,
+            )
+        if morphology_focus:
+            images["morphology_focus"] = _get_images(
+                path,
+                XeniumKeys.MORPHOLOGY_FOCUS_FILE,
+                imread_kwargs,
+                image_models_kwargs,
+            )
+    else:
+        if morphology_focus:
+            morphology_focus_dir = path / XeniumKeys.MORPHOLOGY_FOCUS_DIR
+            files = {f for f in os.listdir(morphology_focus_dir) if f.endswith(".ome.tif")}
+            if len(files) not in [1, 4]:
+                raise ValueError(
+                    "Expected 1 (no segmentation kit) or 4 (segmentation kit) files in the morphology focus directory, "
+                    f"found {len(files)}: {files}"
+                )
+            if files != {XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(i) for i in range(len(files))}:
+                raise ValueError(
+                    "Expected files in the morphology focus directory to be named as "
+                    f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)} to "
+                    f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(len(files) - 1)}, found {files}"
+                )
+            # the 'dummy' channel is a temporary workaround, see _get_images() for more details
+            if len(files) == 1:
+                channel_names = {
+                    0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
+                }
+            else:
+                channel_names = {
+                    0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
+                    1: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_1.value,
+                    2: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_2.value,
+                    3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3.value,
+                    4: "dummy",
+                }
+            # this reads the scale 0 for all the 1 or 4 channels (the other files are parsed automatically)
+            # dask.image.imread will call tifffile.imread which will give a warning saying that reading multi-file
+            # pyramids is not supported; since we are reading the full scale image and reconstructing the pyramid, we
+            # can ignore this
+
+            class IgnoreSpecificMessage(logging.Filter):
+                def filter(self, record: logging.LogRecord) -> bool:
+                    # Ignore specific log message
+                    if "OME series cannot read multi-file pyramids" in record.getMessage():
+                        return False
+                    return True
+
+            logger = tifffile.logger()
+            logger.addFilter(IgnoreSpecificMessage())
+            image_models_kwargs = dict(image_models_kwargs)
+            assert (
+                "c_coords" not in image_models_kwargs
+            ), "The channel names for the morphology focus images are handled internally"
+            image_models_kwargs["c_coords"] = list(channel_names.values())
+            images["morphology_focus"] = _get_images(
+                morphology_focus_dir,
+                XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.format(0),  # type: ignore[str-format]
+                imread_kwargs,
+                image_models_kwargs,
+            )
+            del image_models_kwargs["c_coords"]
+            logger.removeFilter(IgnoreSpecificMessage())
+
     if cells_as_circles:
         sdata = SpatialData(images=images, shapes=polygons | {specs["region"]: circles}, points=points, table=table)
     else:
@@ -159,6 +230,12 @@ def xenium(
     return sdata
 
 
+def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
+    if isinstance(cell_id_column.iloc[0], bytes):
+        return cell_id_column.apply(lambda x: x.decode("utf-8"))
+    return cell_id_column
+
+
 def _get_polygons(
     path: Path, file: str, specs: dict[str, Any], n_jobs: int, idx: Optional[ArrayLike] = None
 ) -> GeoDataFrame:
@@ -168,13 +245,29 @@ def _get_polygons(
     # seems to be faster than pd.read_parquet
     df = pq.read_table(path / file).to_pandas()
 
+    group_by = df.groupby(XeniumKeys.CELL_ID)
+    index = pd.Series(group_by.indices.keys())
+    index = _decode_cell_id_column(index)
     out = Parallel(n_jobs=n_jobs)(
         delayed(_poly)(i.to_numpy())
-        for _, i in df.groupby(XeniumKeys.CELL_ID)[[XeniumKeys.BOUNDARIES_VERTEX_X, XeniumKeys.BOUNDARIES_VERTEX_Y]]
+        for _, i in group_by[[XeniumKeys.BOUNDARIES_VERTEX_X, XeniumKeys.BOUNDARIES_VERTEX_Y]]
     )
     geo_df = GeoDataFrame({"geometry": out})
-    if idx is not None:
+    version = _parse_version_of_xenium_analyzer(specs)
+    if version is not None and version < packaging.version.parse("2.0.0"):
+        assert idx is not None
+        assert len(idx) == len(geo_df)
+        assert np.unique(geo_df.index).size == len(geo_df)
+        assert index.equals(idx)
         geo_df.index = idx
+    else:
+        geo_df.index = index
+        if not np.unique(geo_df.index).size == len(geo_df):
+            warnings.warn(
+                "Found non-unique polygon indices, this will be addressed in a future version of the reader. For the "
+                "time being please consider merging non-unique polygons into single multi-polygons.",
+                stacklevel=2,
+            )
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
 
@@ -208,8 +301,7 @@ def _get_tables_and_circles(
     adata.obs = metadata
     adata.obs["region"] = specs["region"]
     adata.obs["region"] = adata.obs["region"].astype("category")
-    if isinstance(adata.obs[XeniumKeys.CELL_ID].iloc[0], bytes):
-        adata.obs[XeniumKeys.CELL_ID] = adata.obs[XeniumKeys.CELL_ID].apply(lambda x: x.decode("utf-8"))
+    adata.obs[XeniumKeys.CELL_ID] = _decode_cell_id_column(adata.obs[XeniumKeys.CELL_ID])
     table = TableModel.parse(adata, region=specs["region"], region_key="region", instance_key=str(XeniumKeys.CELL_ID))
     if cells_as_circles:
         transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
@@ -232,6 +324,12 @@ def _get_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / file, **imread_kwargs)
+    if "c_coords" in image_models_kwargs and "dummy" in image_models_kwargs["c_coords"]:
+        # Napari currently interprets 4 channel images as RGB; a series of PRs to fix this is almost ready but they will not
+        # be merged soon.
+        # Here, since the new data from the xenium analyzer version 2.0.0 gives 4-channel images that are not RGBA, let's
+        # add a dummy channel as a temporary workaround.
+        image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
     return Image2DModel.parse(
         image, transformations={"global": Identity()}, dims=("c", "y", "x"), **image_models_kwargs
     )
@@ -293,13 +391,15 @@ def xenium_aligned_image(
     assert image_path.exists(), f"File {image_path} does not exist."
     image = imread(image_path, **imread_kwargs)
 
-    # Depending on the version of pipeline that was used, some images have shape (1, y, x, 3) and others (3, y, x)
+    # Depending on the version of pipeline that was used, some images have shape (1, y, x, 3) and others (3, y, x) or
+    # (4, y, x).
     # since y and x are always different from 1, let's differentiate from the two cases here, independently of the
     # pipeline version.
     # Note that a more robust approach is to look at the xml metadata in the ome.tif; we should use this in a future PR.
     # In fact, it could be that the len(image.shape) == 4 has actually dimes (1, x, y, c) and not (1, y, x, c). This is
     # not a problem because the transformation is constructed to be consistent, but if is the case, the data orientation
     # would be transposed compared to the original image, not ideal.
+    # print(image.shape)
     if len(image.shape) == 4:
         assert image.shape[0] == 1
         assert image.shape[-1] == 3
@@ -307,7 +407,11 @@ def xenium_aligned_image(
         dims = ("y", "x", "c")
     else:
         assert len(image.shape) == 3
-        assert image.shape[0] == 3
+        assert image.shape[0] in [3, 4]
+        if image.shape[0] == 4:
+            # as explained before in _get_images(), we need to add a dummy channel until we support 4-channel images as
+            # non-RGBA images in napari
+            image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
         dims = ("c", "y", "x")
 
     if alignment_file is None:
@@ -348,3 +452,31 @@ def xenium_explorer_selection(path: str | Path, pixel_size: float = 0.2125) -> P
     """
     df = pd.read_csv(path, skiprows=2)
     return Polygon(df.values / pixel_size)
+
+
+def _parse_version_of_xenium_analyzer(
+    specs: dict[str, Any],
+    hide_warning: bool = True,
+) -> packaging.version.Version | None:
+    string = specs[XeniumKeys.ANALYSIS_SW_VERSION]
+    pattern = r"^xenium-(\d+\.\d+\.\d+(\.\d+-\d+)?)"
+
+    result = re.search(pattern, string)
+    # Example
+    # Input: xenium-2.0.0.6-35-ga7e17149a
+    # Output: 2.0.0.6-35
+
+    warning_message = f"Could not parse the version of the Xenium Analyzer from the string: {string}. This may happen for experimental version of the data. Please report in GitHub https://github.com/scverse/spatialdata-io/issues.\nThe reader will continue assuming the latest version of the Xenium Analyzer."
+
+    if result is None:
+        if not hide_warning:
+            warnings.warn(warning_message, stacklevel=2)
+        return None
+
+    group = result.groups()[0]
+    try:
+        return packaging.version.parse(group)
+    except packaging.version.InvalidVersion:
+        if not hide_warning:
+            warnings.warn(warning_message, stacklevel=2)
+        return None
