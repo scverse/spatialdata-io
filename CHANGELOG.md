@@ -12,19 +12,21 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
--   (MCMICRO) support for TMAs (such as the data of exemplar-002)
 -   (Xenium) support for post-xenium aligned images (IF, HE)
 -   (Xenium) reader for the selection coordinates file from the Xenium Explorer
+-   (Xenium) support for the new Xenium 2.0.0 (multimodal segmentation)
+-   (Xenium) reading multiscale labels from cells.zarr.zip
+-   (MCMICRO) support for TMAs (such as the data of exemplar-002)
 -   (DBiT-seq) reader
 -   converter functions `experimental.to_legacy_anndata()` and `experimental.from_legacy_anndata()`
 -   (Visium) support for raw reads (capture locations not under tissue)
 
 ### Fixed
 
--   (MERSCOPE) don't try to load unexisting elements #87
--   (Visium) fixed axes ordering
 -   (Xenium) fixed index (fail on write)
 -   (Xenium) renamed cells_as_shapes to cells_as_circles; set default to True
+-   (MERSCOPE) don't try to load unexisting elements #87
+-   (Visium) fixed axes ordering
 
 ## [0.0.9] - 2023-11-06
 
