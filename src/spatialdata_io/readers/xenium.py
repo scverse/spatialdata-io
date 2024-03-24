@@ -147,7 +147,7 @@ def xenium(
     else:
         table = return_values
 
-    if version >= packaging.version.parse("2.0.0"):
+    if version is not None and version >= packaging.version.parse("2.0.0"):
         cell_summary_table = _get_cells_metadata_table_from_zarr(path, XeniumKeys.CELLS_ZARR, specs)
         if not cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID]):
             warnings.warn(
@@ -223,7 +223,7 @@ def xenium(
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
 
-    if version < packaging.version.parse("2.0.0"):
+    if version is None or version < packaging.version.parse("2.0.0"):
         if morphology_mip:
             images["morphology_mip"] = _get_images(
                 path,
@@ -380,7 +380,7 @@ def _get_labels_and_indices_mapping(
             if mask_index == 0:
                 # nuclei currently not supported
                 return labels, None
-            if version is not None and version < packaging.version.parse("1.3.0"):
+            if version is None or version is not None and version < packaging.version.parse("1.3.0"):
                 # supported in version 1.3.0 and not supported in version 1.0.2; conservatively, let's assume it is not
                 # supported in versions < 1.3.0
                 return labels, None
@@ -640,7 +640,7 @@ def _parse_version_of_xenium_analyzer(
     hide_warning: bool = True,
 ) -> packaging.version.Version | None:
     string = specs[XeniumKeys.ANALYSIS_SW_VERSION]
-    pattern = r"^xenium-(\d+\.\d+\.\d+(\.\d+-\d+)?)"
+    pattern = r"^(?:x|X)enium-(\d+\.\d+\.\d+(\.\d+-\d+)?)"
 
     result = re.search(pattern, string)
     # Example
