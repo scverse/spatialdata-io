@@ -17,6 +17,7 @@ I/O for the `spatialdata` project.
     codex
     curio
     cosmx
+    seqfish
     visium
     xenium
     steinbock
