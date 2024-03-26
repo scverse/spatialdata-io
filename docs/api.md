@@ -20,6 +20,7 @@ I/O for the `spatialdata` project.
     visium
     xenium
     steinbock
+    stereoseq
     merscope
     mcmicro
     dbit
