@@ -126,6 +126,7 @@ nitpick_ignore = [
     ("py:class", "Path"),
     ("py:class", "AnnData"),
     ("py:class", "SpatialData"),
+    ("py:func", "imageio.imread"),  # maybe this can be fixed
 ]
 
 
