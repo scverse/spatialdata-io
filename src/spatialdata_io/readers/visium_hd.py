@@ -49,8 +49,7 @@ def visium_hd(
 
     .. seealso::
 
-        - `Space Ranger output
-            <https://support.10xgenomics.com/spatial-gene-expression/software/pipelines/latest/output/overview>`_.
+        - `Space Ranger output <https://support.10xgenomics.com/spatial-gene-expression/software/pipelines/latest/output/overview>`_.
 
     Parameters
     ----------
