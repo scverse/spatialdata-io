@@ -35,7 +35,7 @@ from spatialdata_io._docs import inject_docs
 @inject_docs(vx=VisiumHDKeys)
 def visium_hd(
     path: str | Path,
-    dataset_id: str,
+    dataset_id: str | None = None,
     filtered_counts_file: bool = True,
     bin_size: int | list[int] | None = None,
     fullres_image_file: str | Path | None = None,
@@ -57,7 +57,7 @@ def visium_hd(
     path
         Path to directory containing the *10x Genomics* Visium HD output.
     dataset_id
-        Unique identifier of the dataset.
+        Unique identifier of the dataset. If `None`, it tries to infer it from the file name of the feature slice file.
     filtered_counts_file
         It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to
         ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
@@ -86,6 +86,12 @@ def visium_hd(
     shapes = {}
     images: dict[str, Any] = {}
 
+    if dataset_id is None:
+        dataset_id = _infer_dataset_id(path)
+        filename_prefix = f"{dataset_id}_"
+    else:
+        filename_prefix = ""
+
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
             path=path,
@@ -97,7 +103,7 @@ def visium_hd(
             scale_factors=scale_factors,
         )
 
-    metadata, hd_layout = _parse_metadata(path)
+    metadata, hd_layout = _parse_metadata(path, filename_prefix)
     transform_matrices = _get_transform_matrices(metadata, hd_layout)
     file_format = hd_layout[VisiumHDKeys.FILE_FORMAT]
     if file_format != "1.0":
@@ -108,9 +114,13 @@ def visium_hd(
             stacklevel=2,
         )
 
-    path_bins = path / VisiumHDKeys.BINNED
+    path_bins = path
     all_bin_sizes = sorted(
-        [bin_size for bin_size in os.listdir(path_bins) if os.path.isdir(os.path.join(path_bins, bin_size))]
+        [
+            bin_size
+            for bin_size in os.listdir(path_bins)
+            if os.path.isdir(os.path.join(path_bins, bin_size)) and bin_size.startswith(VisiumHDKeys.BIN_PREFIX)
+        ]
     )
     if bin_size is None:
         bin_sizes = all_bin_sizes
@@ -246,7 +256,7 @@ def visium_hd(
 
     if fullres_image_file is not None:
         load_image(
-            path=fullres_image_file,
+            path=path / fullres_image_file,
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
@@ -279,14 +289,22 @@ def visium_hd(
             path=path / VisiumHDKeys.IMAGE_CYTASSIST,
             suffix="_cytassist_image",
         )
-    image = images[dataset_id + "_cytassist_image"]
-    affine0 = transform_matrices["cytassist_colrow_to_spot_colrow"]
-    affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
-    set_transformation(image, Sequence([affine0, affine1]), "global")
+        image = images[dataset_id + "_cytassist_image"]
+        affine0 = transform_matrices["cytassist_colrow_to_spot_colrow"]
+        affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
+        set_transformation(image, Sequence([affine0, affine1]), "global")
 
-    sdata = SpatialData(tables=tables, images=images, shapes=shapes)
+    return SpatialData(tables=tables, images=images, shapes=shapes)
 
-    return sdata
+
+def _infer_dataset_id(path: Path) -> str:
+    suffix = f"_{VisiumHDKeys.FEATURE_SLICE_FILE.value}"
+    files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f)) and f.endswith(suffix)]
+    if len(files) == 0 or len(files) > 1:
+        raise ValueError(
+            f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an argument."
+        )
+    return files[0].replace(suffix, "")
 
 
 def _load_image(
@@ -328,8 +346,8 @@ def _get_affine(coefficients: list[int]) -> Affine:
     return Affine(matrix, input_axes=("x", "y"), output_axes=("x", "y"))
 
 
-def _parse_metadata(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    with h5py.File(path / VisiumHDKeys.FEATURE_SLICE_FILE, "r") as f5:
+def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    with h5py.File(path / f"{filename_prefix}{VisiumHDKeys.FEATURE_SLICE_FILE.value}", "r") as f5:
         metadata = json.loads(dict(f5.attrs)[VisiumHDKeys.METADATA_JSON])
         hd_layout = json.loads(metadata[VisiumHDKeys.HD_LAYOUT_JSON])
     return metadata, hd_layout
@@ -337,6 +355,9 @@ def _parse_metadata(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
 
 def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any]) -> dict[str, Affine]:
     transform_matrices = {}
+
+    # not used
+    transform_matrices["hd_layout_transform"] = _get_affine(hd_layout[VisiumHDKeys.TRANSFORM])
 
     for key in [
         VisiumHDKeys.CYTASSIST_COLROW_TO_SPOT_COLROW,

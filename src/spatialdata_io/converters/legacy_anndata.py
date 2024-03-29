@@ -8,7 +8,7 @@ from spatialdata import (
     SpatialData,
     get_centroids,
     get_extent,
-    join_sdata_spatialelement_table,
+    join_spatialelement_table,
     to_circles,
 )
 from spatialdata._core.operations._utils import transform_to_data_extent
@@ -149,8 +149,8 @@ def to_legacy_anndata(
     shapes = to_circles(element)
     circles_sdata = SpatialData(tables={table_name: table}, shapes={region_name: shapes})
 
-    joined_elements, new_table = join_sdata_spatialelement_table(
-        sdata=circles_sdata, spatial_element_name=region_name, table_name=table_name, how="inner", match_rows="left"
+    joined_elements, new_table = join_spatialelement_table(
+        sdata=circles_sdata, spatial_element_names=region_name, table_name=table_name, how="inner", match_rows="left"
     )
 
     # the table after the filtering must not be empty

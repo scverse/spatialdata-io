@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
--   (Visium HD) added reader
+-   (Visium HD) added reader, coauthored by @LLehner
 
 ### Fixed
 

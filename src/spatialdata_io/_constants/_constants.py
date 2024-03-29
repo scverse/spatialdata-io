@@ -235,8 +235,8 @@ class VisiumHDKeys(ModeEnum):
 
     # directories
     SPATIAL = "spatial"
-    BINNED = "binned_outputs"
     DEFAULT_BIN = "square_008um"
+    BIN_PREFIX = "square_"
     MICROSCOPE_IMAGE = "microscope_image"
 
     # counts and locations files
