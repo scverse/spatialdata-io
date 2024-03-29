@@ -98,6 +98,7 @@ intersphinx_mapping = {
     "xarray": ("https://docs.xarray.dev/en/stable/", None),
     "datatree": ("https://datatree.readthedocs.io/en/latest/", None),
     "shapely": ("https://shapely.readthedocs.io/en/stable/", None),
+    "imageio": ("https://imageio.readthedocs.io/en/stable/", None),
 }
 
 # List of patterns, relative to source directory, that match files and
