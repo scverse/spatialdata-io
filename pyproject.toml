@@ -24,6 +24,7 @@ urls.Home-page = "https://github.com/scverse/spatialdata-io"
 dependencies = [
     "anndata",
     "numpy",
+    "scanpy",
     "spatialdata",
     "scikit-image",
     "h5py",
