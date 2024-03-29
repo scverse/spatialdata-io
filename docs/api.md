@@ -15,14 +15,15 @@ I/O for the `spatialdata` project.
     :toctree: generated
 
     codex
-    curio
     cosmx
-    visium
-    xenium
-    steinbock
-    merscope
-    mcmicro
+    curio
     dbit
+    mcmicro
+    merscope
+    steinbock
+    visium
+    visium_hd
+    xenium
 ```
 
 ### Conversion functions

@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.2] - xxxx-xx-xx
 
+### Added
+
+-   (Visium HD) added reader
+
 ### Fixed
 
 -   (Xenium) reader for 1.0.1 (paper data) and unknown versions
