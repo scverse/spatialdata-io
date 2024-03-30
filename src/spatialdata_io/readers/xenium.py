@@ -61,6 +61,7 @@ def xenium(
     transcripts: bool = True,
     morphology_mip: bool = True,
     morphology_focus: bool = True,
+    aligned_images: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -107,9 +108,11 @@ def xenium(
     transcripts
         Whether to read transcripts.
     morphology_mip
-        Whether to read morphology mip.
+        Whether to read the morphology mip image (available in versions < 2.0.0).
     morphology_focus
-        Whether to read morphology focus.
+        Whether to read the morphology focus image.
+    aligned_images
+        Whether to also parse, when available, additional H&E or IF aligned images.
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -190,17 +193,17 @@ def xenium(
             labels_name="cell_labels",
             labels_models_kwargs=labels_models_kwargs,
         )
-    if cell_labels_indices_mapping is not None:
-        if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
-            warnings.warn(
-                "The cell_id column in the cell_labels_table does not match the cell_id column derived from the cell "
-                "labels data. This could be due to trying to read a new version that is not supported yet. Please "
-                "report this issue.",
-                UserWarning,
-                stacklevel=2,
-            )
-        else:
-            table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
+        if cell_labels_indices_mapping is not None:
+            if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
+                warnings.warn(
+                    "The cell_id column in the cell_labels_table does not match the cell_id column derived from the cell "
+                    "labels data. This could be due to trying to read a new version that is not supported yet. Please "
+                    "report this issue.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
+                table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
 
     if nucleus_boundaries:
         polygons["nucleus_boundaries"] = _get_polygons(
@@ -302,9 +305,10 @@ def xenium(
     sdata = SpatialData(**elements_dict)
 
     # find and add additional aligned images
-    aligned_images = _add_aligned_images(path, imread_kwargs, image_models_kwargs)
-    for key, value in aligned_images.items():
-        sdata.images[key] = value
+    if aligned_images:
+        extra_images = _add_aligned_images(path, imread_kwargs, image_models_kwargs)
+        for key, value in extra_images.items():
+            sdata.images[key] = value
 
     return sdata
 

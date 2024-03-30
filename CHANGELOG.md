@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [0.1.2] - xxxx-xx-xx
+## [0.1.2] - 2024-03-30
 
 ### Added
 
@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning][].
 ### Fixed
 
 -   (Xenium) reader for 1.0.1 (paper data) and unknown versions
+-   (Xenium) fix in reading "minimalistic" Xenium datasets #132
 
 ## [0.1.1] - 2024-03-24
 
