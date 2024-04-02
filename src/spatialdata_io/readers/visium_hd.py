@@ -229,6 +229,7 @@ def visium_hd(
         adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
 
         # Required for napari-spatialdata and join operations in general
+        warnings.warn("Ensuring obs names are unique by running `obs_names_make_unique`", UserWarning, stacklevel=2)
         adata.obs_names_make_unique()
         tables[bin_size_str] = TableModel.parse(
             adata,

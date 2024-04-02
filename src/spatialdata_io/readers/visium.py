@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import warnings
 from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
@@ -229,6 +230,7 @@ def visium(
             image_lowres, transformations={"downscaled_lowres": Identity()}
         )
     # This is required for napari-spatialdata because of the join operation
+    warnings.warn("Ensuring obs names are unique by running `obs_names_make_unique`", UserWarning, stacklevel=2)
     table.obs_names_make_unique()
     return SpatialData(images=images, shapes=shapes, table=table)
 
