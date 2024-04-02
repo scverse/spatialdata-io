@@ -228,7 +228,8 @@ def visium(
         images[dataset_id + "_lowres_image"] = Image2DModel.parse(
             image_lowres, transformations={"downscaled_lowres": Identity()}
         )
-
+    # This is required for napari-spatialdata because of the join operation
+    table.obs_names_make_unique()
     return SpatialData(images=images, shapes=shapes, table=table)
 
 
