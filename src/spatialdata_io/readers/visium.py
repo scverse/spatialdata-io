@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import warnings
 from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
@@ -169,6 +168,12 @@ def visium(
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
     adata.obs["spot_id"] = np.arange(len(adata))
     adata.var_names_make_unique()
+
+    if not adata.obs_names.is_unique:
+        logger.info("Non-unique obs names detected, calling `obs_names_make_unique`.")
+        # This is required for napari-spatialdata because of the join operation that would otherwise fail
+        adata.obs_names_make_unique()
+
     if (path / "spatial" / VisiumKeys.SCALEFACTORS_FILE).exists() or (
         scalefactors_file is not None and (path / scalefactors_file).exists()
     ):
@@ -229,9 +234,7 @@ def visium(
         images[dataset_id + "_lowres_image"] = Image2DModel.parse(
             image_lowres, transformations={"downscaled_lowres": Identity()}
         )
-    # This is required for napari-spatialdata because of the join operation
-    warnings.warn("Ensuring obs names are unique by running `obs_names_make_unique`", UserWarning, stacklevel=2)
-    table.obs_names_make_unique()
+
     return SpatialData(images=images, shapes=shapes, table=table)
 
 
