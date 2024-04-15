@@ -7,7 +7,7 @@ default_stages:
 minimum_pre_commit_version: 2.16.0
 repos:
     - repo: https://github.com/psf/black
-      rev: 24.3.0
+      rev: 24.4.0
       hooks:
           - id: black
     - repo: https://github.com/pre-commit/mirrors-prettier
@@ -40,7 +40,7 @@ repos:
                 - flake8-bugbear
                 - flake8-blind-except
     - repo: https://github.com/pre-commit/pre-commit-hooks
-      rev: v4.5.0
+      rev: v4.6.0
       hooks:
           - id: detect-private-key
           - id: check-ast
