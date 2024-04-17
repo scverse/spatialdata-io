@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -8,289 +7,262 @@ from types import MappingProxyType
 from typing import Any, Optional
 
 import dask.array as da
-import numpy as np
 import pandas as pd
-import pyarrow as pa
-from anndata import AnnData
-from dask.dataframe.core import DataFrame as DaskDataFrame
+import tifffile
 from dask_image.imread import imread
-from scipy.sparse import csr_matrix
-
-# from spatialdata._core.core_utils import xy_cs
-from skimage.transform import estimate_transform
 from spatialdata import SpatialData
 from spatialdata._logging import logger
-from spatialdata.models import Image2DModel, Labels2DModel, PointsModel, TableModel
-
-# from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
-from spatialdata.transformations.transformations import Affine, Identity
+from spatialdata.models import Image2DModel, PointsModel
 
 from spatialdata_io._constants._constants import CosmxKeys
-from spatialdata_io._docs import inject_docs
 
 __all__ = ["cosmx"]
 
-# x_axis = NgffAxis(name="x", type="space", unit="discrete")
-# y_axis = NgffAxis(name="y", type="space", unit="discrete")
-# c_axis = NgffAxis(name="c", type="channel", unit="index")
 
-
-@inject_docs(cx=CosmxKeys)
 def cosmx(
     path: str | Path,
     dataset_id: Optional[str] = None,
-    transcripts: bool = True,
-    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    fov: int | str | None = None,
+    read_proteins: bool = False,
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
-    Read *Cosmx Nanostring* data.
+    Read *Cosmx Nanostring* data. The fields of view are stitched together, except if `fov` is provided.
 
     This function reads the following files:
+        - `*_fov_positions_file.csv` or `*_fov_positions_file.csv.gz`: FOV locations
+        - `Morphology2D` directory: all the FOVs morphology images
+        - `Morphology_ChannelID_Dictionary.txt`: Morphology channels names
+        - `*_tx_file.csv.gz` or `*_tx_file.csv`: Transcripts location and names
+        - If `read_proteins` is `True`, all the images under the nested `ProteinImages` directories will be read
 
-        - ``<dataset_id>_`{cx.COUNTS_SUFFIX!r}```: Counts matrix.
-        - ``<dataset_id>_`{cx.METADATA_SUFFIX!r}```: Metadata file.
-        - ``<dataset_id>_`{cx.FOV_SUFFIX!r}```: Field of view file.
-        - ``{cx.IMAGES_DIR!r}``: Directory containing the images.
-        - ``{cx.LABELS_DIR!r}``: Directory containing the labels.
+    Args:
+        path: Path to the root directory containing *Nanostring* files.
+        dataset_id: Optional name of the dataset (needs to be provided if not infered).
+        fov: Name or number of one single field of view to be read. If a string is provided, an example of correct syntax is "F008". By default, reads all FOVs.
+        read_proteins: Whether to read the proteins or the transcripts.
+        image_models_kwargs: Keyword arguments passed to `spatialdata.models.Image2DModel`.
+        imread_kwargs: Keyword arguments passed to `dask_image.imread.imread`.
 
-    .. seealso::
-
-        - `Nanostring Spatial Molecular Imager <https://nanostring.com/products/cosmx-spatial-molecular-imager/>`_.
-
-    Parameters
-    ----------
-    path
-        Path to the root directory containing *Nanostring* files.
-    dataset_id
-        Name of the dataset.
-    transcripts
-        Whether to also read in transcripts information.
-    imread_kwargs
-        Keyword arguments passed to :func:`dask_image.imread.imread`.
-    image_models_kwargs
-        Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
-
-    Returns
-    -------
-    :class:`spatialdata.SpatialData`
+    Returns:
+        A `SpatialData` object representing the CosMX experiment
     """
     path = Path(path)
 
-    # tries to infer dataset_id from the name of the counts file
-    if dataset_id is None:
-        counts_files = [f for f in os.listdir(path) if str(f).endswith(CosmxKeys.COUNTS_SUFFIX)]
-        if len(counts_files) == 1:
-            found = re.match(rf"(.*)_{CosmxKeys.COUNTS_SUFFIX}", counts_files[0])
-            if found:
-                dataset_id = found.group(1)
-    if dataset_id is None:
-        raise ValueError("Could not infer `dataset_id` from the name of the counts file. Please specify it manually.")
+    image_models_kwargs = dict(image_models_kwargs)
+    if "chunks" not in image_models_kwargs:
+        image_models_kwargs["chunks"] = (1, 4096, 4096)
+    if "scale_factors" not in image_models_kwargs:
+        image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
 
-    # check for file existence
-    counts_file = path / f"{dataset_id}_{CosmxKeys.COUNTS_SUFFIX}"
-    if not counts_file.exists():
-        raise FileNotFoundError(f"Counts file not found: {counts_file}.")
-    if transcripts:
-        transcripts_file = path / f"{dataset_id}_{CosmxKeys.TRANSCRIPTS_SUFFIX}"
-        if not transcripts_file.exists():
-            raise FileNotFoundError(f"Transcripts file not found: {transcripts_file}.")
+    dataset_id = _infer_dataset_id(path, dataset_id)
+    fov_locs = _read_cosmx_fov_locs(path, dataset_id)
+    fov_id, fov = _check_fov_id(fov)
+
+    protein_dir_dict = {}
+    if read_proteins:
+        protein_dir_dict = {
+            int(protein_dir.parent.name[3:]): protein_dir for protein_dir in list(path.rglob("**/FOV*/ProteinImages"))
+        }
+        assert len(protein_dir_dict), f"No directory called 'ProteinImages' was found under {path}"
+
+    # Read image(s)
+    images_dir = _find_dir(path, "Morphology2D")
+    if fov is None:
+        image, protein_names = _read_stitched_image(
+            images_dir,
+            fov_locs,
+            protein_dir_dict,
+            **imread_kwargs,
+        )
+        image = image.rechunk(image_models_kwargs["chunks"])
+        image_name = "stitched_image"
     else:
-        transcripts_file = None
-    meta_file = path / f"{dataset_id}_{CosmxKeys.METADATA_SUFFIX}"
-    if not meta_file.exists():
-        raise FileNotFoundError(f"Metadata file not found: {meta_file}.")
-    fov_file = path / f"{dataset_id}_{CosmxKeys.FOV_SUFFIX}"
+        pattern = f"*{fov_id}.TIF"
+        fov_files = list(images_dir.rglob(pattern))
+
+        assert len(fov_files), f"No file matches the pattern {pattern} inside {images_dir}"
+        assert len(fov_files) == 1, f"Multiple files match the pattern {pattern}: {', '.join(map(str, fov_files))}"
+
+        image, protein_names = _read_fov_image(images_dir / fov_files[0], protein_dir_dict.get(fov), **imread_kwargs)
+        image_name = f"{fov}_image"
+
+    c_coords = _cosmx_c_coords(path, image.shape[0], protein_names)
+
+    parsed_image = Image2DModel.parse(image, dims=("c", "y", "x"), c_coords=c_coords, **image_models_kwargs)
+
+    if read_proteins:
+        return SpatialData(images={image_name: parsed_image})
+
+    # Read transcripts
+    transcripts_data = _read_cosmx_csv(path, dataset_id)
+
+    if fov is None:
+        transcripts_data["x"] = transcripts_data["x_global_px"] - fov_locs["xmin"].min()
+        transcripts_data["y"] = transcripts_data["y_global_px"] - fov_locs["ymin"].min()
+        coordinates = None
+        points_name = "points"
+    else:
+        transcripts_data = transcripts_data[transcripts_data["fov"] == fov]
+        coordinates = {"x": "x_local_px", "y": "y_local_px"}
+        points_name = f"{fov}_points"
+
+    transcripts = PointsModel.parse(
+        transcripts_data,
+        coordinates=coordinates,
+        feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
+    )
+
+    return SpatialData(images={image_name: parsed_image}, points={points_name: transcripts})
+
+
+def _read_fov_image(
+    morphology_path: Path, protein_path: Path | None, **imread_kwargs: int
+) -> tuple[da.Array, list[str] | None]:
+    image = imread(morphology_path, **imread_kwargs)
+
+    protein_names = None
+    if protein_path is not None:
+        protein_image, protein_names = _read_protein_fov(protein_path)
+        image = da.concatenate([image, protein_image], axis=0)
+
+    return image, protein_names
+
+
+def _infer_dataset_id(path: Path, dataset_id: str | None) -> str:
+    if isinstance(dataset_id, str):
+        return dataset_id
+
+    for suffix in [".csv", ".csv.gz"]:
+        counts_files = list(path.rglob(f"*_fov_positions_file{suffix}"))
+
+        if len(counts_files) == 1:
+            found = re.match(rf"(.*)_fov_positions_file{suffix}", str(counts_files[0]))
+            if found:
+                return found.group(1)
+
+    raise ValueError("Could not infer `dataset_id` from the name of the transcript file. Please specify it manually.")
+
+
+def _read_cosmx_fov_locs(path: Path, dataset_id: str) -> pd.DataFrame:
+    fov_file = path / f"{dataset_id}_fov_positions_file.csv"
+
     if not fov_file.exists():
-        raise FileNotFoundError(f"Found field of view file: {fov_file}.")
-    images_dir = path / CosmxKeys.IMAGES_DIR
-    if not images_dir.exists():
-        raise FileNotFoundError(f"Images directory not found: {images_dir}.")
-    labels_dir = path / CosmxKeys.LABELS_DIR
-    if not labels_dir.exists():
-        raise FileNotFoundError(f"Labels directory not found: {labels_dir}.")
+        fov_file = path / f"{dataset_id}_fov_positions_file.csv.gz"
 
-    counts = pd.read_csv(path / counts_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
-    counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxKeys.FOV).astype(str).values, sep="_")
+    assert fov_file.exists(), f"Missing field of view file: {fov_file}"
 
-    obs = pd.read_csv(path / meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
-    obs[CosmxKeys.FOV] = pd.Categorical(obs[CosmxKeys.FOV].astype(str))
-    obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: s + "_labels"))
-    obs[CosmxKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
-    obs.rename_axis(None, inplace=True)
-    obs.index = obs.index.astype(str).str.cat(obs[CosmxKeys.FOV].values, sep="_")
+    fov_locs = pd.read_csv(fov_file, index_col=1)
 
-    common_index = obs.index.intersection(counts.index)
+    pixel_size = 0.120280945  # size of a pixel in microns
 
-    adata = AnnData(
-        csr_matrix(counts.loc[common_index, :].values),
-        dtype=counts.values.dtype,
-        obs=obs.loc[common_index, :],
-    )
-    adata.var_names = counts.columns
+    fov_locs["xmin"] = fov_locs["X_mm"] * 1e3 / pixel_size
+    fov_locs["xmax"] = 0  # will be filled when reading the images
 
-    table = TableModel.parse(
-        adata,
-        region=list(set(adata.obs[CosmxKeys.REGION_KEY].astype(str).tolist())),
-        region_key=CosmxKeys.REGION_KEY.value,
-        instance_key=CosmxKeys.INSTANCE_KEY.value,
-    )
+    fov_locs["ymin"] = 0  # will be filled when reading the images
+    fov_locs["ymax"] = fov_locs["Y_mm"] * 1e3 / pixel_size
 
-    fovs_counts = list(map(str, adata.obs.fov.astype(int).unique()))
+    return fov_locs
 
-    affine_transforms_to_global = {}
 
-    for fov in fovs_counts:
-        idx = table.obs.fov.astype(str) == fov
-        loc = table[idx, :].obs[[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL]].values
-        glob = table[idx, :].obs[[CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL]].values
-        out = estimate_transform(ttype="affine", src=loc, dst=glob)
-        affine_transforms_to_global[fov] = Affine(
-            # out.params, input_coordinate_system=input_cs, output_coordinate_system=output_cs
-            out.params,
-            input_axes=("x", "y"),
-            output_axes=("x", "y"),
-        )
+def _read_stitched_image(
+    images_dir: Path, fov_locs: pd.DataFrame, protein_dir_dict: dict[int, Path], **imread_kwargs: int
+) -> tuple[da.Array, list[str] | None]:
+    logger.warn("Image stitching is currently experimental")
 
-    table.obsm["global"] = table.obs[[CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL]].to_numpy()
-    table.obsm["spatial"] = table.obs[[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL]].to_numpy()
-    table.obs.drop(
-        columns=[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL, CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL],
-        inplace=True,
-    )
+    fov_images = {}
+    protein_names = None
+    pattern = re.compile(r".*_F(\d+)")
+    for image_path in images_dir.iterdir():
+        if image_path.suffix == ".TIF":
+            fov = int(pattern.findall(image_path.name)[0])
 
-    # prepare to read images and labels
-    file_extensions = (".jpg", ".png", ".jpeg", ".tif", ".tiff")
-    pat = re.compile(r".*_F(\d+)")
+            image, protein_names = _read_fov_image(image_path, protein_dir_dict.get(fov), **imread_kwargs)
 
-    # check if fovs are correct for images and labels
-    fovs_images = []
-    for fname in os.listdir(path / CosmxKeys.IMAGES_DIR):
-        if fname.endswith(file_extensions):
-            fovs_images.append(str(int(pat.findall(fname)[0])))
+            fov_images[fov] = da.flip(image, axis=1)
 
-    fovs_labels = []
-    for fname in os.listdir(path / CosmxKeys.LABELS_DIR):
-        if fname.endswith(file_extensions):
-            fovs_labels.append(str(int(pat.findall(fname)[0])))
+            fov_locs.loc[fov, "xmax"] = fov_locs.loc[fov, "xmin"] + image.shape[2]
+            fov_locs.loc[fov, "ymin"] = fov_locs.loc[fov, "ymax"] - image.shape[1]
 
-    fovs_images_and_labels = set(fovs_images).intersection(set(fovs_labels))
-    fovs_diff = fovs_images_and_labels.difference(set(fovs_counts))
-    if len(fovs_diff):
-        raise logger.warning(
-            f"Found images and labels for {len(fovs_images)} FOVs, but only {len(fovs_counts)} FOVs in the counts file.\n"
-            + f"The following FOVs are missing: {fovs_diff} \n"
-            + "... will use only fovs in Table."
-        )
+    for dim in ["x", "y"]:
+        shift = fov_locs[f"{dim}min"].min()
+        fov_locs[f"{dim}0"] = (fov_locs[f"{dim}min"] - shift).round().astype(int)
+        fov_locs[f"{dim}1"] = (fov_locs[f"{dim}max"] - shift).round().astype(int)
 
-    # read images
-    images = {}
-    for fname in os.listdir(path / CosmxKeys.IMAGES_DIR):
-        if fname.endswith(file_extensions):
-            fov = str(int(pat.findall(fname)[0]))
-            if fov in fovs_counts:
-                aff = affine_transforms_to_global[fov]
-                im = imread(path / CosmxKeys.IMAGES_DIR / fname, **imread_kwargs).squeeze()
-                flipped_im = da.flip(im, axis=0)
-                parsed_im = Image2DModel.parse(
-                    flipped_im,
-                    transformations={
-                        fov: Identity(),
-                        "global": aff,
-                        "global_only_image": aff,
-                    },
-                    dims=("y", "x", "c"),
-                    **image_models_kwargs,
-                )
-                images[f"{fov}_image"] = parsed_im
-            else:
-                logger.warning(f"FOV {fov} not found in counts file. Skipping image {fname}.")
+    stitched_image = da.zeros(shape=(image.shape[0], fov_locs["y1"].max(), fov_locs["x1"].max()), dtype=image.dtype)
 
-    # read labels
-    labels = {}
-    for fname in os.listdir(path / CosmxKeys.LABELS_DIR):
-        if fname.endswith(file_extensions):
-            fov = str(int(pat.findall(fname)[0]))
-            if fov in fovs_counts:
-                aff = affine_transforms_to_global[fov]
-                la = imread(path / CosmxKeys.LABELS_DIR / fname, **imread_kwargs).squeeze()
-                flipped_la = da.flip(la, axis=0)
-                parsed_la = Labels2DModel.parse(
-                    flipped_la,
-                    transformations={
-                        fov: Identity(),
-                        "global": aff,
-                        "global_only_labels": aff,
-                    },
-                    dims=("y", "x"),
-                    **image_models_kwargs,
-                )
-                labels[f"{fov}_labels"] = parsed_la
-            else:
-                logger.warning(f"FOV {fov} not found in counts file. Skipping labels {fname}.")
+    for fov, im in fov_images.items():
+        xmin, xmax = fov_locs.loc[fov, "x0"], fov_locs.loc[fov, "x1"]
+        ymin, ymax = fov_locs.loc[fov, "y0"], fov_locs.loc[fov, "y1"]
+        stitched_image[:, ymin:ymax, xmin:xmax] = im
 
-    points: dict[str, DaskDataFrame] = {}
-    if transcripts:
-        # assert transcripts_file is not None
-        # from pyarrow.csv import read_csv
-        #
-        # ptable = read_csv(path / transcripts_file)  # , header=0)
-        # for fov in fovs_counts:
-        #     aff = affine_transforms_to_global[fov]
-        #     sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
-        #     sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
-        #     # we rename z because we want to treat the data as 2d
-        #     sub_table.rename(columns={"z": "z_raw"}, inplace=True)
-        #     points[fov] = PointsModel.parse(
-        #         sub_table,
-        #         coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
-        #         feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
-        #         instance_key=CosmxKeys.INSTANCE_KEY,
-        #         transformations={
-        #             fov: Identity(),
-        #             "global": aff,
-        #             "global_only_labels": aff,
-        #         },
-        #     )
-        # let's convert the .csv to .parquet and let's read it with pyarrow.parquet for faster subsetting
-        import tempfile
+    return stitched_image, protein_names
 
-        import pyarrow.parquet as pq
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            print("converting .csv to .parquet to improve the speed of the slicing operations... ", end="")
-            assert transcripts_file is not None
-            transcripts_data = pd.read_csv(path / transcripts_file, header=0)
-            transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
-            print("done")
+def _check_fov_id(fov: str | int | None) -> tuple[str | None, int | None]:
+    if fov is None:
+        return None, None
 
-            ptable = pq.read_table(Path(tmpdir) / "transcripts.parquet")
-            for fov in fovs_counts:
-                aff = affine_transforms_to_global[fov]
-                sub_table = ptable.filter(pa.compute.equal(ptable.column(CosmxKeys.FOV), int(fov))).to_pandas()
-                sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
-                # we rename z because we want to treat the data as 2d
-                sub_table.rename(columns={"z": "z_raw"}, inplace=True)
-                points[f"{fov}_points"] = PointsModel.parse(
-                    sub_table,
-                    coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
-                    feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
-                    instance_key=CosmxKeys.INSTANCE_KEY,
-                    transformations={
-                        fov: Identity(),
-                        "global": aff,
-                        "global_only_labels": aff,
-                    },
-                )
+    if isinstance(fov, int):
+        return f"F{fov:0>3}", fov
 
-    # TODO: what to do with fov file?
-    # if fov_file is not None:
-    #     fov_positions = pd.read_csv(path / fov_file, header=0, index_col=CosmxKeys.FOV)
-    #     for fov, row in fov_positions.iterrows():
-    #         try:
-    #             adata.uns["spatial"][str(fov)]["metadata"] = row.to_dict()
-    #         except KeyError:
-    #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
-    #             continue
+    assert (
+        fov[0] == "F" and len(fov) == 4 and all(c.isdigit() for c in fov[1:])
+    ), f"'fov' needs to start with a F followed by three digits. Found '{fov}'."
 
-    return SpatialData(images=images, labels=labels, points=points, table=table)
+    return fov, int(fov[1:])
+
+
+def _read_cosmx_csv(path: Path, dataset_id: str) -> pd.DataFrame:
+    transcripts_file = path / f"{dataset_id}_tx_file.csv.gz"
+
+    if transcripts_file.exists():
+        return pd.read_csv(transcripts_file, compression="gzip")
+
+    transcripts_file = path / f"{dataset_id}_tx_file.csv"
+
+    assert transcripts_file.exists(), f"Transcript file {transcripts_file} not found."
+
+    return pd.read_csv(transcripts_file)
+
+
+def _cosmx_c_coords(path: Path, n_channels: int, protein_names: list[str] | None) -> list[str]:
+    channel_ids_path = path / "Morphology_ChannelID_Dictionary.txt"
+
+    if channel_ids_path.exists():
+        channel_names = list(pd.read_csv(channel_ids_path, delimiter="\t")["BiologicalTarget"])
+    else:
+        n_channels = n_channels - len(protein_names) if protein_names is not None else n_channels
+        channel_names = [str(i) for i in range(n_channels)]
+        logger.warn(f"Channel file not found at {channel_ids_path}, using {channel_names=} instead.")
+
+    if protein_names is not None:
+        channel_names += protein_names
+
+    return channel_names
+
+
+def _find_dir(path: Path, name: str) -> Path:
+    if (path / name).is_dir():
+        return path / name
+
+    paths = list(path.rglob(f"**/{name}"))
+    assert len(paths) == 1, f"Found {len(paths)} path(s) with name {name} inside {path}"
+
+    return paths[0]
+
+
+def _get_cosmx_protein_name(image_path: Path) -> str:
+    with tifffile.TiffFile(image_path) as tif:
+        description = tif.pages[0].description
+        substrings: list[str] = re.findall(r'"DisplayName": "(.*?)",', description)
+        return substrings[0]
+
+
+def _read_protein_fov(protein_dir: Path) -> tuple[da.Array, list[str]]:
+    images_paths = list(protein_dir.rglob("*.TIF"))
+    protein_image = da.concatenate([imread(image_path) for image_path in images_paths], axis=0)
+    channel_names = [_get_cosmx_protein_name(image_path) for image_path in images_paths]
+
+    return protein_image, channel_names
