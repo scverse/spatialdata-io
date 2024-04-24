@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.3] - xxxx-xx-xx
 
+### Added
+
+-   (Xenium) support reading multi-polygon selection files from the Xenium Explorer
+
 ## [0.1.2] - 2024-03-30
 
 ### Added
