@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning][].
 
 -   (Xenium) support reading multi-polygon selection files from the Xenium Explorer
 
+### Fixed
+
+-   (Visium) Fixed issue with joining a SpatialElement with a table due to index values not being unique.
+    obs_names_make_unique is now called internally to enforce unique index values allowing for join operations.
+
 ## [0.1.2] - 2024-03-30
 
 ### Added

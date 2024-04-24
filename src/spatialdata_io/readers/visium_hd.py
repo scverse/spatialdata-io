@@ -227,6 +227,7 @@ def visium_hd(
         # parse table
         adata.obs[VisiumHDKeys.REGION_KEY] = shapes_name
         adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
+
         tables[bin_size_str] = TableModel.parse(
             adata,
             region=shapes_name,
