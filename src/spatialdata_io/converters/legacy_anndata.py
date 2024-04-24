@@ -173,7 +173,7 @@ def to_legacy_anndata(
         sdata_images = sdata.subset(element_names=list(sdata.images.keys()))
         for image_name, image in sdata_images.images.items():
             sdata_pre_rasterize[image_name] = image
-        bb = get_extent(sdata_images)
+        bb = get_extent(sdata_images, coordinate_system=coordinate_system)
 
         parameters_dict = {"x": "target_width", "y": "target_height", "z": "target_depth"}
         longest_side = max(bb, key=bb.get)
