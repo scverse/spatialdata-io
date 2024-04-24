@@ -121,6 +121,10 @@ class XeniumKeys(ModeEnum):
     NUCLEUS_COUNT = "nucleus_count"
     Z_LEVEL = "z_level"
 
+    EXPLORER_SELECTION_X = "X"
+    EXPLORER_SELECTION_Y = "Y"
+    EXPLORER_SELECTION_KEY = "Selection"
+
 
 @unique
 class VisiumKeys(ModeEnum):

@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.3] - xxxx-xx-xx
 
+### Added
+
+-   (Xenium) support reading multi-polygon selection files from the Xenium Explorer
+
 ### Fixed
 
 -   (Visium) Fixed issue with joining a SpatialElement with a table due to index values not being unique.
