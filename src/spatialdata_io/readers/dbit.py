@@ -75,16 +75,20 @@ def _check_path(
     else:
         matches = [i for i in os.listdir(path) if pattern.match(i)]
         if len(matches) > 1:
-            raise Exception(f'There are {len(matches)} file matching {key} in {Path(path)}. Specify the correct file path to avoid ambiguities.')
+            raise Exception(
+                f"There are {len(matches)} file matching {key} in {Path(path)}. Specify the correct file path to avoid ambiguities."
+            )
         else:
             try:
                 checked_file = [i for i in os.listdir(path) if pattern.match(i)][0]  # this is the filename
                 file_path = Path.joinpath(path, checked_file)
                 flag = True
+
             except IndexError:
                 raise IndexError(f'There are no files in {path} matching {key}.')
     
     logger.warning(f'{file_path} is used.')
+
     return file_path, flag
 
 
@@ -252,7 +256,6 @@ def dbit(
     else:
         logger.warning("No path received as input.")
 
-        
     # compile regex pattern to find file name in path, according to _constants.DbitKeys()
     patt_h5ad = re.compile(f".*{DbitKeys.COUNTS_FILE}")
     patt_barcode = re.compile(f".*{DbitKeys.BARCODE_POSITION}.*")
