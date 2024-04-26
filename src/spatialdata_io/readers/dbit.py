@@ -81,7 +81,7 @@ def _check_path(
                 checked_file = [i for i in os.listdir(path) if pattern.match(i)][0]  # this is the filename
                 file_path = Path.joinpath(path, checked_file)
                 flag = True
-            except:
+            except IndexError:
                 raise IndexError(f'There are no files in {path} matching {key}.')
     
     logger.warning(f'{file_path} is used.')
@@ -261,13 +261,13 @@ def dbit(
     # search for files paths. Gives priority to files matching the pattern found in path.
     anndata_path_checked = _check_path(
         path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE
-    )[0]
+    )[0] # type: ignore
     barcode_position_checked = _check_path(
         path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION
-    )[0]
+    )[0] # type: ignore
     image_path_checked, hasimage = _check_path(
         path=path,
-        path_specific=image_path,
+        path_specific=image_path, # type: ignore
         pattern=patt_lowres,
         key=DbitKeys.IMAGE_LOWRES_FILE,
         optional_arg=True,
