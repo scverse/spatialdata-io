@@ -23,6 +23,7 @@ __pycache__/
 # IDEs
 /.idea/
 /.vscode/
+/.spyproject/
 
 # docs
 /docs/generated/
@@ -30,3 +31,6 @@ __pycache__/
 
 # other
 _version.py
+.code-workspace
+temp/
+node_modules/
