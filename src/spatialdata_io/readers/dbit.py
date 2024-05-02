@@ -43,7 +43,7 @@ def _check_path(
         String to match in the path or path_specific path.
     path_specific
         path to the file, if it is not in the main directory.
-        If it is given and valid, this is used and 'path' is neglected.        
+        If it is given and valid, this is used and 'path' is neglected.
     optional_arg : bool, optional
         User specify if the file to search is:
             mandatory:  (optional_arg=False, raise an Error if not found)
@@ -88,7 +88,7 @@ def _check_path(
         if len(matches) > 1:
             if optional_arg:
                 logger.warning(
-                    f'There are {len(matches)} file matching {key} in {Path(path)}. Specify the correct file path to avoid ambiguities.'
+                    f"There are {len(matches)} file matching {key} in {Path(path)}. Specify the correct file path to avoid ambiguities."
                 )
                 return file_path, flag
             else:
@@ -357,7 +357,7 @@ def dbit(
     ra = shapely.to_ragged_array([shapely.Polygon(x) for x in f])
     grid = sd.models.ShapesModel.parse(ra[1], geometry=ra[0], offsets=ra[2], index=adata.obs["pixel_id"].copy())
     # create SpatialData object!
-    sdata = sd.SpatialData(tables={'table':table_data}, shapes={dataset_id: grid})
+    sdata = sd.SpatialData(tables={"table": table_data}, shapes={dataset_id: grid})
     if hasimage:
         imgname = dataset_id + "_image"
         sdata.images[imgname] = image_sd
