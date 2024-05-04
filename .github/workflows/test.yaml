@@ -61,6 +61,7 @@ jobs:
             - name: List the data directory
               run: |
                   ls -l ./data
+                  pwd
 
             - name: Test
               env:

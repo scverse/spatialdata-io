@@ -24,6 +24,8 @@ jobs:
               run: |
                   unzip ./data/Xenium_V1_human_Breast_2fov_outs.zip -d ./data/Xenium_V1_human_Breast_2fov_outs
                   unzip ./data/Xenium_V1_human_Lung_2fov_outs.zip -d ./data/Xenium_V1_human_Lung_2fov_outs
+                  rm ./data/Xenium_V1_human_Breast_2fov_outs.zip
+                  rm ./data/Xenium_V1_human_Lung_2fov_outs.zip
 
             - name: Upload artifacts
               uses: actions/upload-artifact@v3
