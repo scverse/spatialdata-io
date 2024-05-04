@@ -1,0 +1,41 @@
+name: Prepare test data
+
+on:
+    workflow_dispatch:
+
+jobs:
+    download-data:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Download test datasets
+              run: |
+                  mkdir -p ./data
+                  cd ./data
+                  curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Breast_2fov/Xenium_V1_human_Breast_2fov_outs.zip
+                  curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Lung_2fov/Xenium_V1_human_Lung_2fov_outs.zip
+
+            - name: Unzip files
+              run: |
+                  pwd
+                  unzip Xenium_V1_human_Breast_2fov_outs.zip
+                  unzip Xenium_V1_human_Lung_2fov_outs.zip
+
+#    - uses: actions/upload-artifact@v3
+#      with:
+#        name: data
+#        path: ./data
+
+#  use-data:
+#    needs: download-data
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#    - uses: actions/checkout@v3
+#
+#    - uses: actions/download-artifact@v3
+#      with:
+#        name: data
+#        path: ./data

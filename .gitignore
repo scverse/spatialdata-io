@@ -34,3 +34,4 @@ _version.py
 .code-workspace
 temp/
 node_modules/
+data/
