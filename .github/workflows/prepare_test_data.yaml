@@ -1,7 +1,6 @@
 name: Prepare test data
 
-on:
-    workflow_dispatch
+on: workflow_dispatch
 
 jobs:
     download-data:
