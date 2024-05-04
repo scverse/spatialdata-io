@@ -1,6 +1,10 @@
 name: Prepare test data
 
-on: workflow_dispatch
+on:
+  push:
+    branches:
+      - your-branch-name
+  workflow_dispatch:
 
 jobs:
     download-data:
