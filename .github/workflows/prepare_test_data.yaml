@@ -3,7 +3,7 @@ name: Prepare test data
 on:
     push:
         branches:
-            - your-branch-name
+            - xenium_ci_example
     workflow_dispatch:
 
 jobs:
