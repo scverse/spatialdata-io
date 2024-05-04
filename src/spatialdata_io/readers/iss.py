@@ -22,12 +22,15 @@ __all__ = ["iss"]
 def iss(
     path: str | Path,
     raw_relative_path: str | Path,
-    label_relative_path: str | Path,
+    labels_relative_path: str | Path,
     h5ad_relative_path: str | Path,
+    instance_key: str,
     dataset_id: str = "region",
+    multiscale_image: bool = True,
+    multiscale_labels: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    label_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read *Sanger ISS* formatted dataset.
@@ -36,7 +39,7 @@ def iss(
 
         - ``<dataset_id>``: Counts and metadata file.
         - ``<raw_relative_path>``: Raw raster image.
-        - ``<label_relative_path>``: Label image.
+        - ``<labels_relative_path>``: Label image.
 
     Parameters
     ----------
@@ -44,17 +47,24 @@ def iss(
         Path to the directory containing the data.
     raw_relative_path
         Relative path to the raw raster image file.
-    label_relative_path
+    labels_relative_path
         Relative path to the label image file.
     h5ad_relative_path
         Relative path to the counts and metadata file.
+    instance_key
+        The name of the column that contains the instance identifiers. Must be specified in order to link the table with
+        the labels image (e.g. `cell_id`).
     dataset_id
         Dataset identifier.
+    multiscale_image
+        Whether to process the raw image into a multiscale image.
+    multiscale_labels
+        Whether to process the label image into a multiscale image.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
-    label_models_kwargs
+    labels_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Label2DModel`.
 
     Returns
@@ -62,38 +72,53 @@ def iss(
     :class:`spatialdata.SpatialData`
         The spatial data object containing the ISS data.
     """
+    REGION = f"{dataset_id}_labels_image"
+    REGION_KEY = "region"
     path = Path(path)
 
     adata = ad.read(path / h5ad_relative_path)
-    adata.obs["cell_id"] = np.arange(len(adata))
+    adata.obs[instance_key] = np.arange(len(adata))
     adata.var_names_make_unique()
-    adata.obs["region"] = dataset_id
-    table = TableModel.parse(adata, region=dataset_id, region_key="region", instance_key="cell_id")
+    adata.obs[REGION_KEY] = REGION
+    table = TableModel.parse(adata, region=REGION, region_key=REGION_KEY, instance_key=instance_key)
 
     transform_original = Identity()
 
-    label_image = imread(path / label_relative_path, **imread_kwargs).squeeze()
-    label_image = DataArray(label_image, dims=("y", "x"), name=f"{dataset_id}_label_image")
+    labels_image = imread(path / labels_relative_path, **imread_kwargs).squeeze()
+    # import os
+    # labels_image = imread(os.path.expanduser('~/Desktop/labels_image.tif'), **imread_kwargs).squeeze()
+    ##
+    # import matplotlib.pyplot as plt
+    # # x = labels_image.transpose(1, 2, 0)
+    # x = labels_image[0, :, :]
+    # x.shape
+    # plt.imshow(x[:, :, 0])
+    # plt.show()
+    # import tifffile
+    # import os
+    # tifffile.imsave(os.path.expanduser("~/Desktop/labels_image.tif"), x)
+    ##
+    labels_image = DataArray(labels_image[2, :, :], dims=("y", "x"))
 
-    label_image_parsed = Labels2DModel.parse(
-        label_image,
-        scale_factors=[2, 2, 2, 2],
+    labels_image_parsed = Labels2DModel.parse(
+        labels_image,
+        scale_factors=[2, 2, 2, 2] if multiscale_labels else None,
         transformations={"global": transform_original},
-        **label_models_kwargs,
+        **labels_models_kwargs,
     )
 
     raw_image = imread(path / raw_relative_path, **imread_kwargs)
-    raw_image = DataArray(raw_image, dims=("c", "y", "x"), name=dataset_id)
+    raw_image = DataArray(raw_image, dims=("c", "y", "x"))
 
     raw_image_parsed = Image2DModel.parse(
         raw_image,
-        scale_factors=[2, 2, 2, 2],
+        scale_factors=[2, 2, 2, 2] if multiscale_image else None,
         transformations={"global": transform_original},
         **image_models_kwargs,
     )
 
     return SpatialData(
         images={f"{dataset_id}_raw_image": raw_image_parsed},
-        labels={f"{dataset_id}_label_image": label_image_parsed},
+        labels={REGION: labels_image_parsed},
         table=table,
     )
