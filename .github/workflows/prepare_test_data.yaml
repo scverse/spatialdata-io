@@ -21,7 +21,6 @@ jobs:
                   unzip ./data/Xenium_V1_human_Breast_2fov_outs.zip -d ./data/Xenium_V1_human_Breast_2fov_outs
                   unzip ./data/Xenium_V1_human_Lung_2fov_outs.zip -d ./data/Xenium_V1_human_Lung_2fov_outs
 
-
 #    - uses: actions/upload-artifact@v3
 #      with:
 #        name: data
