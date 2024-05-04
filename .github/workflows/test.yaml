@@ -50,6 +50,17 @@ jobs:
             - name: Install dependencies
               run: |
                   pip install --pre -e ".[dev,test]"
+
+            - name: Download artifacts of test data
+              uses: actions/download-artifact@v3
+              with:
+                  name: data
+                  path: ./data
+
+            - name: List the data directory
+              run: |
+                  ls -l ./data
+
             - name: Test
               env:
                   MPLBACKEND: agg
