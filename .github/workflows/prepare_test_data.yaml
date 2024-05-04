@@ -1,10 +1,11 @@
 name: Prepare test data
 
 on:
-    push:
-        branches:
-            - xenium_ci_example
     workflow_dispatch:
+# uncomment and adjust the branch name if you need to add new datasets to the artifact
+#    push:
+#        branches:
+#            - main
 
 jobs:
     prepare-data:

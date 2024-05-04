@@ -47,7 +47,7 @@ def test_roundtrip_with_data_limits() -> None:
     ],
 )
 def test_example_data(dataset: str, expected: str) -> None:
-    f = Path("../data") / dataset
+    f = Path("./data") / dataset
     assert f.is_dir()
     sdata = xenium(f)
     from spatialdata import get_extent
