@@ -37,48 +37,77 @@ def _check_path(
     ----------
     path
         The path of the main directory where to search for the path.
-    path_specific
-        path to the file, if it is not in the main directory.
     pattern
         regex pattern.
     key
         String to match in the path or path_specific path.
+    path_specific
+        path to the file, if it is not in the main directory.
+        If it is given and valid, this is used and 'path' is neglected.
     optional_arg
-        User specify if the file to search is mandatory (optional_arg=True, raise an Error if not found)
-        or optional (optional_arg=False, raise a Warning if not found).
+        User specify if the file to search is:
+            mandatory:  (optional_arg=False, raise an Error if not found)
+            optional:   (optional_arg=True, raise a Warning if not found).
 
     Raises
     ------
     FileNotFoundError
-        The error is raised if no match is found in the given paths and optional_arg=True.
+        Raised if no match is found in the given paths and optional_arg=False.
+    Exception
+        Raised if there are multiple file mathing a pattern.
+    IndexError
+        Raised if no matching file is found.
 
     Returns
     -------
-    tuple(pathlib.PosixPath, bool)
-        return a tuple(pathlib.PosixPath, bool). The bool is a flag that indicate if one of the supplied path arguments points to a file that match the supplied key.
+    (tuple[Union[Path, None], bool])
+        return the file path if valid, or None if not valid, and a bool.
+        The bool is a flag that indicates if one of the supplied path arguments
+        points to a file that matches the supplied key.
+
     """
     flag = False
     file_path = None
-    try:
-        checked_file = [i for i in os.listdir(path) if pattern.match(i)][0]  # this is the filename
-        file_path = Path.joinpath(path, checked_file)
-        flag = True
-    except IndexError:
-        # handle case in which the searched file is not in the same directory as path
-        if path_specific is not None:
-            if os.path.isfile(path_specific):
-                file_path = Path(path_specific)
-                flag = True
-            else:
-                if optional_arg:
-                    logger.warning(f"{path_specific} is not a valid path for {key}. No {key} will be used.")
-                else:
-                    raise FileNotFoundError(f"{path_specific} is not a valid path for a {key} file.")
+    # check if a specific file path is given and is valid.
+    # If yes, it is used. Has priority with respect to the 'path' argument.
+    if path_specific is not None:
+        if os.path.isfile(path_specific):
+            file_path = Path(path_specific)
+            flag = True
         else:
+            # if path_specific is not valid but optional, give warning
             if optional_arg:
-                logger.warning(f"No file containing {key} found in folder {path}. No {key} will be used.")
+                logger.warning(f"{path_specific} is not a valid path for {key}. No {key} will be used.")
+            # if path_specific is not valid but mandatory, raise error
             else:
-                raise FileNotFoundError(f"No file containing {key} found in folder {path}.")
+                raise FileNotFoundError(f"{path_specific} is not a valid path for a {key} file.")
+
+    else:
+        # search for the pattern matching file in path
+        matches = [i for i in os.listdir(path) if pattern.match(i)]
+        if len(matches) > 1:
+            message = f"There are {len(matches)} file matching {key} in {Path(path)}. Specify the correct file path to avoid ambiguities."
+            if optional_arg:
+                logger.warning(message)
+                return file_path, flag
+            else:
+                raise Exception(message)
+        else:
+            # if there is a matching file, use it
+            try:
+                checked_file = matches[0]  # this is the filename
+                file_path = Path.joinpath(path, checked_file)
+                flag = True
+            # if there are no files matching the pattern, raise error
+            except IndexError:
+                message = f"There are no files in {path} matching {key}."
+                if optional_arg:
+                    logger.warning(message)
+                    return file_path, flag
+                else:
+                    raise IndexError(message)
+
+    logger.warning(f"{file_path} is used.")
     return file_path, flag
 
 
@@ -189,7 +218,7 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
 
 @inject_docs(vx=DbitKeys)
 def dbit(
-    path: str | Path,
+    path: Optional[str | Path] = None,
     anndata_path: Optional[str] = None,
     barcode_position: Optional[str] = None,
     image_path: Optional[str] = None,
@@ -236,12 +265,14 @@ def dbit(
     -------
     :class:`spatialdata.SpatialData`.
     """
-    path = Path(path)
-    # if path is invalid, raise error
-    if not os.path.isdir(path):
-        raise FileNotFoundError(
-            f"The path you have passed: {path} has not been found. A correct path to the data directory is needed."
-        )
+    if path is not None:
+        path = Path(path)
+        # if path is invalid, raise error
+        if not os.path.isdir(path):
+            raise FileNotFoundError(
+                f"The path you have passed: {path} has not been found. A correct path to the data directory is needed."
+            )
+
     # compile regex pattern to find file name in path, according to _constants.DbitKeys()
     patt_h5ad = re.compile(f".*{DbitKeys.COUNTS_FILE}")
     patt_barcode = re.compile(f".*{DbitKeys.BARCODE_POSITION}.*")
@@ -249,13 +280,13 @@ def dbit(
 
     # search for files paths. Gives priority to files matching the pattern found in path.
     anndata_path_checked = _check_path(
-        path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE
+        path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE  # type: ignore
     )[0]
     barcode_position_checked = _check_path(
-        path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION
+        path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION  # type: ignore
     )[0]
     image_path_checked, hasimage = _check_path(
-        path=path,
+        path=path,  # type: ignore
         path_specific=image_path,
         pattern=patt_lowres,
         key=DbitKeys.IMAGE_LOWRES_FILE,
@@ -324,7 +355,7 @@ def dbit(
     ra = shapely.to_ragged_array([shapely.Polygon(x) for x in f])
     grid = sd.models.ShapesModel.parse(ra[1], geometry=ra[0], offsets=ra[2], index=adata.obs["pixel_id"].copy())
     # create SpatialData object!
-    sdata = sd.SpatialData(table=table_data, shapes={dataset_id: grid})
+    sdata = sd.SpatialData(tables={"table": table_data}, shapes={dataset_id: grid})
     if hasimage:
         imgname = dataset_id + "_image"
         sdata.images[imgname] = image_sd
