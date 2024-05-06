@@ -100,11 +100,12 @@ def _check_path(
                 flag = True
             # if there are no files matching the pattern, raise error
             except IndexError:
+                message = f"There are no files in {path} matching {key}."
                 if optional_arg:
-                    logger.warning(f"There are no files in {path} matching {key}.")
+                    logger.warning(message)
                     return file_path, flag
                 else:
-                    raise IndexError(f"There are no files in {path} matching {key}.")
+                    raise IndexError(message)
 
     logger.warning(f"{file_path} is used.")
     return file_path, flag
