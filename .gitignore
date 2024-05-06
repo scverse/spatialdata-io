@@ -34,3 +34,7 @@ _version.py
 .code-workspace
 temp/
 node_modules/
+
+# test datasets (e.g. Xenium ones)
+data/
+tests/data

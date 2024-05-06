@@ -50,6 +50,21 @@ jobs:
             - name: Install dependencies
               run: |
                   pip install --pre -e ".[dev,test]"
+
+            - name: Download artifact of test data
+              if: matrix.python == '3.10'
+              uses: dawidd6/action-download-artifact@v2
+              with:
+                  workflow: prepare_test_data.yaml
+                  name: data
+                  path: ./data
+
+            - name: List the data directory
+              if: matrix.python == '3.10'
+              run: |
+                  ls -l ./data
+                  pwd
+
             - name: Test
               env:
                   MPLBACKEND: agg
