@@ -44,7 +44,7 @@ def _check_path(
     path_specific
         path to the file, if it is not in the main directory.
         If it is given and valid, this is used and 'path' is neglected.
-    optional_arg : bool, optional
+    optional_arg
         User specify if the file to search is:
             mandatory:  (optional_arg=False, raise an Error if not found)
             optional:   (optional_arg=True, raise a Warning if not found).
@@ -86,15 +86,12 @@ def _check_path(
         # search for the pattern matching file in path
         matches = [i for i in os.listdir(path) if pattern.match(i)]
         if len(matches) > 1:
+            message = f"There are {len(matches)} file matching {key} in {Path(path)}. Specify the correct file path to avoid ambiguities."
             if optional_arg:
-                logger.warning(
-                    f"There are {len(matches)} file matching {key} in {Path(path)}. Specify the correct file path to avoid ambiguities."
-                )
+                logger.warning(message)
                 return file_path, flag
             else:
-                raise Exception(
-                    f"There are {len(matches)} file matching {key} in {Path(path)}. Specify the correct file path to avoid ambiguities."
-                )
+                raise Exception(message)
         else:
             # if there is a matching file, use it
             try:
