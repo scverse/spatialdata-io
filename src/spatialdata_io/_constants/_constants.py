@@ -167,7 +167,7 @@ class SteinbockKeys(ModeEnum):
 
 @unique
 class StereoseqKeys(ModeEnum):
-    """Keys for *Stereoseq* formatted dataset."""
+    """Keys for *Stereo-seq* formatted dataset."""
 
     # file extensions
     GEF_FILE = ".gef"

@@ -35,7 +35,7 @@ def stereoseq(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
-    Read *stereoseq* formatted dataset.
+    Read *Stereo-seq* formatted dataset.
 
     Parameters
     ----------
