@@ -8,17 +8,66 @@
 
 I/O for the `spatialdata` project.
 
+### Readers
+
 ```{eval-rst}
 .. autosummary::
     :toctree: generated
 
     codex
-    curio
     cosmx
-    visium
-    xenium
+    curio
+    dbit
+    mcmicro
+    merscope
     steinbock
     stereoseq
-    merscope
-    mcmicro
+    visium
+    visium_hd
+    xenium
+```
+
+### Experimental readers
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io.experimental
+
+.. autosummary::
+    :toctree: generated
+
+    iss
+```
+
+### Conversion functions
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io
+
+.. autosummary::
+    :toctree: generated
+
+```
+
+### Experimental conversion functions
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io.experimental
+
+.. autosummary::
+    :toctree: generated
+
+    from_legacy_anndata
+    to_legacy_anndata
+```
+
+### Utility functions
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io
+
+.. autosummary::
+    :toctree: generated
+
+    xenium_aligned_image
+    xenium_explorer_selection
 ```

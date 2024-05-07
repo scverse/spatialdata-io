@@ -9,6 +9,9 @@ import sys
 from datetime import datetime
 from importlib.metadata import metadata
 from pathlib import Path
+import spatialdata_io.experimental
+
+_ = spatialdata_io.experimental
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE / "extensions"))
@@ -94,6 +97,8 @@ intersphinx_mapping = {
     "geopandas": ("https://geopandas.org/en/stable/", None),
     "xarray": ("https://docs.xarray.dev/en/stable/", None),
     "datatree": ("https://datatree.readthedocs.io/en/latest/", None),
+    "shapely": ("https://shapely.readthedocs.io/en/stable/", None),
+    "imageio": ("https://imageio.readthedocs.io/en/stable/", None),
 }
 
 # List of patterns, relative to source directory, that match files and
@@ -111,10 +116,7 @@ html_theme = "sphinx_book_theme"
 html_static_path = ["_static"]
 html_title = project_name
 
-html_theme_options = {
-    "repository_url": repository_url,
-    "use_repository_button": True,
-}
+html_theme_options = {"repository_url": repository_url, "use_repository_button": True, "navigation_with_keys": True}
 
 pygments_style = "default"
 
@@ -124,6 +126,7 @@ nitpick_ignore = [
     ("py:class", "Path"),
     ("py:class", "AnnData"),
     ("py:class", "SpatialData"),
+    ("py:func", "imageio.imread"),  # maybe this can be fixed
 ]
 
 

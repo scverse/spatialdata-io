@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import anndata
@@ -12,6 +14,7 @@ import pandas as pd
 from dask import array as da
 from dask_image.imread import imread
 from spatialdata import SpatialData
+from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
 from spatialdata.transformations import Affine, Identity
 
@@ -79,6 +82,8 @@ def merscope(
     z_layers: int | list[int] | None = 3,
     region_name: str | None = None,
     slide_name: str | None = None,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read *MERSCOPE* data from Vizgen.
@@ -115,21 +120,38 @@ def merscope(
         Name of the region of interest, e.g., `'region_0'`. If `None` then the name of the `path` directory is used.
     slide_name
         Name of the slide/run. If `None` then the name of the parent directory of `path` is used (whose name starts with a date).
+    imread_kwargs
+        Keyword arguments to pass to the image reader.
+    image_models_kwargs
+        Keyword arguments to pass to the image models.
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
     """
-    path = Path(path)
+    if "chunks" not in image_models_kwargs:
+        if isinstance(image_models_kwargs, MappingProxyType):
+            image_models_kwargs = {}
+        assert isinstance(image_models_kwargs, dict)
+        image_models_kwargs["chunks"] = (1, 4096, 4096)
+    if "scale_factors" not in image_models_kwargs:
+        if isinstance(image_models_kwargs, MappingProxyType):
+            image_models_kwargs = {}
+        assert isinstance(image_models_kwargs, dict)
+        image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
+
+    path = Path(path).absolute()
     count_path, obs_path, boundaries_path = _get_file_paths(path, vpt_outputs)
     images_dir = path / MerscopeKeys.IMAGES_DIR
 
-    microns_to_pixels = np.genfromtxt(images_dir / MerscopeKeys.TRANSFORMATION_FILE)
-    microns_to_pixels = Affine(microns_to_pixels, input_axes=("x", "y"), output_axes=("x", "y"))
+    microns_to_pixels = Affine(
+        np.genfromtxt(images_dir / MerscopeKeys.TRANSFORMATION_FILE), input_axes=("x", "y"), output_axes=("x", "y")
+    )
 
-    region_name = path.name if region_name is None else region_name
+    vizgen_region = path.name if region_name is None else region_name
     slide_name = path.parent.name if slide_name is None else slide_name
-    dataset_id = f"{slide_name}_{region_name}"
+    dataset_id = f"{slide_name}_{vizgen_region}"
+    region = f"{dataset_id}_polygons"
 
     # Images
     images = {}
@@ -137,58 +159,98 @@ def merscope(
     z_layers = [z_layers] if isinstance(z_layers, int) else z_layers or []
 
     stainings = _get_channel_names(images_dir)
-    for z_layer in z_layers:
-        im = da.stack([imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif").squeeze() for stain in stainings], axis=0)
-        parsed_im = Image2DModel.parse(
-            im,
-            dims=("c", "y", "x"),
-            transformations={"pixels": Identity()},
-            c_coords=stainings,
-        )
-        images[f"{dataset_id}_z{z_layer}"] = parsed_im
+    if stainings:
+        for z_layer in z_layers:
+            im = da.stack(
+                [
+                    imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif", **imread_kwargs).squeeze()
+                    for stain in stainings
+                ],
+                axis=0,
+            )
+            parsed_im = Image2DModel.parse(
+                im,
+                dims=("c", "y", "x"),
+                transformations={"microns": microns_to_pixels.inverse()},
+                c_coords=stainings,
+                **image_models_kwargs,
+            )
+            images[f"{dataset_id}_z{z_layer}"] = parsed_im
 
     # Transcripts
-    transcript_df = dd.read_csv(path / MerscopeKeys.TRANSCRIPTS_FILE)
+    points = {}
+    transcript_path = path / MerscopeKeys.TRANSCRIPTS_FILE
+    if transcript_path.exists():
+        points[f"{dataset_id}_transcripts"] = _get_points(transcript_path)
+    else:
+        logger.warning(f"Transcript file {transcript_path} does not exist. Transcripts are not loaded.")
+
+    # Polygons
+    shapes = {}
+    if boundaries_path.exists():
+        shapes[f"{dataset_id}_polygons"] = _get_polygons(boundaries_path)
+    else:
+        logger.warning(f"Boundary file {boundaries_path} does not exist. Cell boundaries are not loaded.")
+
+    # Table
+    table = None
+    if count_path.exists() and obs_path.exists():
+        table = _get_table(count_path, obs_path, vizgen_region, slide_name, dataset_id, region)
+    else:
+        logger.warning(
+            f"At least one of the following files does not exist: {count_path}, {obs_path}. The table is not loaded."
+        )
+
+    return SpatialData(shapes=shapes, points=points, images=images, table=table)
+
+
+def _get_points(transcript_path: Path) -> dd.DataFrame:
+    transcript_df = dd.read_csv(transcript_path)
     transcripts = PointsModel.parse(
         transcript_df,
         coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
-        transformations={"pixels": microns_to_pixels},
+        transformations={"microns": Identity()},
     )
-    categories = transcripts["gene"].compute().astype("category")
-    gene_categorical = dd.from_pandas(categories, npartitions=transcripts.npartitions).reset_index(drop=True)
-    transcripts["gene"] = gene_categorical
+    transcripts["gene"] = transcripts["gene"].astype("category")
+    return transcripts
 
-    points = {f"{dataset_id}_transcripts": transcripts}
 
-    # Polygons
+def _get_polygons(boundaries_path: Path) -> geopandas.GeoDataFrame:
     geo_df = geopandas.read_parquet(boundaries_path)
     geo_df = geo_df.rename_geometry("geometry")
     geo_df = geo_df[geo_df[MerscopeKeys.Z_INDEX] == 0]  # Avoid duplicate boundaries on all z-levels
-    geo_df.index = geo_df[MerscopeKeys.INSTANCE_KEY].astype(str)
+    geo_df.geometry = geo_df.geometry.map(lambda x: x.geoms[0])  # The MultiPolygons contain only one polygon
+    geo_df.index = geo_df[MerscopeKeys.METADATA_CELL_KEY].astype(str)
 
-    polygons = ShapesModel.parse(geo_df, transformations={"pixels": microns_to_pixels})
+    return ShapesModel.parse(geo_df, transformations={"microns": Identity()})
 
-    shapes = {f"{dataset_id}_polygons": polygons}
 
-    # Table
+def _get_table(
+    count_path: Path,
+    obs_path: Path,
+    vizgen_region: str,
+    slide_name: str,
+    dataset_id: str,
+    region: str,
+) -> anndata.AnnData:
     data = pd.read_csv(count_path, index_col=0, dtype={MerscopeKeys.COUNTS_CELL_KEY: str})
-    obs = pd.read_csv(obs_path, index_col=0, dtype={MerscopeKeys.INSTANCE_KEY: str})
+    obs = pd.read_csv(obs_path, index_col=0, dtype={MerscopeKeys.METADATA_CELL_KEY: str})
 
     is_gene = ~data.columns.str.lower().str.contains("blank")
     adata = anndata.AnnData(data.loc[:, is_gene], dtype=data.values.dtype, obs=obs)
 
     adata.obsm["blank"] = data.loc[:, ~is_gene]  # blank fields are excluded from adata.X
     adata.obsm["spatial"] = adata.obs[[MerscopeKeys.CELL_X, MerscopeKeys.CELL_Y]].values
-    adata.obs["region"] = pd.Series(region_name, index=adata.obs_names, dtype="category")
+    adata.obs["region"] = pd.Series(vizgen_region, index=adata.obs_names, dtype="category")
     adata.obs["slide"] = pd.Series(slide_name, index=adata.obs_names, dtype="category")
     adata.obs["dataset_id"] = pd.Series(dataset_id, index=adata.obs_names, dtype="category")
-    adata.obs[MerscopeKeys.INSTANCE_KEY] = adata.obs.index
+    adata.obs[MerscopeKeys.REGION_KEY] = pd.Series(region, index=adata.obs_names, dtype="category")
+    adata.obs[MerscopeKeys.METADATA_CELL_KEY] = adata.obs.index
 
     table = TableModel.parse(
         adata,
-        region_key="region",
-        region=adata.obs["region"].cat.categories.tolist(),
-        instance_key=MerscopeKeys.INSTANCE_KEY.value,
+        region_key=MerscopeKeys.REGION_KEY.value,
+        region=region,
+        instance_key=MerscopeKeys.METADATA_CELL_KEY.value,
     )
-
-    return SpatialData(shapes=shapes, points=points, images=images, table=table)
+    return table

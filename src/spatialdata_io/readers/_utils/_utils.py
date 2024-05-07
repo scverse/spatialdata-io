@@ -10,7 +10,7 @@ from h5py import File
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
-PathLike = Union[os.PathLike, str]
+PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
 
 try:
     from numpy.typing import NDArray
@@ -29,7 +29,6 @@ def _read_counts(
 ) -> tuple[AnnData, str]:
     path = Path(path)
     if counts_file.endswith(".h5"):
-        print(counts_file)
         adata: AnnData = _read_10x_h5(path / counts_file, **kwargs)
         with File(path / counts_file, mode="r") as f:
             attrs = dict(f.attrs)
@@ -50,9 +49,8 @@ def _read_counts(
                 adata.uns["spatial"][library_id]["metadata"][key] = metadata
 
         return adata, library_id
-
     if library_id is None:
-        raise ValueError("Please explicitly specify library id.")
+        raise ValueError("Please explicitly specify `library id`.")
 
     if counts_file.endswith((".csv", ".txt")):
         adata = read_text(path / counts_file, **kwargs)
