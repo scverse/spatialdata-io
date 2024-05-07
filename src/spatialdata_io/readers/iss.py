@@ -6,7 +6,6 @@ from types import MappingProxyType
 from typing import Any
 
 import anndata as ad
-import numpy as np
 from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata.models import Image2DModel, Labels2DModel, TableModel
@@ -77,7 +76,7 @@ def iss(
     path = Path(path)
 
     adata = ad.read(path / h5ad_relative_path)
-    adata.obs[instance_key] = np.arange(len(adata))
+    adata.obs[instance_key] = adata.obs.index.astype(int)
     adata.var_names_make_unique()
     adata.obs[REGION_KEY] = REGION
     table = TableModel.parse(adata, region=REGION, region_key=REGION_KEY, instance_key=instance_key)
@@ -85,19 +84,6 @@ def iss(
     transform_original = Identity()
 
     labels_image = imread(path / labels_relative_path, **imread_kwargs).squeeze()
-    # import os
-    # labels_image = imread(os.path.expanduser('~/Desktop/labels_image.tif'), **imread_kwargs).squeeze()
-    ##
-    # import matplotlib.pyplot as plt
-    # # x = labels_image.transpose(1, 2, 0)
-    # x = labels_image[0, :, :]
-    # x.shape
-    # plt.imshow(x[:, :, 0])
-    # plt.show()
-    # import tifffile
-    # import os
-    # tifffile.imsave(os.path.expanduser("~/Desktop/labels_image.tif"), x)
-    ##
     labels_image = DataArray(labels_image[2, :, :], dims=("y", "x"))
 
     labels_image_parsed = Labels2DModel.parse(
