@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning][].
 ### Added
 
 -   (Xenium) support reading multi-polygon selection files from the Xenium Explorer
+-   (ISS) An experimental loader to load elemental ISS data objects, e.g. raw.tif, label.tif and anndata.h5ad
 
 ### Fixed
 

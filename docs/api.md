@@ -26,19 +26,26 @@ I/O for the `spatialdata` project.
     xenium
 ```
 
-### Conversion functions
-
-### Utility functions
+### Experimental readers
 
 ```{eval-rst}
+.. currentmodule:: spatialdata_io.experimental
+
 .. autosummary::
     :toctree: generated
 
-    xenium_aligned_image
-    xenium_explorer_selection
+    iss
 ```
 
-### Experimental readers
+### Conversion functions
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io
+
+.. autosummary::
+    :toctree: generated
+
+```
 
 ### Experimental conversion functions
 
@@ -50,4 +57,16 @@ I/O for the `spatialdata` project.
 
     from_legacy_anndata
     to_legacy_anndata
+```
+
+### Utility functions
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io
+
+.. autosummary::
+    :toctree: generated
+
+    xenium_aligned_image
+    xenium_explorer_selection
 ```
