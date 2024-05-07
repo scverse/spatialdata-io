@@ -64,7 +64,7 @@ def iss(
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
-        Keyword arguments passed to :class:`spatialdata.models.Label2DModel`.
+        Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
 
     Returns
     -------
