@@ -22,10 +22,12 @@ from spatialdata.models import (
 )
 
 from spatialdata_io._constants._constants import StereoseqKeys
+from spatialdata_io._docs import inject_docs
 
 __all__ = ["stereoseq"]
 
 
+@inject_docs(xx=StereoseqKeys)
 def stereoseq(
     path: str | Path,
     dataset_id: Union[str, None] = None,
@@ -33,6 +35,7 @@ def stereoseq(
     optional_tif: bool = False,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read *Stereo-seq* formatted dataset.
@@ -44,13 +47,15 @@ def stereoseq(
     dataset_id
         Dataset identifier. If not given will be determined automatically.
     read_square_bin
-        If True, will read '_square_bin.gef' file and build corresponding points model.
+        If True, will read the square bin ``{xx.GEF_FILE!r}`` file and build corresponding points element.
     optional_tif
-        If True, will read '_tissue_cut.tif' files.
+        If True, will read ``{xx.TISSUE_TIF!r}`` files.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
+    labels_models_kwargs
+        Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
 
     Returns
     -------
@@ -59,6 +64,7 @@ def stereoseq(
     path = Path(path)
     imread_kwargs = dict(imread_kwargs)
     image_models_kwargs = dict(image_models_kwargs)
+    labels_models_kwargs = dict(labels_models_kwargs)
 
     if dataset_id is None:
         dataset_id_path = path / StereoseqKeys.COUNT_DIRECTORY
@@ -67,6 +73,8 @@ def stereoseq(
         if gef_files:
             first_gef_file = gef_files[0]
             square_bin = str(first_gef_file.split(".")[0]) + StereoseqKeys.GEF_FILE
+        else:
+            raise ValueError(f"No {StereoseqKeys.GEF_FILE!r} files found in {dataset_id_path!r}")
     else:
         square_bin = dataset_id + StereoseqKeys.GEF_FILE
 
@@ -108,21 +116,20 @@ def stereoseq(
     cellbin_gef = h5py.File(str(path_cellbin), "r")
 
     # add cell info to obs
-    obs = pd.DataFrame(
-        cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_DATASET][:],
-        columns=[
-            StereoseqKeys.CELL_ID,
-            StereoseqKeys.COORD_X,
-            StereoseqKeys.COORD_Y,
-            StereoseqKeys.OFFSET,
-            StereoseqKeys.GENE_COUNT,
-            StereoseqKeys.EXP_COUNT,
-            StereoseqKeys.DNBCOUNT,
-            StereoseqKeys.CELL_AREA,
-            StereoseqKeys.CELL_TYPE_ID,
-            StereoseqKeys.CLUSTER_ID,
-        ],
-    )
+    obs = pd.DataFrame(cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_DATASET][:])
+    obs.columns = [
+        StereoseqKeys.CELL_ID,
+        StereoseqKeys.COORD_X,
+        StereoseqKeys.COORD_Y,
+        StereoseqKeys.OFFSET,
+        StereoseqKeys.GENE_COUNT,
+        StereoseqKeys.EXP_COUNT,
+        StereoseqKeys.DNBCOUNT,
+        StereoseqKeys.CELL_AREA,
+        StereoseqKeys.CELL_TYPE_ID,
+        StereoseqKeys.CLUSTER_ID,
+    ]
+    cellbin_gef[StereoseqKeys.CELL_BIN][StereoseqKeys.CELL_DATASET][:]
 
     obsm_spatial = obs[[StereoseqKeys.COORD_X, StereoseqKeys.COORD_Y]].to_numpy()
     obs = obs.drop([StereoseqKeys.COORD_X, StereoseqKeys.COORD_Y], axis=1)
@@ -193,7 +200,9 @@ def stereoseq(
 
     labels = {
         f"{cell_mask_name}": Labels2DModel.parse(
-            imread(path / StereoseqKeys.REGISTER / cell_mask_name, **imread_kwargs).squeeze(), dims=("y", "x")
+            imread(path / StereoseqKeys.REGISTER / cell_mask_name, **imread_kwargs).squeeze(),
+            dims=("y", "x"),
+            **labels_models_kwargs,
         )
         for cell_mask_name in cell_mask_file
     }
