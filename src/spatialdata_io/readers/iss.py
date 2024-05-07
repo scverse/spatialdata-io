@@ -51,8 +51,8 @@ def iss(
     h5ad_relative_path
         Relative path to the counts and metadata file.
     instance_key
-        The name of the column that contains the instance identifiers. Must be specified in order to link the table with
-        the labels image (e.g. `cell_id`).
+        The name of the column that contains the instance identifiers.
+        Must be specified to link the table with the labels image (e.g. `cell_id`).
     dataset_id
         Dataset identifier.
     multiscale_image
@@ -68,8 +68,7 @@ def iss(
 
     Returns
     -------
-    :class:`spatialdata.SpatialData`
-        The spatial data object containing the ISS data.
+    The spatial data object containing the ISS data.
     """
     REGION = f"{dataset_id}_labels_image"
     REGION_KEY = "region"

@@ -29,6 +29,8 @@ I/O for the `spatialdata` project.
 ### Experimental readers
 
 ```{eval-rst}
+.. currentmodule:: spatialdata_io.experimental
+
 .. autosummary::
     :toctree: generated
 
@@ -36,6 +38,14 @@ I/O for the `spatialdata` project.
 ```
 
 ### Conversion functions
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io
+
+.. autosummary::
+    :toctree: generated
+
+```
 
 ### Experimental conversion functions
 
@@ -52,6 +62,8 @@ I/O for the `spatialdata` project.
 ### Utility functions
 
 ```{eval-rst}
+.. currentmodule:: spatialdata_io
+
 .. autosummary::
     :toctree: generated
 
