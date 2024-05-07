@@ -290,7 +290,7 @@ def xenium(
             image_models_kwargs["c_coords"] = list(channel_names.values())
             images["morphology_focus"] = _get_images(
                 morphology_focus_dir,
-                XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.format(0),  # type: ignore[str-format]
+                XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.format(0),
                 imread_kwargs,
                 image_models_kwargs,
             )
