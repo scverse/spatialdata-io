@@ -209,9 +209,9 @@ def stereoseq(
 
     table = TableModel.parse(
         adata,
-        region=StereoseqKeys.REGION,
-        region_key=StereoseqKeys.REGION_KEY,
-        instance_key=StereoseqKeys.INSTANCE_KEY,
+        region=StereoseqKeys.REGION.value,
+        region_key=StereoseqKeys.REGION_KEY.value,
+        instance_key=StereoseqKeys.INSTANCE_KEY.value,
     )
 
     radii = np.sqrt(adata.obs[StereoseqKeys.CELL_AREA].to_numpy() / np.pi)
