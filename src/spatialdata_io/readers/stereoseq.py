@@ -13,13 +13,7 @@ import numpy as np
 import pandas as pd
 from dask_image.imread import imread
 from spatialdata import SpatialData
-from spatialdata.models import (
-    Image2DModel,
-    Labels2DModel,
-    PointsModel,
-    ShapesModel,
-    TableModel,
-)
+from spatialdata.models import Image2DModel, Labels2DModel, ShapesModel, TableModel
 
 from spatialdata_io._constants._constants import StereoseqKeys as SK
 from spatialdata_io._docs import inject_docs
@@ -95,9 +89,7 @@ def stereoseq(
         re.compile(r".*" + re.escape(square_bin)),
     ]
 
-    image_filenames = [
-        i for i in os.listdir(path / SK.REGISTER) if any(pattern.match(i) for pattern in image_patterns)
-    ]
+    image_filenames = [i for i in os.listdir(path / SK.REGISTER) if any(pattern.match(i) for pattern in image_patterns)]
     cell_mask_file = [x for x in image_filenames if (f"{SK.MASK_TIF}" in x)]
     image_filenames = [x for x in image_filenames if x not in cell_mask_file]
 
@@ -231,10 +223,9 @@ def stereoseq(
         path_squarebin = path / SK.TISSUECUT / squarebin_gef_filename[0]
         squarebin_gef = h5py.File(str(path_squarebin), "r")
 
-        df_by_bin = {}
         bin1_attrs = dict(squarebin_gef[SK.GENE_EXP][SK.BIN1][SK.EXPRESSION].attrs)
         min_x = bin1_attrs[SK.MIN_X]
-        max_x = bin1_attrs[SK.MAX_X]
+        bin1_attrs[SK.MAX_X]
         min_y = bin1_attrs[SK.MIN_Y]
         max_y = bin1_attrs[SK.MAX_Y]
         assert min_x >= 0
@@ -251,18 +242,17 @@ def stereoseq(
             df_points[SK.EXON] = squarebin_gef[SK.GENE_EXP][i][SK.EXON][:]
 
             # check that the column 'offset' is redundant with 'count'
-            assert np.array_equal(df_gene['offset'], np.insert(np.cumsum(df_gene['count']), 0, 0)[:-1])
+            assert np.array_equal(df_gene["offset"], np.insert(np.cumsum(df_gene["count"]), 0, 0)[:-1])
             # unroll gene names by count such that there exists a mapping between coordinate counts and gene names
             df_points[SK.FEATURE_KEY] = [
-                name for name, cell_count in zip(df_gene.gene, df_gene['count']) for _ in range(cell_count)
+                name for name, cell_count in zip(df_gene.gene, df_gene["count"]) for _ in range(cell_count)
             ]
             df_points[SK.FEATURE_KEY] = df_points[SK.FEATURE_KEY].astype("category")
             # this is unique for a given bin; also the "wholeExp" information (not parsed here) may use more bins than
             # the ones used for the gene expression, so ids constructed from there are different from the ones
             # constructed here from "geneExp" (in fact max_y would likely be different, leading to a different set of
             # bin ids)
-            df_points['bin_id'] = df_points[SK.COORD_X * max_y + SK.COORD_Y]
-            pass
+            df_points["bin_id"] = df_points[SK.COORD_X * max_y + SK.COORD_Y]
             # TODO: contruct sparse table
             # TODO: contruct shapes object
 
