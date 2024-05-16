@@ -13,12 +13,7 @@ import numpy as np
 import pandas as pd
 from dask_image.imread import imread
 from spatialdata import SpatialData
-from spatialdata.models import (
-    Image2DModel,
-    Labels2DModel,
-    ShapesModel,
-    TableModel,
-)
+from spatialdata.models import Image2DModel, Labels2DModel, ShapesModel, TableModel
 
 from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
