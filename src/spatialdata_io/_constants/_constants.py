@@ -228,6 +228,12 @@ class StereoseqKeys(ModeEnum):
     BLOCK_INDEX = "blockIndex"
     BLOCK_SIZE = "blockSize"
     CELL_TYPE_LIST = "cellTypeList"
+    # bin data and metadata
+    BIN1 = "bin1"
+    MIN_X = "minX"
+    MIN_Y = "minY"
+    MAX_X = "maxX"
+    MAX_Y = "maxY"
 
 
 @unique
