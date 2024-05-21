@@ -232,12 +232,10 @@ def stereoseq(
         squarebin_gef = h5py.File(str(path_squarebin), "r")
 
         for i in squarebin_gef[SK.GENE_EXP].keys():
-            # if i in ['bin1', 'bin2', 'bin4', 'bin8']:
-            #     continue
             bin_attrs = dict(squarebin_gef[SK.GENE_EXP][i][SK.EXPRESSION].attrs)
             # this is the center to center distance between bins and could be used to calculate the radius of the
             # circles (or side of the square) to represent the bins as circles (squares)
-            resolution = bin_attrs[SK.RESOLUTION].item()
+            bin_attrs[SK.RESOLUTION].item()
             # get gene info
             arr = squarebin_gef[SK.GENE_EXP][i][SK.FEATURE_KEY][:]
             df_gene = pd.DataFrame(arr, columns=[SK.FEATURE_KEY, SK.OFFSET, SK.COUNT])
@@ -269,20 +267,6 @@ def stereoseq(
             points_coords.reset_index(inplace=True, drop=True)
             points_coords["bin_id"] = points_coords.index
 
-            # it would be more natural to use shapes, but for performance reasons we use points
-            ##
-            import time
-
-            start = time.time()
-            shapes_element = ShapesModel.parse(
-                points_coords[[SK.COORD_X, SK.COORD_Y]].values,
-                geometry=0,
-                radius=resolution / 2,
-                index=points_coords["bin_id"],
-            )
-            print(f"shapes: {time.time() - start}")
-            ##
-
             name_points_element = f"{i}_genes"
             name_table_element = f"{i}_table"
             index_to_bin_id = pd.merge(
@@ -305,16 +289,11 @@ def stereoseq(
             ).tocsr()
 
             points_coords.drop(columns=["bin_id"], inplace=True)
-            ##
-            start = time.time()
+            # it would be more natural to use shapes, but for performance reasons we use points
             points_element = PointsModel.parse(
                 points_coords,
                 coordinates={"x": SK.COORD_X, "y": SK.COORD_Y},
             )
-            print(f"points: {time.time() - start}")
-            name_shapes_element = f"{i}_shapes"
-            shapes[name_shapes_element] = shapes_element
-            ##
 
             # add more gene info to var
             df_gene = df_gene.set_index(SK.FEATURE_KEY)
