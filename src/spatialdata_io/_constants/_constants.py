@@ -234,6 +234,7 @@ class StereoseqKeys(ModeEnum):
     MIN_Y = "minY"
     MAX_X = "maxX"
     MAX_Y = "maxY"
+    RESOLUTION = "resolution"
 
 
 @unique

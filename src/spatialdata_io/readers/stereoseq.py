@@ -12,8 +12,15 @@ import h5py
 import numpy as np
 import pandas as pd
 from dask_image.imread import imread
+from scipy.sparse import coo_matrix
 from spatialdata import SpatialData
-from spatialdata.models import Image2DModel, Labels2DModel, ShapesModel, TableModel
+from spatialdata.models import (
+    Image2DModel,
+    Labels2DModel,
+    PointsModel,
+    ShapesModel,
+    TableModel,
+)
 
 from spatialdata_io._constants._constants import StereoseqKeys as SK
 from spatialdata_io._docs import inject_docs
@@ -208,7 +215,7 @@ def stereoseq(
         region_key=SK.REGION_KEY.value,
         instance_key=SK.INSTANCE_KEY.value,
     )
-    tables = {SK.REGION: table}
+    tables = {f"{SK.REGION}_table": table}
 
     radii = np.sqrt(adata.obs[SK.CELL_AREA].to_numpy() / np.pi)
     shapes = {
@@ -217,20 +224,20 @@ def stereoseq(
         )
     }
     shapes[SK.REGION].index.name = None
+    points = {}
 
     if read_square_bin:
         # create points model using SquareBin.gef
         path_squarebin = path / SK.TISSUECUT / squarebin_gef_filename[0]
         squarebin_gef = h5py.File(str(path_squarebin), "r")
 
-        bin1_attrs = dict(squarebin_gef[SK.GENE_EXP][SK.BIN1][SK.EXPRESSION].attrs)
-        min_x = bin1_attrs[SK.MIN_X]
-        bin1_attrs[SK.MAX_X]
-        min_y = bin1_attrs[SK.MIN_Y]
-        max_y = bin1_attrs[SK.MAX_Y]
-        assert min_x >= 0
-        assert min_y >= 0
         for i in squarebin_gef[SK.GENE_EXP].keys():
+            # if i in ['bin1', 'bin2', 'bin4', 'bin8']:
+            #     continue
+            bin_attrs = dict(squarebin_gef[SK.GENE_EXP][i][SK.EXPRESSION].attrs)
+            # this is the center to center distance between bins and could be used to calculate the radius of the
+            # circles (or side of the square) to represent the bins as circles (squares)
+            resolution = bin_attrs[SK.RESOLUTION].item()
             # get gene info
             arr = squarebin_gef[SK.GENE_EXP][i][SK.FEATURE_KEY][:]
             df_gene = pd.DataFrame(arr, columns=[SK.FEATURE_KEY, SK.OFFSET, SK.COUNT])
@@ -239,38 +246,91 @@ def stereoseq(
             # create df for points model
             arr = squarebin_gef[SK.GENE_EXP][i][SK.EXPRESSION][:]
             df_points = pd.DataFrame(arr, columns=[SK.COORD_X, SK.COORD_Y, SK.COUNT])
-            df_points[SK.EXON] = squarebin_gef[SK.GENE_EXP][i][SK.EXON][:]
+            # the exon information is skipped for the moment, but it could be added analogously to what is done for the
+            # 'count' column; in such a case it should be added in a separate table (one per bin)
+            # df_points[SK.EXON] = squarebin_gef[SK.GENE_EXP][i][SK.EXON][:]
 
-            # check that the column 'offset' is redundant with 'count'
-            assert np.array_equal(df_gene["offset"], np.insert(np.cumsum(df_gene["count"]), 0, 0)[:-1])
+            # check that the column 'offset' is redundant with information in 'count'
+            assert np.array_equal(df_gene[SK.OFFSET], np.insert(np.cumsum(df_gene[SK.COUNT]), 0, 0)[:-1])
             # unroll gene names by count such that there exists a mapping between coordinate counts and gene names
             df_points[SK.FEATURE_KEY] = [
-                name for name, cell_count in zip(df_gene.gene, df_gene["count"]) for _ in range(cell_count)
+                name
+                for _, (name, cell_count) in df_gene[[SK.FEATURE_KEY, SK.COUNT]].iterrows()
+                for _ in range(cell_count)
             ]
             df_points[SK.FEATURE_KEY] = df_points[SK.FEATURE_KEY].astype("category")
             # this is unique for a given bin; also the "wholeExp" information (not parsed here) may use more bins than
             # the ones used for the gene expression, so ids constructed from there are different from the ones
             # constructed here from "geneExp" (in fact max_y would likely be different, leading to a different set of
             # bin ids)
-            df_points["bin_id"] = df_points[SK.COORD_X * max_y + SK.COORD_Y]
-            # TODO: contruct sparse table
-            # TODO: contruct shapes object
+            # df_points["bin_id"] = df_points[SK.COORD_Y] + df_points[SK.COORD_X] * (max_y + 1)
+            points_coords = df_points[[SK.COORD_X, SK.COORD_Y]].copy()
+            points_coords.drop_duplicates(inplace=True)
+            points_coords.reset_index(inplace=True, drop=True)
+            points_coords["bin_id"] = points_coords.index
+
+            # it would be more natural to use shapes, but for performance reasons we use points
+            ##
+            import time
+
+            start = time.time()
+            shapes_element = ShapesModel.parse(
+                points_coords[[SK.COORD_X, SK.COORD_Y]].values,
+                geometry=0,
+                radius=resolution / 2,
+                index=points_coords["bin_id"],
+            )
+            print(f"shapes: {time.time() - start}")
+            ##
+
+            name_points_element = f"{i}_genes"
+            name_table_element = f"{i}_table"
+            index_to_bin_id = pd.merge(
+                df_points[[SK.COORD_X, SK.COORD_Y]],
+                points_coords,
+                on=[SK.COORD_X, SK.COORD_Y],
+                how="left",
+                validate="many_to_one",
+            )
+
+            obs = pd.DataFrame({SK.INSTANCE_KEY: points_coords.index, SK.REGION_KEY: name_points_element})
+            obs[SK.REGION_KEY] = obs[SK.REGION_KEY].astype("category")
+
+            expression = coo_matrix(
+                (
+                    df_points[SK.COUNT],
+                    (index_to_bin_id.loc[df_points.index]["bin_id"].to_numpy(), df_points[SK.FEATURE_KEY].cat.codes),
+                ),
+                shape=(len(points_coords), len(df_points[SK.FEATURE_KEY].cat.categories)),
+            ).tocsr()
+
+            points_coords.drop(columns=["bin_id"], inplace=True)
+            ##
+            start = time.time()
+            points_element = PointsModel.parse(
+                points_coords,
+                coordinates={"x": SK.COORD_X, "y": SK.COORD_Y},
+            )
+            print(f"points: {time.time() - start}")
+            name_shapes_element = f"{i}_shapes"
+            shapes[name_shapes_element] = shapes_element
+            ##
 
             # add more gene info to var
-            # df_gene = df_gene.rename(columns={"counts": "count"})
-            # df_gene = df_gene.set_index(SK.FEATURE_KEY)
-            # df_gene.index.name = None
-            # df_gene = df_gene.add_suffix("_" + str(i))
-            # adata.var = pd.concat([adata.var, df_gene], axis=1)
-            # df_points[[SK.COORD_X, SK.COORD_Y]].drop_duplicates()
-        # points = {
-        #     f"transcripts_{bin}": PointsModel.parse(
-        #         df,
-        #         coordinates={"x": SK.COORD_X, "y": SK.COORD_Y},
-        #         feature_key=SK.FEATURE_KEY,
-        #     )
-        #     for bin, df in df_by_bin.items()
-        # }
-    sdata = SpatialData(images=images, labels=labels, tables=tables, shapes=shapes)
+            df_gene = df_gene.set_index(SK.FEATURE_KEY)
+            df_gene.index.name = None
+            df_gene = df_gene.loc[df_points[SK.FEATURE_KEY].cat.categories, :]
+            adata = ad.AnnData(expression, obs=obs, var=df_gene)
+
+            table = TableModel.parse(
+                adata,
+                region=name_points_element,
+                region_key=SK.REGION_KEY.value,
+                instance_key=SK.INSTANCE_KEY.value,
+            )
+
+            tables[name_table_element] = table
+            points[name_points_element] = points_element
+    sdata = SpatialData(images=images, labels=labels, tables=tables, shapes=shapes, points=points)
 
     return sdata
