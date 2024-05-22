@@ -12,7 +12,10 @@ import h5py
 import numpy as np
 import pandas as pd
 from dask_image.imread import imread
+from geopandas import GeoDataFrame, GeoSeries
 from scipy.sparse import coo_matrix
+from shapely import Polygon
+from skimage.measure import label
 from spatialdata import SpatialData
 from spatialdata.models import (
     Image2DModel,
@@ -21,6 +24,7 @@ from spatialdata.models import (
     ShapesModel,
     TableModel,
 )
+from tqdm import tqdm
 
 from spatialdata_io._constants._constants import StereoseqKeys as SK
 from spatialdata_io._docs import inject_docs
@@ -200,15 +204,6 @@ def stereoseq(
         for name in image_filenames
     }
 
-    labels = {
-        f"{cell_mask_name}": Labels2DModel.parse(
-            imread(path / SK.REGISTER / cell_mask_name, **imread_kwargs).squeeze(),
-            dims=("y", "x"),
-            **labels_models_kwargs,
-        )
-        for cell_mask_name in cell_mask_file
-    }
-
     table = TableModel.parse(
         adata,
         region=SK.REGION.value,
@@ -219,11 +214,11 @@ def stereoseq(
 
     radii = np.sqrt(adata.obs[SK.CELL_AREA].to_numpy() / np.pi)
     shapes = {
-        SK.REGION: ShapesModel.parse(
+        f"{SK.REGION}_circles": ShapesModel.parse(
             adata.obsm[SK.SPATIAL_KEY], geometry=0, radius=radii, index=adata.obs[SK.INSTANCE_KEY]
         )
     }
-    shapes[SK.REGION].index.name = None
+    shapes[f"{SK.REGION}_circles"].index.name = None
     points = {}
 
     if read_square_bin:
@@ -310,6 +305,61 @@ def stereoseq(
 
             tables[name_table_element] = table
             points[name_points_element] = points_element
+    ##
+    x_original = shapes[f"{SK.REGION}_circles"].geometry.centroid.x
+    y_original = shapes[f"{SK.REGION}_circles"].geometry.centroid.y
+
+    t = tables[SK.REGION + "_table"]
+    df_coords = t.obsm["cellBorder"]
+    x_coords = df_coords.filter(regex="x_")
+    y_coords = df_coords.filter(regex="y_")
+    polygons = []
+    for (x_index, x_row), (y_index, y_row) in tqdm(
+        zip(x_coords.iterrows(), y_coords.iterrows()), desc="creating polygons", total=len(df_coords)
+    ):
+        assert x_index == y_index
+        x = x_row[x_row != SK.PADDING_VALUE]
+        y = y_row[y_row != SK.PADDING_VALUE]
+        # x_centroids = np.mean(x)
+        # y_centroids = np.mean(y)
+        # x = x + x_original[x_index] - x_centroids
+        # y = y + y_original[y_index] - y_centroids
+        x = x + x_original[x_index]
+        y = y + y_original[y_index]
+        assert len(x) == len(y)
+        xy_pairs = np.vstack((x, y)).T
+        polygon = Polygon(xy_pairs)
+        polygons.append(polygon)
+    gs = GeoSeries(polygons, index=df_coords.index)
+    polygons_gdf = GeoDataFrame(geometry=gs)
+    polygons_gdf = ShapesModel.parse(polygons_gdf)
+    shapes[f"{SK.REGION}_polygons"] = polygons_gdf
+    ##
+    labels = {}
+    for cell_mask_name in labels.keys():
+        masks = imread(path / SK.REGISTER / cell_mask_name, **imread_kwargs).squeeze()
+        labeled_masks = label(masks, connectivity=1)
+        print(len(np.unique(labeled_masks)))
+        print(len(df_coords))
+        masks = Labels2DModel.parse(
+            masks,
+            dims=("y", "x"),
+            **labels_models_kwargs,
+        )
+        labels[f"{cell_mask_name}"] = masks
+
+    labels = label(mask, connectivity=2)
+
+    print(labels)
+
+    ##
     sdata = SpatialData(images=images, labels=labels, tables=tables, shapes=shapes, points=points)
+
+    ##
+    from napari_spatialdata import Interactive
+
+    sdata[f"{SK.REGION}_polygons"] = sdata[f"{SK.REGION}_polygons"].iloc[:1000]
+    Interactive(sdata)
+    ##
 
     return sdata

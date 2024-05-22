@@ -215,6 +215,7 @@ class StereoseqKeys(ModeEnum):
     CELL_BORDER = "cellBorder"
     CELL_EXP = "cellExp"
     CELL_EXP_EXON = "cellExpExon"
+    PADDING_VALUE = 32767
     # metadata
     COUNT = "count"
     EXP_COUNT = "expCount"
