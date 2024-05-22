@@ -15,15 +15,8 @@ from dask_image.imread import imread
 from geopandas import GeoDataFrame, GeoSeries
 from scipy.sparse import coo_matrix
 from shapely import Polygon
-from skimage.measure import label
 from spatialdata import SpatialData
-from spatialdata.models import (
-    Image2DModel,
-    Labels2DModel,
-    PointsModel,
-    ShapesModel,
-    TableModel,
-)
+from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
 from tqdm import tqdm
 
 from spatialdata_io._constants._constants import StereoseqKeys as SK
@@ -41,7 +34,6 @@ def stereoseq(
     optional_tif: bool = False,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
     Read *Stereo-seq* formatted dataset.
@@ -60,16 +52,18 @@ def stereoseq(
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
-    labels_models_kwargs
-        Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
+
+    Notes
+    _____
+    The cell segmentation, which encodes the background as 0 and the cells as 1, is parsed as an image (i.e. (c, y, x))
+    object and not as labels object (i.e. (y, x)). If you want to visualize this binary image with napari you will
+    have to adjust the color limit to be able to see the cells.
     """
-    image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
-        image_models_kwargs, labels_models_kwargs
-    )
+    image_models_kwargs, _ = _initialize_raster_models_kwargs(image_models_kwargs, {})
     path = Path(path)
 
     if dataset_id is None:
@@ -169,7 +163,7 @@ def stereoseq(
     adata.obsm[SK.SPATIAL_KEY] = obsm_spatial
 
     # add region and instance_id to obs for the TableModel
-    adata.obs[SK.REGION_KEY] = SK.REGION
+    adata.obs[SK.REGION_KEY] = f"{SK.REGION}_circles"
     adata.obs[SK.REGION_KEY] = adata.obs[SK.REGION_KEY].astype("category")
     adata.obs[SK.INSTANCE_KEY] = adata.obs.index
 
@@ -206,7 +200,7 @@ def stereoseq(
 
     table = TableModel.parse(
         adata,
-        region=SK.REGION.value,
+        region=f"{SK.REGION.value}_circles",
         region_key=SK.REGION_KEY.value,
         instance_key=SK.INSTANCE_KEY.value,
     )
@@ -305,7 +299,7 @@ def stereoseq(
 
             tables[name_table_element] = table
             points[name_points_element] = points_element
-    ##
+
     x_original = shapes[f"{SK.REGION}_circles"].geometry.centroid.x
     y_original = shapes[f"{SK.REGION}_circles"].geometry.centroid.y
 
@@ -320,10 +314,6 @@ def stereoseq(
         assert x_index == y_index
         x = x_row[x_row != SK.PADDING_VALUE]
         y = y_row[y_row != SK.PADDING_VALUE]
-        # x_centroids = np.mean(x)
-        # y_centroids = np.mean(y)
-        # x = x + x_original[x_index] - x_centroids
-        # y = y + y_original[y_index] - y_centroids
         x = x + x_original[x_index]
         y = y + y_original[y_index]
         assert len(x) == len(y)
@@ -334,32 +324,15 @@ def stereoseq(
     polygons_gdf = GeoDataFrame(geometry=gs)
     polygons_gdf = ShapesModel.parse(polygons_gdf)
     shapes[f"{SK.REGION}_polygons"] = polygons_gdf
-    ##
-    labels = {}
-    for cell_mask_name in labels.keys():
-        masks = imread(path / SK.REGISTER / cell_mask_name, **imread_kwargs).squeeze()
-        labeled_masks = label(masks, connectivity=1)
-        print(len(np.unique(labeled_masks)))
-        print(len(df_coords))
-        masks = Labels2DModel.parse(
+
+    for cell_mask_name in cell_mask_file:
+        masks = imread(path / SK.REGISTER / cell_mask_name, **imread_kwargs)
+        masks = Image2DModel.parse(
             masks,
-            dims=("y", "x"),
-            **labels_models_kwargs,
+            dims=("c", "y", "x"),
+            **image_models_kwargs,
         )
-        labels[f"{cell_mask_name}"] = masks
+        images[f"{cell_mask_name}"] = masks
 
-    labels = label(mask, connectivity=2)
-
-    print(labels)
-
-    ##
-    sdata = SpatialData(images=images, labels=labels, tables=tables, shapes=shapes, points=points)
-
-    ##
-    from napari_spatialdata import Interactive
-
-    sdata[f"{SK.REGION}_polygons"] = sdata[f"{SK.REGION}_polygons"].iloc[:1000]
-    Interactive(sdata)
-    ##
-
+    sdata = SpatialData(images=images, tables=tables, shapes=shapes, points=points)
     return sdata
