@@ -21,6 +21,7 @@ I/O for the `spatialdata` project.
     mcmicro
     merscope
     steinbock
+    stereoseq
     visium
     visium_hd
     xenium

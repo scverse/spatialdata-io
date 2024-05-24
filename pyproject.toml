@@ -25,7 +25,7 @@ dependencies = [
     "anndata",
     "numpy",
     "scanpy",
-    "spatialdata",
+    "spatialdata>=0.1.2",
     "scikit-image",
     "h5py",
     "joblib",

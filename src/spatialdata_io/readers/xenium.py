@@ -44,6 +44,7 @@ from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io._utils import deprecation_alias
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
+from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
@@ -124,18 +125,9 @@ def xenium(
     -------
     :class:`spatialdata.SpatialData`
     """
-    image_models_kwargs = dict(image_models_kwargs)
-    if "chunks" not in image_models_kwargs:
-        image_models_kwargs["chunks"] = (1, 4096, 4096)
-    if "scale_factors" not in image_models_kwargs:
-        image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
-
-    labels_models_kwargs = dict(labels_models_kwargs)
-    if "chunks" not in labels_models_kwargs:
-        labels_models_kwargs["chunks"] = (4096, 4096)
-    if "scale_factors" not in labels_models_kwargs:
-        labels_models_kwargs["scale_factors"] = [2, 2, 2, 2]
-
+    image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
+        image_models_kwargs, labels_models_kwargs
+    )
     path = Path(path)
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -66,3 +67,20 @@ def _read_counts(
 
     adata.uns["spatial"] = {library_id: {"metadata": {}}}  # can overwrite
     return adata, library_id
+
+
+def _initialize_raster_models_kwargs(
+    image_models_kwargs: Mapping[str, Any], labels_models_kwargs: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    image_models_kwargs = dict(image_models_kwargs)
+    if "chunks" not in image_models_kwargs:
+        image_models_kwargs["chunks"] = (1, 4096, 4096)
+    if "scale_factors" not in image_models_kwargs:
+        image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
+
+    labels_models_kwargs = dict(labels_models_kwargs)
+    if "chunks" not in labels_models_kwargs:
+        labels_models_kwargs["chunks"] = (4096, 4096)
+    if "scale_factors" not in labels_models_kwargs:
+        labels_models_kwargs["scale_factors"] = [2, 2, 2, 2]
+    return image_models_kwargs, labels_models_kwargs
