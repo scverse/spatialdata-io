@@ -191,6 +191,10 @@ def stereoseq(
         cellbin_attrs[i] = cellbin_gef.attrs[i]
     adata.uns["cellBin_attrs"] = cellbin_attrs
 
+    # let's correct the dtype for some columns
+    for column_name in [SK.CELL_TYPE_ID, SK.CLUSTER_ID]:
+        adata.obs[column_name] = adata.obs[column_name].astype("category")
+
     images = {
         f"{name}": Image2DModel.parse(
             imread(path / SK.REGISTER / name, **imread_kwargs), dims=("c", "y", "x"), **image_models_kwargs
@@ -312,8 +316,8 @@ def stereoseq(
         zip(x_coords.iterrows(), y_coords.iterrows()), desc="creating polygons", total=len(df_coords)
     ):
         assert x_index == y_index
-        x = x_row[x_row != SK.PADDING_VALUE]
-        y = y_row[y_row != SK.PADDING_VALUE]
+        x = x_row[x_row != int(SK.PADDING_VALUE)]
+        y = y_row[y_row != int(SK.PADDING_VALUE)]
         x = x + x_original[x_index]
         y = y + y_original[y_index]
         assert len(x) == len(y)
