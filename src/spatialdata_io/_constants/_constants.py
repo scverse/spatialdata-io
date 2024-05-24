@@ -166,6 +166,79 @@ class SteinbockKeys(ModeEnum):
 
 
 @unique
+class StereoseqKeys(ModeEnum):
+    """Keys for *Stereo-seq* formatted dataset."""
+
+    # file extensions
+    GEF_FILE = ".gef"
+    TIF_FILE = ".tif"
+    # directories
+    MERGE = "01.merge"
+    COUNT_DIRECTORY = "02.count"
+    REGISTER = "03.register"
+    TISSUECUT = "04.tissuecut"
+    SPATIALCLUSTER = "05.spatialcluster"
+    SATURATION = "06.saturation"
+    CELLCUT = "041.cellcut"
+    CELLCLUSTER = "051.cellcluster"
+    # file identifiers
+    MASK_TIF = "_mask.tif"
+    REGIST_TIF = "_regist.tif"
+    TISSUE_TIF = "_tissue_cut.tif"
+    CELL_CLUSTER_H5AD = "cell.cluster.h5ad"
+    RAW_GEF = ".raw.gef"
+    CELLBIN_GEF = ".cellbin.gef"
+    TISSUECUT_GEF = ".tissuecut.gef"
+    TISSUE_GEM = ".tissue.gem.gz"
+    # transcripts
+    FEATURE_KEY = "gene"
+    GENE_NAME = "geneName"
+    CELL_COUNT = "cellCount"
+    MAX_MID_COUNT = "maxMIDcount"
+    GENE_EXP = "geneExp"
+    EXPRESSION = "expression"
+    EXON = "exon"
+    GENE_ID = "geneID"
+    GENE_EXP_EXON = "geneExpExon"
+    # cells
+    ID = "id"
+    CELL_ID = "cellID"
+    GENE_COUNT = "geneCount"
+    DNBCOUNT = "dnbCount"
+    CELL_AREA = "area"
+    CELL_TYPE_ID = "cellTypeID"
+    CLUSTER_ID = "clusterID"
+    CELL_BIN = "cellBin"
+    CELL_EXON = "cellExon"
+    CELL_DATASET = "cell"
+    GENE_EXON = "geneExon"
+    CELL_BORDER = "cellBorder"
+    CELL_EXP = "cellExp"
+    CELL_EXP_EXON = "cellExpExon"
+    PADDING_VALUE = 32767
+    # metadata
+    COUNT = "count"
+    EXP_COUNT = "expCount"
+    OFFSET = "offset"
+    COORD_X = "x"
+    COORD_Y = "y"
+    SPATIAL_KEY = "spatial"
+    REGION = "cells"
+    REGION_KEY = "region"
+    INSTANCE_KEY = "instance_id"
+    BLOCK_INDEX = "blockIndex"
+    BLOCK_SIZE = "blockSize"
+    CELL_TYPE_LIST = "cellTypeList"
+    # bin data and metadata
+    BIN1 = "bin1"
+    MIN_X = "minX"
+    MIN_Y = "minY"
+    MAX_X = "maxX"
+    MAX_Y = "maxY"
+    RESOLUTION = "resolution"
+
+
+@unique
 class McmicroKeys(ModeEnum):
     """Keys for *Mcmicro* formatted dataset."""
 
