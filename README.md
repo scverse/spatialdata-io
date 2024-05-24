@@ -21,6 +21,7 @@ This package contains reader functions to load common spatial omics formats into
 -   MCMICRO (output data)
 -   NanoString CosMx
 -   Steinbock (output data)
+-   STOmics Stereo-seq
 -   Vizgen MERSCOPE (MERFISH)
 
 ## Getting started
