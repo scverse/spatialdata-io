@@ -127,11 +127,13 @@ def stereoseq(
         SK.CELL_TYPE_ID,
         SK.CLUSTER_ID,
     ]
-    cellbin_gef[SK.CELL_BIN][SK.CELL_DATASET][:]
+    obs[SK.CELL_EXON] = cellbin_gef[SK.CELL_BIN][SK.CELL_EXON][:]
 
+    # add centroids to obsm
     obsm_spatial = obs[[SK.COORD_X, SK.COORD_Y]].to_numpy()
     obs = obs.drop([SK.COORD_X, SK.COORD_Y], axis=1)
-    obs[SK.CELL_EXON] = cellbin_gef[SK.CELL_BIN][SK.CELL_EXON][:]
+
+    adata.obsm[SK.SPATIAL_KEY] = obsm_spatial
 
     # add gene info to var
     var = pd.DataFrame(
@@ -147,20 +149,11 @@ def stereoseq(
     var[SK.GENE_NAME] = var[SK.GENE_NAME].str.decode("utf-8")
     var[SK.GENE_EXON] = cellbin_gef[SK.CELL_BIN][SK.GENE_EXON][:]
 
-    # add cell border to obsm
-    cell_coordinates = [x for i in range(1, 33) for x in ("x_" + str(i), "y_" + str(i))]
-    n_cells, n_coords, xy = cellbin_gef[SK.CELL_BIN][SK.CELL_BORDER][:].shape
-    arr = cellbin_gef[SK.CELL_BIN][SK.CELL_BORDER][:]
-    new_arr = arr.reshape(n_cells, n_coords * xy)
-    obsm = pd.DataFrame(new_arr, columns=cell_coordinates)
-
+    # merge columns of obs and var to adata.obs and adata.var
     obs.index = adata.obs.index
     adata.obs = pd.merge(adata.obs, obs, left_index=True, right_index=True)
     var.index = adata.var.index
     adata.var = pd.merge(adata.var, var, left_index=True, right_index=True)
-    obsm.index = adata.obs.index
-    adata.obsm[SK.CELL_BORDER] = obsm
-    adata.obsm[SK.SPATIAL_KEY] = obsm_spatial
 
     # add region and instance_id to obs for the TableModel
     adata.obs[SK.REGION_KEY] = f"{SK.REGION}_circles"
@@ -202,13 +195,13 @@ def stereoseq(
         for name in image_filenames
     }
 
-    table = TableModel.parse(
+    cells_table = TableModel.parse(
         adata,
         region=f"{SK.REGION.value}_circles",
         region_key=SK.REGION_KEY.value,
         instance_key=SK.INSTANCE_KEY.value,
     )
-    tables = {f"{SK.REGION}_table": table}
+    tables = {f"{SK.REGION}_table": cells_table}
 
     radii = np.sqrt(adata.obs[SK.CELL_AREA].to_numpy() / np.pi)
     shapes = {
@@ -304,11 +297,16 @@ def stereoseq(
             tables[name_table_element] = table
             points[name_points_element] = points_element
 
+    # add cell border shapes element
+    cell_coordinates = [x for i in range(1, 33) for x in ("x_" + str(i), "y_" + str(i))]
+    n_cells, n_coords, xy = cellbin_gef[SK.CELL_BIN][SK.CELL_BORDER][:].shape
+    arr = cellbin_gef[SK.CELL_BIN][SK.CELL_BORDER][:]
+    new_arr = arr.reshape(n_cells, n_coords * xy)
+    df_coords = pd.DataFrame(new_arr, columns=cell_coordinates, index=cells_table.obs.index)
+
     x_original = shapes[f"{SK.REGION}_circles"].geometry.centroid.x
     y_original = shapes[f"{SK.REGION}_circles"].geometry.centroid.y
 
-    t = tables[SK.REGION + "_table"]
-    df_coords = t.obsm["cellBorder"]
     x_coords = df_coords.filter(regex="x_")
     y_coords = df_coords.filter(regex="y_")
     polygons = []
@@ -316,6 +314,7 @@ def stereoseq(
         zip(x_coords.iterrows(), y_coords.iterrows()), desc="creating polygons", total=len(df_coords)
     ):
         assert x_index == y_index
+        # the polygonal cells coordinates are stored as offsets from the centroids, so let's add the centroids
         x = x_row[x_row != int(SK.PADDING_VALUE)]
         y = y_row[y_row != int(SK.PADDING_VALUE)]
         x = x + x_original[x_index]
