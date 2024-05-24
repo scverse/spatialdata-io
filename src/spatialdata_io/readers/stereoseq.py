@@ -196,7 +196,7 @@ def stereoseq(
         adata.obs[column_name] = adata.obs[column_name].astype("category")
 
     images = {
-        f"{name}": Image2DModel.parse(
+        Path(name).stem: Image2DModel.parse(
             imread(path / SK.REGISTER / name, **imread_kwargs), dims=("c", "y", "x"), **image_models_kwargs
         )
         for name in image_filenames
@@ -336,7 +336,7 @@ def stereoseq(
             dims=("c", "y", "x"),
             **image_models_kwargs,
         )
-        images[f"{cell_mask_name}"] = masks
+        images[Path(cell_mask_name).stem] = masks
 
     sdata = SpatialData(images=images, tables=tables, shapes=shapes, points=points)
     return sdata
