@@ -315,6 +315,7 @@ class VisiumHDKeys(ModeEnum):
     DEFAULT_BIN = "square_008um"
     BIN_PREFIX = "square_"
     MICROSCOPE_IMAGE = "microscope_image"
+    BINNED_OUTPUTS = "binned_outputs"
 
     # counts and locations files
     FILTERED_COUNTS_FILE = "filtered_feature_bc_matrix.h5"

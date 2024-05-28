@@ -113,14 +113,21 @@ def visium_hd(
             stacklevel=2,
         )
 
-    path_bins = path
-    all_bin_sizes = sorted(
-        [
-            bin_size
-            for bin_size in os.listdir(path_bins)
-            if os.path.isdir(os.path.join(path_bins, bin_size)) and bin_size.startswith(VisiumHDKeys.BIN_PREFIX)
-        ]
-    )
+    def _get_bins(path: Path) -> list[str]:
+        return sorted(
+            [
+                bin_size
+                for bin_size in os.listdir(path)
+                if os.path.isdir(os.path.join(path, bin_size)) and bin_size.startswith(VisiumHDKeys.BIN_PREFIX)
+            ]
+        )
+
+    if VisiumHDKeys.BINNED_OUTPUTS in os.listdir(path):
+        path_bins = path / VisiumHDKeys.BINNED_OUTPUTS
+    else:
+        path_bins = path
+    all_bin_sizes = _get_bins(path_bins)
+
     if bin_size is None:
         bin_sizes = all_bin_sizes
     elif isinstance(bin_size, int) or isinstance(bin_size, list) and len(bin_size) == 0:
