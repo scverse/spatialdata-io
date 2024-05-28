@@ -49,20 +49,22 @@ from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwarg
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
 
-@deprecation_alias(cells_as_shapes="cells_as_circles")
+@deprecation_alias(cells_as_shapes="cells_as_circles", cell_boundaries="cells_boundaries", cell_labels="cells_labels")
 @inject_docs(xx=XeniumKeys)
 def xenium(
     path: str | Path,
-    n_jobs: int = 1,
-    cells_as_circles: bool = True,
-    cell_boundaries: bool = True,
+    *,
+    cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cell_labels: bool = True,
+    cells_as_circles: bool = True,
+    cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
     morphology_mip: bool = True,
     morphology_focus: bool = True,
     aligned_images: bool = True,
+    cells_table: bool = True,
+    n_jobs: int = 1,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -89,18 +91,16 @@ def xenium(
     ----------
     path
         Path to the dataset.
-    n_jobs
-        Number of jobs to use for parallel processing.
+    cells_boundaries
+        Whether to read cell boundaries (polygons).
+    nucleus_boundaries
+        Whether to read nucleus boundaries (polygons).
     cells_as_circles
         Whether to read cells also as circles. Useful for performant visualization. The radii of the nuclei,
         not the ones of cells, will be used; using the radii of cells would make the visualization too cluttered
         (the cell boundaries are computed as a maximum expansion of the nuclei location and therefore the
         corresponding circles would show considerable overlap).
-    cell_boundaries
-        Whether to read cell boundaries (polygons).
-    nucleus_boundaries
-        Whether to read nucleus boundaries (polygons).
-    cell_labels
+    cells_labels
         Whether to read cell labels (raster). The polygonal version of the cell labels are simplified
         for visualization purposes, and using the raster version is recommended for analysis.
     nucleus_labels
@@ -114,6 +114,10 @@ def xenium(
         Whether to read the morphology focus image.
     aligned_images
         Whether to also parse, when available, additional H&E or IF aligned images.
+    cells_table
+        Whether to read the cell annotations in the `AnnData` table.
+    n_jobs
+        Number of jobs to use for parallel processing.
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -136,13 +140,31 @@ def xenium(
 
     specs["region"] = "cell_circles" if cells_as_circles else "cell_boundaries"
 
-    return_values = _get_tables_and_circles(path, cells_as_circles, specs)
-    if cells_as_circles:
-        table, circles = return_values
-    else:
-        table = return_values
+    # the table is required in some cases
+    if not cells_table:
+        if cells_as_circles:
+            logging.info(
+                'When "cells_as_circles" is set to `True` reading the table is required; setting `cell_annotations` to '
+                "`True`."
+            )
+            cells_table = True
+        if cells_boundaries or nucleus_boundaries:
+            logging.info(
+                'When "cell_boundaries" or "nucleus_boundaries" is set to `True` reading the table is required; '
+                "setting `cell_annotations` to `True`."
+            )
+            cells_table = True
 
-    if version is not None and version >= packaging.version.parse("2.0.0"):
+    if cells_table:
+        return_values = _get_tables_and_circles(path, cells_as_circles, specs)
+        if cells_as_circles:
+            table, circles = return_values
+        else:
+            table = return_values
+    else:
+        table = None
+
+    if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
         cell_summary_table = _get_cells_metadata_table_from_zarr(path, XeniumKeys.CELLS_ZARR, specs)
         if not cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID]):
             warnings.warn(
@@ -176,7 +198,7 @@ def xenium(
             labels_name="nucleus_labels",
             labels_models_kwargs=labels_models_kwargs,
         )
-    if cell_labels:
+    if cells_labels:
         labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
             path,
             XeniumKeys.CELLS_ZARR,
@@ -185,7 +207,7 @@ def xenium(
             labels_name="cell_labels",
             labels_models_kwargs=labels_models_kwargs,
         )
-        if cell_labels_indices_mapping is not None:
+        if cell_labels_indices_mapping is not None and table is not None:
             if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
                 warnings.warn(
                     "The cell_id column in the cell_labels_table does not match the cell_id column derived from the cell "
@@ -206,7 +228,7 @@ def xenium(
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
 
-    if cell_boundaries:
+    if cells_boundaries:
         polygons["cell_boundaries"] = _get_polygons(
             path,
             XeniumKeys.CELL_BOUNDARIES_FILE,
@@ -289,7 +311,8 @@ def xenium(
             del image_models_kwargs["c_coords"]
             logger.removeFilter(IgnoreSpecificMessage())
 
-    tables["table"] = table
+    if table is not None:
+        tables["table"] = table
 
     elements_dict = {"images": images, "labels": labels, "points": points, "tables": tables, "shapes": polygons}
     if cells_as_circles:
