@@ -1,25 +1,29 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Callable, Literal
 
 import anndata
 import dask.dataframe as dd
 import geopandas
 import numpy as np
 import pandas as pd
+import xarray
 from dask import array as da
 from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
-from spatialdata.transformations import Affine, Identity
+from spatialdata.transformations import Affine, BaseTransformation
 
 from spatialdata_io._constants._constants import MerscopeKeys
 from spatialdata_io._docs import inject_docs
+
+SUPPORTED_BACKENDS = ["dask_image", "rioxarray"]
 
 
 def _get_channel_names(images_dir: Path) -> list[str]:
@@ -82,6 +86,11 @@ def merscope(
     z_layers: int | list[int] | None = 3,
     region_name: str | None = None,
     slide_name: str | None = None,
+    backend: Literal["dask_image", "rioxarray"] | None = None,
+    transcripts: bool = True,
+    cells_boundaries: bool = True,
+    cells_table: bool = True,
+    mosaic_images: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
@@ -120,6 +129,16 @@ def merscope(
         Name of the region of interest, e.g., `'region_0'`. If `None` then the name of the `path` directory is used.
     slide_name
         Name of the slide/run. If `None` then the name of the parent directory of `path` is used (whose name starts with a date).
+    backend
+        Either `"dask_image"` or `"rioxarray"` (the latter uses less RAM, but requires `rioxarray` to be installed). By default, uses `"rioxarray"` if and only if the `rioxarray` library is installed.
+    transcripts
+        Whether to read transcripts.
+    cells_boundaries
+        Whether to read cell boundaries (polygons).
+    cells_table
+        Whether to read cells table.
+    mosaic_images
+        Whether to read the mosaic images.
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -140,6 +159,10 @@ def merscope(
         assert isinstance(image_models_kwargs, dict)
         image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
 
+    assert (
+        backend is None or backend in SUPPORTED_BACKENDS
+    ), f"Backend '{backend} not supported. Should be one of: {', '.join(SUPPORTED_BACKENDS)}"
+
     path = Path(path).absolute()
     count_path, obs_path, boundaries_path = _get_file_paths(path, vpt_outputs)
     images_dir = path / MerscopeKeys.IMAGES_DIR
@@ -147,6 +170,7 @@ def merscope(
     microns_to_pixels = Affine(
         np.genfromtxt(images_dir / MerscopeKeys.TRANSFORMATION_FILE), input_axes=("x", "y"), output_axes=("x", "y")
     )
+    transformations = {"global": microns_to_pixels}
 
     vizgen_region = path.name if region_name is None else region_name
     slide_name = path.parent.name if slide_name is None else slide_name
@@ -156,73 +180,141 @@ def merscope(
     # Images
     images = {}
 
-    z_layers = [z_layers] if isinstance(z_layers, int) else z_layers or []
+    if mosaic_images:
+        z_layers = [z_layers] if isinstance(z_layers, int) else z_layers or []
 
-    stainings = _get_channel_names(images_dir)
-    if stainings:
-        for z_layer in z_layers:
-            im = da.stack(
-                [
-                    imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif", **imread_kwargs).squeeze()
-                    for stain in stainings
-                ],
-                axis=0,
-            )
-            parsed_im = Image2DModel.parse(
-                im,
-                dims=("c", "y", "x"),
-                transformations={"microns": microns_to_pixels.inverse()},
-                c_coords=stainings,
-                **image_models_kwargs,
-            )
-            images[f"{dataset_id}_z{z_layer}"] = parsed_im
+        reader = _get_reader(backend)
+
+        stainings = _get_channel_names(images_dir)
+        if stainings:
+            for z_layer in z_layers:
+                images[f"{dataset_id}_z{z_layer}"] = reader(
+                    images_dir,
+                    stainings,
+                    z_layer,
+                    image_models_kwargs,
+                    **imread_kwargs,
+                )
 
     # Transcripts
     points = {}
-    transcript_path = path / MerscopeKeys.TRANSCRIPTS_FILE
-    if transcript_path.exists():
-        points[f"{dataset_id}_transcripts"] = _get_points(transcript_path)
-    else:
-        logger.warning(f"Transcript file {transcript_path} does not exist. Transcripts are not loaded.")
+
+    if transcripts:
+        transcript_path = path / MerscopeKeys.TRANSCRIPTS_FILE
+        if transcript_path.exists():
+            points[f"{dataset_id}_transcripts"] = _get_points(transcript_path, transformations)
+        else:
+            logger.warning(f"Transcript file {transcript_path} does not exist. Transcripts are not loaded.")
 
     # Polygons
     shapes = {}
-    if boundaries_path.exists():
-        shapes[f"{dataset_id}_polygons"] = _get_polygons(boundaries_path)
-    else:
-        logger.warning(f"Boundary file {boundaries_path} does not exist. Cell boundaries are not loaded.")
 
-    # Table
-    table = None
-    if count_path.exists() and obs_path.exists():
-        table = _get_table(count_path, obs_path, vizgen_region, slide_name, dataset_id, region)
-    else:
-        logger.warning(
-            f"At least one of the following files does not exist: {count_path}, {obs_path}. The table is not loaded."
+    if cells_boundaries:
+        if boundaries_path.exists():
+            shapes[f"{dataset_id}_polygons"] = _get_polygons(boundaries_path, transformations)
+        else:
+            logger.warning(f"Boundary file {boundaries_path} does not exist. Cell boundaries are not loaded.")
+
+    # Tables
+    tables = {}
+
+    if cells_table:
+        if count_path.exists() and obs_path.exists():
+            tables["table"] = _get_table(count_path, obs_path, vizgen_region, slide_name, dataset_id, region)
+        else:
+            logger.warning(
+                f"At least one of the following files does not exist: {count_path}, {obs_path}. The table is not loaded."
+            )
+
+    return SpatialData(shapes=shapes, points=points, images=images, tables=tables)
+
+
+def _get_reader(backend: str | None) -> Callable:
+    if backend is not None:
+        return _rioxarray_load_merscope if backend == "rioxarray" else _dask_image_load_merscope
+    try:
+        import rioxarray  # noqa: F401
+
+        return _rioxarray_load_merscope
+    except:
+        return _dask_image_load_merscope
+
+
+def _rioxarray_load_merscope(
+    images_dir: Path,
+    stainings: list[str],
+    z_layer: int,
+    image_models_kwargs: Mapping[str, Any],
+    **kwargs,
+):
+    logger.info("Using rioxarray backend.")
+
+    try:
+        import rioxarray
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError(
+            "Using rioxarray backend requires to install the rioxarray library (`pip install rioxarray`)"
         )
+    from rasterio.errors import NotGeoreferencedWarning
 
-    return SpatialData(shapes=shapes, points=points, images=images, table=table)
+    warnings.simplefilter("ignore", category=NotGeoreferencedWarning)
+
+    im = xarray.concat(
+        [
+            rioxarray.open_rasterio(
+                images_dir / f"mosaic_{stain}_z{z_layer}.tif",
+                chunks=image_models_kwargs["chunks"],
+                **kwargs,
+            )
+            .rename({"band": "c"})
+            .reset_coords("spatial_ref", drop=True)
+            for stain in stainings
+        ],
+        dim="c",
+    )
+
+    return Image2DModel.parse(im, c_coords=stainings, **image_models_kwargs)
 
 
-def _get_points(transcript_path: Path) -> dd.DataFrame:
+def _dask_image_load_merscope(
+    images_dir: Path,
+    stainings: list[str],
+    z_layer: int,
+    image_models_kwargs: Mapping[str, Any],
+    **kwargs,
+):
+    im = da.stack(
+        [imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif", **kwargs).squeeze() for stain in stainings],
+        axis=0,
+    )
+
+    return Image2DModel.parse(
+        im,
+        dims=("c", "y", "x"),
+        c_coords=stainings,
+        **image_models_kwargs,
+    )
+
+
+def _get_points(transcript_path: Path, transformations: dict[str, BaseTransformation]) -> dd.DataFrame:
     transcript_df = dd.read_csv(transcript_path)
     transcripts = PointsModel.parse(
         transcript_df,
         coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
-        transformations={"microns": Identity()},
+        transformations=transformations,
     )
     transcripts["gene"] = transcripts["gene"].astype("category")
     return transcripts
 
 
-def _get_polygons(boundaries_path: Path) -> geopandas.GeoDataFrame:
+def _get_polygons(boundaries_path: Path, transformations: dict[str, BaseTransformation]) -> geopandas.GeoDataFrame:
     geo_df = geopandas.read_parquet(boundaries_path)
     geo_df = geo_df.rename_geometry("geometry")
     geo_df = geo_df[geo_df[MerscopeKeys.Z_INDEX] == 0]  # Avoid duplicate boundaries on all z-levels
     geo_df.geometry = geo_df.geometry.map(lambda x: x.geoms[0])  # The MultiPolygons contain only one polygon
     geo_df.index = geo_df[MerscopeKeys.METADATA_CELL_KEY].astype(str)
 
-    return ShapesModel.parse(geo_df, transformations={"microns": Identity()})
+    return ShapesModel.parse(geo_df, transformations=transformations)
 
 
 def _get_table(

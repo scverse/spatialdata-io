@@ -15,11 +15,17 @@ and this project adheres to [Semantic Versioning][].
 -   (Xenium) support reading multi-polygon selection files from the Xenium Explorer
 -   (ISS) An experimental loader to load elemental ISS data objects, e.g. raw.tif, label.tif and anndata.h5ad
 -   (Stereo-seq) Added reader @LLehner @timtreis @florianingelfinger #70
+-   (MERSCOPE) Optional rioxarray backend for MERSCOPE data (reads chunks)
+-   (MERSCOPE) Can choose which elements should be loaded
 
 ### Fixed
 
 -   (Visium) Fixed issue with joining a SpatialElement with a table due to index values not being unique.
     obs_names_make_unique is now called internally to enforce unique index values allowing for join operations.
+
+### Changed
+
+-   (MERSCOPE) "global" coordinate system is used as a default instead of "microns"
 
 ## [0.1.2] - 2024-03-30
 
