@@ -140,8 +140,6 @@ def xenium(
 
     specs["region"] = "cell_circles" if cells_as_circles else "cell_boundaries"
 
-    return_values = _get_tables_and_circles(path, cells_as_circles, specs)
-
     # the table is required in some cases
     if not cells_table:
         if cells_as_circles:
@@ -158,6 +156,7 @@ def xenium(
             cells_table = True
 
     if cells_table:
+        return_values = _get_tables_and_circles(path, cells_as_circles, specs)
         if cells_as_circles:
             table, circles = return_values
         else:
