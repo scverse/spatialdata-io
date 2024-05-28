@@ -229,14 +229,14 @@ def merscope(
     return SpatialData(shapes=shapes, points=points, images=images, tables=tables)
 
 
-def _get_reader(backend: str | None) -> Callable:
+def _get_reader(backend: str | None) -> Callable:  # type: ignore[type-arg]
     if backend is not None:
         return _rioxarray_load_merscope if backend == "rioxarray" else _dask_image_load_merscope
     try:
         import rioxarray  # noqa: F401
 
         return _rioxarray_load_merscope
-    except:
+    except ModuleNotFoundError:
         return _dask_image_load_merscope
 
 
@@ -245,8 +245,8 @@ def _rioxarray_load_merscope(
     stainings: list[str],
     z_layer: int,
     image_models_kwargs: Mapping[str, Any],
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Image2DModel:
     logger.info("Using rioxarray backend.")
 
     try:
@@ -281,8 +281,8 @@ def _dask_image_load_merscope(
     stainings: list[str],
     z_layer: int,
     image_models_kwargs: Mapping[str, Any],
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Image2DModel:
     im = da.stack(
         [imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif", **kwargs).squeeze() for stain in stainings],
         axis=0,
