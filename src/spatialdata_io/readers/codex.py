@@ -59,7 +59,7 @@ def codex(
         fcs = (
             readfcs.ReadFCS(path / path_files[0]).data
             if CodexKeys.FCS_FILE in path_files[0]
-            else pd.read_csv(path_files[0], header=0, index_col=None)
+            else pd.read_csv(path / path_files[0], header=0, index_col=None)
         )
     else:
         raise ValueError("Cannot determine data set. Expecting a file with format .fcs or .csv")
