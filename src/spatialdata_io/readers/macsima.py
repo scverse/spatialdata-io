@@ -1,25 +1,22 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from math import e
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+import dask.array as da
 import pandas as pd
+import spatialdata as sd
+from aicsimageio import AICSImage
 from dask_image.imread import imread
+from ome_types import from_tiff
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 
 from spatialdata_io._constants._constants import MacsimaKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io.readers._utils._utils import parse_physical_size, calc_scale_factors
-
-from spatialdata._logging import logger
-import spatialdata as sd
-from ome_types import from_tiff
-import dask.array as da
-from aicsimageio import AICSImage
+from spatialdata_io.readers._utils._utils import calc_scale_factors, parse_physical_size
 
 __all__ = ["macsima"]
 
@@ -82,17 +79,21 @@ def macsima(
     pixels_to_microns = None
     if metadata:
         # read metadata to get list of images and channel names
-        path_files = list(path.glob(f'*{MacsimaKeys.METADATA_SUFFIX}'))
+        path_files = list(path.glob(f"*{MacsimaKeys.METADATA_SUFFIX}"))
         if len(path_files) > 0:
-            if len(path_files) > 1: 
-                logger.warning(f"Cannot determine metadata file. Expecting a single file with format .txt. Got multiple files: {path_files}")
-            path_metadata = list(path.glob(f'*{MacsimaKeys.METADATA_SUFFIX}'))[0]
+            if len(path_files) > 1:
+                logger.warning(
+                    f"Cannot determine metadata file. Expecting a single file with format .txt. Got multiple files: {path_files}"
+                )
+            path_metadata = list(path.glob(f"*{MacsimaKeys.METADATA_SUFFIX}"))[0]
             df = pd.read_csv(path_metadata, sep="\t", header=0, index_col=None)
             logger.debug(df)
-            df['channel'] = df['ch1'].str.split(' ').str[0]
-            df['round_channel'] = df['Round'] + ' ' + df['channel']
+            df["channel"] = df["ch1"].str.split(" ").str[0]
+            df["round_channel"] = df["Round"] + " " + df["channel"]
             path_files = [path / p for p in df.filename.values]
-            assert all([p.exists() for p in path_files]), f"Cannot find all images in metadata file. Missing: {[p for p in path_files if not p.exists()]}"
+            assert all(
+                [p.exists() for p in path_files]
+            ), f"Cannot find all images in metadata file. Missing: {[p for p in path_files if not p.exists()]}"
             round_channels = df.round_channel.values
             stack, sorted_channels = get_stack(path_files, round_channels, imread_kwargs)
         else:
@@ -100,11 +101,11 @@ def macsima(
     if not metadata or len(path_files) == 0:
         # get list of image paths, get channel name from OME data and cycle number from filename
         # look for OME-TIFF files
-        ome_patt = f'*{MacsimaKeys.IMAGE_OMETIF}*'
+        ome_patt = f"*{MacsimaKeys.IMAGE_OMETIF}*"
         path_files = list(path.glob(ome_patt))
         if not path_files:
             # look for .qptiff files
-            qptif_patt = f'*{MacsimaKeys.IMAGE_QPTIF}*'
+            qptif_patt = f"*{MacsimaKeys.IMAGE_QPTIF}*"
             path_files = list(path.glob(qptif_patt))
             logger.debug(path_files)
             if not path_files:
@@ -140,7 +141,7 @@ def macsima(
             channels = [from_tiff(p).images[0].pixels.channels[0].name for p in path_files]
             round_channels = [f"{r} {c}" for r, c in zip(rounds, channels)]
             stack, sorted_channels = get_stack(path_files, round_channels, imread_kwargs)
-    
+
     # do subsetting if needed
     if subset:
         stack = stack[:, :subset, :subset]
@@ -176,16 +177,16 @@ def macsima(
         transformations=t_dict,
     )
     sdata = sd.SpatialData(images={path.stem: stack}, table=None)
-    
+
     return sdata
 
 
-def get_stack(path_files: list[Path], round_channels: list[str], imread_kwargs: Mapping[str, Any])-> Any:
+def get_stack(path_files: list[Path], round_channels: list[str], imread_kwargs: Mapping[str, Any]) -> Any:
     imgs_channels = list(zip(path_files, round_channels))
     logger.debug(imgs_channels)
     # sort based on round number
-    imgs_channels = sorted(imgs_channels, key=lambda x: int(x[1].split(' ')[0][1:]))
-    logger.debug(f'Len imgs_channels: {len(imgs_channels)}')
+    imgs_channels = sorted(imgs_channels, key=lambda x: int(x[1].split(" ")[0][1:]))
+    logger.debug(f"Len imgs_channels: {len(imgs_channels)}")
     # read in images and merge channels
     sorted_paths, sorted_channels = list(zip(*imgs_channels))
     imgs = [imread(img, **imread_kwargs) for img in sorted_paths]
