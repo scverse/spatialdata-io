@@ -4,18 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from spatialdata_io.readers.macsima import (
-    macsima,
-)
+from spatialdata_io.readers.macsima import macsima
 
 
 # The datasets should be downloaded and placed in the "data" directory;
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
 @pytest.mark.parametrize(
     "dataset,expected",
-    [
-        ("Lung_adc_demo", "{'y': (0, 15460), 'x': (0, 13864)}"),
-    ],
+    [("Lung_adc_demo", "{'y': (0, 15460), 'x': (0, 13864)}"), ("HumanLiverH35", "{'y': (0, 1154), 'x': (0, 1396)}")],
 )
 def test_image_size(dataset: str, expected: str) -> None:
     f = Path("./data") / dataset
@@ -27,12 +23,11 @@ def test_image_size(dataset: str, expected: str) -> None:
     extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
     assert str(extent) == expected
 
+
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
 @pytest.mark.parametrize(
     "dataset,expected",
-    [
-        ("Lung_adc_demo", 116),
-    ],
+    [("Lung_adc_demo", 116), ("HumanLiverH35", 151)],
 )
 def test_total_channels(dataset: str, expected: int) -> None:
     f = Path("./data") / dataset
@@ -43,12 +38,11 @@ def test_total_channels(dataset: str, expected: int) -> None:
     channels: int = len(sdata.images[dataset]["scale0"]["c"])
     assert channels == expected
 
+
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
 @pytest.mark.parametrize(
     "dataset,expected",
-    [
-        ("Lung_adc_demo", ['R0 DAPI', 'R1 CD68', 'R1 CD163']),
-    ],
+    [("Lung_adc_demo", ["R0 DAPI", "R1 CD68", "R1 CD163"]), ("HumanLiverH35", ["R0 DAPI", "R1 CD68", "R1 CD163"])],
 )
 def test_channel_names(dataset: str, expected: list[str]) -> None:
     f = Path("./data") / dataset
