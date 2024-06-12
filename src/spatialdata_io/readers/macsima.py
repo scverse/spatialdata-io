@@ -97,7 +97,7 @@ def macsima(
             round_channels = df.round_channel.values
             stack, sorted_channels = get_stack(path_files, round_channels, imread_kwargs)
         else:
-            logger.warning(f"Cannot find metadata file. Will try to parse from image names.")
+            logger.warning("Cannot find metadata file. Will try to parse from image names.")
     if not metadata or len(path_files) == 0:
         # get list of image paths, get channel name from OME data and cycle number from filename
         # look for OME-TIFF files
@@ -160,7 +160,7 @@ def macsima(
         t_pixels_to_microns = sd.transformations.Scale([pixels_to_microns, pixels_to_microns], axes=("x", "y"))
         # 'microns' is also used in merscope example
         # no inverse needed as the transformation is already from pixels to microns
-        t_dict = {"microns": t_pixels_to_microns}
+        t_dict = {"global": t_pixels_to_microns}
     # # chunk_size can be 1 for channels
     chunks = {
         "x": max_chunk_size,
