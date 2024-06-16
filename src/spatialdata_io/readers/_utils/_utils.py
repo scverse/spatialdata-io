@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -10,7 +11,7 @@ from h5py import File
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
-PathLike = Union[os.PathLike, str]
+PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
 
 try:
     from numpy.typing import NDArray
@@ -29,7 +30,6 @@ def _read_counts(
 ) -> tuple[AnnData, str]:
     path = Path(path)
     if counts_file.endswith(".h5"):
-        print(counts_file)
         adata: AnnData = _read_10x_h5(path / counts_file, **kwargs)
         with File(path / counts_file, mode="r") as f:
             attrs = dict(f.attrs)
@@ -50,9 +50,8 @@ def _read_counts(
                 adata.uns["spatial"][library_id]["metadata"][key] = metadata
 
         return adata, library_id
-
     if library_id is None:
-        raise ValueError("Please explicitly specify library id.")
+        raise ValueError("Please explicitly specify `library id`.")
 
     if counts_file.endswith((".csv", ".txt")):
         adata = read_text(path / counts_file, **kwargs)
@@ -68,3 +67,20 @@ def _read_counts(
 
     adata.uns["spatial"] = {library_id: {"metadata": {}}}  # can overwrite
     return adata, library_id
+
+
+def _initialize_raster_models_kwargs(
+    image_models_kwargs: Mapping[str, Any], labels_models_kwargs: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    image_models_kwargs = dict(image_models_kwargs)
+    if "chunks" not in image_models_kwargs:
+        image_models_kwargs["chunks"] = (1, 4096, 4096)
+    if "scale_factors" not in image_models_kwargs:
+        image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
+
+    labels_models_kwargs = dict(labels_models_kwargs)
+    if "chunks" not in labels_models_kwargs:
+        labels_models_kwargs["chunks"] = (4096, 4096)
+    if "scale_factors" not in labels_models_kwargs:
+        labels_models_kwargs["scale_factors"] = [2, 2, 2, 2]
+    return image_models_kwargs, labels_models_kwargs

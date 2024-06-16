@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 from anndata import AnnData
-from dask.dataframe.core import DataFrame as DaskDataFrame
+from dask.dataframe import DataFrame as DaskDataFrame
 from dask_image.imread import imread
 from scipy.sparse import csr_matrix
 

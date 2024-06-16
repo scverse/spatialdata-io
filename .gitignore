@@ -24,6 +24,7 @@ __pycache__/
 # IDEs
 /.idea/
 /.vscode/
+/.spyproject/
 
 # docs
 /docs/generated/
@@ -32,6 +33,8 @@ __pycache__/
 # other
 _version.py
 node_modules/
+.code-workspace
 
-# data
+# test datasets (e.g. Xenium ones)
+data/
 tests/data

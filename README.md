@@ -4,20 +4,24 @@
 
 [![Tests][badge-tests]][link-tests]
 [![Documentation][badge-docs]][link-docs]
+[![DOI](https://zenodo.org/badge/544045123.svg)](https://zenodo.org/badge/latestdoi/544045123)
 
-[badge-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test_and_deploy.yaml/badge.svg
-[link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test_and_deploy.yaml
+[badge-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml/badge.svg
+[link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml
 [badge-docs]: https://img.shields.io/readthedocs/spatialdata-io
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
--   NanoString CosMx
--   MCMICRO (output data)
--   Steinbock (output data)
 -   10x Genomics Visium
+-   10x Genomics Visium HD
 -   10x Genomics Xenium
--   Curio Seeker
 -   Akoya PhenoCycler (formerly CODEX)
+-   Curio Seeker
+-   DBiT-seq
+-   MCMICRO (output data)
+-   NanoString CosMx
+-   Steinbock (output data)
+-   STOmics Stereo-seq
 -   Vizgen MERSCOPE (MERFISH)
 
 ## Getting started
@@ -50,9 +54,18 @@ pip install git+https://github.com/scverse/spatialdata-io.git@main
 For questions and help requests, you can reach out in the [scverse discourse][scverse-discourse].
 If you found a bug, please use the [issue tracker][issue-tracker].
 
+## Readers from third-party libraries
+
+Technologies that can be read into `SpatialData` objects using third-party libraries:
+
+-   METASPACE (MALDI, ...): [metaspace-converter](https://github.com/metaspace2020/metaspace-converter)
+-   PhenoCycler: [SOPA](https://github.com/gustaveroussy/sopa)
+-   MACSima: [SOPA](https://github.com/gustaveroussy/sopa)
+-   Hyperion (Imaging Mass Cytometry): [SOPA](https://github.com/gustaveroussy/sopa)
+
 ## Citation
 
-[L Marconato*, G Palla*, KA Yamauchi*, I Virshup*, E Heidari, T Treis, M Toth, R Shrestha, H Vöhringer, W Huber, M Gerstung, J Moore, FJ Theis, O Stegle, bioRxiv, 2023](https://www.biorxiv.org/content/10.1101/2023.05.05.539647v1). \* = equal contribution
+Marconato, L., Palla, G., Yamauchi, K.A. et al. SpatialData: an open and universal data framework for spatial omics. Nat Methods (2024). https://doi.org/10.1038/s41592-024-02212-x
 
 [scverse-discourse]: https://discourse.scverse.org/
 [issue-tracker]: https://github.com/scverse/spatialdata-io/issues
