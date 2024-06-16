@@ -128,18 +128,20 @@ def visium_hd(
         path_bins = path
     all_bin_sizes = _get_bins(path_bins)
 
-    if bin_size is None:
-        bin_sizes = all_bin_sizes
-    elif isinstance(bin_size, int) or isinstance(bin_size, list) and len(bin_size) == 0:
-        if f"square_{bin_size:03}um" not in all_bin_sizes:
+    bin_sizes = []
+    if bin_size is not None:
+        if not isinstance(bin_size, list):
+            bin_size = [bin_size]
+        bin_sizes = [f"square_{bs:03}um" for bs in bin_size if f"square_{bs:03}um" in all_bin_sizes]
+        if len(bin_sizes) < len(bin_size):
             warnings.warn(
-                f"Requested bin size {bin_size} not found (available {all_bin_sizes}). Using all available bins.",
+                f"Requested bin size {bin_size} (available {all_bin_sizes}); ignoring the bin sizes that are not "
+                "found.",
                 UserWarning,
                 stacklevel=2,
             )
-            bin_sizes = all_bin_sizes
-        else:
-            bin_sizes = [f"square_{bin_size:03}um"]
+    if bin_size is None or bin_sizes == []:
+        bin_sizes = all_bin_sizes
 
     # iterate over the given bins and load the data
     for bin_size_str in bin_sizes:
