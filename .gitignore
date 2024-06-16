@@ -2,6 +2,7 @@
 .DS_Store
 *~
 *.tmp
+temp/
 
 # Compiled files
 __pycache__/
@@ -31,9 +32,8 @@ __pycache__/
 
 # other
 _version.py
-.code-workspace
-temp/
 node_modules/
+.code-workspace
 
 # test datasets (e.g. Xenium ones)
 data/
