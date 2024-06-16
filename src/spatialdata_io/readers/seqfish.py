@@ -78,7 +78,10 @@ def seqfish(
         raise ValueError(
             f"No files matching the pattern {count_file_pattern} were found. Cannot infer the naming scheme."
         )
-    prefix = count_file_pattern.match(count_files[0]).group(1)
+    matched = count_file_pattern.match(count_files[0])
+    if matched is None:
+        raise ValueError(f"File {count_files[0]} does not match the pattern {count_file_pattern}")
+    prefix = matched.group(1)
 
     n = len(count_files)
     all_sections = list(range(1, n + 1))
@@ -88,7 +91,7 @@ def seqfish(
         for section in sections:
             if section not in all_sections:
                 raise ValueError(f"Section {section} not found in the data.")
-    sections = [f"{SK.SECTION}{x}" for x in sections]
+    sections_str = [f"{SK.SECTION}{x}" for x in sections]
 
     def get_cell_file(section: str) -> str:
         return f"{prefix}_{SK.CELL_COORDINATES}_{section}{SK.CSV_FILE}"
@@ -105,8 +108,9 @@ def seqfish(
     def get_transcript_file(section: str) -> str:
         return f"{prefix}_{SK.TRANSCRIPT_COORDINATES}_{section}{SK.CSV_FILE}"
 
-    adatas = {}
-    for section in sections:
+    adatas: dict[str, ad.AnnData] = {}
+    for section in sections_str:  # type: ignore[assignment]
+        assert isinstance(section, str)
         cell_file = get_cell_file(section)
         count_matrix = get_count_file(section)
         adata = ad.read_csv(path / count_matrix, delimiter=",")
@@ -128,7 +132,7 @@ def seqfish(
                 scale_factors=scale_factors,
                 transformations={x: Identity()},
             )
-            for x in sections
+            for x in sections_str
         }
     else:
         images = {}
@@ -141,7 +145,7 @@ def seqfish(
                 scale_factors=scale_factors,
                 transformations={x: Identity()},
             )
-            for x in sections
+            for x in sections_str
         }
     else:
         labels = {}
@@ -155,7 +159,7 @@ def seqfish(
                 instance_key=SK.INSTANCE_KEY_POINTS.value,
                 transformations={x: Identity()},
             )
-            for x in sections
+            for x in sections_str
         }
     else:
         points = {}
@@ -165,7 +169,7 @@ def seqfish(
     adata.obs = adata.obs.reset_index(drop=True)
     table = TableModel.parse(
         adata,
-        region=[f"cells_{x}" for x in sections],
+        region=[f"cells_{x}" for x in sections_str],
         region_key=SK.REGION_KEY.value,
         instance_key=SK.INSTANCE_KEY_TABLE.value,
     )

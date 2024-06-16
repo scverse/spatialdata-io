@@ -29,6 +29,7 @@ class CurioKeys(ModeEnum):
     VAR_FEATURES_MORANSI = "variable_features_spatial_moransi.txt"
     # metadata
     CATEGORY = "Category"
+    REGION = "cells"
     REGION_KEY = "region"
     INSTANCE_KEY = "instance_id"
     TOP_CLUSTER_DEFINING_FEATURES = "Top_cluster_defining_features"
