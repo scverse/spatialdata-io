@@ -29,7 +29,6 @@ class CurioKeys(ModeEnum):
     VAR_FEATURES_MORANSI = "variable_features_spatial_moransi.txt"
     # metadata
     CATEGORY = "Category"
-    REGION = "cells"
     REGION_KEY = "region"
     INSTANCE_KEY = "instance_id"
     TOP_CLUSTER_DEFINING_FEATURES = "Top_cluster_defining_features"
@@ -68,7 +67,7 @@ class SeqfishKeys(ModeEnum):
     TIFF_FILE = ".tiff"
     OME_TIFF_FILE = ".ome.tiff"
     # file identifiers
-    SECTION = "_section"
+    SECTION = "section"
     TRANSCRIPT_COORDINATES = "TranscriptCoordinates"
     DAPI = "DAPI"
     COUNTS_FILE = "CxG"
@@ -85,10 +84,8 @@ class SeqfishKeys(ModeEnum):
     CELL_Y = "center_y"
     # metadata
     SPATIAL_KEY = "spatial"
-    REGION = "cells"
     REGION_KEY = "region"
     INSTANCE_KEY_TABLE = "instance_id"
-    SECTION_KEY = "section"
 
 
 @unique

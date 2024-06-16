@@ -2,6 +2,7 @@
 .DS_Store
 *~
 *.tmp
+temp/
 
 # Compiled files
 __pycache__/
@@ -30,3 +31,7 @@ __pycache__/
 
 # other
 _version.py
+node_modules/
+
+# data
+tests/data

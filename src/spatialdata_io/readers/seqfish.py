@@ -19,16 +19,21 @@ from spatialdata.models import (
     ShapesModel,
     TableModel,
 )
+from spatialdata.transformations import Identity
 
-from spatialdata_io._constants._constants import SeqfishKeys
+from spatialdata_io._constants._constants import SeqfishKeys as SK
 from spatialdata_io._docs import inject_docs
 
 __all__ = ["seqfish"]
 
 
-@inject_docs(vx=SeqfishKeys)
+@inject_docs(vx=SK)
 def seqfish(
     path: str | Path,
+    load_images: bool = True,
+    load_labels: bool = True,
+    load_points: bool = True,
+    sections: list[int] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
@@ -50,88 +55,130 @@ def seqfish(
     ----------
     path
         Path to the directory containing the data.
+    load_images
+        Whether to load the images.
+    load_labels
+        Whether to load the labels.
+    load_points
+        Whether to load the points.
+    sections
+        Which sections (specified as integers) to load. By default, all sections are loaded.
+    imread_kwargs
+        Keyword arguments to pass to :func:`dask_image.imread.imread`.
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
-    csv_pattern = re.compile(r".*" + re.escape(SeqfishKeys.CSV_FILE))
-    tiff_pattern = re.compile(r".*" + re.escape(SeqfishKeys.TIFF_FILE))
-    ome_tiff_pattern = re.compile(r".*" + re.escape(SeqfishKeys.OME_TIFF_FILE))
+    count_file_pattern = re.compile(rf"(.*?)_{SK.CELL_COORDINATES}_{SK.SECTION}[0-9]+" + re.escape(SK.CSV_FILE))
+    count_files = [i for i in os.listdir(path) if count_file_pattern.match(i)]
+    if not count_files:
+        # no file matching tbe pattern found
+        raise ValueError(
+            f"No files matching the pattern {count_file_pattern} were found. Cannot infer the naming scheme."
+        )
+    prefix = count_file_pattern.match(count_files[0]).group(1)
 
-    table_files = [
-        i for i in os.listdir(path) if csv_pattern.match(i) or tiff_pattern.match(i) or ome_tiff_pattern.match(i)
-    ]
-    count_matrices = [x for x in table_files if (SeqfishKeys.COUNTS_FILE in x)]
+    n = len(count_files)
+    all_sections = list(range(1, n + 1))
+    if sections is None:
+        sections = all_sections
+    else:
+        for section in sections:
+            if section not in all_sections:
+                raise ValueError(f"Section {section} not found in the data.")
+    sections = [f"{SK.SECTION}{x}" for x in sections]
 
-    if not table_files or not count_matrices:
-        raise ValueError("No files required to build table were found.")
+    def get_cell_file(section: str) -> str:
+        return f"{prefix}_{SK.CELL_COORDINATES}_{section}{SK.CSV_FILE}"
+
+    def get_count_file(section: str) -> str:
+        return f"{prefix}_{SK.COUNTS_FILE}_{section}{SK.CSV_FILE}"
+
+    def get_dapi_file(section: str) -> str:
+        return f"{prefix}_{SK.DAPI}_{section}{SK.OME_TIFF_FILE}"
+
+    def get_cell_mask_file(section: str) -> str:
+        return f"{prefix}_{SK.CELL_MASK_FILE}_{section}{SK.TIFF_FILE}"
+
+    def get_transcript_file(section: str) -> str:
+        return f"{prefix}_{SK.TRANSCRIPT_COORDINATES}_{section}{SK.CSV_FILE}"
 
     adatas = {}
-
-    for count_matrix in count_matrices:
-        section = int(re.findall(r"\d+", count_matrix)[0])
-        cell_file = [x for x in table_files if (f"{SeqfishKeys.CELL_COORDINATES}{SeqfishKeys.SECTION}{section}" in x)][
-            0
-        ]
+    for section in sections:
+        cell_file = get_cell_file(section)
+        count_matrix = get_count_file(section)
         adata = ad.read_csv(path / count_matrix, delimiter=",")
         cell_info = pd.read_csv(path / cell_file, delimiter=",")
-        adata.obsm[SeqfishKeys.SPATIAL_KEY] = cell_info[[SeqfishKeys.CELL_X, SeqfishKeys.CELL_Y]].to_numpy()
-        adata.obs[SeqfishKeys.AREA] = np.reshape(cell_info[SeqfishKeys.AREA].to_numpy(), (-1, 1))
-        adata.obs[SeqfishKeys.SECTION_KEY] = section
-        adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE] = adata.obs.index
+        adata.obsm[SK.SPATIAL_KEY] = cell_info[[SK.CELL_X, SK.CELL_Y]].to_numpy()
+        adata.obs[SK.AREA] = np.reshape(cell_info[SK.AREA].to_numpy(), (-1, 1))
+        region = f"cells_{section}"
+        adata.obs[SK.REGION_KEY] = region
+        adata.obs[SK.INSTANCE_KEY_TABLE] = adata.obs.index.astype(int)
         adatas[section] = adata
 
-    dapi_file = [x for x in table_files if (f"{SeqfishKeys.DAPI}" in x)]
-    cell_mask_file = [x for x in table_files if (f"{SeqfishKeys.CELL_MASK_FILE}" in x)]
-    transcript_file = [x for x in table_files if (f"{SeqfishKeys.TRANSCRIPT_COORDINATES}" in x)]
-
-    n = len(count_matrices)
     scale_factors = [2, 2, 2, 2]
-    images = {
-        f"image_{x}": Image2DModel.parse(
-            imread(path / dapi_file[x - 1], **imread_kwargs), dims=("c", "y", "x"), scale_factors=scale_factors
-        )
-        for x in range(1, n + 1)
-    }
-    labels = {
-        f"label_{x}": Labels2DModel.parse(
-            imread(path / cell_mask_file[x - 1], **imread_kwargs).squeeze(),
-            dims=("y", "x"),
-            scale_factors=scale_factors,
-        )
-        for x in range(1, n + 1)
-    }
-    points = {
-        f"transcripts_{x}": PointsModel.parse(
-            pd.read_csv(path / transcript_file[x - 1], delimiter=","),
-            coordinates={"x": SeqfishKeys.TRANSCRIPTS_X, "y": SeqfishKeys.TRANSCRIPTS_Y},
-            feature_key=SeqfishKeys.FEATURE_KEY,
-            instance_key=SeqfishKeys.INSTANCE_KEY_POINTS,
-        )
-        for x in range(1, n + 1)
-    }
 
-    adata = ad.concat(adatas)
-    adata.obs[SeqfishKeys.REGION_KEY] = SeqfishKeys.REGION
-    adata.obs[SeqfishKeys.REGION_KEY] = adata.obs[SeqfishKeys.REGION_KEY].astype("category")
+    if load_images:
+        images = {
+            f"image_{x}": Image2DModel.parse(
+                imread(path / get_dapi_file(x), **imread_kwargs),
+                dims=("c", "y", "x"),
+                scale_factors=scale_factors,
+                transformations={x: Identity()},
+            )
+            for x in sections
+        }
+    else:
+        images = {}
+
+    if load_labels:
+        labels = {
+            f"labels_{x}": Labels2DModel.parse(
+                imread(path / get_cell_mask_file(x), **imread_kwargs).squeeze(),
+                dims=("y", "x"),
+                scale_factors=scale_factors,
+                transformations={x: Identity()},
+            )
+            for x in sections
+        }
+    else:
+        labels = {}
+
+    if load_points:
+        points = {
+            f"transcripts_{x}": PointsModel.parse(
+                pd.read_csv(path / get_transcript_file(x), delimiter=","),
+                coordinates={"x": SK.TRANSCRIPTS_X, "y": SK.TRANSCRIPTS_Y},
+                feature_key=SK.FEATURE_KEY.value,
+                instance_key=SK.INSTANCE_KEY_POINTS.value,
+                transformations={x: Identity()},
+            )
+            for x in sections
+        }
+    else:
+        points = {}
+
+    adata = ad.concat(adatas.values())
+    adata.obs[SK.REGION_KEY] = adata.obs[SK.REGION_KEY].astype("category")
     adata.obs = adata.obs.reset_index(drop=True)
     table = TableModel.parse(
         adata,
-        region=SeqfishKeys.REGION.value,
-        region_key=SeqfishKeys.REGION_KEY.value,
-        instance_key=SeqfishKeys.INSTANCE_KEY_TABLE,
+        region=[f"cells_{x}" for x in sections],
+        region_key=SK.REGION_KEY.value,
+        instance_key=SK.INSTANCE_KEY_TABLE.value,
     )
 
     shapes = {
-        f"{SeqfishKeys.REGION.value}_fov_{section}": ShapesModel.parse(
-            adata.obsm[SeqfishKeys.SPATIAL_KEY],
+        f"cells_{x}": ShapesModel.parse(
+            adata.obsm[SK.SPATIAL_KEY],
             geometry=0,
-            radius=np.sqrt(adata.obs[SeqfishKeys.AREA].to_numpy() / np.pi),
-            index=adata.obs[SeqfishKeys.INSTANCE_KEY_TABLE].copy(),
+            radius=np.sqrt(adata.obs[SK.AREA].to_numpy() / np.pi),
+            index=adata.obs[SK.INSTANCE_KEY_TABLE].copy(),
+            transformations={x: Identity()},
         )
-        for section, adata in adatas.items()
+        for x, adata in adatas.items()
     }
 
     sdata = SpatialData(images=images, labels=labels, points=points, table=table, shapes=shapes)
