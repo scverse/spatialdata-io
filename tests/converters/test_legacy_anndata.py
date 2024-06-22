@@ -3,8 +3,7 @@ from typing import Literal
 import pytest
 from anndata import AnnData
 from anndata.tests.helpers import assert_equal
-from spatialdata import SpatialData
-from spatialdata._core.query.relational_query import _get_unique_label_values_as_index
+from spatialdata import SpatialData, get_element_instances
 from spatialdata.datasets import blobs
 from spatialdata.models import TableModel
 from spatialdata.testing import assert_spatial_data_objects_are_identical
@@ -18,7 +17,7 @@ BlobsTypes = Literal["blobs_labels", "blobs_circles", "blobs_polygons", "blobs_m
 def blobs_annotating_element(name: BlobsTypes) -> SpatialData:
     sdata = blobs(length=50)
     if name == "blobs_labels":
-        instance_id = _get_unique_label_values_as_index(sdata[name]).tolist()
+        instance_id = get_element_instances(sdata[name]).tolist()
     else:
         instance_id = sdata[name].index.tolist()
     n = len(instance_id)
