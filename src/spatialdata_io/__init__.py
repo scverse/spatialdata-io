@@ -4,6 +4,7 @@ from spatialdata_io.readers.codex import codex
 from spatialdata_io.readers.cosmx import cosmx
 from spatialdata_io.readers.curio import curio
 from spatialdata_io.readers.dbit import dbit
+from spatialdata_io.readers.macsima import macsima
 from spatialdata_io.readers.mcmicro import mcmicro
 from spatialdata_io.readers.merscope import merscope
 from spatialdata_io.readers.seqfish import seqfish
@@ -32,6 +33,7 @@ __all__ = [
     "xenium_explorer_selection",
     "dbit",
     "visium_hd",
+    "macsima",
 ]
 
 __version__ = version("spatialdata-io")
