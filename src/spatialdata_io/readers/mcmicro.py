@@ -258,7 +258,7 @@ def _create_anndata(
         obs=table.drop(columns=var + coords),
         var=markers,
         obsm={"spatial": table[coords].to_numpy()},
-        dtype=np.float_,
+        dtype=float,
     )
     adata.obs["region"] = pd.Categorical([region_value] * len(adata))
     return adata, region_value
