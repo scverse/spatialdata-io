@@ -29,7 +29,7 @@ from pyarrow import Table
 from shapely import Polygon
 from spatial_image import SpatialImage
 from spatialdata import SpatialData
-from spatialdata._core.query.relational_query import _get_unique_label_values_as_index
+from spatialdata._core.query.relational_query import get_element_instances
 from spatialdata._types import ArrayLike
 from spatialdata.models import (
     Image2DModel,
@@ -409,7 +409,7 @@ def _get_labels_and_indices_mapping(
 
             # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
             # release notes mentioned above)
-            real_label_index = _get_unique_label_values_as_index(labels).values
+            real_label_index = get_element_instances(labels).values
 
             # background removal
             if real_label_index[0] == 0:

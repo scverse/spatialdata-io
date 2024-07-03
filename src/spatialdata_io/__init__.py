@@ -7,6 +7,7 @@ from spatialdata_io.readers.dbit import dbit
 from spatialdata_io.readers.macsima import macsima
 from spatialdata_io.readers.mcmicro import mcmicro
 from spatialdata_io.readers.merscope import merscope
+from spatialdata_io.readers.seqfish import seqfish
 from spatialdata_io.readers.steinbock import steinbock
 from spatialdata_io.readers.stereoseq import stereoseq
 from spatialdata_io.readers.visium import visium
@@ -19,6 +20,7 @@ from spatialdata_io.readers.xenium import (
 
 __all__ = [
     "curio",
+    "seqfish",
     "visium",
     "xenium",
     "codex",

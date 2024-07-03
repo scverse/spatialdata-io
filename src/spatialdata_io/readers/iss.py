@@ -23,7 +23,7 @@ def iss(
     raw_relative_path: str | Path,
     labels_relative_path: str | Path,
     h5ad_relative_path: str | Path,
-    instance_key: str,
+    instance_key: str | None = None,
     dataset_id: str = "region",
     multiscale_image: bool = True,
     multiscale_labels: bool = True,
@@ -51,8 +51,9 @@ def iss(
     h5ad_relative_path
         Relative path to the counts and metadata file.
     instance_key
-        The name of the column that contains the instance identifiers.
-        Must be specified to link the table with the labels image (e.g. `cell_id`).
+        Which column of the `AnnData` table (in the `obs` `DataFrame`) contains the instance identifiers
+        (e.g. a `'cell_id'` column); if not specified, such information is assumed to be contained in the index of the
+        `AnnData` object.
     dataset_id
         Dataset identifier.
     multiscale_image
@@ -75,7 +76,9 @@ def iss(
     path = Path(path)
 
     adata = ad.read(path / h5ad_relative_path)
-    adata.obs[instance_key] = adata.obs.index.astype(int)
+    if instance_key is None:
+        instance_key = "instance_id"
+        adata.obs[instance_key] = adata.obs.index.astype(int)
     adata.var_names_make_unique()
     adata.obs[REGION_KEY] = REGION
     table = TableModel.parse(adata, region=REGION, region_key=REGION_KEY, instance_key=instance_key)
@@ -83,7 +86,7 @@ def iss(
     transform_original = Identity()
 
     labels_image = imread(path / labels_relative_path, **imread_kwargs).squeeze()
-    labels_image = DataArray(labels_image[2, :, :], dims=("y", "x"))
+    labels_image = DataArray(labels_image[:, :], dims=("y", "x"))
 
     labels_image_parsed = Labels2DModel.parse(
         labels_image,
