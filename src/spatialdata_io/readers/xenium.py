@@ -129,13 +129,15 @@ def xenium(
 
     Notes
     -----
-    Until spatialdata-io v0.1.3post0: previously, `cells_as_circles` was `True` by default; the table was associated to the
+    Old versions. Until spatialdata-io v0.1.3post0: previously, `cells_as_circles` was `True` by default; the table was associated to the
     circles when `cells_as_circles` was `True`, and the table was associated to the polygons when `cells_as_circles`
     was `False`; the radii of the circles were computed form the nuclei instead of the cells.
 
+    Performance. You can improve visualization performance (at the cost of accuracy) by setting `cells_as_circles` to `True`.
+
     Examples
     --------
-    Changing the annotation target of the table from the cell circles to the cell labels.
+    This code shows how to change the annotation target of the table from the cell circles to the cell labels.
     >>> from spatialdata_io import xenium
     >>> sdata = xenium("path/to/raw/data", cells_as_circles=True)
     >>> sdata["table"].obs["region"] = "cell_labels"
