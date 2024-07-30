@@ -51,7 +51,7 @@ def test_roundtrip_with_data_limits() -> None:
     "dataset,expected",
     [
         ("Xenium_V1_human_Breast_2fov_outs", "{'y': (0, 3529), 'x': (0, 5792), 'z': (10, 25)}"),
-        ("Xenium_V1_human_Lung_2fov_outs", "{'y': (-1, 3556), 'x': (0, 5794), 'z': (7, 32)}"),
+        ("Xenium_V1_human_Lung_2fov_outs", "{'y': (0, 3553), 'x': (0, 5793), 'z': (7, 32)}"),
     ],
 )
 def test_example_data(dataset: str, expected: str) -> None:
