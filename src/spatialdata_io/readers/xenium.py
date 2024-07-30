@@ -56,7 +56,7 @@ def xenium(
     *,
     cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cells_as_circles: bool = True,
+    cells_as_circles: bool = False,
     cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
@@ -96,10 +96,8 @@ def xenium(
     nucleus_boundaries
         Whether to read nucleus boundaries (polygons).
     cells_as_circles
-        Whether to read cells also as circles. Useful for performant visualization. The radii of the nuclei,
-        not the ones of cells, will be used; using the radii of cells would make the visualization too cluttered
-        (the cell boundaries are computed as a maximum expansion of the nuclei location and therefore the
-        corresponding circles would show considerable overlap).
+        Whether to read cells also as circles (the center and the radius of each circle is computed from the
+        corresponding labels cell).
     cells_labels
         Whether to read cell labels (raster). The polygonal version of the cell labels are simplified
         for visualization purposes, and using the raster version is recommended for analysis.
@@ -128,6 +126,23 @@ def xenium(
     Returns
     -------
     :class:`spatialdata.SpatialData`
+
+    Notes
+    -----
+    Until spatialdata-io v0.1.3post0: previously, `cells_as_circles` was `True` by default; the table was associated to the
+    circles when `cells_as_circles` was `True`, and the table was associated to the polygons when `cells_as_circles`
+    was `False`; the radii of the circles were computed form the nuclei instead of the cells.
+
+    Examples
+    --------
+    Changing the annotation target of the table from the cell circles to the cell labels.
+    >>> from spatialdata_io import xenium
+    >>> sdata = xenium("path/to/raw/data", cells_as_circles=True)
+    >>> sdata["table"].obs["region"] = "cell_labels"
+    >>> sdata.set_table_annotates_spatialelement(
+    ...     table_name="table", region="cell_labels", region_key="region", instance_key="cell_labels"
+    ... )
+    >>> sdata.write("path/to/data.zarr")
     """
     image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
         image_models_kwargs, labels_models_kwargs
@@ -138,7 +153,7 @@ def xenium(
     # to trigger the warning if the version cannot be parsed
     version = _parse_version_of_xenium_analyzer(specs, hide_warning=False)
 
-    specs["region"] = "cell_circles" if cells_as_circles else "cell_boundaries"
+    specs["region"] = "cell_circles" if cells_as_circles else "cell_labels"
 
     # the table is required in some cases
     if not cells_table:
@@ -210,14 +225,16 @@ def xenium(
         if cell_labels_indices_mapping is not None and table is not None:
             if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
                 warnings.warn(
-                    "The cell_id column in the cell_labels_table does not match the cell_id column derived from the cell "
-                    "labels data. This could be due to trying to read a new version that is not supported yet. Please "
-                    "report this issue.",
+                    "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
+                    "cell labels data. This could be due to trying to read a new version that is not supported yet. "
+                    "Please report this issue.",
                     UserWarning,
                     stacklevel=2,
                 )
             else:
                 table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
+                if not cells_as_circles:
+                    table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
     if nucleus_boundaries:
         polygons["nucleus_boundaries"] = _get_polygons(
