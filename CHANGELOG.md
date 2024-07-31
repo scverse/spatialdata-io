@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.4] - xxxx-xx-xx
 
+### Changed
+
+-   (Xenium) changed default target of table to labels; radii of circles computed from cells, not nuclei #179
+
 ## [0.1.3] - 2024-07-03
 
 ### Added
