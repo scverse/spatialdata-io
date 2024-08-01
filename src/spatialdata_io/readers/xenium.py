@@ -152,7 +152,7 @@ def xenium(
             "The default value of `cells_as_circles` will change to `False` in the next release. "
             "Please pass `True` explicitly to maintain the current behavior.",
             DeprecationWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
     image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
         image_models_kwargs, labels_models_kwargs
