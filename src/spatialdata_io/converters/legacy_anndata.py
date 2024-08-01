@@ -268,6 +268,8 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
             keys = set(adata.uns[SPATIAL][dataset_id].keys())
             tissue_hires_scalef = None
             tissue_lowres_scalef = None
+            hires = None
+            lowres = None
             if SCALEFACTORS in keys:
                 scalefactors = adata.uns[SPATIAL][dataset_id][SCALEFACTORS]
                 if TISSUE_HIRES_SCALEF in scalefactors:
