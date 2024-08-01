@@ -56,7 +56,7 @@ def xenium(
     *,
     cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cells_as_circles: bool = False,
+    cells_as_circles: bool = None,
     cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
@@ -146,6 +146,14 @@ def xenium(
     ... )
     >>> sdata.write("path/to/data.zarr")
     """
+    if cells_as_circles is None:
+        cells_as_circles = True
+        warnings.warn(
+            "The default value of `cells_as_circles` will change to `False` in the next release. "
+            "Please pass `True` explicitly to maintain the current behavior.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
         image_models_kwargs, labels_models_kwargs
     )
