@@ -33,6 +33,7 @@ dependencies = [
     "dask-image",
     "pyarrow",
     "readfcs",
+    "tifffile>=2023.8.12",
 ]
 
 [project.optional-dependencies]
