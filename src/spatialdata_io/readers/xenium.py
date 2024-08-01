@@ -56,7 +56,7 @@ def xenium(
     *,
     cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cells_as_circles: bool = None,
+    cells_as_circles: bool | None = None,
     cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
