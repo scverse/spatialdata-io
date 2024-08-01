@@ -12,18 +12,18 @@
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
--   10x Genomics Visium
--   10x Genomics Visium HD
--   10x Genomics Xenium
--   Akoya PhenoCycler (formerly CODEX)
--   Curio Seeker
+-   10x Genomics Visium®
+-   10x Genomics Visium HD®
+-   10x Genomics Xenium®
+-   Akoya PhenoCycler® (formerly CODEX®)
+-   Curio Seeker®
 -   DBiT-seq
 -   MCMICRO (output data)
--   NanoString CosMx
--   Spatial Genomics GenePS (seqFISH)
+-   NanoString CosMx®
+-   Spatial Genomics GenePS® (seqFISH)
 -   Steinbock (output data)
--   STOmics Stereo-seq
--   Vizgen MERSCOPE (MERFISH)
+-   STOmics Stereo-seq®
+-   Vizgen MERSCOPE® (MERFISH)
 
 ## Getting started
 
@@ -60,9 +60,13 @@ If you found a bug, please use the [issue tracker][issue-tracker].
 Technologies that can be read into `SpatialData` objects using third-party libraries:
 
 -   METASPACE (MALDI, ...): [metaspace-converter](https://github.com/metaspace2020/metaspace-converter)
--   PhenoCycler: [SOPA](https://github.com/gustaveroussy/sopa)
--   MACSima: [SOPA](https://github.com/gustaveroussy/sopa)
--   Hyperion (Imaging Mass Cytometry): [SOPA](https://github.com/gustaveroussy/sopa)
+-   PhenoCycler®: [SOPA](https://github.com/gustaveroussy/sopa)
+-   MACSima®: [SOPA](https://github.com/gustaveroussy/sopa)
+-   Hyperion® (Imaging Mass Cytometry): [SOPA](https://github.com/gustaveroussy/sopa)
+
+## Disclaimer
+
+This library is community maintained and is not officially endorsed by the aforementined spatial technoloy companies. As such, we cannot offer any warranty of the correctedness of the representation. Futhermore, we cannot ensure the correctness of the readers for every data version as the technologies evolves and update their formats. If you find a bug or notice a misrepresentation for the data please report it via our [Bug Tracking System](https://github.com/scverse/spatialdata-io/issues?q=sort%3Aupdated-desc+is%3Aissue+is%3Aopen) so that it can be addressed either by the maintainers of this library or by the community.
 
 ## Citation
 
