@@ -25,6 +25,8 @@ This package contains reader functions to load common spatial omics formats into
 -   STOmics Stereo-seq®
 -   Vizgen MERSCOPE® (MERFISH)
 
+Note: all mentioned technologies are registered trademarks of their respective companies.
+
 ## Getting started
 
 Please refer to the [documentation][link-docs]. In particular, the
