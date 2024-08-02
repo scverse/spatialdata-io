@@ -66,7 +66,7 @@ Technologies that can be read into `SpatialData` objects using third-party libra
 
 ## Disclaimer
 
-This library is community maintained and is not officially endorsed by the aforementined spatial technoloy companies. As such, we cannot offer any warranty of the correctedness of the representation. Futhermore, we cannot ensure the correctness of the readers for every data version as the technologies evolves and update their formats. If you find a bug or notice a misrepresentation for the data please report it via our [Bug Tracking System](https://github.com/scverse/spatialdata-io/issues?q=sort%3Aupdated-desc+is%3Aissue+is%3Aopen) so that it can be addressed either by the maintainers of this library or by the community.
+This library is community maintained and is not officially endorsed by the aforementioned spatial technology companies. As such, we cannot offer any warranty of the correctness of the representation. Furthermore, we cannot ensure the correctness of the readers for every data version as the technologies evolve and update their formats. If you find a bug or notice a misrepresentation of the data please report it via our [Bug Tracking System](https://github.com/scverse/spatialdata-io/issues?q=sort%3Aupdated-desc+is%3Aissue+is%3Aopen) so that it can be addressed either by the maintainers of this library or by the community.
 
 ## Citation
 
