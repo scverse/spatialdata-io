@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning][].
 
 -   (Xenium) changed default target of table to labels; radii of circles computed from cells, not nuclei #179
 -   (Visium HD) changed default geometry to squares from circles for the bins; added parameter to choose #183
+-   (CosMx) dropping points element with zero-length from the cosmx reader #191
 
 ## [0.1.3] - 2024-07-03
 
