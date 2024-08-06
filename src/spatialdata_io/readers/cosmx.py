@@ -271,17 +271,18 @@ def cosmx(
                 sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
                 # we rename z because we want to treat the data as 2d
                 sub_table.rename(columns={"z": "z_raw"}, inplace=True)
-                points[f"{fov}_points"] = PointsModel.parse(
-                    sub_table,
-                    coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
-                    feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
-                    instance_key=CosmxKeys.INSTANCE_KEY,
-                    transformations={
-                        fov: Identity(),
-                        "global": aff,
-                        "global_only_labels": aff,
-                    },
-                )
+                if len(sub_table) > 0:
+                    points[f"{fov}_points"] = PointsModel.parse(
+                        sub_table,
+                        coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
+                        feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
+                        instance_key=CosmxKeys.INSTANCE_KEY,
+                        transformations={
+                            fov: Identity(),
+                            "global": aff,
+                            "global_only_labels": aff,
+                        },
+                    )
 
     # TODO: what to do with fov file?
     # if fov_file is not None:
