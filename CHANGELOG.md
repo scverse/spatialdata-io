@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.4] - xxxx-xx-xx
 
+### Added
+
+-   (Xenium) added `dims` parameter for more control in `xenium_aligned_image()`
+
 ## [0.1.4] - 2024-08-07
 
 ### Changed
