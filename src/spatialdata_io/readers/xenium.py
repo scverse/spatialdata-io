@@ -22,12 +22,11 @@ import zarr
 from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
+from datatree.datatree import DataTree
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
-from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
 from pyarrow import Table
 from shapely import Polygon
-from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata._core.query.relational_query import get_element_instances
 from spatialdata._types import ArrayLike
@@ -39,6 +38,7 @@ from spatialdata.models import (
     TableModel,
 )
 from spatialdata.transformations.transformations import Affine, Identity, Scale
+from xarray import DataArray
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
@@ -111,7 +111,9 @@ def xenium(
     morphology_focus
         Whether to read the morphology focus image.
     aligned_images
-        Whether to also parse, when available, additional H&E or IF aligned images.
+        Whether to also parse, when available, additional H&E or IF aligned images. For more control over the aligned
+        images being read, in particular, to specify the axes of the aligned images, please set this parameter to
+        `False` and use the `xenium_aligned_image` function directly.
     cells_table
         Whether to read the cell annotations in the `AnnData` table.
     n_jobs
@@ -513,6 +515,7 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
         feature_key=XeniumKeys.FEATURE_NAME,
         instance_key=XeniumKeys.CELL_ID,
         transformations={"global": transform},
+        sort=True,
     )
     return points
 
@@ -550,7 +553,7 @@ def _get_images(
     file: str,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> SpatialImage | MultiscaleSpatialImage:
+) -> DataArray | DataTree:
     image = imread(path / file, **imread_kwargs)
     if "c_coords" in image_models_kwargs and "dummy" in image_models_kwargs["c_coords"]:
         # Napari currently interprets 4 channel images as RGB; a series of PRs to fix this is almost ready but they will
@@ -567,7 +570,7 @@ def _add_aligned_images(
     path: Path,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> dict[str, MultiscaleSpatialImage]:
+) -> dict[str, DataTree]:
     """Discover and parse aligned images."""
     images = {}
     ome_tif_files = list(path.glob("*.ome.tif"))
@@ -598,7 +601,8 @@ def xenium_aligned_image(
     alignment_file: str | Path | None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> MultiscaleSpatialImage:
+    dims: tuple[str, ...] | None = None,
+) -> DataTree:
     """
     Read an image aligned to a Xenium dataset, with an optional alignment file.
 
@@ -610,6 +614,12 @@ def xenium_aligned_image(
         Path to the alignment file, if not passed it is assumed that the image is aligned.
     image_models_kwargs
         Keyword arguments to pass to the image models.
+    dims
+        Dimensions of the image (tuple of axes names); valid strings are "c", "x" and "y". If not passed, the function
+        will try to infer the dimensions from the image shape. Please use this argument when the default behavior fails.
+        Example: for an image with shape (1, y, 1, x, 3), use dims=("anystring", "y", "dummy", "x", "c"). Values that
+        are not "c", "x" or "y" are considered dummy dimensions and will be squeezed (the data must have len 1 for
+        those axes).
 
     Returns
     -------
@@ -627,19 +637,28 @@ def xenium_aligned_image(
     # In fact, it could be that the len(image.shape) == 4 has actually dimes (1, x, y, c) and not (1, y, x, c). This is
     # not a problem because the transformation is constructed to be consistent, but if is the case, the data orientation
     # would be transposed compared to the original image, not ideal.
-    if len(image.shape) == 4:
-        assert image.shape[0] == 1
-        assert image.shape[-1] == 3
-        image = image.squeeze(0)
-        dims = ("y", "x", "c")
+    if dims is None:
+        if len(image.shape) == 4:
+            assert image.shape[0] == 1
+            assert image.shape[-1] == 3
+            image = image.squeeze(0)
+            dims = ("y", "x", "c")
+        else:
+            assert len(image.shape) == 3
+            assert image.shape[0] in [3, 4]
+            if image.shape[0] == 4:
+                # as explained before in _get_images(), we need to add a dummy channel until we support 4-channel images as
+                # non-RGBA images in napari
+                image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
+            dims = ("c", "y", "x")
     else:
-        assert len(image.shape) == 3
-        assert image.shape[0] in [3, 4]
-        if image.shape[0] == 4:
-            # as explained before in _get_images(), we need to add a dummy channel until we support 4-channel images as
-            # non-RGBA images in napari
-            image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
-        dims = ("c", "y", "x")
+        logging.info(f"Image has shape {image.shape}, parsing with dims={dims}.")
+        image = DataArray(image, dims=dims)
+        # squeeze spurious dimensions away
+        to_squeeze = [dim for dim in dims if dim not in ["c", "x", "y"]]
+        dims = tuple(dim for dim in dims if dim in ["c", "x", "y"])
+        for dim in to_squeeze:
+            image = image.squeeze(dim)
 
     if alignment_file is None:
         transformation = Identity()
@@ -762,3 +781,6 @@ def prefix_suffix_uint32_from_cell_id_str(cell_id_str: ArrayLike) -> tuple[Array
     cell_id_prefix = [int(x, 16) for x in cell_id_prefix_hex]
 
     return np.array(cell_id_prefix, dtype=np.uint32), np.array(dataset_suffix_int)
+
+
+##
