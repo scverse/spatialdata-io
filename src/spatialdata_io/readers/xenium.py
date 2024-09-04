@@ -22,12 +22,11 @@ import zarr
 from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
+from datatree.datatree import DataTree
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
-from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
 from pyarrow import Table
 from shapely import Polygon
-from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata._core.query.relational_query import get_element_instances
 from spatialdata._types import ArrayLike
@@ -39,6 +38,7 @@ from spatialdata.models import (
     TableModel,
 )
 from spatialdata.transformations.transformations import Affine, Identity, Scale
+from xarray import DataArray
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
@@ -56,7 +56,7 @@ def xenium(
     *,
     cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cells_as_circles: bool = True,
+    cells_as_circles: bool | None = None,
     cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
@@ -96,10 +96,8 @@ def xenium(
     nucleus_boundaries
         Whether to read nucleus boundaries (polygons).
     cells_as_circles
-        Whether to read cells also as circles. Useful for performant visualization. The radii of the nuclei,
-        not the ones of cells, will be used; using the radii of cells would make the visualization too cluttered
-        (the cell boundaries are computed as a maximum expansion of the nuclei location and therefore the
-        corresponding circles would show considerable overlap).
+        Whether to read cells also as circles (the center and the radius of each circle is computed from the
+        corresponding labels cell).
     cells_labels
         Whether to read cell labels (raster). The polygonal version of the cell labels are simplified
         for visualization purposes, and using the raster version is recommended for analysis.
@@ -113,7 +111,9 @@ def xenium(
     morphology_focus
         Whether to read the morphology focus image.
     aligned_images
-        Whether to also parse, when available, additional H&E or IF aligned images.
+        Whether to also parse, when available, additional H&E or IF aligned images. For more control over the aligned
+        images being read, in particular, to specify the axes of the aligned images, please set this parameter to
+        `False` and use the `xenium_aligned_image` function directly.
     cells_table
         Whether to read the cell annotations in the `AnnData` table.
     n_jobs
@@ -128,7 +128,34 @@ def xenium(
     Returns
     -------
     :class:`spatialdata.SpatialData`
+
+    Notes
+    -----
+    Old versions. Until spatialdata-io v0.1.3post0: previously, `cells_as_circles` was `True` by default; the table was associated to the
+    circles when `cells_as_circles` was `True`, and the table was associated to the polygons when `cells_as_circles`
+    was `False`; the radii of the circles were computed form the nuclei instead of the cells.
+
+    Performance. You can improve visualization performance (at the cost of accuracy) by setting `cells_as_circles` to `True`.
+
+    Examples
+    --------
+    This code shows how to change the annotation target of the table from the cell circles to the cell labels.
+    >>> from spatialdata_io import xenium
+    >>> sdata = xenium("path/to/raw/data", cells_as_circles=True)
+    >>> sdata["table"].obs["region"] = "cell_labels"
+    >>> sdata.set_table_annotates_spatialelement(
+    ...     table_name="table", region="cell_labels", region_key="region", instance_key="cell_labels"
+    ... )
+    >>> sdata.write("path/to/data.zarr")
     """
+    if cells_as_circles is None:
+        cells_as_circles = True
+        warnings.warn(
+            "The default value of `cells_as_circles` will change to `False` in the next release. "
+            "Please pass `True` explicitly to maintain the current behavior.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
     image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
         image_models_kwargs, labels_models_kwargs
     )
@@ -138,7 +165,7 @@ def xenium(
     # to trigger the warning if the version cannot be parsed
     version = _parse_version_of_xenium_analyzer(specs, hide_warning=False)
 
-    specs["region"] = "cell_circles" if cells_as_circles else "cell_boundaries"
+    specs["region"] = "cell_circles" if cells_as_circles else "cell_labels"
 
     # the table is required in some cases
     if not cells_table:
@@ -210,14 +237,16 @@ def xenium(
         if cell_labels_indices_mapping is not None and table is not None:
             if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
                 warnings.warn(
-                    "The cell_id column in the cell_labels_table does not match the cell_id column derived from the cell "
-                    "labels data. This could be due to trying to read a new version that is not supported yet. Please "
-                    "report this issue.",
+                    "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
+                    "cell labels data. This could be due to trying to read a new version that is not supported yet. "
+                    "Please report this issue.",
                     UserWarning,
                     stacklevel=2,
                 )
             else:
                 table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
+                if not cells_as_circles:
+                    table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
     if nucleus_boundaries:
         polygons["nucleus_boundaries"] = _get_polygons(
@@ -486,6 +515,7 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
         feature_key=XeniumKeys.FEATURE_NAME,
         instance_key=XeniumKeys.CELL_ID,
         transformations={"global": transform},
+        sort=True,
     )
     return points
 
@@ -506,7 +536,7 @@ def _get_tables_and_circles(
     table = TableModel.parse(adata, region=specs["region"], region_key="region", instance_key=str(XeniumKeys.CELL_ID))
     if cells_as_circles:
         transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
-        radii = np.sqrt(adata.obs[XeniumKeys.CELL_NUCLEUS_AREA].to_numpy() / np.pi)
+        radii = np.sqrt(adata.obs[XeniumKeys.CELL_AREA].to_numpy() / np.pi)
         circles = ShapesModel.parse(
             circ,
             geometry=0,
@@ -523,7 +553,7 @@ def _get_images(
     file: str,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> SpatialImage | MultiscaleSpatialImage:
+) -> DataArray | DataTree:
     image = imread(path / file, **imread_kwargs)
     if "c_coords" in image_models_kwargs and "dummy" in image_models_kwargs["c_coords"]:
         # Napari currently interprets 4 channel images as RGB; a series of PRs to fix this is almost ready but they will
@@ -540,7 +570,7 @@ def _add_aligned_images(
     path: Path,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> dict[str, MultiscaleSpatialImage]:
+) -> dict[str, DataTree]:
     """Discover and parse aligned images."""
     images = {}
     ome_tif_files = list(path.glob("*.ome.tif"))
@@ -571,7 +601,8 @@ def xenium_aligned_image(
     alignment_file: str | Path | None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> MultiscaleSpatialImage:
+    dims: tuple[str, ...] | None = None,
+) -> DataTree:
     """
     Read an image aligned to a Xenium dataset, with an optional alignment file.
 
@@ -583,6 +614,12 @@ def xenium_aligned_image(
         Path to the alignment file, if not passed it is assumed that the image is aligned.
     image_models_kwargs
         Keyword arguments to pass to the image models.
+    dims
+        Dimensions of the image (tuple of axes names); valid strings are "c", "x" and "y". If not passed, the function
+        will try to infer the dimensions from the image shape. Please use this argument when the default behavior fails.
+        Example: for an image with shape (1, y, 1, x, 3), use dims=("anystring", "y", "dummy", "x", "c"). Values that
+        are not "c", "x" or "y" are considered dummy dimensions and will be squeezed (the data must have len 1 for
+        those axes).
 
     Returns
     -------
@@ -600,19 +637,28 @@ def xenium_aligned_image(
     # In fact, it could be that the len(image.shape) == 4 has actually dimes (1, x, y, c) and not (1, y, x, c). This is
     # not a problem because the transformation is constructed to be consistent, but if is the case, the data orientation
     # would be transposed compared to the original image, not ideal.
-    if len(image.shape) == 4:
-        assert image.shape[0] == 1
-        assert image.shape[-1] == 3
-        image = image.squeeze(0)
-        dims = ("y", "x", "c")
+    if dims is None:
+        if len(image.shape) == 4:
+            assert image.shape[0] == 1
+            assert image.shape[-1] == 3
+            image = image.squeeze(0)
+            dims = ("y", "x", "c")
+        else:
+            assert len(image.shape) == 3
+            assert image.shape[0] in [3, 4]
+            if image.shape[0] == 4:
+                # as explained before in _get_images(), we need to add a dummy channel until we support 4-channel images as
+                # non-RGBA images in napari
+                image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
+            dims = ("c", "y", "x")
     else:
-        assert len(image.shape) == 3
-        assert image.shape[0] in [3, 4]
-        if image.shape[0] == 4:
-            # as explained before in _get_images(), we need to add a dummy channel until we support 4-channel images as
-            # non-RGBA images in napari
-            image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
-        dims = ("c", "y", "x")
+        logging.info(f"Image has shape {image.shape}, parsing with dims={dims}.")
+        image = DataArray(image, dims=dims)
+        # squeeze spurious dimensions away
+        to_squeeze = [dim for dim in dims if dim not in ["c", "x", "y"]]
+        dims = tuple(dim for dim in dims if dim in ["c", "x", "y"])
+        for dim in to_squeeze:
+            image = image.squeeze(dim)
 
     if alignment_file is None:
         transformation = Identity()
@@ -735,3 +781,6 @@ def prefix_suffix_uint32_from_cell_id_str(cell_id_str: ArrayLike) -> tuple[Array
     cell_id_prefix = [int(x, 16) for x in cell_id_prefix_hex]
 
     return np.array(cell_id_prefix, dtype=np.uint32), np.array(dataset_suffix_int)
+
+
+##

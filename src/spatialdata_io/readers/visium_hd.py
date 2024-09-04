@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from dask_image.imread import imread
+from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
 from spatial_image import SpatialImage
@@ -38,6 +39,7 @@ def visium_hd(
     dataset_id: str | None = None,
     filtered_counts_file: bool = True,
     bin_size: int | list[int] | None = None,
+    bins_as_squares: bool = True,
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -63,6 +65,9 @@ def visium_hd(
     bin_size
         When specified, load the data of a specific bin size, or a list of bin sizes. By default, it loads all the
         available bin sizes.
+    bins_as_squares
+        If `True`, the bins are represented as squares. If `False`, the bins are represented as circles. For a correct
+        visualization one should use squares.
     fullres_image_file
         Path to the full-resolution image. By default the image is searched in the ``{vx.MICROSCOPE_IMAGE!r}``
         directory.
@@ -219,19 +224,27 @@ def visium_hd(
             axes=("x", "y"),
         )
         # parse shapes
+        shapes_name = dataset_id + "_" + bin_size_str
+        radius = scalefactors[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
+        transformations = {
+            "global": transform_original,
+            "downscaled_hires": transform_hires,
+            "downscaled_lowres": transform_lowres,
+        }
         circles = ShapesModel.parse(
             adata.obsm["spatial"],
             geometry=0,
-            radius=scalefactors[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0,
+            radius=radius,
             index=adata.obs[VisiumHDKeys.INSTANCE_KEY].copy(),
-            transformations={
-                "global": transform_original,
-                "downscaled_hires": transform_hires,
-                "downscaled_lowres": transform_lowres,
-            },
+            transformations=transformations,
         )
-        shapes_name = dataset_id + "_" + bin_size_str
-        shapes[shapes_name] = circles
+        if not bins_as_squares:
+            shapes[shapes_name] = circles
+        else:
+            squares_series = circles.buffer(radius, cap_style=3)
+            shapes[shapes_name] = ShapesModel.parse(
+                GeoDataFrame(geometry=squares_series), transformations=transformations
+            )
 
         # parse table
         adata.obs[VisiumHDKeys.REGION_KEY] = shapes_name
