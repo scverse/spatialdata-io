@@ -22,7 +22,7 @@ urls.Documentation = "https://spatialdata-io.readthedocs.io/"
 urls.Source = "https://github.com/scverse/spatialdata-io"
 urls.Home-page = "https://github.com/scverse/spatialdata-io"
 dependencies = [
-    "spatialdata",
+    "spatialdata>=2.2.0",
     "scikit-image",
     "h5py",
     "joblib",
