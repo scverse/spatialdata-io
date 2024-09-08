@@ -22,7 +22,10 @@ urls.Documentation = "https://spatialdata-io.readthedocs.io/"
 urls.Source = "https://github.com/scverse/spatialdata-io"
 urls.Home-page = "https://github.com/scverse/spatialdata-io"
 dependencies = [
-    "spatialdata>=2.2.0",
+    "anndata",
+    "numpy",
+    "scanpy",
+    "spatialdata>=0.2.2",
     "scikit-image",
     "h5py",
     "joblib",
@@ -30,6 +33,7 @@ dependencies = [
     "dask-image",
     "pyarrow",
     "readfcs",
+    "tifffile>=2023.8.12",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +56,10 @@ doc = [
 test = [
     "pytest",
     "pytest-cov",
+]
+# this will be used by readthedocs and will make pip also look for pre-releases, generally installing the latest available version
+pre = [
+    "spatialdata>=0.1.0-pre0"
 ]
 
 [tool.coverage.run]

@@ -2,6 +2,7 @@
 .DS_Store
 *~
 *.tmp
+temp/
 
 # Compiled files
 __pycache__/
@@ -23,6 +24,7 @@ __pycache__/
 # IDEs
 /.idea/
 /.vscode/
+/.spyproject/
 
 # docs
 /docs/generated/
@@ -30,3 +32,9 @@ __pycache__/
 
 # other
 _version.py
+node_modules/
+.code-workspace
+
+# test datasets (e.g. Xenium ones)
+data/
+tests/data

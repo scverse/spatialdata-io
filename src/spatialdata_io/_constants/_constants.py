@@ -60,6 +60,36 @@ class CosmxKeys(ModeEnum):
 
 
 @unique
+class SeqfishKeys(ModeEnum):
+    """Keys for *Spatial Genomics SeqFISH* formatted dataset."""
+
+    # file extensions
+    CSV_FILE = ".csv"
+    TIFF_FILE = ".tiff"
+    OME_TIFF_FILE = ".ome.tiff"
+    # file identifiers
+    SECTION = "section"
+    TRANSCRIPT_COORDINATES = "TranscriptCoordinates"
+    DAPI = "DAPI"
+    COUNTS_FILE = "CxG"
+    CELL_MASK_FILE = "CellMask"
+    CELL_COORDINATES = "CellCoordinates"
+    # transcripts
+    TRANSCRIPTS_X = "x"
+    TRANSCRIPTS_Y = "y"
+    FEATURE_KEY = "name"
+    INSTANCE_KEY_POINTS = "cell"
+    # cells
+    AREA = "area"
+    CELL_X = "center_x"
+    CELL_Y = "center_y"
+    # metadata
+    SPATIAL_KEY = "spatial"
+    REGION_KEY = "region"
+    INSTANCE_KEY_TABLE = "instance_id"
+
+
+@unique
 class XeniumKeys(ModeEnum):
     """Keys for *10X Genomics Xenium* formatted dataset."""
 
@@ -92,9 +122,38 @@ class XeniumKeys(ModeEnum):
     CELL_AREA = "cell_area"
     CELL_NUCLEUS_AREA = "nucleus_area"
 
-    # morphology iamges
+    # morphology images
+    # before version 2.0.0
     MORPHOLOGY_MIP_FILE = "morphology_mip.ome.tif"
     MORPHOLOGY_FOCUS_FILE = "morphology_focus.ome.tif"
+    # from version 2.0.0
+    MORPHOLOGY_FOCUS_DIR = "morphology_focus"
+    MORPHOLOGY_FOCUS_CHANNEL_IMAGE = "morphology_focus_{:04}.ome.tif"
+    # from analysis_summary.html > Image QC of https://www.10xgenomics.com/datasets/preview-data-ffpe-human-lung-cancer-with-xenium-multimodal-cell-segmentation-1-standard
+    MORPHOLOGY_FOCUS_CHANNEL_0 = "DAPI"  # nuclear
+    MORPHOLOGY_FOCUS_CHANNEL_1 = "ATP1A1/CD45/E-Cadherin"  # boundary
+    MORPHOLOGY_FOCUS_CHANNEL_2 = "18S"  # interior - RNA
+    MORPHOLOGY_FOCUS_CHANNEL_3 = "AlphaSMA/Vimentin"  # interior - protein
+
+    # post-xenium images
+    ALIGNED_IF_IMAGE_SUFFIX = "if_image.ome.tif"
+    ALIGNED_HE_IMAGE_SUFFIX = "he_image.ome.tif"
+
+    # image alignment suffix
+    ALIGNMENT_FILE_SUFFIX_TO_REMOVE = ".ome.tif"
+    ALIGNMENT_FILE_SUFFIX_TO_ADD = "alignment.csv"
+
+    # specs keys
+    ANALYSIS_SW_VERSION = "analysis_sw_version"
+
+    # zarr file with labels file and cell summary keys
+    CELLS_ZARR = "cells.zarr.zip"
+    NUCLEUS_COUNT = "nucleus_count"
+    Z_LEVEL = "z_level"
+
+    EXPLORER_SELECTION_X = "X"
+    EXPLORER_SELECTION_Y = "Y"
+    EXPLORER_SELECTION_KEY = "Selection"
 
 
 @unique
@@ -102,7 +161,8 @@ class VisiumKeys(ModeEnum):
     """Keys for *10X Genomics Visium* formatted dataset."""
 
     # files and directories
-    COUNTS_FILE = "filtered_feature_bc_matrix.h5"
+    FILTERED_COUNTS_FILE = "filtered_feature_bc_matrix.h5"
+    RAW_COUNTS_FILE = "raw_feature_bc_matrix.h5"
 
     # images
     IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
@@ -116,8 +176,8 @@ class VisiumKeys(ModeEnum):
     # spots
     SPOTS_FILE_1 = "tissue_positions_list.csv"
     SPOTS_FILE_2 = "tissue_positions.csv"
-    SPOTS_X = "pxl_row_in_fullres"
-    SPOTS_Y = "pxl_col_in_fullres"
+    SPOTS_X = "pxl_col_in_fullres"
+    SPOTS_Y = "pxl_row_in_fullres"
 
 
 @unique
@@ -136,22 +196,101 @@ class SteinbockKeys(ModeEnum):
 
 
 @unique
+class StereoseqKeys(ModeEnum):
+    """Keys for *Stereo-seq* formatted dataset."""
+
+    # file extensions
+    GEF_FILE = ".gef"
+    TIF_FILE = ".tif"
+    # directories
+    MERGE = "01.merge"
+    COUNT_DIRECTORY = "02.count"
+    REGISTER = "03.register"
+    TISSUECUT = "04.tissuecut"
+    SPATIALCLUSTER = "05.spatialcluster"
+    SATURATION = "06.saturation"
+    CELLCUT = "041.cellcut"
+    CELLCLUSTER = "051.cellcluster"
+    # file identifiers
+    MASK_TIF = "_mask.tif"
+    REGIST_TIF = "_regist.tif"
+    TISSUE_TIF = "_tissue_cut.tif"
+    CELL_CLUSTER_H5AD = "cell.cluster.h5ad"
+    RAW_GEF = ".raw.gef"
+    CELLBIN_GEF = ".cellbin.gef"
+    TISSUECUT_GEF = ".tissuecut.gef"
+    TISSUE_GEM = ".tissue.gem.gz"
+    # transcripts
+    FEATURE_KEY = "gene"
+    GENE_NAME = "geneName"
+    CELL_COUNT = "cellCount"
+    MAX_MID_COUNT = "maxMIDcount"
+    GENE_EXP = "geneExp"
+    EXPRESSION = "expression"
+    EXON = "exon"
+    GENE_ID = "geneID"
+    GENE_EXP_EXON = "geneExpExon"
+    # cells
+    ID = "id"
+    CELL_ID = "cellID"
+    GENE_COUNT = "geneCount"
+    DNBCOUNT = "dnbCount"
+    CELL_AREA = "area"
+    CELL_TYPE_ID = "cellTypeID"
+    CLUSTER_ID = "clusterID"
+    CELL_BIN = "cellBin"
+    CELL_EXON = "cellExon"
+    CELL_DATASET = "cell"
+    GENE_EXON = "geneExon"
+    CELL_BORDER = "cellBorder"
+    CELL_EXP = "cellExp"
+    CELL_EXP_EXON = "cellExpExon"
+    PADDING_VALUE = 32767
+    # metadata
+    COUNT = "count"
+    EXP_COUNT = "expCount"
+    OFFSET = "offset"
+    COORD_X = "x"
+    COORD_Y = "y"
+    SPATIAL_KEY = "spatial"
+    REGION = "cells"
+    REGION_KEY = "region"
+    INSTANCE_KEY = "instance_id"
+    BLOCK_INDEX = "blockIndex"
+    BLOCK_SIZE = "blockSize"
+    CELL_TYPE_LIST = "cellTypeList"
+    # bin data and metadata
+    BIN1 = "bin1"
+    MIN_X = "minX"
+    MIN_Y = "minY"
+    MAX_X = "maxX"
+    MAX_Y = "maxY"
+    RESOLUTION = "resolution"
+
+
+@unique
 class McmicroKeys(ModeEnum):
     """Keys for *Mcmicro* formatted dataset."""
 
     # files and directories
-    CELL_FEATURES_SUFFIX = "--unmicst_cell.csv"
     QUANTIFICATION_DIR = "quantification"
     MARKERS_FILE = "markers.csv"
-    IMAGES_DIR = "registration"
+    IMAGES_DIR_WSI = "registration"
+    IMAGES_DIR_TMA = "dearray"
     IMAGE_SUFFIX = ".ome.tif"
     LABELS_DIR = "segmentation"
-    LABELS_PREFIX = "unmicst-"
+    ILLUMINATION_DIR = "illumination"
+    PARAMS_FILE = "qc/params.yml"
+    RAW_DIR = "raw"
+    COREOGRAPH_CENTROIDS = "qc/coreograph/centroidsY-X.txt"
+    COREOGRAPH_TMA_MAP = "qc/coreograph/TMA_MAP.tif"
 
     # metadata
     COORDS_X = "X_centroid"
     COORDS_Y = "Y_centroid"
     INSTANCE_KEY = "CellID"
+    ILLUMINATION_SUFFIX_DFP = "-dfp"
+    ILLUMINATION_SUFFIX_FFP = "-ffp"
 
 
 @unique
@@ -183,3 +322,73 @@ class MerscopeKeys(ModeEnum):
     GLOBAL_Z = "global_z"
     Z_INDEX = "ZIndex"
     REGION_KEY = "cells_region"
+
+
+@unique
+class DbitKeys(ModeEnum):
+    """Keys for DBiT formatted dataset."""
+
+    # files and directories
+    COUNTS_FILE = ".h5ad"
+    # barcodes_file
+    BARCODE_POSITION = "barcode_list"
+    # image
+    IMAGE_LOWRES_FILE = "tissue_lowres_image.png"
+
+
+@unique
+class VisiumHDKeys(ModeEnum):
+    """Keys for *10X Genomics Visium hd* formatted dataset."""
+
+    # directories
+    SPATIAL = "spatial"
+    DEFAULT_BIN = "square_008um"
+    BIN_PREFIX = "square_"
+    MICROSCOPE_IMAGE = "microscope_image"
+    BINNED_OUTPUTS = "binned_outputs"
+
+    # counts and locations files
+    FILTERED_COUNTS_FILE = "filtered_feature_bc_matrix.h5"
+    RAW_COUNTS_FILE = "raw_feature_bc_matrix.h5"
+    TISSUE_POSITIONS_FILE = "tissue_positions.parquet"
+
+    # images
+    IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
+    IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
+    IMAGE_CYTASSIST = "spatial/cytassist_image.tiff"
+
+    # scalefactors
+    SCALEFACTORS_FILE = "scalefactors_json.json"
+
+    # scalefactors keys
+    SCALEFACTORS_HIRES = "tissue_hires_scalef"
+    SCALEFACTORS_LOWRES = "tissue_lowres_scalef"
+    SCALEFACTORS_SPOT_DIAMETER_FULLRES = "spot_diameter_fullres"
+    SCALEFACTORS_BIN_SIZE_UM = "bin_size_um"
+    SCALEFACTORS_MICRONS_PER_PIXEL = "microns_per_pixel"
+
+    # locations keys
+    LOCATIONS_X = "pxl_col_in_fullres"
+    LOCATIONS_Y = "pxl_row_in_fullres"
+    BARCODE = "barcode"
+    IN_TISSUE = "in_tissue"
+    ARRAY_ROW = "array_row"
+    ARRAY_COL = "array_col"
+
+    # table keys
+    REGION_KEY = "region"
+    INSTANCE_KEY = "location_id"
+
+    # feature slice file (it contains transformation matrices in the metadata)
+    FEATURE_SLICE_FILE = "feature_slice.h5"
+
+    # METADATA_KEYS
+    METADATA_JSON = "metadata_json"
+    HD_LAYOUT_JSON = "hd_layout_json"
+    TRANSFORM = "transform"
+    TRANSFORM_MATRICES = "transform_matrices"
+    CYTASSIST_COLROW_TO_SPOT_COLROW = ("cytassist_colrow_to_spot_colrow",)
+    SPOT_COLROW_TO_CYTASSIST_COLROW = ("spot_colrow_to_cytassist_colrow",)
+    MICROSCOPE_COLROW_TO_SPOT_COLROW = ("microscope_colrow_to_spot_colrow",)
+    SPOT_COLROW_TO_MICROSCOPE_COLROW = ("spot_colrow_to_microscope_colrow",)
+    FILE_FORMAT = "file_format"
