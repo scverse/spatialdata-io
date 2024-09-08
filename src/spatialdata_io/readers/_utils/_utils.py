@@ -22,6 +22,7 @@ except (ImportError, TypeError):
     NDArrayA = np.ndarray
 
 
+
 def _read_counts(
     path: str | Path,
     counts_file: str,
