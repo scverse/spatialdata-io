@@ -221,6 +221,7 @@ def visium(
                 full_image,
                 scale_factors=[2, 2, 2, 2],
                 transformations={"global": transform_original},
+                rgb=None,
                 **image_models_kwargs,
             )
         else:
@@ -230,13 +231,15 @@ def visium(
         image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image_hires = DataArray(image_hires, dims=("c", "y", "x"))
         images[dataset_id + "_hires_image"] = Image2DModel.parse(
-            image_hires, transformations={"downscaled_hires": Identity()}
+            image_hires, transformations={"downscaled_hires": Identity()}, rgb=None
         )
     if (path / VisiumKeys.IMAGE_LOWRES_FILE).exists():
         image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image_lowres = DataArray(image_lowres, dims=("c", "y", "x"))
         images[dataset_id + "_lowres_image"] = Image2DModel.parse(
-            image_lowres, transformations={"downscaled_lowres": Identity()}
+            image_lowres,
+            transformations={"downscaled_lowres": Identity()},
+            rgb=None,
         )
 
     return SpatialData(images=images, shapes=shapes, table=table)

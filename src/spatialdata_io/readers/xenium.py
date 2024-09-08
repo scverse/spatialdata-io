@@ -562,7 +562,7 @@ def _get_images(
         # let's add a dummy channel as a temporary workaround.
         image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
     return Image2DModel.parse(
-        image, transformations={"global": Identity()}, dims=("c", "y", "x"), **image_models_kwargs
+        image, transformations={"global": Identity()}, dims=("c", "y", "x"), rgb=None, **image_models_kwargs
     )
 
 

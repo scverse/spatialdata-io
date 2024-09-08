@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning][].
 
 -   (Xenium) added `dims` parameter for more control in `xenium_aligned_image()`
 
+### Fixed
+
+-   Passing `rgb=None` to image model parser, leading to 3-4 channel images being interpreted as RGB(A)
+
 ## [0.1.4] - 2024-08-07
 
 ### Changed
