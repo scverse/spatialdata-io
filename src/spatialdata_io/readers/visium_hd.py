@@ -86,6 +86,7 @@ def visium_hd(
     SpatialData object for the Visium HD data.
     """
     path = Path(path)
+    all_files = [file for file in path.rglob("*") if file.is_file()]
     tables = {}
     shapes = {}
     images: dict[str, Any] = {}
@@ -291,13 +292,9 @@ def visium_hd(
         )
 
     # hires image
-    hires_image_path = path / VisiumHDKeys.IMAGE_HIRES_FILE
+    hires_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_HIRES_FILE in str(path)][0]
     load_image(
-        path=(
-            hires_image_path
-            if hires_image_path.exists()
-            else path / f"{filename_prefix}spatial" / VisiumHDKeys.IMAGE_HIRES_FILE
-        ),
+        path=hires_image_path,
         suffix="_hires_image",
     )
     set_transformation(
@@ -307,7 +304,7 @@ def visium_hd(
     )
 
     # lowres image
-    lowres_image_path = path / VisiumHDKeys.IMAGE_LOWRES_FILE
+    lowres_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_LOWRES_FILE in str(path)][0]
     load_image(
         path=(
             lowres_image_path
@@ -323,7 +320,7 @@ def visium_hd(
     )
 
     # cytassist image
-    cytassist_path = path / VisiumHDKeys.IMAGE_CYTASSIST
+    cytassist_path = [path for path in all_files if VisiumHDKeys.IMAGE_CYTASSIST in str(path)][0]
     if load_all_images:
         load_image(
             path=(
