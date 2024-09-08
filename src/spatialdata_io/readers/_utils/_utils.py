@@ -18,8 +18,8 @@ try:
 
     NDArrayA = NDArray[Any]
 except (ImportError, TypeError):
-    NDArray = np.ndarray  # type: ignore[misc]
-    NDArrayA = np.ndarray  # type: ignore[misc]
+    NDArray = np.ndarray  # type: ignore[misc,unused-ignore]
+    NDArrayA = np.ndarray  # type: ignore[misc,unused-ignore]
 
 
 def _read_counts(
