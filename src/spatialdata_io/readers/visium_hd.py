@@ -126,8 +126,12 @@ def visium_hd(
             ]
         )
 
-    if VisiumHDKeys.BINNED_OUTPUTS in os.listdir(path):
-        path_bins = path / VisiumHDKeys.BINNED_OUTPUTS
+    all_path_bins = [path_bin for path_bin in all_files if VisiumHDKeys.BINNED_OUTPUTS in str(path_bin)]
+    if len(all_path_bins) != 0:
+        path_bins_parts = all_path_bins[
+            -1
+        ].parts  # just choosing last one here as users might have tar file which would be first
+        path_bins = Path(*path_bins_parts[: path_bins_parts.index(VisiumHDKeys.BINNED_OUTPUTS) + 1])
     else:
         path_bins = path
     all_bin_sizes = _get_bins(path_bins)
