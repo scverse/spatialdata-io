@@ -86,15 +86,14 @@ def visium_hd(
     SpatialData object for the Visium HD data.
     """
     path = Path(path)
+    all_files = [file for file in path.rglob("*") if file.is_file()]
     tables = {}
     shapes = {}
     images: dict[str, Any] = {}
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
-        filename_prefix = f"{dataset_id}_"
-    else:
-        filename_prefix = ""
+    filename_prefix = f"{dataset_id}_"
 
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
@@ -127,8 +126,12 @@ def visium_hd(
             ]
         )
 
-    if VisiumHDKeys.BINNED_OUTPUTS in os.listdir(path):
-        path_bins = path / VisiumHDKeys.BINNED_OUTPUTS
+    all_path_bins = [path_bin for path_bin in all_files if VisiumHDKeys.BINNED_OUTPUTS in str(path_bin)]
+    if len(all_path_bins) != 0:
+        path_bins_parts = all_path_bins[
+            -1
+        ].parts  # just choosing last one here as users might have tar file which would be first
+        path_bins = Path(*path_bins_parts[: path_bins_parts.index(VisiumHDKeys.BINNED_OUTPUTS) + 1])
     else:
         path_bins = path
     all_bin_sizes = _get_bins(path_bins)
@@ -266,15 +269,24 @@ def visium_hd(
             fullres_image_filenames = [
                 f for f in os.listdir(path_fullres) if os.path.isfile(os.path.join(path_fullres, f))
             ]
-            if len(fullres_image_filenames) > 1:
-                warnings.warn(
-                    f"Multiple files found in {path_fullres}, using the first one: {fullres_image_filenames[0]}. Please"
-                    " specify the path to the full resolution image manually using the `fullres_image_file` argument.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            fullres_image_filename = fullres_image_filenames[0]
-            fullres_image_file = path_fullres / fullres_image_filename
+            fullres_image_paths = [path_fullres / image_filename for image_filename in fullres_image_filenames]
+        elif list((path_fullres := (path / f"{filename_prefix}tissue_image")).parent.glob(f"{path_fullres.name}.*")):
+            fullres_image_paths = list(path_fullres.parent.glob(f"{path_fullres.name}.*"))
+        if len(fullres_image_paths) > 1:
+            warnings.warn(
+                f"Multiple files found in {path_fullres}, using the first one: {fullres_image_paths[0].stem}. Please"
+                " specify the path to the full resolution image manually using the `fullres_image_file` argument.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if len(fullres_image_paths) == 0:
+            warnings.warn(
+                "No full resolution image found. If incorrect, please specify the path in the "
+                "`fullres_image_file` parameter when calling the `visium_hd` reader function.",
+                UserWarning,
+                stacklevel=2,
+            )
+        fullres_image_file = fullres_image_paths[0] if len(fullres_image_paths) > 0 else None
 
     if fullres_image_file is not None:
         load_image(
@@ -284,8 +296,11 @@ def visium_hd(
         )
 
     # hires image
+    hires_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_HIRES_FILE in str(path)]
+    if len(hires_image_path) == 0:
+        raise OSError(f"No image path found containing the hires image: {VisiumHDKeys.IMAGE_HIRES_FILE}")
     load_image(
-        path=path / VisiumHDKeys.IMAGE_HIRES_FILE,
+        path=hires_image_path[0],
         suffix="_hires_image",
     )
     set_transformation(
@@ -295,8 +310,11 @@ def visium_hd(
     )
 
     # lowres image
+    lowres_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_LOWRES_FILE in str(path)]
+    if len(lowres_image_path) == 0:
+        raise OSError(f"No image path found containing the lowres image: {VisiumHDKeys.IMAGE_LOWRES_FILE}")
     load_image(
-        path=path / VisiumHDKeys.IMAGE_LOWRES_FILE,
+        path=lowres_image_path[0],
         suffix="_lowres_image",
     )
     set_transformation(
@@ -306,9 +324,12 @@ def visium_hd(
     )
 
     # cytassist image
+    cytassist_path = [path for path in all_files if VisiumHDKeys.IMAGE_CYTASSIST in str(path)]
+    if len(cytassist_path) == 0:
+        raise OSError(f"No image path found containing the cytassist image: {VisiumHDKeys.IMAGE_CYTASSIST}")
     if load_all_images:
         load_image(
-            path=path / VisiumHDKeys.IMAGE_CYTASSIST,
+            path=cytassist_path[0],
             suffix="_cytassist_image",
         )
         image = images[dataset_id + "_cytassist_image"]
