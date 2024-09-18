@@ -298,7 +298,11 @@ def visium_hd(
     # hires image
     hires_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_HIRES_FILE in str(path)]
     if len(hires_image_path) == 0:
-        raise OSError(f"No image path found containing the hires image: {VisiumHDKeys.IMAGE_HIRES_FILE}")
+        warnings.warn(
+            f"No image path found containing the hires image: {VisiumHDKeys.IMAGE_HIRES_FILE}",
+            UserWarning,
+            stacklevel=2,
+        )
     load_image(
         path=hires_image_path[0],
         suffix="_hires_image",
@@ -312,7 +316,11 @@ def visium_hd(
     # lowres image
     lowres_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_LOWRES_FILE in str(path)]
     if len(lowres_image_path) == 0:
-        raise OSError(f"No image path found containing the lowres image: {VisiumHDKeys.IMAGE_LOWRES_FILE}")
+        warnings.warn(
+            f"No image path found containing the lowres image: {VisiumHDKeys.IMAGE_LOWRES_FILE}",
+            UserWarning,
+            stacklevel=2,
+        )
     load_image(
         path=lowres_image_path[0],
         suffix="_lowres_image",
@@ -326,7 +334,11 @@ def visium_hd(
     # cytassist image
     cytassist_path = [path for path in all_files if VisiumHDKeys.IMAGE_CYTASSIST in str(path)]
     if len(cytassist_path) == 0:
-        raise OSError(f"No image path found containing the cytassist image: {VisiumHDKeys.IMAGE_CYTASSIST}")
+        warnings.warn(
+            f"No image path found containing the cytassist image: {VisiumHDKeys.IMAGE_CYTASSIST}",
+            UserWarning,
+            stacklevel=2,
+        )
     if load_all_images:
         load_image(
             path=cytassist_path[0],
