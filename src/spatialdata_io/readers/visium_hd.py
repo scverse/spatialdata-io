@@ -385,7 +385,7 @@ def _load_image(
             # dask_image doesn't recognize .btf automatically and imageio v3 throws error due to pixel limit -> use imageio v2
             data = imread2(path, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image = DataArray(data, dims=("c", "y", "x"))
-        parsed = Image2DModel.parse(image, scale_factors=scale_factors, **image_models_kwargs)
+        parsed = Image2DModel.parse(image, scale_factors=scale_factors, c_coords=("r", "g", "b"), **image_models_kwargs)
         images[dataset_id + suffix] = parsed
     else:
         warnings.warn(f"File {path} does not exist, skipping it.", UserWarning, stacklevel=2)
