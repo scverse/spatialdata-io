@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning][].
 ### Added
 
 -   (Xenium) added `dims` parameter for more control in `xenium_aligned_image()`
-
+-   (MERSCOPE) added `feature_key` attribute for points (i.e., the `'gene'` column)
 ### Fixed
 
 -   Passing `rgb=None` to image model parser for both visium and visiumhd, leading to 3-4 channel images being
