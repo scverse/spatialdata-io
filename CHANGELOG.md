@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning][].
 
 ### Fixed
 
--   Passing `rgb=None` to image model parser, leading to 3-4 channel images being interpreted as RGB(A)
+-   Passing `rgb=None` to image model parser for both visium and visiumhd, leading to 3-4 channel images being
+    interpreted as RGB(A)
 
 ## [0.1.4] - 2024-08-07
 
