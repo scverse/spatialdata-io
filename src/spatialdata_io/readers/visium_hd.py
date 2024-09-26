@@ -21,7 +21,7 @@ from numpy.random import default_rng
 from skimage.transform import estimate_transform
 from spatial_image import SpatialImage
 from spatialdata import SpatialData
-from spatialdata.models import Image2DModel, ShapesModel, TableModel, Labels2DModel
+from spatialdata.models import Image2DModel, Labels2DModel, ShapesModel, TableModel
 from spatialdata.transformations import (
     Affine,
     Identity,
@@ -198,13 +198,13 @@ def visium_hd(
             ]
         )
         # let instance key range from 1 to coords.index.stop+1
-        assert isinstance( coords.index, pd.RangeIndex )
+        assert isinstance(coords.index, pd.RangeIndex)
         assert coords.index.start == 0
-        coords.index =coords.index +1
-        dtype = _get_uint_dtype( coords.index.stop )
+        coords.index = coords.index + 1
+        dtype = _get_uint_dtype(coords.index.stop)
 
-        coords=coords.reset_index().rename( columns = { "index": VisiumHDKeys.INSTANCE_KEY } )
-        coords[ VisiumHDKeys.INSTANCE_KEY ] = coords[ VisiumHDKeys.INSTANCE_KEY ].astype( dtype )
+        coords = coords.reset_index().rename(columns={"index": VisiumHDKeys.INSTANCE_KEY})
+        coords[VisiumHDKeys.INSTANCE_KEY] = coords[VisiumHDKeys.INSTANCE_KEY].astype(dtype)
 
         coords.set_index(VisiumHDKeys.BARCODE, inplace=True, drop=True)
 
@@ -268,14 +268,17 @@ def visium_hd(
         labels_name = f"{dataset_id}_{bin_size_str}_labels"
 
         min_row, min_col = adata.obs[VisiumHDKeys.ARRAY_ROW].min(), adata.obs[VisiumHDKeys.ARRAY_COL].min()
-        n_rows, n_cols = adata.obs[VisiumHDKeys.ARRAY_ROW].max() - min_row + 1, adata.obs[VisiumHDKeys.ARRAY_COL].max() - min_col + 1
+        n_rows, n_cols = (
+            adata.obs[VisiumHDKeys.ARRAY_ROW].max() - min_row + 1,
+            adata.obs[VisiumHDKeys.ARRAY_COL].max() - min_col + 1,
+        )
         y = (adata.obs[VisiumHDKeys.ARRAY_ROW] - min_row).values
         x = (adata.obs[VisiumHDKeys.ARRAY_COL] - min_col).values
 
-        labels_element =np.zeros( (n_rows, n_cols ), dtype=dtype )
+        labels_element = np.zeros((n_rows, n_cols), dtype=dtype)
 
         # make image that can visualy represent the cells
-        labels_element[ y, x ] = adata.obs[ VisiumHDKeys.INSTANCE_KEY ].values.T
+        labels_element[y, x] = adata.obs[VisiumHDKeys.INSTANCE_KEY].values.T
 
         # estimate the transformation to go from this raster to original dimension (i.e. in pixel coordinates)
         RNG = default_rng(0)
@@ -286,10 +289,16 @@ def visium_hd(
 
         random_indices = RNG.choice(adata.n_obs, min(100, adata.n_obs), replace=True)
 
-        sub_adata_for_transform = adata[ random_indices ]
+        sub_adata_for_transform = adata[random_indices]
 
-        src = np.stack([sub_adata_for_transform.obs[VisiumHDKeys.ARRAY_COL] - min_col, sub_adata_for_transform.obs[VisiumHDKeys.ARRAY_ROW] - min_row], axis=1)
-        dst=sub_adata_for_transform.obsm[ "spatial" ]  # this is x, y
+        src = np.stack(
+            [
+                sub_adata_for_transform.obs[VisiumHDKeys.ARRAY_COL] - min_col,
+                sub_adata_for_transform.obs[VisiumHDKeys.ARRAY_ROW] - min_row,
+            ],
+            axis=1,
+        )
+        dst = sub_adata_for_transform.obsm["spatial"]  # this is x, y
 
         to_bins = Sequence(
             [
@@ -302,8 +311,10 @@ def visium_hd(
         )
 
         labels_transformations = {cs: to_bins.compose_with(t) for cs, t in transformations.items()}
-        labels_element=Labels2DModel.parse( data = labels_element, dims=("y", "x"), transformations=labels_transformations )
-        labels[ labels_name ] = labels_element
+        labels_element = Labels2DModel.parse(
+            data=labels_element, dims=("y", "x"), transformations=labels_transformations
+        )
+        labels[labels_name] = labels_element
 
         adata.obs[VisiumHDKeys.REGION_KEY] = labels_name if annotate_table_by_labels else shapes_name
         adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
