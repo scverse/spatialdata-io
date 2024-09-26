@@ -303,6 +303,7 @@ def _get_points(transcript_path: Path, transformations: dict[str, BaseTransforma
         transcript_df,
         coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
         transformations=transformations,
+        feature_key=MerscopeKeys.GENE_KEY,
     )
     transcripts["gene"] = transcripts["gene"].astype("category")
     return transcripts
