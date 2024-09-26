@@ -42,9 +42,9 @@ def visium_hd(
     filtered_counts_file: bool = True,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
+    annotate_table_by_labels: bool = False,
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
-    annotate_table_by_labels: bool = False,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -71,14 +71,14 @@ def visium_hd(
     bins_as_squares
         If `True`, the bins are represented as squares. If `False`, the bins are represented as circles. For a correct
         visualization one should use squares.
+    annotate_table_by_labels
+        If `True` will annotate the table with corresponding labels layer representing the bins, if `False`, table will be annotated by a shapes layer.
     fullres_image_file
         Path to the full-resolution image. By default the image is searched in the ``{vx.MICROSCOPE_IMAGE!r}``
         directory.
     load_all_images
         If `False`, load only the full resolution, high resolution and low resolution images. If `True`, also the
         following images: ``{vx.IMAGE_CYTASSIST!r}``.
-    annotate_table_by_labels
-        If `True` will annotate the table with corresponding labels layer representing the bins, if `False`, table will be annotated by a shapes layer.
     imread_kwargs
         Keyword arguments for :func:`imageio.imread`.
     image_models_kwargs
