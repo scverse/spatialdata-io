@@ -17,9 +17,11 @@ from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
+from numpy.random import default_rng
+from skimage.transform import estimate_transform
 from spatial_image import SpatialImage
 from spatialdata import SpatialData
-from spatialdata.models import Image2DModel, ShapesModel, TableModel
+from spatialdata.models import Image2DModel, ShapesModel, TableModel, Labels2DModel
 from spatialdata.transformations import (
     Affine,
     Identity,
@@ -42,6 +44,7 @@ def visium_hd(
     bins_as_squares: bool = True,
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
+    annotate_table_by_labels: bool = False,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -74,6 +77,8 @@ def visium_hd(
     load_all_images
         If `False`, load only the full resolution, high resolution and low resolution images. If `True`, also the
         following images: ``{vx.IMAGE_CYTASSIST!r}``.
+    annotate_table_by_labels
+        If `True` will annotate the table with corresponding labels layer representing the bins, if `False`, table will be annotated by a shapes layer.
     imread_kwargs
         Keyword arguments for :func:`imageio.imread`.
     image_models_kwargs
@@ -90,6 +95,7 @@ def visium_hd(
     tables = {}
     shapes = {}
     images: dict[str, Any] = {}
+    labels: dict[str, Any] = {}
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
@@ -191,7 +197,17 @@ def visium_hd(
                 VisiumHDKeys.LOCATIONS_X,
             ]
         )
+        # let instance key range from 1 to coords.index.stop+1
+        assert isinstance( coords.index, pd.RangeIndex )
+        assert coords.index.start == 0
+        coords.index =coords.index +1
+        dtype = _get_uint_dtype( coords.index.stop )
+
+        coords=coords.reset_index().rename( columns = { "index": VisiumHDKeys.INSTANCE_KEY } )
+        coords[ VisiumHDKeys.INSTANCE_KEY ] = coords[ VisiumHDKeys.INSTANCE_KEY ].astype( dtype )
+
         coords.set_index(VisiumHDKeys.BARCODE, inplace=True, drop=True)
+
         coords_filtered = coords.loc[adata.obs.index]
         adata.obs = pd.merge(adata.obs, coords_filtered, how="left", left_index=True, right_index=True)
         # compatibility to legacy squidpy
@@ -204,7 +220,6 @@ def visium_hd(
             ],
             inplace=True,
         )
-        adata.obs[VisiumHDKeys.INSTANCE_KEY] = np.arange(len(adata))
 
         # scaling
         transform_original = Identity()
@@ -249,13 +264,53 @@ def visium_hd(
                 GeoDataFrame(geometry=squares_series), transformations=transformations
             )
 
-        # parse table
-        adata.obs[VisiumHDKeys.REGION_KEY] = shapes_name
+        # add labels layer (rasterized bins).
+        labels_name = f"{dataset_id}_{bin_size_str}_labels"
+
+        min_row, min_col = adata.obs[VisiumHDKeys.ARRAY_ROW].min(), adata.obs[VisiumHDKeys.ARRAY_COL].min()
+        n_rows, n_cols = adata.obs[VisiumHDKeys.ARRAY_ROW].max() - min_row + 1, adata.obs[VisiumHDKeys.ARRAY_COL].max() - min_col + 1
+        y = (adata.obs[VisiumHDKeys.ARRAY_ROW] - min_row).values
+        x = (adata.obs[VisiumHDKeys.ARRAY_COL] - min_col).values
+
+        labels_element =np.zeros( (n_rows, n_cols ), dtype=dtype )
+
+        # make image that can visualy represent the cells
+        labels_element[ y, x ] = adata.obs[ VisiumHDKeys.INSTANCE_KEY ].values.T
+
+        # estimate the transformation to go from this raster to original dimension (i.e. in pixel coordinates)
+        RNG = default_rng(0)
+
+        # get the transformation
+        if adata.n_obs < 6:
+            raise ValueError("At least 6 bins are needed to estimate the transformation.")
+
+        random_indices = RNG.choice(adata.n_obs, min(100, adata.n_obs), replace=True)
+
+        sub_adata_for_transform = adata[ random_indices ]
+
+        src = np.stack([sub_adata_for_transform.obs[VisiumHDKeys.ARRAY_COL] - min_col, sub_adata_for_transform.obs[VisiumHDKeys.ARRAY_ROW] - min_row], axis=1)
+        dst=sub_adata_for_transform.obsm[ "spatial" ]  # this is x, y
+
+        to_bins = Sequence(
+            [
+                Affine(
+                    estimate_transform(ttype="affine", src=src, dst=dst).params,
+                    input_axes=("x", "y"),
+                    output_axes=("x", "y"),
+                )
+            ]
+        )
+
+        labels_transformations = {cs: to_bins.compose_with(t) for cs, t in transformations.items()}
+        labels_element=Labels2DModel.parse( data = labels_element, dims=("y", "x"), transformations=labels_transformations )
+        labels[ labels_name ] = labels_element
+
+        adata.obs[VisiumHDKeys.REGION_KEY] = labels_name if annotate_table_by_labels else shapes_name
         adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
 
         tables[bin_size_str] = TableModel.parse(
             adata,
-            region=shapes_name,
+            region=labels_name if annotate_table_by_labels else shapes_name,
             region_key=str(VisiumHDKeys.REGION_KEY),
             instance_key=str(VisiumHDKeys.INSTANCE_KEY),
         )
@@ -349,7 +404,7 @@ def visium_hd(
         affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
         set_transformation(image, Sequence([affine0, affine1]), "global")
 
-    return SpatialData(tables=tables, images=images, shapes=shapes)
+    return SpatialData(tables=tables, images=images, shapes=shapes, labels=labels)
 
 
 def _infer_dataset_id(path: Path) -> str:
@@ -424,3 +479,19 @@ def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any])
         transform_matrices[key.value] = _get_affine(data)
 
     return transform_matrices
+
+
+def _get_uint_dtype(value: int) -> str:
+    max_uint64 = np.iinfo(np.uint64).max
+    max_uint32 = np.iinfo(np.uint32).max
+    max_uint16 = np.iinfo(np.uint16).max
+
+    if max_uint16 >= value:
+        dtype = "uint16"
+    elif max_uint32 >= value:
+        dtype = "uint32"
+    elif max_uint64 >= value:
+        dtype = "uint64"
+    else:
+        raise ValueError(f"Maximum cell number is {value}. Values higher than {max_uint64} are not supported.")
+    return dtype
