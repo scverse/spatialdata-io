@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning][].
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
 ## [0.1.6] - xxxx-xx-xx
+
 -   (MERSCOPE) added `feature_key` attribute for points (i.e., the `'gene'` column) #210
 
 ## [0.1.5] - 2024-09-25
