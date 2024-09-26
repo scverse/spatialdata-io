@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning][].
 
 -   Passing `rgb=None` to image model parser for both visium and visiumhd, leading to 3-4 channel images being
     interpreted as RGB(A)
+-   Fix header bug Visium data #200
+-   (Visium HD) Fix path parsing when images are missing #204 #206
 
 ## [0.1.4] - 2024-08-07
 
