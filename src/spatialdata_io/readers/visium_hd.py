@@ -107,7 +107,6 @@ def visium_hd(
         )
 
     metadata, hd_layout = _parse_metadata(path, filename_prefix)
-    transform_matrices = _get_transform_matrices(metadata, hd_layout)
     file_format = hd_layout[VisiumHDKeys.FILE_FORMAT]
     if file_format != "1.0":
         warnings.warn(
@@ -347,6 +346,7 @@ def visium_hd(
             suffix="_cytassist_image",
         )
         image = images[dataset_id + "_cytassist_image"]
+        transform_matrices = _get_transform_matrices(metadata, hd_layout)
         affine0 = transform_matrices["cytassist_colrow_to_spot_colrow"]
         affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
         set_transformation(image, Sequence([affine0, affine1]), "global")
