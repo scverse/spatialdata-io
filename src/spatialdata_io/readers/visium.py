@@ -4,9 +4,10 @@ import json
 import os
 import re
 from collections.abc import Mapping
+from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Tuple
 
 import numpy as np
 import pandas as pd
@@ -21,12 +22,6 @@ from xarray import DataArray
 from spatialdata_io._constants._constants import VisiumKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _read_counts
-
-
-from typing import List, Tuple, Union
-import scanpy as sc 
-import spatialdata as sd
-from enum import Enum
 
 __all__ = ["visium"]
 
@@ -247,7 +242,7 @@ def visium(
             transformations={"downscaled_lowres": Identity()},
             rgb=None,
         )
-        
+
     return SpatialData(images=images, shapes=shapes, table=table)
 
 
@@ -285,18 +280,18 @@ def _read_image(image_file: Path, imread_kwargs: dict[str, Any]) -> Any:
     return image
 
 
-def get_sdata_res(sdata:SpatialData):
-    '''
+def get_sdata_res(sdata: SpatialData):
+    """
     Retrieve the image resolution from the Visium SpatialData object.
 
-    This function extracts the shape (resolution) of the highest resolution image (scale0) 
-    from the Visium SpatialData object. The shape is returned as the number of channels (c), 
+    This function extracts the shape (resolution) of the highest resolution image (scale0)
+    from the Visium SpatialData object. The shape is returned as the number of channels (c),
     height (y), and width (x) in pixels.
 
     Parameters
     ----------
     sdata : SpatialData
-        A SpatialData object containing images and spatial data, with image resolutions stored 
+        A SpatialData object containing images and spatial data, with image resolutions stored
         in a multi-scale format.
 
     Returns
@@ -306,23 +301,27 @@ def get_sdata_res(sdata:SpatialData):
         - c: Number of image channels (typically RGB).
         - y: Image height in pixels.
         - x: Image width in pixels.
-    '''
+    """
 
     image_name = list(sdata.images.keys())[0]
-    dimensions = sdata.images[image_name]['scale0'].dims
-    shape = dimensions['c'],dimensions['y'],dimensions['x']
+    dimensions = sdata.images[image_name]["scale0"].dims
+    shape = dimensions["c"], dimensions["y"], dimensions["x"]
     return shape
 
+
 class SpotPacking(Enum):
-    """Types of ST spots disposition, 
+    """Types of ST spots disposition,
     for Orange Crate Packing see:
-    https://kb.10xgenomics.com/hc/en-us/articles/360041426992-Where-can-I-find-the-Space-Ranger-barcode-whitelist-and-their-coordinates-on-the-slide    
+    https://kb.10xgenomics.com/hc/en-us/articles/360041426992-Where-can-I-find-the-Space-Ranger-barcode-whitelist-and-their-coordinates-on-the-slide
     """
+
     ORANGE_CRATE_PACKING = 0
     GRID_PACKING = 1
 
 
-def find_pixel_size_visium(my_df: pd.DataFrame, inter_spot_dist: float=100., packing: SpotPacking = SpotPacking.ORANGE_CRATE_PACKING) -> Tuple[float, int]:
+def find_pixel_size_visium(
+    my_df: pd.DataFrame, inter_spot_dist: float = 100.0, packing: SpotPacking = SpotPacking.ORANGE_CRATE_PACKING
+) -> tuple[float, int]:
     """Estimate the pixel size of an image in um/px given a dataframe containing the spot coordinates in that image
 
     Args:
@@ -337,56 +336,60 @@ def find_pixel_size_visium(my_df: pd.DataFrame, inter_spot_dist: float=100., pac
     Returns:
         Tuple[float, int]: approximation of the pixel size in um/px and over how many spots that pixel size was estimated
     """
+
     def _cart_dist(start_spot, end_spot):
         """cartesian distance in pixel between two spots"""
-        d = np.sqrt((start_spot['pxl_col_in_fullres'] - end_spot['pxl_col_in_fullres']) ** 2 \
-            + (start_spot['pxl_row_in_fullres'] - end_spot['pxl_row_in_fullres']) ** 2)
+        d = np.sqrt(
+            (start_spot["pxl_col_in_fullres"] - end_spot["pxl_col_in_fullres"]) ** 2
+            + (start_spot["pxl_row_in_fullres"] - end_spot["pxl_row_in_fullres"]) ** 2
+        )
         return d
-    
+
     df = my_df.copy()
-    
+
     max_dist_col = 0
     approx_nb = 0
     best_approx = 0
-    df = df.sort_values('array_row')
+    df = df.sort_values("array_row")
     for _, row in df.iterrows():
-        y = row['array_col']
-        x = row['array_row']
-        if len(df[df['array_row'] == x]) > 1:
-            b = df[df['array_row'] == x]['array_col'].idxmax()
+        y = row["array_col"]
+        x = row["array_row"]
+        if len(df[df["array_row"] == x]) > 1:
+            b = df[df["array_row"] == x]["array_col"].idxmax()
             start_spot = row
             end_spot = df.loc[b]
             dist_px = _cart_dist(start_spot, end_spot)
-            
+
             div = 1 if packing == SpotPacking.GRID_PACKING else 2
-            dist_col = abs(df.loc[b, 'array_col'] - y) // div
-            
+            dist_col = abs(df.loc[b, "array_col"] - y) // div
+
             approx_nb += 1
-            
+
             if dist_col > max_dist_col:
                 max_dist_col = dist_col
                 best_approx = inter_spot_dist / (dist_px / dist_col)
             if approx_nb > 3:
                 break
-            
+
     if approx_nb == 0:
         raise Exception("Pixel size estimation failed. Couldn't find two spots on the same row")
-            
+
     return best_approx, max_dist_col
 
+
 def create_df_coord_visium(data: SpatialData):
-    '''
+    """
     Create a DataFrame with coordinates and array indices from Visium SpatialData.
 
-    This function processes the spatial shapes and table data from a Visium SpatialData object 
-    to generate a DataFrame containing pixel coordinates (row and column) for each spot 
-    on the tissue image at full resolution. It also includes the corresponding array row and column 
+    This function processes the spatial shapes and table data from a Visium SpatialData object
+    to generate a DataFrame containing pixel coordinates (row and column) for each spot
+    on the tissue image at full resolution. It also includes the corresponding array row and column
     indices from the data tables.
 
     Parameters
     ----------
     data : SpatialData
-        A SpatialData object containing Visium spatial information, including shapes and table data 
+        A SpatialData object containing Visium spatial information, including shapes and table data
         (spot coordinates and array indices).
 
     Returns
@@ -397,29 +400,28 @@ def create_df_coord_visium(data: SpatialData):
         - 'pxl_col_in_fullres': Pixel column coordinates in full-resolution tissue image.
         - 'array_row': Row index of the spot in the Visium array.
         - 'array_col': Column index of the spot in the Visium array.
-    '''
+    """
     tissue_name = list(data.shapes.keys())[0]
     shapes_df = data.shapes[tissue_name]
-    shapes_df['pxl_col_in_fullres'] = shapes_df.geometry.apply(lambda geom: geom.x)
-    shapes_df['pxl_row_in_fullres'] = shapes_df.geometry.apply(lambda geom: geom.y)
+    shapes_df["pxl_col_in_fullres"] = shapes_df.geometry.apply(lambda geom: geom.x)
+    shapes_df["pxl_row_in_fullres"] = shapes_df.geometry.apply(lambda geom: geom.y)
 
-
-    shapes_df['array_row'] = list(data.tables['table'].obs['array_row'])
-    shapes_df['array_col'] =  list(data.tables['table'].obs['array_col'])
+    shapes_df["array_row"] = list(data.tables["table"].obs["array_row"])
+    shapes_df["array_col"] = list(data.tables["table"].obs["array_col"])
 
     # Now, you have the necessary DataFrame in the correct format:
-    df_coord = shapes_df[['pxl_row_in_fullres', 'pxl_col_in_fullres', 'array_row', 'array_col']]
+    df_coord = shapes_df[["pxl_row_in_fullres", "pxl_col_in_fullres", "array_row", "array_col"]]
     return df_coord
 
 
 def calculate_pixel_size_from_visium(
-    path: str, 
+    path: str,
     dataset_id: str,
-    counts_file: str, 
-    fullres_image_file: str, 
-    tissue_positions_file: str, 
+    counts_file: str,
+    fullres_image_file: str,
+    tissue_positions_file: str,
     scalefactors_file: str,
-    inter_spot_dist: float = 100.0
+    inter_spot_dist: float = 100.0,
 ) -> SpatialData:
     """
     Main function to load data into a spatialdata class and calculate scale0 image shape and pixel size.
@@ -446,7 +448,7 @@ def calculate_pixel_size_from_visium(
     visium_sdata : SpatialData
         SpatialData object that includes both image shape and pixel size stored in tables['table'].uns
     """
-    
+
     # Load the SpatialData object using the visium function. 6 files are expected to be passed from Visium raw data
     visium_sdata = visium(
         path=path,
@@ -454,17 +456,16 @@ def calculate_pixel_size_from_visium(
         counts_file=counts_file,
         fullres_image_file=fullres_image_file,
         tissue_positions_file=tissue_positions_file,
-        scalefactors_file=scalefactors_file
+        scalefactors_file=scalefactors_file,
     )
-    
+
     df_coord = create_df_coord_visium(visium_sdata)
 
     pixel_size, _ = find_pixel_size_visium(df_coord, inter_spot_dist)
-    
-    image_shape = get_sdata_res(visium_sdata)
-    
 
-    visium_sdata.tables['table'].uns['image_shape'] = image_shape
-    visium_sdata.tables['table'].uns['pixel_size'] = pixel_size
-    
+    image_shape = get_sdata_res(visium_sdata)
+
+    visium_sdata.tables["table"].uns["image_shape"] = image_shape
+    visium_sdata.tables["table"].uns["pixel_size"] = pixel_size
+
     return visium_sdata
