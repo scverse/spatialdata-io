@@ -273,7 +273,7 @@ def _rioxarray_load_merscope(
         dim="c",
     )
 
-    return Image2DModel.parse(im, c_coords=stainings, **image_models_kwargs)
+    return Image2DModel.parse(im, c_coords=stainings, rgb=None, **image_models_kwargs)
 
 
 def _dask_image_load_merscope(
@@ -292,6 +292,7 @@ def _dask_image_load_merscope(
         im,
         dims=("c", "y", "x"),
         c_coords=stainings,
+        rgb=None,
         **image_models_kwargs,
     )
 
@@ -302,6 +303,7 @@ def _get_points(transcript_path: Path, transformations: dict[str, BaseTransforma
         transcript_df,
         coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
         transformations=transformations,
+        feature_key=MerscopeKeys.GENE_KEY,
     )
     transcripts["gene"] = transcripts["gene"].astype("category")
     return transcripts

@@ -8,11 +8,22 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [0.1.4] - xxxx-xx-xx
+## [0.1.6] - xxxx-xx-xx
+
+-   (MERSCOPE) added `feature_key` attribute for points (i.e., the `'gene'` column) #210
+
+## [0.1.5] - 2024-09-25
 
 ### Added
 
 -   (Xenium) added `dims` parameter for more control in `xenium_aligned_image()`
+
+### Fixed
+
+-   Passing `rgb=None` to image model parser for both visium and visiumhd, leading to 3-4 channel images being
+    interpreted as RGB(A)
+-   Fix header bug Visium data #200
+-   (Visium HD) Fix path parsing when images are missing #204 #206
 
 ## [0.1.4] - 2024-08-07
 
