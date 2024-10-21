@@ -322,6 +322,7 @@ class MerscopeKeys(ModeEnum):
     GLOBAL_Z = "global_z"
     Z_INDEX = "ZIndex"
     REGION_KEY = "cells_region"
+    GENE_KEY = "gene"
 
 
 @unique
@@ -353,9 +354,9 @@ class VisiumHDKeys(ModeEnum):
     TISSUE_POSITIONS_FILE = "tissue_positions.parquet"
 
     # images
-    IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
-    IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
-    IMAGE_CYTASSIST = "spatial/cytassist_image.tiff"
+    IMAGE_HIRES_FILE = "tissue_hires_image.png"
+    IMAGE_LOWRES_FILE = "tissue_lowres_image.png"
+    IMAGE_CYTASSIST = "cytassist_image.tiff"
 
     # scalefactors
     SCALEFACTORS_FILE = "scalefactors_json.json"
