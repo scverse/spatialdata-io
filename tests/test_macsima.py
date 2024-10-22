@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from spatialdata.models import get_channels
 
-from spatialdata_io.readers.macsima import macsima
+from spatialdata_io.readers.macsima import macsima, parse_name_to_cycle
 
 if not (Path("./data/Lung_adc_demo").exists() or Path("./data/MACSimaData_HCA").exists()):
     # The datasets should be downloaded and placed unzipped in the "data" directory;
@@ -67,7 +67,7 @@ def test_total_channels(dataset: str, expected: int) -> None:
 def test_channel_names(dataset: str, expected: list[str]) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
-    sdata = macsima(f, c_subset=3)
+    sdata = macsima(f, c_subset=3, include_cycle_in_channel_name=True)
     el = sdata[list(sdata.images.keys())[0]]
 
     # get the channel names
@@ -99,13 +99,13 @@ def test_parsing_style() -> None:
         macsima(Path("."), parsing_style="not_a_parsing_style")
 
 
-# @pytest.mark.parametrize(
-#     "name,expected",
-#     [
-#         ("C-002_S-000_S_FITC_R-01_W-C-1_ROI-01_A-CD147_C-REA282.tif", 2),
-#         ("001_S_R-01_W-B-1_ROI-01_A-CD14REA599ROI1_C-REA599.ome.tif", 1),
-#     ],
-# )
-# def test_parsing_of_name_to_cycle(name: str, expected: int) -> None:
-#     result = parse_name_to_cycle(name)
-#     assert result == expected
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("C-002_S-000_S_FITC_R-01_W-C-1_ROI-01_A-CD147_C-REA282.tif", 2),
+        ("001_S_R-01_W-B-1_ROI-01_A-CD14REA599ROI1_C-REA599.ome.tif", 1),
+    ],
+)
+def test_parsing_of_name_to_cycle(name: str, expected: int) -> None:
+    result = parse_name_to_cycle(name)
+    assert result == expected

@@ -89,11 +89,10 @@ def _initialize_raster_models_kwargs(
     return image_models_kwargs, labels_models_kwargs
 
 
-def calc_scale_factors(stack: Any, min_size: int = 1000, default_scale_factor: int = 2) -> list[int]:
+def calc_scale_factors(lower_scale_limit: float, min_size: int = 1000, default_scale_factor: int = 2) -> list[int]:
     """Calculate scale factors based on image size to get lowest resolution under min_size pixels."""
     # get lowest dimension, ignoring channels
-    lower_scale_limit = min(stack.shape[1:])
-    scale_factor = default_scale_factor
+    scale_factor: int = default_scale_factor
     scale_factors = [scale_factor]
     lower_scale_limit /= scale_factor
     while lower_scale_limit >= min_size:

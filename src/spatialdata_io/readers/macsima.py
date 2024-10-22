@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import warnings
+from collections import defaultdict
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -33,6 +35,139 @@ class MACSimaParsingStyle(ModeEnum):
     AUTO = "auto"
 
 
+@dataclass
+class ChannelMetadata:
+    """Metadata for a channel in a multichannel dataset."""
+
+    name: str
+    cycle: int
+
+
+@dataclass
+class MultiChannelImage:
+    """Multichannel image with metadata."""
+
+    data: list[da.Array]
+    metadata: list[ChannelMetadata]
+    include_cycle_in_channel_name: bool = False
+
+    @classmethod
+    def from_paths(
+        cls,
+        path_files: list[Path],
+        imread_kwargs: Mapping[str, Any],
+        skip_rounds: list[int] | None = None,
+    ) -> MultiChannelImage:
+        cycles = []
+        channels = []
+        for p in path_files:
+            cycle = parse_name_to_cycle(p.stem)
+            cycles.append(cycle)
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    channel_names = parse_channels(p)
+                if len(channel_names) > 1:
+                    logger.warning(f"Found multiple channels in OME-TIFF file {p}. Only the first one will be used.")
+                channels.append(channel_names[0])
+            except ValueError as e:
+                logger.warning(f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.")
+
+        if len(path_files) != len(cycles) or len(path_files) != len(channels):
+            raise ValueError("Length of path_files, cycles and channels must be the same.")
+        # if any of round_channels is in skip_rounds, remove that round from the list and from path_files
+        if skip_rounds:
+            logger.info("Skipping cycles: %d", skip_rounds)
+            path_files, cycles, channels = map(
+                list,
+                zip(*[(p, c, ch) for p, c, ch in zip(path_files, cycles, channels) if c not in skip_rounds]),
+            )
+        imgs = [imread(img, **imread_kwargs) for img in path_files]
+        for img, path in zip(imgs, path_files):
+            if img.shape[1:] != imgs[0].shape[1:]:
+                raise ValueError(
+                    f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image {path_files[0]} has shape {imgs[0].shape[1:]}"
+                )
+        # sort imgs, cycles and channels based on cycles
+        output = cls(
+            data=imgs,
+            metadata=[ChannelMetadata(name=ch, cycle=c) for c, ch in zip(cycles, channels)],
+        )
+        return output
+
+    @classmethod
+    def subset_by_channel(cls, mci: MultiChannelImage, c_name: str) -> MultiChannelImage:
+        """Create new MultiChannelImage with only the channels that contain c_name."""
+        indices = [i for i, c in enumerate(mci.metadata) if c_name in c.name]
+        return MultiChannelImage.filter_by_index(mci, indices)
+
+    @classmethod
+    def filter_by_index(cls, mci: MultiChannelImage, indices: list[int]) -> MultiChannelImage:
+        """Filter the image by index."""
+        metadata = [c for i, c in enumerate(mci.metadata) if i in indices]
+        data = [d for i, d in enumerate(mci.data) if i in indices]
+        return cls(
+            data=data,
+            metadata=metadata,
+            include_cycle_in_channel_name=mci.include_cycle_in_channel_name,
+        )
+
+    def get_channel_names(self) -> list[str]:
+        """Get the channel names."""
+        if self.include_cycle_in_channel_name:
+            return [f"R{c.cycle} {c.name}" for c in self.metadata]
+        else:
+            # if name is duplicated, add (i) to the name
+            names = [c.name for c in self.metadata]
+            name_dict: dict[str, int] = defaultdict(int)
+            name_counter: dict[str, int] = defaultdict(int)
+            for name in names:
+                name_dict[name] += 1
+            output = []
+            for name in names:
+                name_counter[name] += 1
+                output.append(f"{name} ({name_counter[name]})" if name_dict[name] > 1 else name)
+            return output
+
+    def get_cycles(self) -> list[int]:
+        """Get the cycle numbers."""
+        return [c.cycle for c in self.metadata]
+
+    def sort_by_channel(self) -> None:
+        """Sort the channels by cycle number."""
+        self.metadata = sorted(self.metadata, key=lambda x: x.cycle)
+        self.data = [d for _, d in sorted(zip(self.metadata, self.data), key=lambda x: x[0].cycle)]
+
+    def subset(self, subset: int | None = None) -> MultiChannelImage:
+        """Subset the image."""
+        if subset:
+            self.data = [d[:, :subset, :subset] for d in self.data]
+        return self
+
+    def subset_channels(self, c_subset: int) -> MultiChannelImage:
+        """Subset the channels."""
+        self.data = self.data[:c_subset]
+        self.metadata = self.metadata[:c_subset]
+        return self
+
+    def subset_by_idx(self, indices: list[int]) -> MultiChannelImage:
+        """Subset the image by index."""
+        data = [d for i, d in enumerate(self.data) if i in indices]
+        metadata = [c for i, c in enumerate(self.metadata) if i in indices]
+        return MultiChannelImage(
+            data=data,
+            metadata=metadata,
+            include_cycle_in_channel_name=self.include_cycle_in_channel_name,
+        )
+
+    def calc_scale_factors(self, default_scale_factor: int = 2) -> list[int]:
+        lower_scale_limit = min(self.data[0].shape[1:])
+        return calc_scale_factors(lower_scale_limit, default_scale_factor=default_scale_factor)
+
+    def get_stack(self) -> da.Array:
+        return da.stack(self.data).squeeze()
+
+
 def macsima(
     path: str | Path,
     parsing_style: MACSimaParsingStyle | str = MACSimaParsingStyle.AUTO,
@@ -47,7 +182,9 @@ def macsima(
     scale_factors: list[int] | None = None,
     default_scale_factor: int = 2,
     nuclei_channel_name: str = "DAPI",
+    split_threshold_nuclei_channel: int | None = 2,
     skip_rounds: list[int] | None = None,
+    include_cycle_in_channel_name: bool = False,
 ) -> SpatialData:
     """
     Read *MACSima* formatted dataset.
@@ -86,8 +223,12 @@ def macsima(
         Default scale factor to use for downsampling.
     nuclei_channel_name
         Common string of the nuclei channel to separate nuclei from other channels.
+    split_threshold_nuclei_channel
+        Threshold for splitting nuclei channels. If the number of channels that include nuclei_channel_name is greater than this threshold, the nuclei channels are split into a separate stack.
     skip_rounds
         List of round numbers to skip when parsing the data.
+    include_cycle_in_channel_name
+        Whether to include the cycle number in the channel name.
 
     Returns
     -------
@@ -121,8 +262,10 @@ def macsima(
             transformations,
             scale_factors,
             default_scale_factor,
-            nuclei_channel_name,
-            skip_rounds,
+            nuclei_channel_name=nuclei_channel_name,
+            split_threshold_nuclei_channel=split_threshold_nuclei_channel,
+            skip_rounds=skip_rounds,
+            include_cycle_in_channel_name=include_cycle_in_channel_name,
         )
     if parsing_style == MACSimaParsingStyle.PROCESSED_MULTIPLE_FOLDERS:
         sdatas = {}
@@ -143,8 +286,10 @@ def macsima(
                 transformations,
                 scale_factors,
                 default_scale_factor,
-                nuclei_channel_name,
-                skip_rounds,
+                nuclei_channel_name=nuclei_channel_name,
+                split_threshold_nuclei_channel=split_threshold_nuclei_channel,
+                skip_rounds=skip_rounds,
+                include_cycle_in_channel_name=include_cycle_in_channel_name,
             )
         return sd.concatenate(list(sdatas.values()))
     if parsing_style == MACSimaParsingStyle.RAW:
@@ -172,49 +317,33 @@ def parse_processed_folder(
     scale_factors: list[int] | None = None,
     default_scale_factor: int = 2,
     nuclei_channel_name: str = "DAPI",
+    split_threshold_nuclei_channel: int | None = 2,
     skip_rounds: list[int] | None = None,
     file_pattern: str = "*.tif*",
+    include_cycle_in_channel_name: bool = False,
 ) -> SpatialData:
     """Parse a single folder containing images from a cyclical imaging platform."""
     # get list of image paths, get channel name from OME data and cycle round number from filename
     # look for OME-TIFF files
     path_files = list(path.glob(file_pattern))
     logger.debug(path_files[0])
-    # make sure not to remove round 0 when parsing!
-    cycles = []
-    channels = []
-    for p in path_files:
-        cycle = parse_name_to_cycle(p.stem)
-        cycles.append(cycle)
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                channel_names = parse_channels(p)
-            if len(channel_names) > 1:
-                logger.warning(f"Found multiple channels in OME-TIFF file {p}. Only the first one will be used.")
-            channels.append(channel_names[0])
-        except ValueError as e:
-            logger.warning(f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.")
-    stack, sorted_cycles, sorted_channels = get_stack(
-        path_files,
-        cycles,
-        channels,
-        imread_kwargs,
-        skip_rounds=skip_rounds,
-    )
 
-    sorted_cycle_channels: list[str] = []
-    for c, ch in zip(sorted_cycles, sorted_channels):
-        sorted_cycle_channels.append(f"R{str(c)} {ch}")
+    mci = MultiChannelImage.from_paths(
+        path_files,
+        imread_kwargs,
+        skip_rounds,
+    )
+    mci.include_cycle_in_channel_name = include_cycle_in_channel_name
+
+    mci.sort_by_channel()
 
     # do subsetting if needed
     if subset:
-        stack = stack[:, :subset, :subset]
+        mci = mci.subset(subset)
     if c_subset:
-        stack = stack[:c_subset, :, :]
-        sorted_cycle_channels = sorted_cycle_channels[:c_subset]
+        mci = mci.subset_channels(c_subset)
     if multiscale and not scale_factors:
-        scale_factors = calc_scale_factors(stack, default_scale_factor=default_scale_factor)
+        scale_factors = mci.calc_scale_factors(default_scale_factor=default_scale_factor)
     if not multiscale:
         scale_factors = None
     logger.debug(f"Scale factors: {scale_factors}")
@@ -222,73 +351,68 @@ def parse_processed_folder(
     filtered_name = path.stem.replace(" ", "_")
 
     return create_sdata(
-        stack,
-        sorted_cycle_channels,
-        path_files,
-        max_chunk_size,
-        c_chunks_size,
-        transformations,
-        scale_factors,
-        nuclei_channel_name,
-        filtered_name,
+        mci=mci,
+        path_files=path_files,
+        max_chunk_size=max_chunk_size,
+        c_chunks_size=c_chunks_size,
+        transformations=transformations,
+        scale_factors=scale_factors,
+        nuclei_channel_name=nuclei_channel_name,
+        split_threshold_nuclei_channel=split_threshold_nuclei_channel,
+        filtered_name=filtered_name,
     )
 
 
 def create_sdata(
-    stack: da.Array,
-    sorted_cycle_channels: list[str],
+    mci: MultiChannelImage,
     path_files: list[Path],
     max_chunk_size: int,
     c_chunks_size: int,
     transformations: bool,
     scale_factors: list[int] | None,
     nuclei_channel_name: str,
+    split_threshold_nuclei_channel: int | None,
     filtered_name: str,
 ) -> SpatialData:
-    # for stack and sorted_cycle_channels, if channel name is nuclei_channel_name, add to seperate nuclei stack
-    # keep the first nuclei channel in both the stack and the nuclei stack
-    nuclei_sorted_cycle_channels = []
-    nuclei_idx = []
-    for i, c in enumerate(sorted_cycle_channels):
-        if nuclei_channel_name in c:
-            nuclei_sorted_cycle_channels.append(c)
-            nuclei_idx.append(i)
-    if len(nuclei_idx) > 2:
-        has_nuclei_stack = True
-        # More than two nuclei channels found, keep only the first and last one in the stack
-        nuclei_stack = stack[nuclei_idx]
-        nuclei_idx_without_first_and_last = nuclei_idx[1:-1]
-        stack = stack[[i for i in range(len(sorted_cycle_channels)) if i not in nuclei_idx_without_first_and_last]]
-        sorted_cycle_channels = [
-            c for i, c in enumerate(sorted_cycle_channels) if i not in nuclei_idx_without_first_and_last
-        ]
+    nuclei_idx = [i for i, c in enumerate(mci.get_channel_names()) if nuclei_channel_name in c]
+    n_nuclei_channels = len(nuclei_idx)
+    if not split_threshold_nuclei_channel:
+        # if split_threshold_nuclei_channel is None, do not split nuclei channels
+        split_nuclei = False
     else:
-        has_nuclei_stack = False
-    # Only one or two nuclei channels found, keep all in the stack
+        split_nuclei = n_nuclei_channels > split_threshold_nuclei_channel
+    if split_nuclei:
+        # if channel name is nuclei_channel_name, add to seperate nuclei stack
+        nuclei_mci = mci.subset_by_idx(nuclei_idx)
+        # keep the first nuclei channel in both the stack and the nuclei stack
+        nuclei_idx_without_first_and_last = nuclei_idx[1:-1]
+        mci = MultiChannelImage.filter_by_index(
+            mci,
+            [i for i in range(len(mci.metadata)) if i not in nuclei_idx_without_first_and_last],
+        )
+
     pixels_to_microns = parse_physical_size(path_files[0])
     image_element = create_image_element(
-        stack,
-        sorted_cycle_channels,
+        mci,
         max_chunk_size,
         c_chunks_size,
         transformations,
         pixels_to_microns,
         scale_factors,
-        name=filtered_name,
+        coordinate_system=filtered_name,
     )
-    if has_nuclei_stack:
+    if split_nuclei:
         nuclei_image_element = create_image_element(
-            nuclei_stack,
-            nuclei_sorted_cycle_channels,
+            nuclei_mci,
             max_chunk_size,
             c_chunks_size,
             transformations,
             pixels_to_microns,
             scale_factors,
-            name=filtered_name,
+            coordinate_system=filtered_name,
         )
-        table_nuclei = create_table(nuclei_sorted_cycle_channels)
-    table_channels = create_table(sorted_cycle_channels)
+        table_nuclei = create_table(nuclei_mci)
+    table_channels = create_table(mci)
 
     sdata = sd.SpatialData(
         images={
@@ -298,41 +422,43 @@ def create_sdata(
             f"{filtered_name}_table": table_channels,
         },
     )
-    if has_nuclei_stack:
+
+    if split_nuclei:
         sdata.images[f"{filtered_name}_nuclei_image"] = nuclei_image_element
         sdata.tables[f"{filtered_name}_nuclei_table"] = table_nuclei
 
     return sdata
 
 
-def create_table(sorted_cycle_channels: list[str]) -> ad.AnnData:
+def create_table(mci: MultiChannelImage) -> ad.AnnData:
+    cycles = mci.get_cycles()
+    names = mci.get_channel_names()
     df = pd.DataFrame(
         {
-            "name": sorted_cycle_channels,
-            "cycle": [int(c.split(" ")[0][1:]) for c in sorted_cycle_channels],
+            "name": names,
+            "cycle": cycles,
         }
     )
     table = ad.AnnData(var=df)
-    table.var_names = sorted_cycle_channels
+    table.var_names = names
     return sd.models.TableModel.parse(table)
 
 
 def create_image_element(
-    stack: da.Array,
-    sorted_channels: list[str],
+    mci: MultiChannelImage,
     max_chunk_size: int,
     c_chunks_size: int,
     transformations: bool,
     pixels_to_microns: float,
     scale_factors: list[int] | None,
-    name: str | None = None,
+    coordinate_system: str | None = None,
 ) -> sd.models.Image2DModel:
     t_dict = None
     if transformations:
         t_pixels_to_microns = sd.transformations.Scale([pixels_to_microns, pixels_to_microns], axes=("x", "y"))
         # 'microns' is also used in merscope example
         # no inverse needed as the transformation is already from pixels to microns
-        t_dict = {name: t_pixels_to_microns}
+        t_dict = {coordinate_system: t_pixels_to_microns}
     # # chunk_size can be 1 for channels
     chunks = {
         "x": max_chunk_size,
@@ -342,43 +468,12 @@ def create_image_element(
     if t_dict:
         logger.debug("Adding transformation: %s", t_dict)
     el = sd.models.Image2DModel.parse(
-        stack,
+        mci.get_stack(),
         # TODO: make sure y and x locations are correct
         dims=["c", "y", "x"],
         scale_factors=scale_factors,
         chunks=chunks,
-        c_coords=sorted_channels,
+        c_coords=mci.get_channel_names(),
         transformations=t_dict,
     )
     return el
-
-
-def get_stack(
-    path_files: list[Path],
-    cycles: list[int],
-    channels: list[str],
-    imread_kwargs: Mapping[str, Any],
-    skip_rounds: list[int] | None = None,
-) -> tuple[da.Array, list[int], list[str]]:
-    if len(path_files) != len(cycles) or len(path_files) != len(channels):
-        raise ValueError("Length of path_files, cycles and channels must be the same.")
-    # if any of round_channels is in skip_rounds, remove that round from the list and from path_files
-    if skip_rounds:
-        logger.info("Skipping cycles: %d", skip_rounds)
-        path_files, cycles, channels = map(
-            list,
-            zip(*[(p, c, ch) for p, c, ch in zip(path_files, cycles, channels) if c not in skip_rounds]),
-        )
-    imgs = [imread(img, **imread_kwargs) for img in path_files]
-    for img, path in zip(imgs, path_files):
-        if img.shape[1:] != imgs[0].shape[1:]:
-            raise ValueError(
-                f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image {path_files[0]} has shape {imgs[0].shape[1:]}"
-            )
-    # sort imgs, cycles and channels based on cycles
-    imgs, cycles, channels = map(
-        list,
-        zip(*sorted(zip(imgs, cycles, channels), key=lambda x: (x[1]))),
-    )
-    stack = da.stack(imgs).squeeze()
-    return stack, cycles, channels
