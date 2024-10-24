@@ -66,14 +66,15 @@ class SeqfishKeys(ModeEnum):
     # file extensions
     CSV_FILE = ".csv"
     TIFF_FILE = ".tiff"
-    OME_TIFF_FILE = ".ome.tiff"
+    GEOJSON_FILE = ".geojson"
     # file identifiers
-    SECTION = "section"
-    TRANSCRIPT_COORDINATES = "TranscriptCoordinates"
+    SECTION = "_section"
+    TRANSCRIPT_COORDINATES = "TranscriptList"
     DAPI = "DAPI"
-    COUNTS_FILE = "CxG"
-    CELL_MASK_FILE = "CellMask"
+    COUNTS_FILE = "CellxGene"
+    SEGMENTATION = "Segmentation"
     CELL_COORDINATES = "CellCoordinates"
+    BOUNDARIES = "Boundaries"
     # transcripts
     TRANSCRIPTS_X = "x"
     TRANSCRIPTS_Y = "y"
