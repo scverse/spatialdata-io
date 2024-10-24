@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 from anndata import AnnData, read_text
@@ -13,13 +13,12 @@ from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
 PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
 
-try:
+if TYPE_CHECKING:
     from numpy.typing import NDArray
-
     NDArrayA = NDArray[Any]
-except (ImportError, TypeError):
-    NDArray = np.ndarray
+else:
     NDArrayA = np.ndarray
+
 
 
 def _read_counts(
