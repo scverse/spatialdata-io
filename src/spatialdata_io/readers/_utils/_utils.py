@@ -15,10 +15,10 @@ PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+
     NDArrayA = NDArray[Any]
 else:
     NDArrayA = np.ndarray
-
 
 
 def _read_counts(
