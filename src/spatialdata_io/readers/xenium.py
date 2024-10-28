@@ -452,7 +452,8 @@ def xenium(
                 )
                 del sdata.images[key]
 
-    sdata.write_consolidated_metadata()
+    if output_path is not None:
+        sdata.write_consolidated_metadata()
 
     return sdata
 
