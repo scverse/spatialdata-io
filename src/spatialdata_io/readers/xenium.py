@@ -49,6 +49,7 @@ from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwarg
 
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
+
 @deprecation_alias(cells_as_shapes="cells_as_circles", cell_boundaries="cells_boundaries", cell_labels="cells_labels")
 @inject_docs(xx=XeniumKeys)
 def xenium(
@@ -211,13 +212,13 @@ def xenium(
         table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT]
 
     sdata = SpatialData()
-    
+
     if output_path is not None:
         sdata.path = output_path
         sdata._validate_can_safely_write_to_path(output_path, overwrite=False)
         store = parse_url(output_path, mode="w").store
         _ = zarr.group(store=store, overwrite=False)
-        store.close()  
+        store.close()
 
     # From the public release notes here:
     # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa
