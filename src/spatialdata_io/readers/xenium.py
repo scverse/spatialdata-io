@@ -451,6 +451,8 @@ def xenium(
                 )
                 del sdata.images[key]
 
+    sdata.write_consolidated_metadata()
+
     return sdata
 
 
