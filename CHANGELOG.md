@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning][].
 ## [0.1.6] - xxxx-xx-xx
 
 -   (MERSCOPE) added `feature_key` attribute for points (i.e., the `'gene'` column) #210
+-   (Visium HD) get transformation matrices even when only images are parsed #215
 
 ## [0.1.5] - 2024-09-25
 
