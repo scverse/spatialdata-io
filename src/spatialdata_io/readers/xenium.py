@@ -22,7 +22,6 @@ import zarr
 from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
-from datatree.datatree import DataTree
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from pyarrow import Table
@@ -38,7 +37,7 @@ from spatialdata.models import (
     TableModel,
 )
 from spatialdata.transformations.transformations import Affine, Identity, Scale
-from xarray import DataArray
+from xarray import DataArray, DataTree
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
