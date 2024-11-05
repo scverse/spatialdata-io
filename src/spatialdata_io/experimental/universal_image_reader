@@ -1,0 +1,105 @@
+import os
+import numpy as np
+import dask.array as da
+import psutil
+from skimage import io as skio
+from vispy import gloo
+import zarr
+
+# Constants for image size and VRAM threshold
+VRAM_THRESHOLD = 6 * 1024**3  # Minimum VRAM in bytes (6 GB)
+BIG_IMAGE_THRESHOLD = 20000 * 20000  # Size threshold in pixels (e.g., 400 million pixels)
+
+def load_image_to_dask_array(image_path):
+    """
+    Load an image from a universal format (JPG, PNG, TIFF, OME-TIFF) into a Dask array.
+    """
+    image_array = skio.imread(image_path)
+    dask_array = da.from_array(image_array, chunks="auto")  # Automatically chunk the array
+    return dask_array
+
+def estimate_memory_requirements(dask_array):
+    """
+    Estimate the memory requirements for a Dask array.
+    """
+    num_elements = dask_array.size
+    element_size = dask_array.dtype.itemsize
+    total_memory = num_elements * element_size
+    return total_memory
+
+def check_gpu_memory():
+    """
+    Check if the system's GPU VRAM meets the minimum requirement using OpenGL.
+    """
+    try:
+        gloo.context.Context()  # Initialize OpenGL context if needed
+        total_vram = gloo.gl.glGetIntegerv(gloo.gl.GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEM_NVX)
+        has_sufficient_vram = total_vram >= VRAM_THRESHOLD
+    except Exception as e:
+        print(f"OpenGL VRAM check unavailable or unsupported: {e}")
+        total_vram = None
+        has_sufficient_vram = False
+
+    return has_sufficient_vram, total_vram
+
+def check_image_size_and_vram(dask_array):
+    """
+    Check if an image exceeds VRAM limits or is classified as a 'big' image.
+    """
+    total_pixels = dask_array.shape[0] * dask_array.shape[1]
+
+    # Check image size against the 'big' threshold
+    is_big_image = total_pixels > BIG_IMAGE_THRESHOLD
+    if is_big_image:
+        print(f"\U00002757 Warning: Image size exceeds the defined 'big' threshold of {BIG_IMAGE_THRESHOLD} pixels.")
+
+    # Check VRAM sufficiency
+    gpu_sufficient, total_vram = check_gpu_memory()
+    if gpu_sufficient is False:
+        print(f"\U00002757 Warning: Not enough GPU memory. Required: 6 GB, Available: {total_vram / (1024**3):.2f} GB" if total_vram else "Unknown")
+    elif gpu_sufficient:
+        print("\U00002705 GPU memory is sufficient for the image.")
+
+    return is_big_image
+
+def check_if_image_is_zarr_backed(dask_array):
+    """
+    Check if a Dask array is backed by a Zarr store to optimize large image handling.
+    """
+    try:
+        # Checking if dask array has Zarr as a backing file
+        store = dask_array.store if isinstance(dask_array.store, zarr.storage.ZarrStore) else None
+        is_zarr_backed = store is not None
+    except AttributeError:
+        is_zarr_backed = False
+
+    if not is_zarr_backed:
+        print("\U00002757 Warning: The image data is not Zarr-backed, which may cause performance issues with large images.")
+    else:
+        print("\U00002705 Image is Zarr-backed and optimized for large data handling.")
+
+    return is_zarr_backed
+
+def load_and_process_image(image_path):
+    """
+    Load an image and process it with checks for size, VRAM availability, and Zarr backing.
+    """
+    # Load image as a Dask array
+    dask_array = load_image_to_dask_array(image_path)
+    memory_required = estimate_memory_requirements(dask_array)
+
+    # Perform checks
+    is_big_image = check_image_size_and_vram(dask_array)
+    is_zarr_backed = check_if_image_is_zarr_backed(dask_array)
+
+    # Summary of checks
+    if is_big_image and not is_zarr_backed:
+        print("\U00002757 Suggestion: For better performance, consider converting the image to Zarr format for large-scale processing.")
+    elif is_big_image and is_zarr_backed:
+        print("\U00002705 Image is Zarr-backed and can be processed efficiently.")
+
+    return dask_array
+
+# Example usage:
+# image_path = "path_to_image.tiff"
+# load_and_process_image(image_path)
