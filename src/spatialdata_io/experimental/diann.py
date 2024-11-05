@@ -1,15 +1,12 @@
-import os
 import sys
-import time
 import warnings
-from datetime import datetime
 
+import anndata as ad
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import anndata as ad
-from tabulate import tabulate
 from loguru import logger
+from tabulate import tabulate
 
 # Setup logger
 logger.remove()
@@ -26,6 +23,7 @@ warnings.simplefilter(action="ignore", category=RuntimeWarning)
 # Set Scanpy settings
 sc.settings.verbosity = 1
 sc.set_figure_params(dpi=150)
+
 
 # Helper functions
 def DIANN_to_adata(DIANN_path, DIANN_sep="\t", metadata_path=None, metadata_sep=";", sample_id_column="Name"):
@@ -130,12 +128,14 @@ def filter_invalid_proteins(adata, threshold=0.6, grouping=None, qc_export_path=
         logger.info(f"Applying group-based filtering by {grouping}")
         for group in adata.obs[grouping].unique():
             adata_group = adata[adata.obs[grouping] == group]
-            df_proteins[f"{group}_valid"] = (np.isnan(adata_group.X).mean(axis=0) < threshold)
+            df_proteins[f"{group}_valid"] = np.isnan(adata_group.X).mean(axis=0) < threshold
 
-        df_proteins["valid_in_any"] = df_proteins[[f"{group}_valid" for group in adata.obs[grouping].unique()]].any(axis=1)
+        df_proteins["valid_in_any"] = df_proteins[[f"{group}_valid" for group in adata.obs[grouping].unique()]].any(
+            axis=1
+        )
         adata = adata[:, df_proteins["valid_in_any"]]
     else:
-        df_proteins["valid"] = (np.isnan(adata.X).mean(axis=0) < threshold)
+        df_proteins["valid"] = np.isnan(adata.X).mean(axis=0) < threshold
         adata = adata[:, df_proteins["valid"]]
 
     if qc_export_path:
@@ -188,10 +188,12 @@ if __name__ == "__main__":
 
     # Log-transform and process data
     adata.X = np.log2(adata.X)
-    adata = filter_invalid_proteins(adata, qc_export_path=r"C:\Users\mtrinh\Documents\coding\example_data\di\valid_filtered.csv")
+    adata = filter_invalid_proteins(
+        adata, qc_export_path=r"C:\Users\mtrinh\Documents\coding\example_data\di\valid_filtered.csv"
+    )
     adata = imputation_gaussian(adata)
     adata.layers["z_score"] = sc.pp.scale(adata.X, zero_center=True, max_value=None, copy=True)
     adata.obs["Group"] = adata.obs["Group"].astype("category")
-    adata.var.index = adata.var['Genes'].tolist()
+    adata.var.index = adata.var["Genes"].tolist()
 
     print("Processing complete.")
