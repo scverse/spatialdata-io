@@ -83,17 +83,14 @@ def seqfish(
     count_file_pattern = re.compile(rf"(.*?){re.escape(SK.CELL_COORDINATES)}.*{re.escape(SK.CSV_FILE)}$")
     count_files = [i for i in os.listdir(path) if count_file_pattern.match(i)]
     roi_pattern = re.compile(f"^{SK.ROI}(\\d+)")
-    # n_rois = {roi_pattern.match(i).group(1) for i in os.listdir(path) if roi_pattern.match(i)}
     n_rois = {m.group(1) for i in os.listdir(path) if (m := roi_pattern.match(i))}
     if not count_files:
-        # no file matching tbe pattern found
         raise ValueError(
             f"No files matching the pattern {count_file_pattern} were found. Cannot infer the naming scheme."
         )
     matched = count_file_pattern.match(count_files[0])
     if matched is None:
         raise ValueError(f"File {count_files[0]} does not match the pattern {count_file_pattern}")
-    # prefix = matched.group(1)
 
     rois_str: list[str] = []
     if ROIs is None:
@@ -183,7 +180,6 @@ def seqfish(
     else:
         points = {}
 
-    # adata = ad.concat(adatas.values())
     tables = {}
     for name, adata in adatas.items():
         adata.obs[SK.REGION_KEY] = adata.obs[SK.REGION_KEY].astype("category")
