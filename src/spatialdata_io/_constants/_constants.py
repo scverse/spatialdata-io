@@ -68,7 +68,7 @@ class SeqfishKeys(ModeEnum):
     TIFF_FILE = ".tiff"
     GEOJSON_FILE = ".geojson"
     # file identifiers
-    SECTION = "_section"
+    ROI = "Roi"
     TRANSCRIPT_COORDINATES = "TranscriptList"
     DAPI = "DAPI"
     COUNTS_FILE = "CellxGene"
@@ -88,6 +88,8 @@ class SeqfishKeys(ModeEnum):
     SPATIAL_KEY = "spatial"
     REGION_KEY = "region"
     INSTANCE_KEY_TABLE = "instance_id"
+    SCALEFEFACTOR_X = "PhysicalSizeX"
+    SCALEFEFACTOR_Y = "PhysicalSizeY"
 
 
 @unique
