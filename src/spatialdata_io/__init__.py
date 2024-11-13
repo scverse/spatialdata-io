@@ -34,4 +34,20 @@ __all__ = [
     "visium_hd",
 ]
 
+__readers__ = [
+    "codex",
+    "cosmx",
+    "curio",
+    "dbit",
+    "iss",
+    "mcmicro",
+    "merscope",
+    "seqfish",
+    "steinbock",
+    "stereoseq",
+    "visium",
+    "visium_hd",
+    "xenium",
+]
+
 __version__ = version("spatialdata-io")
