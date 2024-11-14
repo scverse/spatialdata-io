@@ -19,6 +19,7 @@ from spatialdata_io.readers.stereoseq import stereoseq
 from spatialdata_io.readers.visium import visium
 from spatialdata_io.readers.visium_hd import visium_hd
 from spatialdata_io.readers.xenium import xenium
+from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
 
 
 @click.group()
@@ -319,6 +320,25 @@ def xenium_wrapper(input,
                    cells_table=cells_table,
                    n_jobs=n_jobs)
     sdata.write(output)
+
+@click.option('--input', '-i', type=click.Path(exists=True), help='path to the input file', required=True)
+@click.option('--filetype', '-t', type=click.Choice(['shape','image']), help='type of the element to store. Can be "shape" or "image". If shape, input must be .geojson', required=True)
+@click.option('--name', '-n', type=click.str, help='name of the element to be stored')
+@click.option('--output', '-o', type=click.Path, help='path to zarr store to write to. If it does not exist yet, create new zarr store from input', required=True)
+@click.option('--coordinate_system', '-c', type=click.str, help='coordinate system in spatialdata object to which an element should belong')
+@click.option('--geometry', '-g', type=click.Choice([0,3,6]), help='geometry of shapes element. 0: Circles, 3: Polygon, 6: MultiPolygon')
+@click.option('--radius', '-r', type=click.int, help='radius of shapes element if geometry is circle')
+def read_generic_wrapper(input, filetype, name, output, coordinate_system, geometry, radius):
+    if not coordinate_system:
+        coordinate_system = "global"
+    if geometry == 0:
+        if not radius:
+            raise ValueError('Radius must be provided if geometry is circle')
+    else:
+        radius = None
+    sdata = generic_to_zarr(input, filetype, name, output, coordinate_system, geometry, radius)
+    sdata.write(output)
+
 
 
 if __name__ == '__main__':
