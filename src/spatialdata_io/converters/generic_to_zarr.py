@@ -4,10 +4,11 @@ import spatialdata as sd
 from dask_image.imread import imread
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.transformations import Identity
+from typing import Union
 
 
-def read_generic(input, filetype, name, output, transformation, radius):
-    if type == "shape":
+def read_generic(input: Path, filetype: str, name: str, output: Path, coordinate_system: Union[str, None] = None, geometry: Union[int, None] = None, radius: Union[int, None] = None) -> sd.SpatialData:
+    if filetype == "shape":
         data = Path(input)
         if not name:
             name = data.stem
@@ -17,7 +18,7 @@ def read_generic(input, filetype, name, output, transformation, radius):
             if data.suffix == ".geojson":
                 if sdata_path.exists():
                     sdata.shapes[name] = ShapesModel.parse(
-                        data, transformations={transformation: Identity()}, radius=radius
+                        data, transformations={coordinate_system: Identity()}, geometry=geometry, radius=radius
                     )
                 else:
                     shapes = {}
