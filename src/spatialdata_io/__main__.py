@@ -1,6 +1,7 @@
 from os.path import exists
-
 import click
+from pathlib import Path
+from typing import Any, Union, Literal, Optional
 
 from spatialdata_io._constants._constants import VisiumKeys
 from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
@@ -17,8 +18,6 @@ from spatialdata_io.readers.stereoseq import stereoseq
 from spatialdata_io.readers.visium import visium
 from spatialdata_io.readers.visium_hd import visium_hd
 from spatialdata_io.readers.xenium import xenium
-from pathlib import Path
-from typing import Any, Union, Literal, Optional
 
 @click.group()
 def cli():
