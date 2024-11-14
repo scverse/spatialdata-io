@@ -1,13 +1,21 @@
 from pathlib import Path
+from typing import Union
 
 import spatialdata as sd
 from dask_image.imread import imread
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.transformations import Identity
-from typing import Union
 
 
-def read_generic(input: Path, filetype: str, name: str, output: Path, coordinate_system: Union[str, None] = None, geometry: Union[int, None] = None, radius: Union[int, None] = None) -> sd.SpatialData:
+def read_generic(
+    input: Path,
+    filetype: str,
+    name: str,
+    output: Path,
+    coordinate_system: Union[str, None] = None,
+    geometry: Union[int, None] = None,
+    radius: Union[int, None] = None,
+) -> sd.SpatialData:
     if filetype == "shape":
         data = Path(input)
         if not name:
