@@ -16,6 +16,7 @@ def read_generic(
     geometry: Union[int, None] = None,
     radius: Union[int, None] = None,
 ) -> sd.SpatialData:
+    """Reads a generic shape or image and converts it to zarr"""
     if filetype == "shape":
         data = Path(input)
         if not name:
