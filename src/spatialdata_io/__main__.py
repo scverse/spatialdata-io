@@ -445,14 +445,13 @@ def xenium_wrapper(
               help="Geometry of shapes element. 0: Circles, 3: Polygon, 6: MultiPolygon")
 @click.option("--radius", "-r", type=int, help="Radius of shapes element if geometry is circle.")
 def read_generic_wrapper(
-    input,
-    filetype,
-    name,
-    output,
-    coordinate_system,
-    geometry,
-    radius) -> None:
-
+    input: str | Path,
+    filetype: Literal["shape", "image"],
+    name: str,
+    output: str | Path,
+    coordinate_system: Optional[str] = None,
+    geometry: Literal[0, 3, 6] = 0,
+    radius: int | None = None) -> None:
     """Read generic data to SpatialData"""
     if not coordinate_system:
         coordinate_system = "global"
@@ -462,7 +461,13 @@ def read_generic_wrapper(
     else:
         radius = None
 
-    sdata = generic_to_zarr(input, filetype, name, output, coordinate_system, geometry, radius)
+    sdata = generic_to_zarr(input,
+                            filetype,
+                            name,
+                            output,
+                            coordinate_system=coordinate_system,
+                            geometry=geometry,
+                            radius=radius)
     sdata.write(output)
 
 
