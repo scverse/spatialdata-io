@@ -17,7 +17,8 @@ from spatialdata_io.readers.stereoseq import stereoseq
 from spatialdata_io.readers.visium import visium
 from spatialdata_io.readers.visium_hd import visium_hd
 from spatialdata_io.readers.xenium import xenium
-
+from pathlib import Path
+from typing import Any, Union, Literal, Optional
 
 @click.group()
 def cli():
@@ -40,9 +41,16 @@ def cli():
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
 @click.option("--fcs", type=bool, default=True,
               help="Whether the .fcs file is provided if False a .csv file is expected. [default: True]")
-def codex_wrapper(input, output, fcs=True):
+def codex_wrapper(
+    input: str | Path,
+    output: str | Path,
+    fcs=True) -> None:
     """Codex conversion to SpatialData"""
-    sdata = codex(input, fcs)
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
+    sdata = codex(input,
+                  fcs=fcs)
     sdata.write(output)
 
 
@@ -52,9 +60,18 @@ def codex_wrapper(input, output, fcs=True):
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
 @click.option("--dataset_id", type=str, default=None, help="Name of the dataset [default: None]")
 @click.option("--transcripts", type=bool, default=True, help="Whether to load transcript information. [default: True]")
-def cosmx_wrapper(input, output, dataset_id=None, transcripts=True):
+def cosmx_wrapper(
+    input: str | Path,
+    output: str | Path,
+    dataset_id: Optional[str] = None,
+    transcripts: bool = True) -> None:
     """Cosmic conversion to SpatialData"""
-    sdata = cosmx(input, dataset_id, transcripts)
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
+    sdata = cosmx(input,
+                  dataset_id=dataset_id,
+                  transcripts=transcripts)
     sdata.write(output)
 
 
@@ -62,8 +79,13 @@ def cosmx_wrapper(input, output, dataset_id=None, transcripts=True):
 @click.option("--input", "-i", type=click.Path(exists=True), help="Path to the directory containing the data.",
               required=True)
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
-def curio_wrapper(input, output):
+def curio_wrapper(
+    input: str | Path,
+    output: str | Path) -> None:
     """Curio conversion to SpatialData"""
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
     sdata = curio(input)
     sdata.write(output)
 
@@ -72,16 +94,32 @@ def curio_wrapper(input, output):
 @click.option("--input", "-i", type=click.Path(exists=True), help="Path to the directory containing the data.",
               required=True)
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
-@click.option("--pattern", type=str, default=None, help="Regex pattern to match files. [default: None]")
-@click.option("--key", type=str, default=None,
-              help="String to match in the path or path-specific path. [default: None]")
-@click.option("--path_specific", type=click.Path(exists=True), default=None,
-              help="Path to the file if it is not in the main directory. [default: None]")
-@click.option("--optional_arg", type=bool, default=False,
-              help="User specify if file is mandatory or optional. [default: False]")
-def dbit_wrapper(input, output, pattern, key, path_specific=None, optional_arg=False):
+@click.option("--anndata_path", type=click.Path(exists=True), default=None, help="Path to the counts and metadata file. [default: None]")
+@click.option("--barcode_position", type=click.Path(exists=True), default=None, help="Path to the barcode coordinates file. [default: None]")
+@click.option("--image_path", type=str, default=None, help="Path to the low resolution image file. [default: None]")
+@click.option("--dataset_id", type=str, default=None, help="Dataset ID. [default: None]")
+@click.option("--border", type=bool, default=True, help="Value pass internally to _xy2edges. [default: True]")
+@click.option("--border_scale", type=float, default=1, help="The factor by which the border is scaled. [default: 1]")
+def dbit_wrapper(
+    input: Optional[str | Path] = None,
+    output: Optional[str | Path] = None,
+    anndata_path: Optional[str] = None,
+    barcode_position: Optional[str] = None,
+    image_path: Optional[str] = None,
+    dataset_id: Optional[str] = None,
+    border: bool = True,
+    border_scale: float = 1) -> None:
     """DBiT conversion to SpatialData"""
-    sdata = dbit(input, pattern, key, path_specific, optional_arg)
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
+    sdata = dbit(input,
+                 anndata_path=anndata_path,
+                 barcode_position=barcode_position,
+                 image_path=image_path,
+                 dataset_id=dataset_id,
+                 border=border,
+                 border_scale=border_scale)
     sdata.write(output)
 
 
@@ -103,17 +141,19 @@ def dbit_wrapper(input, output, pattern, key, path_specific=None, optional_arg=F
 @click.option("--multiscale_labels", type=bool, default=True,
               help="Whether to process the label image into a multiscale image [default: True]")
 def iss_wrapper(
-    input,
-    output,
-    raw_relative_path,
-    labels_relative_path,
-    h5ad_relative_path,
-    instance_key=None,
-    dataset_id="region",
-    multiscale_image=True,
-    multiscale_labels=True,
-):
+    input: str | Path,
+    output: str | Path,
+    raw_relative_path: str | Path,
+    labels_relative_path: str | Path,
+    h5ad_relative_path: str | Path,
+    instance_key: str | None = None,
+    dataset_id: str = "region",
+    multiscale_image: bool = True,
+    multiscale_labels: bool = True) -> None:
     """ISS conversion to SpatialData"""
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
     sdata = iss(
         input,
         raw_relative_path,
@@ -131,8 +171,12 @@ def iss_wrapper(
 @click.option("--input", "-i", type=click.Path(exists=True), help="Path to the mcmicro project directory.",
               required=True)
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
-def mcmicro_wrapper(input, output):
+def mcmicro_wrapper(input: str | Path,
+                    output: str | Path) -> None:
     """MCMicro conversion to SpatialData"""
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
     sdata = mcmicro(input)
     sdata.write(output)
 
@@ -141,7 +185,7 @@ def mcmicro_wrapper(input, output):
 @click.option("--input", "-i", type=click.Path(exists=True), help="Path to the directory containing the data.",
               required=True)
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
-@click.option("--vpt_output", type=click.Path(exists=True), default=None,
+@click.option("--vpt_outputs", type=click.Path(exists=True), default=None,
               help="Optional argument to specify the path to the Vizgen postprocessing tool. [default: None]")
 @click.option("--z_layers", type=int, default=3, help="Indices of the z-layers to consider. [default: 3]")
 @click.option("--region_name", type=str, default=None, help="Name of the ROI. [default: None]")
@@ -153,22 +197,24 @@ def mcmicro_wrapper(input, output):
 @click.option("--cells_table", type=bool, default=True, help="Whether to read cells table.  [default: True]")
 @click.option("--mosaic_images", type=bool, default=True, help="Whether to read the mosaic images.  [default: True]")
 def merscope_wrapper(
-    input,
-    output,
-    vpt_output=None,
-    z_layers=3,
-    region_name=None,
-    slide_name=None,
-    backend=None,
-    transcripts=True,
-    cells_boundaries=True,
-    cells_table=True,
-    mosaic_images=True,
-):
+    input: str | Path,
+    output: str | Path,
+    vpt_outputs: Path | str | dict[str, Any] | None = None,
+    z_layers: int | list[int] | None = 3,
+    region_name: str | None = None,
+    slide_name: str | None = None,
+    backend: Literal["dask_image", "rioxarray"] | None = None,
+    transcripts: bool = True,
+    cells_boundaries: bool = True,
+    cells_table: bool = True,
+    mosaic_images: bool = True) -> None:
     """Merscope conversion to SpatialData"""
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
     sdata = merscope(
         input,
-        vpt_output=vpt_output,
+        vpt_outputs=vpt_outputs,
         z_layers=z_layers,
         region_name=region_name,
         slide_name=slide_name,
@@ -190,9 +236,22 @@ def merscope_wrapper(
 @click.option("--load_points", type=bool, default=True, help="Whether to load points. [default: True]")
 @click.option("--sections", type=int, default=None,
               help="Which sections to load. [default: 'All of the sections are loaded']")
-def seqfish_wrapper(input, output, load_images=True, load_labels=True, load_points=True, sections=None):
+def seqfish_wrapper(
+    input: str | Path,
+    output: str | Path,
+    load_images: bool = True,
+    load_labels: bool = True,
+    load_points: bool = True,
+    sections: list[int] | None = None) -> None:
     """Seqfish conversion to SpatialData"""
-    sdata = seqfish(input, load_images=load_images, load_labels=load_labels, load_points=load_points, sections=sections)
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
+    sdata = seqfish(input,
+                    load_images=load_images,
+                    load_labels=load_labels,
+                    load_points=load_points,
+                    sections=sections)
     sdata.write(output)
 
 
@@ -202,9 +261,16 @@ def seqfish_wrapper(input, output, load_images=True, load_labels=True, load_poin
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
 @click.option("--labels_kind", type=click.Choice(['deepcell', 'ilastik']), default="deepcell",
               help="What kind of labels to use. [default: 'deepcell']")
-def steinbock_wrapper(input, output, labels_kind="deepcell"):
+def steinbock_wrapper(
+    input: str | Path,
+    output: str | Path,
+    labels_kind: Literal["deepcell", "ilastik"] = "deepcell") -> None:
     """Steinbock conversion to SpatialData"""
-    sdata = steinbock(input, labels_kind=labels_kind)
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
+    sdata = steinbock(input,
+                      labels_kind=labels_kind)
     sdata.write(output)
 
 
@@ -217,9 +283,20 @@ def steinbock_wrapper(input, output, labels_kind="deepcell"):
               help="f True, will read the square bin ``{xx.GEF_FILE!r}`` file and build corresponding points element. [default: True]")
 @click.option("--optional_tif", type=bool, default=False,
               help="If True, will read ``{xx.TISSUE_TIF!r}`` files. [default: False]")
-def stereoseq_wrapper(input, output, dataset_id=None, read_square_bin=True, optional_tif=False):
+def stereoseq_wrapper(
+    input: str | Path,
+    output: str | Path,
+    dataset_id: Union[str, None] = None,
+    read_square_bin: bool = True,
+    optional_tif: bool = False) -> None:
     """Stereoseq conversion to SpatialData"""
-    sdata = stereoseq(input, dataset_id=dataset_id, read_square_bin=read_square_bin, optional_tif=optional_tif)
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
+    sdata = stereoseq(input,
+                      dataset_id=dataset_id,
+                      read_square_bin=read_square_bin,
+                      optional_tif=optional_tif)
     sdata.write(output)
 
 
@@ -237,15 +314,17 @@ def stereoseq_wrapper(input, output, dataset_id=None, read_square_bin=True, opti
 @click.option("--scalefactors_file", type=click.Path(exists=True), default=None,
               help="Path to the scalefactors file. [default: None]")
 def visium_wrapper(
-    input,
-    output,
-    dataset_id=None,
-    counts_file=VisiumKeys.FILTERED_COUNTS_FILE,
-    fullres_image_file=None,
-    tissue_positions_file=None,
-    scalefactors_file=None,
-):
+    input: str | Path,
+    output: str | Path,
+    dataset_id: str | None = None,
+    counts_file: str = VisiumKeys.FILTERED_COUNTS_FILE,
+    fullres_image_file: str | Path | None = None,
+    tissue_positions_file: str | Path | None = None,
+    scalefactors_file: str | Path | None = None) -> None:
     """Visium conversion to SpatialData"""
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
     sdata = visium(
         input,
         dataset_id=dataset_id,
@@ -273,22 +352,24 @@ def visium_wrapper(
 @click.option("--load_all_images", type=bool, default=False,
               help="If `False`, load only the full resolution, high resolution and low resolution images. If `True`, also the following images: ``{vx.IMAGE_CYTASSIST!r}``. [default: False]")
 def visium_hd_wrapper(
-    input,
-    output,
-    dataset_id=None,
-    filtercounts_file=True,
-    bin_size=None,
-    bins_s_squares=True,
-    fullres_image_file=None,
-    load_all_images=False,
-):
+    input: str | Path,
+    output: str | Path,
+    dataset_id: str | None = None,
+    filtered_counts_file: bool = True,
+    bin_size: int | list[int] | None = None,
+    bins_as_squares: bool = True,
+    fullres_image_file: str | Path | None = None,
+    load_all_images: bool = False) -> None:
     """Visium HD conversion to SpatialData"""
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
     sdata = visium_hd(
         input,
         dataset_id=dataset_id,
-        filtercounts_file=filtercounts_file,
+        filtered_counts_file=filtered_counts_file,
         bin_size=bin_size,
-        bins_s_squares=bins_s_squares,
+        bins_s_squares=bins_as_squares,
         fullres_image_file=fullres_image_file,
         load_all_images=load_all_images,
     )
@@ -316,21 +397,24 @@ def visium_hd_wrapper(
               help="Whether to read cells annotations in the AnnData table. [default: True]")
 @click.option("--n_jobs", type=int, default=1, help="Number of jobs. [default: 1]")
 def xenium_wrapper(
-    input,
-    output,
-    cells_boundaries=True,
-    nucleus_boundaries=True,
-    cells_as_circles=None,
-    cells_labels=True,
-    nucleus_labels=True,
-    transcripts=True,
-    morphology_mip=True,
-    morphology_focus=True,
-    aligned_images=True,
-    cells_table=True,
-    n_jobs=1,
-):
+    input: str | Path,
+    output: str | Path,
+    *,
+    cells_boundaries: bool = True,
+    nucleus_boundaries: bool = True,
+    cells_as_circles: bool | None = None,
+    cells_labels: bool = True,
+    nucleus_labels: bool = True,
+    transcripts: bool = True,
+    morphology_mip: bool = True,
+    morphology_focus: bool = True,
+    aligned_images: bool = True,
+    cells_table: bool = True,
+    n_jobs: int = 1) -> None:
     """Xenium conversion to SpatialData"""
+    # Make sure output path is .zarr file
+    if not output.endswith(".zarr"):
+        raise ValueError("Output path must be a .zarr file.")
     sdata = xenium(
         input,
         cells_boundaries=cells_boundaries,
@@ -348,10 +432,6 @@ def xenium_wrapper(
     sdata.write(output)
 
 
-if __name__ == "__main__":
-    cli()
-
-
 @cli.command(name="ReadGeneric")
 @click.option("--input", "-i", type=click.Path(exists=True), required=True, help="Path to the input file.")
 @click.option("--filetype", "-t", type=click.Choice(["shape", "image"]), required=True,
@@ -364,7 +444,15 @@ if __name__ == "__main__":
 @click.option("--geometry", "-g", type=click.Choice([0, 3, 6]),
               help="Geometry of shapes element. 0: Circles, 3: Polygon, 6: MultiPolygon")
 @click.option("--radius", "-r", type=int, help="Radius of shapes element if geometry is circle.")
-def read_generic_wrapper(input, filetype, name, output, coordinate_system, geometry, radius):
+def read_generic_wrapper(
+    input,
+    filetype,
+    name,
+    output,
+    coordinate_system,
+    geometry,
+    radius) -> None:
+
     """Read generic data to SpatialData"""
     if not coordinate_system:
         coordinate_system = "global"
@@ -373,5 +461,11 @@ def read_generic_wrapper(input, filetype, name, output, coordinate_system, geome
             raise ValueError("Radius must be provided if geometry is circle")
     else:
         radius = None
+
     sdata = generic_to_zarr(input, filetype, name, output, coordinate_system, geometry, radius)
     sdata.write(output)
+
+
+if __name__ == "__main__":
+    cli()
+
