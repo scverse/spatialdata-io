@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from textwrap import dedent
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 
 def inject_docs(**kwargs: Any) -> Callable[..., Any]:  # noqa: D103

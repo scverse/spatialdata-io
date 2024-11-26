@@ -29,7 +29,7 @@ __all__ = ["stereoseq"]
 @inject_docs(xx=SK)
 def stereoseq(
     path: str | Path,
-    dataset_id: Union[str, None] = None,
+    dataset_id: str | None = None,
     read_square_bin: bool = True,
     optional_tif: bool = False,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
