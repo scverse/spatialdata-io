@@ -4,7 +4,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 import anndata as ad
 from dask_image.imread import imread
