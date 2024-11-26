@@ -16,7 +16,7 @@ PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
 def _read_counts(
     path: str | Path,
     counts_file: str,
-    library_id: Optional[str] = None,
+    library_id: str | None = None,
     **kwargs: Any,
 ) -> tuple[AnnData, str]:
     path = Path(path)

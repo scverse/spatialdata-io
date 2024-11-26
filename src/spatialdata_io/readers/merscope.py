@@ -5,7 +5,8 @@ import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Literal
+from typing import Any, Literal
+from collections.abc import Callable
 
 import anndata
 import dask.dataframe as dd

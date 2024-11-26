@@ -363,7 +363,7 @@ def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
 
 
 def _get_polygons(
-    path: Path, file: str, specs: dict[str, Any], n_jobs: int, idx: Optional[ArrayLike] = None
+    path: Path, file: str, specs: dict[str, Any], n_jobs: int, idx: ArrayLike | None = None
 ) -> GeoDataFrame:
     def _poly(arr: ArrayLike) -> Polygon:
         return Polygon(arr[:-1])
