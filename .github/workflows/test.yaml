@@ -52,7 +52,7 @@ jobs:
                   pip install --pre -e ".[dev,test]"
 
             - name: Download artifact of test data
-              if: matrix.python == '3.10'
+              if: matrix.python == '3.12'
               uses: dawidd6/action-download-artifact@v2
               with:
                   workflow: prepare_test_data.yaml
@@ -60,7 +60,7 @@ jobs:
                   path: ./data
 
             - name: List the data directory
-              if: matrix.python == '3.10'
+              if: matrix.python == '3.12'
               run: |
                   ls -l ./data
                   pwd
