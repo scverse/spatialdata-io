@@ -31,7 +31,7 @@
 # code below taken from https://github.com/scverse/scanpy/blob/master/scanpy/readwrite.py
 
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import h5py
 import numpy as np

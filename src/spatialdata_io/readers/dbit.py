@@ -4,7 +4,6 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional, Union
 
 import anndata as ad
 import numpy as np

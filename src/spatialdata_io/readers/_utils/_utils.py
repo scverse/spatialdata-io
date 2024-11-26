@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from anndata import AnnData, read_text
 from h5py import File
