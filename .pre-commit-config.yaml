@@ -2,8 +2,8 @@ fail_fast: false
 default_language_version:
     python: python3
 default_stages:
-    - commit
-    - push
+    - pre-commit
+    - pre-push
 minimum_pre_commit_version: 2.16.0
 repos:
     - repo: https://github.com/psf/black
@@ -73,7 +73,7 @@ repos:
       rev: v3.17.0
       hooks:
           - id: pyupgrade
-            args: [--py3-plus, --py39-plus, --keep-runtime-typing]
+            args: [--py3-plus, --py310-plus, --keep-runtime-typing]
     - repo: local
       hooks:
           - id: forbid-to-commit
