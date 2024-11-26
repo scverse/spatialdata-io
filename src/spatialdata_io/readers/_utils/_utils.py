@@ -5,21 +5,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional, Union
 
-import numpy as np
 from anndata import AnnData, read_text
 from h5py import File
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
 PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
-
-try:
-    from numpy.typing import NDArray
-
-    NDArrayA = NDArray[Any]
-except (ImportError, TypeError):
-    NDArray = np.ndarray
-    NDArrayA = np.ndarray
 
 
 def _read_counts(
