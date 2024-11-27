@@ -322,6 +322,7 @@ class MerscopeKeys(ModeEnum):
     GLOBAL_Z = "global_z"
     Z_INDEX = "ZIndex"
     REGION_KEY = "cells_region"
+    GENE_KEY = "gene"
 
 
 @unique

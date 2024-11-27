@@ -84,7 +84,7 @@ def visium_hd(
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
     anndata_kwargs
-        Keyword arguments for :func:`anndata.read_h5ad`.
+        Keyword arguments for :func:`anndata.io.read_h5ad`.
 
     Returns
     -------
@@ -113,7 +113,6 @@ def visium_hd(
         )
 
     metadata, hd_layout = _parse_metadata(path, filename_prefix)
-    transform_matrices = _get_transform_matrices(metadata, hd_layout)
     file_format = hd_layout[VisiumHDKeys.FILE_FORMAT]
     if file_format != "1.0":
         warnings.warn(
@@ -338,6 +337,8 @@ def visium_hd(
             fullres_image_paths = [path_fullres / image_filename for image_filename in fullres_image_filenames]
         elif list((path_fullres := (path / f"{filename_prefix}tissue_image")).parent.glob(f"{path_fullres.name}.*")):
             fullres_image_paths = list(path_fullres.parent.glob(f"{path_fullres.name}.*"))
+        else:
+            fullres_image_paths = []
         if len(fullres_image_paths) > 1:
             warnings.warn(
                 f"Multiple files found in {path_fullres}, using the first one: {fullres_image_paths[0].stem}. Please"
@@ -411,6 +412,7 @@ def visium_hd(
             suffix="_cytassist_image",
         )
         image = images[dataset_id + "_cytassist_image"]
+        transform_matrices = _get_transform_matrices(metadata, hd_layout)
         affine0 = transform_matrices["cytassist_colrow_to_spot_colrow"]
         affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
         set_transformation(image, Sequence([affine0, affine1]), "global")

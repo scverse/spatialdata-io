@@ -90,6 +90,7 @@ source_suffix = {
 }
 
 intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
     "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
     "spatialdata": ("https://scverse-spatialdata.readthedocs.io/en/latest/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),

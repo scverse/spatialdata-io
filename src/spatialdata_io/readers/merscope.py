@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import anndata
 import dask.dataframe as dd
@@ -303,6 +303,7 @@ def _get_points(transcript_path: Path, transformations: dict[str, BaseTransforma
         transcript_df,
         coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
         transformations=transformations,
+        feature_key=MerscopeKeys.GENE_KEY,
     )
     transcripts["gene"] = transcripts["gene"].astype("category")
     return transcripts
