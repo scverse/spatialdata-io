@@ -306,7 +306,7 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_hires_image"],
-        {"downscaled_hires": Identity()},
+        {"downscaled_hires": Identity(), "global": transform_hires.inverse()},
         set_all=True,
     )
 
@@ -324,7 +324,7 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_lowres_image"],
-        {"downscaled_lowres": Identity()},
+        {"downscaled_lowres": Identity(), "global": transform_lowres.inverse()},
         set_all=True,
     )
 
