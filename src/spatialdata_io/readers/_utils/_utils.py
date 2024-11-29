@@ -3,9 +3,8 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Union
 
-import numpy as np
 from anndata import AnnData, read_text
 from h5py import File
 
@@ -13,19 +12,11 @@ from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
 PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
 
-try:
-    from numpy.typing import NDArray
-
-    NDArrayA = NDArray[Any]
-except (ImportError, TypeError):
-    NDArray = np.ndarray
-    NDArrayA = np.ndarray
-
 
 def _read_counts(
     path: str | Path,
     counts_file: str,
-    library_id: Optional[str] = None,
+    library_id: str | None = None,
     **kwargs: Any,
 ) -> tuple[AnnData, str]:
     path = Path(path)

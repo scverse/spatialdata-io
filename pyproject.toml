@@ -10,7 +10,7 @@ dynamic= [
 ]
 description = "SpatialData IO for common techs"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [
     {name = "scverse"},
@@ -25,7 +25,7 @@ dependencies = [
     "anndata",
     "numpy",
     "scanpy",
-    "spatialdata>=0.2.3",
+    "spatialdata>=0.2.6",
     "scikit-image",
     "h5py",
     "joblib",
@@ -83,7 +83,7 @@ skip_glob = ["docs/*"]
 
 [tool.black]
 line-length = 120
-target-version = ['py39']
+target-version = ['py310']
 include = '\.pyi?$'
 exclude = '''
 (

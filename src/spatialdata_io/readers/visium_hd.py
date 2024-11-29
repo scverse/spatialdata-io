@@ -78,7 +78,7 @@ def visium_hd(
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
     anndata_kwargs
-        Keyword arguments for :func:`anndata.read_h5ad`.
+        Keyword arguments for :func:`anndata.io.read_h5ad`.
 
     Returns
     -------

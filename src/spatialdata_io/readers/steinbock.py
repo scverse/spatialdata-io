@@ -4,7 +4,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 import anndata as ad
 from dask_image.imread import imread
@@ -95,7 +95,7 @@ def _get_images(
     sample: str,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> Union[SpatialImage, MultiscaleSpatialImage]:
+) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / SteinbockKeys.IMAGES_DIR / f"{sample}{SteinbockKeys.IMAGE_SUFFIX}", **imread_kwargs)
     return Image2DModel.parse(data=image, transformations={sample: Identity()}, rgb=None, **image_models_kwargs)
 
@@ -106,6 +106,6 @@ def _get_labels(
     labels_kind: str,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> Union[SpatialImage, MultiscaleSpatialImage]:
+) -> SpatialImage | MultiscaleSpatialImage:
     image = imread(path / labels_kind / f"{sample}{SteinbockKeys.LABEL_SUFFIX}", **imread_kwargs).squeeze()
     return Labels2DModel.parse(data=image, transformations={sample: Identity()}, **image_models_kwargs)
