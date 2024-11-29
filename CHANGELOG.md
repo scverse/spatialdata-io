@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## incoming release
+
+-   (Visium/Visium HD) lowres and hires images now mapped also to the 'global' coordinate system #230
+
 ## [0.1.6] - 2024-11-26
 
 -   (MERSCOPE) added `feature_key` attribute for points (i.e., the `'gene'` column) #210
