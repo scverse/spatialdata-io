@@ -231,14 +231,14 @@ def visium(
         image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image_hires = DataArray(image_hires, dims=("c", "y", "x"))
         images[dataset_id + "_hires_image"] = Image2DModel.parse(
-            image_hires, transformations={"downscaled_hires": Identity()}, rgb=None
+            image_hires, transformations={"downscaled_hires": Identity(), "global": transform_hires.inverse()}, rgb=None
         )
     if (path / VisiumKeys.IMAGE_LOWRES_FILE).exists():
         image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image_lowres = DataArray(image_lowres, dims=("c", "y", "x"))
         images[dataset_id + "_lowres_image"] = Image2DModel.parse(
             image_lowres,
-            transformations={"downscaled_lowres": Identity()},
+            transformations={"downscaled_lowres": Identity(), "global": transform_lowres.inverse()},
             rgb=None,
         )
 
