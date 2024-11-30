@@ -719,7 +719,17 @@ def _parse_version_of_xenium_analyzer(
     specs: dict[str, Any],
     hide_warning: bool = True,
 ) -> packaging.version.Version | None:
-    string = specs[XeniumKeys.ANALYSIS_SW_VERSION]
+    
+    #After using xeniumranger 3.0.1.1 to resegment data from xenium-1.6.0.7, a new dict is added to `specs`, named 'xenium_ranger', 
+    #which contains the key 'version' and it's value pair 'xenium-3.0.1.1' for the resegmented,
+    #which contains a new 'version' key and value is added in specs, using this version (rather than the original 'analysis_sw_version'),
+    #corrects branching and parsing when using xenium() on the xeniumranger resegmented /outs/ folder path
+    if specs.get(XeniumKeys.XENIUM_RANGER):  
+        string = specs[XeniumKeys.XENIUM_RANGER]['version']
+    else:
+        string = specs[XeniumKeys.ANALYSIS_SW_VERSION]
+
+
     pattern = r"^(?:x|X)enium-(\d+\.\d+\.\d+(\.\d+-\d+)?)"
 
     result = re.search(pattern, string)
