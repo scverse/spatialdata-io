@@ -145,8 +145,9 @@ class XeniumKeys(ModeEnum):
 
     # specs keys
     ANALYSIS_SW_VERSION = "analysis_sw_version"
-    XENIUM_RANGER = "xenium_ranger" #spec which contains xeniumranger version (after resegment is run from xenium-3.0.1.1)
-
+    XENIUM_RANGER = (
+        "xenium_ranger"  # spec which contains xeniumranger version (after resegment is run from xenium-3.0.1.1)
+    )
 
     # zarr file with labels file and cell summary keys
     CELLS_ZARR = "cells.zarr.zip"
