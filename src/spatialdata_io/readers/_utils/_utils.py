@@ -5,7 +5,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Union
 
-from anndata import AnnData, read_text
+from anndata import AnnData
+from anndata.io import read_text
 from h5py import File
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
