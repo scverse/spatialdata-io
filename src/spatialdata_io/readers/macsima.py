@@ -68,10 +68,16 @@ class MultiChannelImage:
                     warnings.simplefilter("ignore")
                     channel_names = parse_channels(p)
                 if len(channel_names) > 1:
-                    logger.warning(f"Found multiple channels in OME-TIFF file {p}. Only the first one will be used.")
+                    warnings.warn(
+                        f"Found multiple channels in OME-TIFF file {p}. Only the first one will be used.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
                 channels.append(channel_names[0])
             except ValueError as e:
-                logger.warning(f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.")
+                warnings.warn(
+                    f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.", UserWarning, stacklevel=2
+                )
 
         if len(path_files) != len(cycles) or len(path_files) != len(channels):
             raise ValueError("Length of path_files, cycles and channels must be the same.")
@@ -80,29 +86,37 @@ class MultiChannelImage:
             logger.info(f"Skipping cycles: {skip_rounds}")
             path_files, cycles, channels = map(
                 list,
-                zip(*[(p, c, ch) for p, c, ch in zip(path_files, cycles, channels) if c not in skip_rounds]),
+                zip(
+                    *[
+                        (p, c, ch)
+                        for p, c, ch in zip(path_files, cycles, channels, strict=True)
+                        if c not in skip_rounds
+                    ],
+                    strict=True,
+                ),
             )
         imgs = [imread(img, **imread_kwargs) for img in path_files]
-        for img, path in zip(imgs, path_files):
+        for img, path in zip(imgs, path_files, strict=True):
             if img.shape[1:] != imgs[0].shape[1:]:
                 raise ValueError(
-                    f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image {path_files[0]} has shape {imgs[0].shape[1:]}"
+                    f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image "
+                    f"{path_files[0]} has shape {imgs[0].shape[1:]}"
                 )
         # create MultiChannelImage object with imgs and metadata
         output = cls(
             data=imgs,
-            metadata=[ChannelMetadata(name=ch, cycle=c) for c, ch in zip(cycles, channels)],
+            metadata=[ChannelMetadata(name=ch, cycle=c) for c, ch in zip(cycles, channels, strict=True)],
         )
         return output
 
     @classmethod
     def subset_by_channel(cls, mci: MultiChannelImage, c_name: str) -> MultiChannelImage:
-        """Create new MultiChannelImage with only the channels that contain c_name."""
+        """Create new MultiChannelImage with only the channels that contain the string c_name."""
         indices = [i for i, c in enumerate(mci.metadata) if c_name in c.name]
-        return MultiChannelImage.filter_by_index(mci, indices)
+        return MultiChannelImage.subset_by_index(mci, indices)
 
     @classmethod
-    def filter_by_index(cls, mci: MultiChannelImage, indices: list[int]) -> MultiChannelImage:
+    def subset_by_index(cls, mci: MultiChannelImage, indices: list[int]) -> MultiChannelImage:
         """Filter the image by index."""
         metadata = [c for i, c in enumerate(mci.metadata) if i in indices]
         data = [d for i, d in enumerate(mci.data) if i in indices]
@@ -135,37 +149,27 @@ class MultiChannelImage:
 
     def sort_by_channel(self) -> None:
         """Sort the channels by cycle number."""
-        self.data = [d for _, d in sorted(zip(self.metadata, self.data), key=lambda x: x[0].cycle)]
+        self.data = [d for _, d in sorted(zip(self.metadata, self.data, strict=True), key=lambda x: x[0].cycle)]
         self.metadata = sorted(self.metadata, key=lambda x: x.cycle)
 
     def subset(self, subset: int | None = None) -> MultiChannelImage:
-        """Subset the image."""
+        """Subsets the images to keep only the first `subset` x `subset` pixels."""
         if subset:
             self.data = [d[:, :subset, :subset] for d in self.data]
         return self
 
     def subset_channels(self, c_subset: int) -> MultiChannelImage:
-        """Subset the channels."""
+        """Subsets the channels to keep only the first `c_subset` channels."""
         self.data = self.data[:c_subset]
         self.metadata = self.metadata[:c_subset]
         return self
-
-    def subset_by_idx(self, indices: list[int]) -> MultiChannelImage:
-        """Subset the image by index."""
-        data = [d for i, d in enumerate(self.data) if i in indices]
-        metadata = [c for i, c in enumerate(self.metadata) if i in indices]
-        return MultiChannelImage(
-            data=data,
-            metadata=metadata,
-            include_cycle_in_channel_name=self.include_cycle_in_channel_name,
-        )
 
     def calc_scale_factors(self, default_scale_factor: int = 2) -> list[int]:
         lower_scale_limit = min(self.data[0].shape[1:])
         return calc_scale_factors(lower_scale_limit, default_scale_factor=default_scale_factor)
 
     def get_stack(self) -> da.Array:
-        return da.stack(self.data).squeeze()
+        return da.stack(self.data).squeeze(axis=0)
 
 
 def macsima(
@@ -224,7 +228,8 @@ def macsima(
     nuclei_channel_name
         Common string of the nuclei channel to separate nuclei from other channels.
     split_threshold_nuclei_channel
-        Threshold for splitting nuclei channels. If the number of channels that include nuclei_channel_name is greater than this threshold, the nuclei channels are split into a separate stack.
+        Threshold for splitting nuclei channels. If the number of channels that include nuclei_channel_name is
+        greater than this threshold, the nuclei channels are split into a separate stack.
     skip_rounds
         List of round numbers to skip when parsing the data. Rounds or cycles are counted from 0 e.g. skip_rounds=[1, 2] will parse only the first round 0 when there are only 3 cycles.
     include_cycle_in_channel_name
@@ -383,10 +388,10 @@ def create_sdata(
         split_nuclei = n_nuclei_channels > split_threshold_nuclei_channel
     if split_nuclei:
         # if channel name is nuclei_channel_name, add to seperate nuclei stack
-        nuclei_mci = mci.subset_by_idx(nuclei_idx)
+        nuclei_mci = MultiChannelImage.subset_by_index(mci, indices=nuclei_idx)
         # keep the first nuclei channel in both the stack and the nuclei stack
         nuclei_idx_without_first_and_last = nuclei_idx[1:-1]
-        mci = MultiChannelImage.filter_by_index(
+        mci = MultiChannelImage.subset_by_index(
             mci,
             [i for i in range(len(mci.metadata)) if i not in nuclei_idx_without_first_and_last],
         )
