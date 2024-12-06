@@ -1,4 +1,5 @@
 import math
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -170,3 +171,25 @@ def test_mci_sort_by_channel() -> None:
     mci.sort_by_channel()
     assert mci.get_channel_names() == ["test3", "test2", "test11"]
     assert [x.shape[0] for x in mci.data] == [200, 300, 100]
+
+
+def test_mci_array_reference() -> None:
+    arr1 = RNG.random((100, 100), chunks=(10, 10))
+    arr2 = RNG.random((200, 200), chunks=(10, 10))
+    mci = MultiChannelImage(
+        data=[arr1, arr2],
+        metadata=[ChannelMetadata(name="test1", cycle=0), ChannelMetadata(name="test2", cycle=1)],
+    )
+    orig_arr1 = arr1.copy()
+
+    subset_mci = MultiChannelImage.subset_by_index(mci, [0])
+    # test that the subset is a view
+    assert subset_mci.data[0] is arr1
+    assert da.all(subset_mci.data[0] == orig_arr1)
+    # test that a deepcopy is not a view
+    deepcopy_mci: MultiChannelImage = deepcopy(mci)
+    deepcopy_mci.data[0][0, 0] = deepcopy_mci.data[0][0, 0] + 1
+    assert deepcopy_mci.data[0] is not arr1
+    assert not da.all(deepcopy_mci.data[0] == orig_arr1)
+    # test that the original mci is not changed
+    assert da.all(mci.data[0] == orig_arr1)
