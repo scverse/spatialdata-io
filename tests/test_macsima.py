@@ -85,6 +85,46 @@ def test_channel_names(dataset: str, expected: list[str]) -> None:
 @pytest.mark.parametrize(
     "dataset,expected",
     [
+        ("Lung_adc_demo", 68),
+        ("MACSimaData_HCA/HumanLiverH35", 51),
+    ],
+)
+def test_total_rounds(dataset: str, expected: list[int]) -> None:
+    f = Path("./data") / dataset
+    assert f.is_dir()
+    sdata = macsima(f)
+    table = sdata[list(sdata.tables)[0]]
+    max_cycle = table.var["cycle"].max()
+    assert max_cycle == expected
+
+
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@pytest.mark.parametrize(
+    "dataset,skip_rounds,expected",
+    [
+        ("Lung_adc_demo", list(range(2, 68)), ["DAPI (1)", "CD68", "CD163", "DAPI (2)", "Control"]),
+        (
+            "MACSimaData_HCA/HumanLiverH35",
+            list(range(2, 51)),
+            ["DAPI (1)", "PE", "CD14", "Vimentin", "DAPI (2)", "WT1"],
+        ),
+    ],
+)
+def test_skip_rounds(dataset: str, skip_rounds: list[int], expected: list[str]) -> None:
+    f = Path("./data") / dataset
+    assert f.is_dir()
+    sdata = macsima(f, skip_rounds=skip_rounds)
+    el = sdata[list(sdata.images.keys())[0]]
+
+    # get the channel names
+    channels = get_channels(el)
+    assert list(channels) == expected, f"Expected {expected}, got {list(channels)}"
+
+
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@pytest.mark.parametrize(
+    "dataset,expected",
+    [
         ("Lung_adc_demo", [0, 1, 1]),
         ("MACSimaData_HCA/HumanLiverH35", [0, 1, 1]),
     ],
