@@ -14,6 +14,8 @@ from spatialdata_io.readers.macsima import (
 )
 from tests._utils import skip_if_below_python_version
 
+RNG = da.random.default_rng(seed=0)
+
 if not (Path("./data/Lung_adc_demo").exists() or Path("./data/MACSimaData_HCA").exists()):
     pytest.skip(
         "Requires the Lung_adc_demo or MACSimaData_HCA datasets, please check "
@@ -116,12 +118,11 @@ def test_parsing_of_name_to_cycle(name: str, expected: int) -> None:
 
 
 def test_mci_sort_by_channel() -> None:
-    rng = da.random.default_rng()
     sizes = [100, 200, 300]
     c_names = ["test11", "test3", "test2"]
     cycles = [2, 0, 1]
     mci = MultiChannelImage(
-        data=[rng.random((size, size), chunks=(10, 10)) for size in sizes],
+        data=[RNG.random((size, size), chunks=(10, 10)) for size in sizes],
         metadata=[ChannelMetadata(name=c_name, cycle=cycle) for c_name, cycle in zip(c_names, cycles)],
     )
     assert mci.get_channel_names() == c_names

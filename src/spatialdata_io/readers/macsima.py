@@ -169,7 +169,7 @@ class MultiChannelImage:
         return calc_scale_factors(lower_scale_limit, default_scale_factor=default_scale_factor)
 
     def get_stack(self) -> da.Array:
-        return da.stack(self.data).squeeze(axis=0)
+        return da.stack(self.data, axis=0).squeeze(axis=1)
 
 
 def macsima(
@@ -193,7 +193,8 @@ def macsima(
     """
     Read *MACSima* formatted dataset.
 
-    This function reads images from a MACSima cyclic imaging experiment. Metadata of the cycle rounds is parsed from the image names. The channel names are parsed from the OME metadata.
+    This function reads images from a MACSima cyclic imaging experiment. Metadata of the cycle rounds is parsed from
+    the image names. The channel names are parsed from the OME metadata.
 
     .. seealso::
 
@@ -257,16 +258,16 @@ def macsima(
 
     if parsing_style == MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER:
         return parse_processed_folder(
-            path,
-            imread_kwargs,
-            subset,
-            c_subset,
-            max_chunk_size,
-            c_chunks_size,
-            multiscale,
-            transformations,
-            scale_factors,
-            default_scale_factor,
+            path=path,
+            imread_kwargs=imread_kwargs,
+            subset=subset,
+            c_subset=c_subset,
+            max_chunk_size=max_chunk_size,
+            c_chunks_size=c_chunks_size,
+            multiscale=multiscale,
+            transformations=transformations,
+            scale_factors=scale_factors,
+            default_scale_factor=default_scale_factor,
             nuclei_channel_name=nuclei_channel_name,
             split_threshold_nuclei_channel=split_threshold_nuclei_channel,
             skip_rounds=skip_rounds,
@@ -281,16 +282,16 @@ def macsima(
             if p.is_dir() and (not filter_folder_names or not any(f in p.name for f in filter_folder_names))
         ]:
             sdatas[p.stem] = parse_processed_folder(
-                p,
-                imread_kwargs,
-                subset,
-                c_subset,
-                max_chunk_size,
-                c_chunks_size,
-                multiscale,
-                transformations,
-                scale_factors,
-                default_scale_factor,
+                path=p,
+                imread_kwargs=imread_kwargs,
+                subset=subset,
+                c_subset=c_subset,
+                max_chunk_size=max_chunk_size,
+                c_chunks_size=c_chunks_size,
+                multiscale=multiscale,
+                transformations=transformations,
+                scale_factors=scale_factors,
+                default_scale_factor=default_scale_factor,
                 nuclei_channel_name=nuclei_channel_name,
                 split_threshold_nuclei_channel=split_threshold_nuclei_channel,
                 skip_rounds=skip_rounds,
@@ -387,7 +388,7 @@ def create_sdata(
     else:
         split_nuclei = n_nuclei_channels > split_threshold_nuclei_channel
     if split_nuclei:
-        # if channel name is nuclei_channel_name, add to seperate nuclei stack
+        # if channel name is nuclei_channel_name, add to separate nuclei stack
         nuclei_mci = MultiChannelImage.subset_by_index(mci, indices=nuclei_idx)
         # keep the first nuclei channel in both the stack and the nuclei stack
         nuclei_idx_without_first_and_last = nuclei_idx[1:-1]
@@ -397,6 +398,7 @@ def create_sdata(
         )
 
     pixels_to_microns = parse_physical_size(path_files[0])
+
     image_element = create_image_element(
         mci,
         max_chunk_size,
@@ -406,6 +408,8 @@ def create_sdata(
         scale_factors,
         coordinate_system=filtered_name,
     )
+    table_channels = create_table(mci)
+
     if split_nuclei:
         nuclei_image_element = create_image_element(
             nuclei_mci,
@@ -417,7 +421,6 @@ def create_sdata(
             coordinate_system=filtered_name,
         )
         table_nuclei = create_table(nuclei_mci)
-    table_channels = create_table(mci)
 
     sdata = sd.SpatialData(
         images={
