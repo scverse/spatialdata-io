@@ -29,9 +29,9 @@ Note: all mentioned technologies are registered trademarks of their respective c
 
 ## Known limitations
 
-Contributions for addressing the below limitations are very welcomed. 
+Contributions for addressing the below limitations are very welcomed.
 
-- Only Stereo-seq 7.x is supported, 8.x is not currently supported. https://github.com/scverse/spatialdata-io/issues/161
+-   Only Stereo-seq 7.x is supported, 8.x is not currently supported. https://github.com/scverse/spatialdata-io/issues/161
 
 ### How to Contribute
 
@@ -40,7 +40,6 @@ Contributions for addressing the below limitations are very welcomed.
 2. **Submit a Pull Request (PR)**: Once the issue is discussed, submit a PR to the `spatialdata-io` repository. Ensure your PR includes information about a suitable dataset for testing the reader, ideally no larger than 10 GB. Include clear instructions for accessing the data, preferably with a `curl` or `wget` command for easy downloading.
 
 3. **Optional Enhancements**: To facilitate reproducibility and ease of data access, consider adding a folder in the [spatialdata-sandbox](https://github.com/giovp/spatialdata-sandbox) repository. Include a `download.py` and `to_zarr.py` script (refer to examples in the repository) to enable others to reproduce your reader by simply running these scripts sequentially.
-
 
 ## Getting started
 
