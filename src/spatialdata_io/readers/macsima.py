@@ -102,7 +102,7 @@ class MultiChannelImage:
                     f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image "
                     f"{path_files[0]} has shape {imgs[0].shape[1:]}"
                 )
-        # sort imgs, cycles and channels based on cycles
+        # create MultiChannelImage object with imgs and metadata
         output = cls(
             data=imgs,
             metadata=[ChannelMetadata(name=ch, cycle=c) for c, ch in zip(cycles, channels, strict=True)],

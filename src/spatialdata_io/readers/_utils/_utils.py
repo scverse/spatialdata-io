@@ -112,7 +112,7 @@ def parse_physical_size(path: Path | None = None, ome_pixels: Pixels | None = No
         logger.error("Physical units for x and y dimensions are not the same.")
         raise NotImplementedError
     if pixels.physical_size_x != pixels.physical_size_y:
-        logger.error("Physical sizes for x and y dimensions are the same.")
+        logger.error("Physical sizes for x and y dimensions are not the same.")
         raise NotImplementedError
     # convert to micrometer if needed
     if pixels.physical_size_x_unit == UnitsLength.NANOMETER:
