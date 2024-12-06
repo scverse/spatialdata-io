@@ -109,11 +109,12 @@ class MultiChannelImage:
         )
         return output
 
-    @classmethod
-    def subset_by_channel(cls, mci: MultiChannelImage, c_name: str) -> MultiChannelImage:
-        """Create new MultiChannelImage with only the channels that contain the string c_name."""
-        indices = [i for i, c in enumerate(mci.metadata) if c_name in c.name]
-        return MultiChannelImage.subset_by_index(mci, indices)
+    # unused
+    # @classmethod
+    # def subset_by_channel(cls, mci: MultiChannelImage, c_name: str) -> MultiChannelImage:
+    #     """Create new MultiChannelImage with only the channels that contain the string c_name."""
+    #     indices = [i for i, c in enumerate(mci.metadata) if c_name in c.name]
+    #     return MultiChannelImage.subset_by_index(mci, indices)
 
     @classmethod
     def subset_by_index(cls, mci: MultiChannelImage, indices: list[int]) -> MultiChannelImage:
@@ -156,12 +157,6 @@ class MultiChannelImage:
         """Subsets the images to keep only the first `subset` x `subset` pixels."""
         if subset:
             self.data = [d[:, :subset, :subset] for d in self.data]
-        return self
-
-    def subset_channels(self, c_subset: int) -> MultiChannelImage:
-        """Subsets the channels to keep only the first `c_subset` channels."""
-        self.data = self.data[:c_subset]
-        self.metadata = self.metadata[:c_subset]
         return self
 
     def calc_scale_factors(self, default_scale_factor: int = 2) -> list[int]:
@@ -347,7 +342,7 @@ def parse_processed_folder(
     if subset:
         mci = mci.subset(subset)
     if c_subset:
-        mci = mci.subset_channels(c_subset)
+        mci = MultiChannelImage.subset_by_index(mci, indices=list(range(0, c_subset)))
     if multiscale and not scale_factors:
         scale_factors = mci.calc_scale_factors(default_scale_factor=default_scale_factor)
     if not multiscale:
@@ -469,15 +464,18 @@ def create_image_element(
         t_dict = {coordinate_system: t_pixels_to_microns}
     # # chunk_size can be 1 for channels
     chunks = {
-        "x": max_chunk_size,
         "y": max_chunk_size,
+        "x": max_chunk_size,
         "c": c_chunks_size,
     }
     if t_dict:
         logger.debug("Adding transformation: %s", t_dict)
     el = sd.models.Image2DModel.parse(
         mci.get_stack(),
-        # TODO: make sure y and x locations are correct
+        # the data on disk is not always CYX, but imread takes care of parsing things correctly, so that we can assume
+        # mci to be CYX. Still, to make the code more robust, we could consider using a different backend, for instance
+        # bioio-ome-tiff, read both the data and its dimensions from disk, and let Image2DModel.parse() rearrange the
+        # dimensions into CYX.
         dims=["c", "y", "x"],
         scale_factors=scale_factors,
         chunks=chunks,
