@@ -24,6 +24,7 @@ This package contains reader functions to load common spatial omics formats into
 -   Steinbock (output data)
 -   STOmics Stereo-seq®
 -   Vizgen MERSCOPE® (MERFISH)
+-   MACSima® (MACS® iQ View output)
 
 Note: all mentioned technologies are registered trademarks of their respective companies.
 
