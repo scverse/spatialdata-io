@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import anndata
 import dask.dataframe as dd

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import warnings
 from collections.abc import Mapping
@@ -79,7 +78,7 @@ def visium_hd(
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
     anndata_kwargs
-        Keyword arguments for :func:`anndata.read_h5ad`.
+        Keyword arguments for :func:`anndata.io.read_h5ad`.
 
     Returns
     -------
@@ -107,7 +106,6 @@ def visium_hd(
         )
 
     metadata, hd_layout = _parse_metadata(path, filename_prefix)
-    transform_matrices = _get_transform_matrices(metadata, hd_layout)
     file_format = hd_layout[VisiumHDKeys.FILE_FORMAT]
     if file_format != "1.0":
         warnings.warn(
@@ -117,12 +115,12 @@ def visium_hd(
             stacklevel=2,
         )
 
-    def _get_bins(path: Path) -> list[str]:
+    def _get_bins(path_bins: Path) -> list[str]:
         return sorted(
             [
-                bin_size
-                for bin_size in os.listdir(path)
-                if os.path.isdir(os.path.join(path, bin_size)) and bin_size.startswith(VisiumHDKeys.BIN_PREFIX)
+                bin_size.name
+                for bin_size in path_bins.iterdir()
+                if bin_size.is_dir() and bin_size.name.startswith(VisiumHDKeys.BIN_PREFIX)
             ]
         )
 
@@ -266,10 +264,7 @@ def visium_hd(
     else:
         path_fullres = path / VisiumHDKeys.MICROSCOPE_IMAGE
         if path_fullres.exists():
-            fullres_image_filenames = [
-                f for f in os.listdir(path_fullres) if os.path.isfile(os.path.join(path_fullres, f))
-            ]
-            fullres_image_paths = [path_fullres / image_filename for image_filename in fullres_image_filenames]
+            fullres_image_paths = [file for file in path_fullres.iterdir() if file.is_file()]
         elif list((path_fullres := (path / f"{filename_prefix}tissue_image")).parent.glob(f"{path_fullres.name}.*")):
             fullres_image_paths = list(path_fullres.parent.glob(f"{path_fullres.name}.*"))
         else:
@@ -292,7 +287,7 @@ def visium_hd(
 
     if fullres_image_file is not None:
         load_image(
-            path=path / fullres_image_file,
+            path=fullres_image_file,
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
@@ -311,7 +306,7 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_hires_image"],
-        {"downscaled_hires": Identity()},
+        {"downscaled_hires": Identity(), "global": transform_hires.inverse()},
         set_all=True,
     )
 
@@ -329,7 +324,7 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_lowres_image"],
-        {"downscaled_lowres": Identity()},
+        {"downscaled_lowres": Identity(), "global": transform_lowres.inverse()},
         set_all=True,
     )
 
@@ -347,6 +342,7 @@ def visium_hd(
             suffix="_cytassist_image",
         )
         image = images[dataset_id + "_cytassist_image"]
+        transform_matrices = _get_transform_matrices(metadata, hd_layout)
         affine0 = transform_matrices["cytassist_colrow_to_spot_colrow"]
         affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
         set_transformation(image, Sequence([affine0, affine1]), "global")
@@ -356,7 +352,7 @@ def visium_hd(
 
 def _infer_dataset_id(path: Path) -> str:
     suffix = f"_{VisiumHDKeys.FEATURE_SLICE_FILE.value}"
-    files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f)) and f.endswith(suffix)]
+    files = [file.name for file in path.iterdir() if file.is_file() and file.name.endswith(suffix)]
     if len(files) == 0 or len(files) > 1:
         raise ValueError(
             f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an argument."
