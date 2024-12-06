@@ -98,7 +98,7 @@ def test_total_rounds(dataset: str, expected: list[int]) -> None:
     assert max_cycle == expected
 
 
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,skip_rounds,expected",
     [
@@ -117,11 +117,11 @@ def test_skip_rounds(dataset: str, skip_rounds: list[int], expected: list[str]) 
     el = sdata[list(sdata.images.keys())[0]]
 
     # get the channel names
-    channels = get_channels(el)
+    channels = get_channel_names(el)
     assert list(channels) == expected, f"Expected {expected}, got {list(channels)}"
 
 
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
