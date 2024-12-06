@@ -83,7 +83,7 @@ class MultiChannelImage:
             raise ValueError("Length of path_files, cycles and channels must be the same.")
         # if any of round_channels is in skip_rounds, remove that round from the list and from path_files
         if skip_rounds:
-            logger.info("Skipping cycles: %d", skip_rounds)
+            logger.info(f"Skipping cycles: {skip_rounds}")
             path_files, cycles, channels = map(
                 list,
                 zip(
@@ -232,7 +232,7 @@ def macsima(
         Threshold for splitting nuclei channels. If the number of channels that include nuclei_channel_name is
         greater than this threshold, the nuclei channels are split into a separate stack.
     skip_rounds
-        List of round numbers to skip when parsing the data.
+        List of round numbers to skip when parsing the data. Rounds or cycles are counted from 0 e.g. skip_rounds=[1, 2] will parse only the first round 0 when there are only 3 cycles.
     include_cycle_in_channel_name
         Whether to include the cycle number in the channel name.
 
