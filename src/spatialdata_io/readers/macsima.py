@@ -3,6 +3,7 @@ from __future__ import annotations
 import warnings
 from collections import defaultdict
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -109,16 +110,15 @@ class MultiChannelImage:
         )
         return output
 
-    # unused
-    # @classmethod
-    # def subset_by_channel(cls, mci: MultiChannelImage, c_name: str) -> MultiChannelImage:
-    #     """Create new MultiChannelImage with only the channels that contain the string c_name."""
-    #     indices = [i for i, c in enumerate(mci.metadata) if c_name in c.name]
-    #     return MultiChannelImage.subset_by_index(mci, indices)
+    @classmethod
+    def subset_by_channel(cls, mci: MultiChannelImage, c_name: str) -> MultiChannelImage:
+        """Create new MultiChannelImage with only the channels that contain the string c_name."""
+        indices = [i for i, c in enumerate(mci.metadata) if c_name in c.name]
+        return MultiChannelImage.subset_by_index(mci, indices)
 
     @classmethod
     def subset_by_index(cls, mci: MultiChannelImage, indices: list[int]) -> MultiChannelImage:
-        """Filter the image by index."""
+        """Create new MultiChannelImage with only the channels selected by the indices. The underlying data will still be the same reference, use copy.deepcopy to make a new copy."""
         metadata = [c for i, c in enumerate(mci.metadata) if i in indices]
         data = [d for i, d in enumerate(mci.data) if i in indices]
         return cls(
@@ -384,7 +384,7 @@ def create_sdata(
         split_nuclei = n_nuclei_channels > split_threshold_nuclei_channel
     if split_nuclei:
         # if channel name is nuclei_channel_name, add to separate nuclei stack
-        nuclei_mci = MultiChannelImage.subset_by_index(mci, indices=nuclei_idx)
+        nuclei_mci = deepcopy(MultiChannelImage.subset_by_index(mci, indices=nuclei_idx))
         # keep the first nuclei channel in both the stack and the nuclei stack
         nuclei_idx_without_first_and_last = nuclei_idx[1:-1]
         mci = MultiChannelImage.subset_by_index(
