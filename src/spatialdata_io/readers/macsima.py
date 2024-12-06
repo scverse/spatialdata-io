@@ -88,7 +88,7 @@ class MultiChannelImage:
                 raise ValueError(
                     f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image {path_files[0]} has shape {imgs[0].shape[1:]}"
                 )
-        # sort imgs, cycles and channels based on cycles
+        # create MultiChannelImage object with imgs and metadata
         output = cls(
             data=imgs,
             metadata=[ChannelMetadata(name=ch, cycle=c) for c, ch in zip(cycles, channels)],
@@ -135,8 +135,8 @@ class MultiChannelImage:
 
     def sort_by_channel(self) -> None:
         """Sort the channels by cycle number."""
-        self.metadata = sorted(self.metadata, key=lambda x: x.cycle)
         self.data = [d for _, d in sorted(zip(self.metadata, self.data), key=lambda x: x[0].cycle)]
+        self.metadata = sorted(self.metadata, key=lambda x: x.cycle)
 
     def subset(self, subset: int | None = None) -> MultiChannelImage:
         """Subset the image."""

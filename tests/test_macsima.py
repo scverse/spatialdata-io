@@ -3,10 +3,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import dask.array as da
 import pytest
 from spatialdata.models import get_channels
 
-from spatialdata_io.readers.macsima import macsima, parse_name_to_cycle
+from spatialdata_io.readers.macsima import (
+    ChannelMetadata,
+    MultiChannelImage,
+    macsima,
+    parse_name_to_cycle,
+)
 
 if not (Path("./data/Lung_adc_demo").exists() or Path("./data/MACSimaData_HCA").exists()):
     # The datasets should be downloaded and placed unzipped in the "data" directory;
@@ -109,3 +115,19 @@ def test_parsing_style() -> None:
 def test_parsing_of_name_to_cycle(name: str, expected: int) -> None:
     result = parse_name_to_cycle(name)
     assert result == expected
+
+
+def test_mci_sort_by_channel():
+    rng = da.random.default_rng()
+    sizes = [100, 200, 300]
+    c_names = ["test11", "test3", "test2"]
+    cycles = [2, 0, 1]
+    mci = MultiChannelImage(
+        data=[rng.random((size, size), chunks=(10, 10)) for size in sizes],
+        metadata=[ChannelMetadata(name=c_name, cycle=cycle) for c_name, cycle in zip(c_names, cycles)],
+    )
+    assert mci.get_channel_names() == c_names
+    assert [x.shape[0] for x in mci.data] == sizes
+    mci.sort_by_channel()
+    assert mci.get_channel_names() == ["test3", "test2", "test11"]
+    assert [x.shape[0] for x in mci.data] == [200, 300, 100]
