@@ -1,24 +1,22 @@
 import math
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
-from spatialdata.models import get_channels
+from spatialdata.models import get_channel_names
 
 from spatialdata_io.readers.macsima import macsima, parse_name_to_cycle
+from tests._utils import skip_if_below_python_version
 
 if not (Path("./data/Lung_adc_demo").exists() or Path("./data/MACSimaData_HCA").exists()):
-    # The datasets should be downloaded and placed unzipped in the "data" directory;
-    # MACSimaData_HCA/ with e.g. unzipped HumanLiverH35/ inside: https://livercellatlas.org/download.php
-    # Lung_adc_demo/: Ask Miltenyi Biotec for the demo dataset
     pytest.skip(
-        "requires the Lung_adc_demo or MACSimaData_HCA datasets",
+        "Requires the Lung_adc_demo or MACSimaData_HCA datasets, please check "
+        "https://github.com/giovp/spatialdata-sandbox/macsima/Readme.md for instructions on how to get the data.",
         allow_module_level=True,
     )
 
 
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
@@ -40,7 +38,7 @@ def test_image_size(dataset: str, expected: dict[str, Any]) -> None:
     assert extent == expected
 
 
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [("Lung_adc_demo", 116), ("MACSimaData_HCA/HumanLiverH35", 102)],
@@ -52,11 +50,11 @@ def test_total_channels(dataset: str, expected: int) -> None:
     el = sdata[list(sdata.images.keys())[0]]
 
     # get the number of channels
-    channels: int = len(get_channels(el))
+    channels: int = len(get_channel_names(el))
     assert channels == expected
 
 
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
@@ -71,11 +69,11 @@ def test_channel_names(dataset: str, expected: list[str]) -> None:
     el = sdata[list(sdata.images.keys())[0]]
 
     # get the channel names
-    channels = get_channels(el)
+    channels = get_channel_names(el)
     assert list(channels) == expected
 
 
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [

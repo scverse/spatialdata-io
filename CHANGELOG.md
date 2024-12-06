@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning][].
 ## incoming release
 
 -   (Visium/Visium HD) lowres and hires images now mapped also to the 'global' coordinate system #230
+-   (Macsima) added support @berombau #224
 
 ## [0.1.6] - 2024-11-26
 
