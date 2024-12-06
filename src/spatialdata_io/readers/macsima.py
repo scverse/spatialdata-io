@@ -193,7 +193,7 @@ def macsima(
 
     .. seealso::
 
-        - `MACSima output <https://application.qitissue.com/getting-started/naming-your-datasets>`_.
+        - `MACSima output <https://application.qimagingsys.com/getting-started/naming-your-datasets>`_.
 
     Parameters
     ----------
@@ -227,7 +227,8 @@ def macsima(
         Threshold for splitting nuclei channels. If the number of channels that include nuclei_channel_name is
         greater than this threshold, the nuclei channels are split into a separate stack.
     skip_rounds
-        List of round numbers to skip when parsing the data. Rounds or cycles are counted from 0 e.g. skip_rounds=[1, 2] will parse only the first round 0 when there are only 3 cycles.
+        List of round numbers to skip when parsing the data. Rounds or cycles are counted from 0 e.g. skip_rounds=[1, 2]
+         will parse only the first round 0 when there are only 3 cycles.
     include_cycle_in_channel_name
         Whether to include the cycle number in the channel name.
 
@@ -326,6 +327,8 @@ def parse_processed_folder(
     """Parse a single folder containing images from a cyclical imaging platform."""
     # get list of image paths, get channel name from OME data and cycle round number from filename
     # look for OME-TIFF files
+    # TODO: replace this pattern and the p.suffix in [".tif", ".tiff"] with a single function based on a regexp, like
+    # this one re.compile(r".*\.tif{1,2}$", re.IGNORECASE)
     path_files = list(path.glob(file_pattern))
     logger.debug(path_files[0])
 
