@@ -346,6 +346,7 @@ def visium_hd(
         projective /= projective[2, 2]
         if _projective_matrix_is_affine(projective):
             affine = Affine(projective, input_axes=("x", "y"), output_axes=("x", "y"))
+            set_transformation(image, affine, "global")
         else:
             # the projective matrix is not affine, we will separate the affine part and the projective shift, and apply
             # the projective shift to the image
@@ -382,14 +383,13 @@ def visium_hd(
             # the cytassist image is a small, single-scale image, so we can compute it in memory
             numpy_data = image.transpose("y", "x", "c").data.compute()
             warped = warp(
-                numpy_data, ProjectiveTransform(projective_shift).inverse, output_shape=transformed_shape, order=2
+                numpy_data, ProjectiveTransform(projective_shift).inverse, output_shape=transformed_shape, order=1
             )
             warped = np.round(warped * 255).astype(np.uint8)
             warped = Image2DModel.parse(warped, dims=("y", "x", "c"), transformations={"global": affine}, rgb=True)
 
-            images[dataset_id + "_cytassist_image_warped"] = warped
-
-        set_transformation(image, affine, "global")
+            # we replace the cytassist image with the warped image
+            images[dataset_id + "_cytassist_image"] = warped
 
     return SpatialData(tables=tables, images=images, shapes=shapes)
 
