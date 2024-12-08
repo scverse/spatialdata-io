@@ -16,8 +16,11 @@ from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
+from shapely import Polygon
+from skimage.transform import ProjectiveTransform, warp
 from spatial_image import SpatialImage
-from spatialdata import SpatialData
+from spatialdata import SpatialData, get_extent
+from spatialdata._types import ArrayLike
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata.transformations import Affine, Identity, Scale, set_transformation
 from xarray import DataArray
@@ -344,57 +347,30 @@ def visium_hd(
         if _projective_matrix_is_affine(projective):
             affine = Affine(projective, input_axes=("x", "y"), output_axes=("x", "y"))
         else:
-            warnings.warn(
-                "Interpreting the transformation matrix to map the CytAssist image to the microscope coordinates ("
-                "global coordinate system) as an affine matrix instead of a projective matrix.",
-                UserWarning,
-                stacklevel=2,
-            )
-            affine, projective_shift = _get_affine_from_projective(projective)
-            from shapely import Polygon
-            from spatialdata import get_extent
+            # the projective matrix is not affine, we will separate the affine part and the projective shift, and apply
+            # the projective shift to the image
+            affine_matrix, projective_shift = _decompose_projective_matrix(projective)
+            affine = Affine(affine_matrix, input_axes=("x", "y"), output_axes=("x", "y"))
 
+            # determine the size of the transformed image
             bounding_box = get_extent(image)
             x0, x1 = bounding_box["x"]
             y0, y1 = bounding_box["y"]
             x1 -= 1
             y1 -= 1
             corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-            polygon = Polygon(corners)
-            gdf = ShapesModel.parse(GeoDataFrame(geometry=[polygon]), transformations={"global": affine})
+            Polygon(corners)
 
             transformed_corners = []
             for x, y in corners:
-                ax, ay = _projective_matrix_transform_point(
-                    affine.to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y")), x, y
-                )
-                px, py = _projective_matrix_transform_point(projective_shift, ax, ay)
+                px, py = _projective_matrix_transform_point(projective_shift, x, y)
                 transformed_corners.append((px, py))
-            transformed_polygon = Polygon(transformed_corners)
-            gdf_transformed = ShapesModel.parse(
-                GeoDataFrame(geometry=[transformed_polygon]), transformations={"global": Identity()}
-            )
-            shapes[dataset_id + "_cytassist_image_boundary_affine"] = gdf
-            shapes[dataset_id + "_cytassist_image_boundary_projective"] = gdf_transformed
-
-            from skimage.transform import ProjectiveTransform, warp
-
-            ProjectiveTransform(projective)
-
-            pre_projective_shift = (
-                np.linalg.inv(affine.to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))) @ projective
-            )
-            pre_projective_shift /= pre_projective_shift[2, 2]
-            transformed_corners = []
-            for x, y in corners:
-                px, py = _projective_matrix_transform_point(pre_projective_shift, x, y)
-                transformed_corners.append((px, py))
-            transformed_corners = np.array(transformed_corners)
+            transformed_corners_array = np.array(transformed_corners)
             transformed_bounds = (
-                np.min(transformed_corners[:, 0]),
-                np.min(transformed_corners[:, 1]),
-                np.max(transformed_corners[:, 0]),
-                np.max(transformed_corners[:, 1]),
+                np.min(transformed_corners_array[:, 0]),
+                np.min(transformed_corners_array[:, 1]),
+                np.max(transformed_corners_array[:, 0]),
+                np.max(transformed_corners_array[:, 1]),
             )
             # the first two components are <= 0, we just discard them since the cytassist image has a lot of padding
             # and therefore we discard pixels with negative coordinates
@@ -403,10 +379,10 @@ def visium_hd(
             # flip xy
             transformed_shape = (transformed_shape[1], transformed_shape[0])
 
+            # the cytassist image is a small, single-scale image, so we can compute it in memory
             numpy_data = image.transpose("y", "x", "c").data.compute()
-            # numpy_data = image.data.compute()
             warped = warp(
-                numpy_data, ProjectiveTransform(pre_projective_shift).inverse, output_shape=transformed_shape, order=4
+                numpy_data, ProjectiveTransform(projective_shift).inverse, output_shape=transformed_shape, order=2
             )
             warped = np.round(warped * 255).astype(np.uint8)
             warped = Image2DModel.parse(warped, dims=("y", "x", "c"), transformations={"global": affine}, rgb=True)
@@ -470,16 +446,9 @@ def _projective_matrix_is_affine(projective_matrix: ArrayLike) -> bool:
     return np.allclose(projective_matrix[2, :2], [0, 0])
 
 
-def _get_projective_shift(projective_matrix: ArrayLike, affine_matrix: ArrayLike) -> ArrayLike:
-    projective_shift = projective_matrix @ np.linalg.inv(affine_matrix)
-    assert np.allclose(projective_shift[:2, :2], np.eye(2))
-    assert np.allclose(projective_shift[:2, 2], [0, 0])
-    return projective_shift
-
-
-def _get_affine_from_projective(projective_matrix: ArrayLike) -> tuple[Affine, ArrayLike]:
+def _decompose_projective_matrix(projective_matrix: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
     """
-    Get an affine transformation matrix from a projective transformation matrix and the projective shift.
+    Decompose a projective transformation matrix into an affine transformation and a projective shift.
 
     Parameters
     ----------
@@ -488,19 +457,16 @@ def _get_affine_from_projective(projective_matrix: ArrayLike) -> tuple[Affine, A
 
     Returns
     -------
-    A tuple where the first element is the affine transformation (`Affine`) and the second element is the projective
-    shift (numpy array).
+    A tuple where the first element is the affine matrix and the second element is the projective shift.
+
+    Let P be the initial projective matrix and A the affine matrix. The projective shift S is defined as: S = A^-1 @ P.
     """
-    assert np.allclose(projective_matrix[2, 2], 1)
-    if not np.allclose(projective_matrix[2, :2], [0, 0]):
-        affine_matrix = projective_matrix.copy()
-        affine_matrix[2] = [0, 0, 1]
-        projective_shift = _get_projective_shift(projective_matrix, affine_matrix)
-    else:
-        affine_matrix = projective_matrix
-        projective_shift = np.eye(3)
-    affine = Affine(affine_matrix, input_axes=("x", "y"), output_axes=("x", "y"))
-    return affine, projective_shift
+    assert np.allclose(projective_matrix[2, 2], 1), "A projective matrix should have a 1 in the bottom right corner."
+    affine_matrix = projective_matrix.copy()
+    affine_matrix[2] = [0, 0, 1]
+    projective_shift = np.linalg.inv(affine_matrix) @ projective_matrix
+    projective_shift /= projective_shift[2, 2]
+    return affine_matrix, projective_shift
 
 
 def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -510,9 +476,7 @@ def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], d
     return metadata, hd_layout
 
 
-def _get_transform_matrices(
-    metadata: dict[str, Any], hd_layout: dict[str, Any]
-) -> tuple[dict[str, ArrayLike], dict[str, Affine]]:
+def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any]) -> dict[str, ArrayLike]:
     """
     Gets 4 projective transformation matrices, describing how to align the CytAssist, spots and microscope coordinates.
 
