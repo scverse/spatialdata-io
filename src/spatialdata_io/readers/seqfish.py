@@ -37,7 +37,7 @@ def seqfish(
     load_points: bool = True,
     load_shapes: bool = True,
     load_additional_shapes: Literal["segmentation", "boundaries", "all"] | str | None = None,
-    ROIs: list[int] | None = None,
+    rois: list[int] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
@@ -69,7 +69,7 @@ def seqfish(
         Whether to load cells as shape.
     load_additional_shapes
         Whether to load additional shapes such as segmentation or boundaries for both cells and nuclei.
-    ROIs
+    rois
         Which ROIs (specified as integers) to load. Only necessary if multiple ROIs present.
         If "all" is specified, reads all remaining .tiff and .geojson files in the directory.
     imread_kwargs
@@ -93,11 +93,11 @@ def seqfish(
         raise ValueError(f"File {count_files[0]} does not match the pattern {count_file_pattern}")
 
     rois_str: list[str] = []
-    if ROIs is None:
+    if rois is None:
         for roi in n_rois:
             rois_str.append(f"{SK.ROI}{roi}")
-    elif isinstance(ROIs, list):
-        for roi in ROIs:
+    elif isinstance(rois, list):
+        for roi in rois:
             if str(roi) not in n_rois:
                 raise ValueError(f"ROI{roi} not found.")
             rois_str.append(f"{SK.ROI}{roi}")
