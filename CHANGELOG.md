@@ -8,9 +8,16 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [0.1.6] - xxxx-xx-xx
+## incoming release
+
+-   (Visium/Visium HD) lowres and hires images now mapped also to the 'global' coordinate system #230
+-   (Macsima) added support @berombau #224
+
+## [0.1.6] - 2024-11-26
 
 -   (MERSCOPE) added `feature_key` attribute for points (i.e., the `'gene'` column) #210
+-   (Visium HD) get transformation matrices even when only images are parsed #215
+-   Support for `xarray.DataTree` (which was moved from `datatree.DataTree`) #232
 
 ## [0.1.5] - 2024-09-25
 

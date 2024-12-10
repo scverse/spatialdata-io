@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 
 import anndata as ad
 import numpy as np
@@ -36,8 +36,8 @@ def seqfish(
     load_labels: bool = True,
     load_points: bool = True,
     load_shapes: bool = True,
-    load_additional_shapes: Union[Literal["segmentation", "boundaries", "all"], str, None] = None,
-    ROIs: Optional[list[int]] = None,
+    load_additional_shapes: Literal["segmentation", "boundaries", "all"] | str | None = None,
+    ROIs: list[int] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """
@@ -120,7 +120,7 @@ def seqfish(
         return f"{roi}_{SK.TRANSCRIPT_COORDINATES}{SK.CSV_FILE}"
 
     scaled = {}
-    adatas: dict[Optional[str], ad.AnnData] = {}
+    adatas: dict[str, ad.AnnData] = {}
     for roi_str in rois_str:
         assert isinstance(roi_str, str) or roi_str is None
         cell_file = get_cell_file(roi_str)

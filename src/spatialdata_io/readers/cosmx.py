@@ -5,7 +5,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Optional
+from typing import Any
 
 import dask.array as da
 import numpy as np
@@ -38,7 +38,7 @@ __all__ = ["cosmx"]
 @inject_docs(cx=CosmxKeys)
 def cosmx(
     path: str | Path,
-    dataset_id: Optional[str] = None,
+    dataset_id: str | None = None,
     transcripts: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),

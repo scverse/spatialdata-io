@@ -1,5 +1,4 @@
 import math
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +9,7 @@ from spatialdata_io.readers.xenium import (
     prefix_suffix_uint32_from_cell_id_str,
     xenium,
 )
+from tests._utils import skip_if_below_python_version
 
 
 def test_cell_id_str_from_prefix_suffix_uint32() -> None:
@@ -46,7 +46,7 @@ def test_roundtrip_with_data_limits() -> None:
 # pointing to "data".
 # The GitHub workflow "prepare_test_data.yaml" takes care of downloading the datasets and uploading an artifact for the
 # tests to use
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
