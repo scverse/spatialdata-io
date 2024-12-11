@@ -24,7 +24,8 @@ jobs:
                   curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Lung_2fov/Xenium_V1_human_Lung_2fov_outs.zip
 
                   # 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, multimodal cell segmentation
-                  curl -O https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny.zip
+                  # this file seems to be corrupted; skipping it for now
+                  # curl -O https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny.zip
 
                   # 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, nuclear expansion
                   curl -O https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Mouse_Ileum_tiny/Xenium_Prime_Mouse_Ileum_tiny_outs.zip
