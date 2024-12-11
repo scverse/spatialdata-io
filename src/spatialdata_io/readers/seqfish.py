@@ -37,8 +37,10 @@ def seqfish(
     load_points: bool = True,
     load_shapes: bool = True,
     load_additional_shapes: Literal["segmentation", "boundaries", "all"] | str | None = None,
+    cells_as_circles: bool = False,
     rois: list[int] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    raster_models_scale_factors: list[float] | None = None,
 ) -> SpatialData:
     """
     Read *seqfish* formatted dataset.
@@ -69,38 +71,47 @@ def seqfish(
         Whether to load cells as shape.
     load_additional_shapes
         Whether to load additional shapes such as segmentation or boundaries for both cells and nuclei.
+        If "all" is specified, reads all remaining .tiff and .geojson files in the directory.
+    cells_as_circles
+        Whether to read cells also as circles instead of labels.
     rois
         Which ROIs (specified as integers) to load. Only necessary if multiple ROIs present.
-        If "all" is specified, reads all remaining .tiff and .geojson files in the directory.
     imread_kwargs
         Keyword arguments to pass to :func:`dask_image.imread.imread`.
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
+
+    Examples
+    --------
+    This code shows how to change the annotation target of the table from the cell labels to the cell cirlces.
+    Please check that Roi1 is present in your dataset, otherwise adjust the code below.
+    >>> from spatialdata_io import seqfish
+    >>> sdata = seqfish("path/to/raw/data")
+    >>> sdata["table"].obs["region"] = "Roi1_CellCoordinates"
+    >>> sdata.set_table_annotates_spatialelement(
+    ...     table_name="Roi1", region="Roi1_CellCoordinates", region_key="region", instance_key="instance_id"
+    ... )
+    >>> sdata.write("path/to/data.zarr")
     """
     path = Path(path)
-    count_file_pattern = re.compile(rf"(.*?){re.escape(SK.CELL_COORDINATES)}.*{re.escape(SK.CSV_FILE)}$")
-    count_files = [i for i in os.listdir(path) if count_file_pattern.match(i)]
-    roi_pattern = re.compile(f"^{SK.ROI}(\\d+)")
-    n_rois = {m.group(1) for i in os.listdir(path) if (m := roi_pattern.match(i))}
+    count_file_pattern = re.compile(rf"(.*?){re.escape(SK.CELL_COORDINATES)}{re.escape(SK.CSV_FILE)}$")
+    count_files = [f for f in os.listdir(path) if count_file_pattern.match(f)]
     if not count_files:
         raise ValueError(
             f"No files matching the pattern {count_file_pattern} were found. Cannot infer the naming scheme."
         )
-    matched = count_file_pattern.match(count_files[0])
-    if matched is None:
-        raise ValueError(f"File {count_files[0]} does not match the pattern {count_file_pattern}")
 
-    rois_str: list[str] = []
+    roi_pattern = re.compile(f"^{SK.ROI}(\\d+)")
+    found_rois = {m.group(1) for i in os.listdir(path) if (m := roi_pattern.match(i))}
     if rois is None:
-        for roi in n_rois:
-            rois_str.append(f"{SK.ROI}{roi}")
+        rois_str = [f"{SK.ROI}{roi}" for roi in found_rois]
     elif isinstance(rois, list):
         for roi in rois:
-            if str(roi) not in n_rois:
+            if str(roi) not in found_rois:
                 raise ValueError(f"ROI{roi} not found.")
-            rois_str.append(f"{SK.ROI}{roi}")
+        rois_str = [f"{SK.ROI}{roi}" for roi in rois]
     else:
         raise ValueError("Invalid type for 'roi'. Must be list[int] or None.")
 
@@ -119,33 +130,54 @@ def seqfish(
     def get_transcript_file(roi: str) -> str:
         return f"{roi}_{SK.TRANSCRIPT_COORDINATES}{SK.CSV_FILE}"
 
-    scaled = {}
-    adatas: dict[str, ad.AnnData] = {}
+    # parse table information
+    tables: dict[str, ad.AnnData] = {}
     for roi_str in rois_str:
-        assert isinstance(roi_str, str) or roi_str is None
-        cell_file = get_cell_file(roi_str)
+        # parse cell gene expression data
         count_matrix = get_count_file(roi_str)
-        adata = ad.read_csv(path / count_matrix, delimiter=",")
+        df = pd.read_csv(path / count_matrix, delimiter=",")
+        instance_id = df.iloc[:, 0].astype(str)
+        expression = df.drop(columns=["Unnamed: 0"])
+        expression.set_index(instance_id, inplace=True)
+        adata = ad.AnnData(expression)
+
+        # parse cell spatial information
+        cell_file = get_cell_file(roi_str)
         cell_info = pd.read_csv(path / cell_file, delimiter=",")
+        cell_info["label"] = cell_info["label"].astype("str")
+        # below, the obsm are assigned by position, not by index. Here we check that we can do it
+        assert cell_info["label"].to_numpy().tolist() == adata.obs.index.to_numpy().tolist()
+        cell_info.set_index("label", inplace=True)
+        adata.obs[SK.AREA] = cell_info[SK.AREA]
         adata.obsm[SK.SPATIAL_KEY] = cell_info[[SK.CELL_X, SK.CELL_Y]].to_numpy()
-        adata.obs[SK.AREA] = np.reshape(cell_info[SK.AREA].to_numpy(), (-1, 1))
-        region = f"cells_{roi_str}"
+
+        # map tables to cell labels (defined later)
+        region = os.path.splitext(get_cell_mask_file(roi_str))[0]
         adata.obs[SK.REGION_KEY] = region
-        adata.obs[SK.INSTANCE_KEY_TABLE] = adata.obs.index.astype(int)
-        adatas[roi_str] = adata
+        adata.obs[SK.REGION_KEY] = adata.obs[SK.REGION_KEY].astype("category")
+        adata.obs[SK.INSTANCE_KEY_TABLE] = instance_id.to_numpy().astype(np.uint16)
+        adata.obs = adata.obs.reset_index(drop=True)
+        tables[f"table_{roi_str}"] = TableModel.parse(
+            adata,
+            region=region,
+            region_key=SK.REGION_KEY.value,
+            instance_key=SK.INSTANCE_KEY_TABLE.value,
+        )
+
+    # parse scale factors to scale images and labels
+    scaled = {}
+    for roi_str in rois_str:
         scaled[roi_str] = Scale(
             np.array(_get_scale_factors(path / get_dapi_file(roi_str), SK.SCALEFEFACTOR_X, SK.SCALEFEFACTOR_Y)),
             axes=("y", "x"),
         )
-
-    scale_factors = [2, 2, 2, 2]
 
     if load_images:
         images = {
             f"{os.path.splitext(get_dapi_file(x))[0]}": Image2DModel.parse(
                 imread(path / get_dapi_file(x), **imread_kwargs),
                 dims=("c", "y", "x"),
-                scale_factors=scale_factors,
+                scale_factors=raster_models_scale_factors,
                 transformations={"global": scaled[x]},
             )
             for x in rois_str
@@ -158,8 +190,8 @@ def seqfish(
             f"{os.path.splitext(get_cell_mask_file(x))[0]}": Labels2DModel.parse(
                 imread(path / get_cell_mask_file(x), **imread_kwargs).squeeze(),
                 dims=("y", "x"),
-                scale_factors=scale_factors,
-                transformations={"global": Identity()},
+                scale_factors=raster_models_scale_factors,
+                transformations={"global": scaled[x]},
             )
             for x in rois_str
         }
@@ -172,24 +204,13 @@ def seqfish(
                 pd.read_csv(path / get_transcript_file(x), delimiter=","),
                 coordinates={"x": SK.TRANSCRIPTS_X, "y": SK.TRANSCRIPTS_Y},
                 feature_key=SK.FEATURE_KEY.value,
-                # instance_key=SK.INSTANCE_KEY_POINTS.value, # TODO: should be optional but parameter might get deprecated anyway
+                instance_key=None,
                 transformations={"global": Identity()},
             )
             for x in rois_str
         }
     else:
         points = {}
-
-    tables = {}
-    for name, adata in adatas.items():
-        adata.obs[SK.REGION_KEY] = adata.obs[SK.REGION_KEY].astype("category")
-        adata.obs = adata.obs.reset_index(drop=True)
-        tables[name] = TableModel.parse(
-            adata,
-            region=f"cells_{name}",
-            region_key=SK.REGION_KEY.value,
-            instance_key=SK.INSTANCE_KEY_TABLE.value,
-        )
 
     if load_shapes:
         shapes = {
@@ -200,7 +221,7 @@ def seqfish(
                 index=adata.obs[SK.INSTANCE_KEY_TABLE].copy(),
                 transformations={"global": Identity()},
             )
-            for x, adata in zip(rois_str, adatas.values())
+            for x, adata in zip(rois_str, tables.values())
         }
     else:
         shapes = {}
@@ -247,3 +268,35 @@ def _get_scale_factors(DAPI_path: Path, scalefactor_x_key: str, scalefactor_y_ke
                 scalefactor_x = element.attrib[scalefactor_x_key]
                 scalefactor_y = element.attrib[scalefactor_y_key]
     return [float(scalefactor_x), float(scalefactor_y)]
+
+
+if __name__ == "__main__":
+    path_read = "/Users/macbook/ssd/biodata/seqfish/instrument 2 official"
+    sdata = seqfish(
+        path=path_read,
+        # load_images=True,
+        # load_labels=True,
+        # load_points=True,
+        # rois=[1],
+    )
+    # sdata.pl.render_labels(color='Arg1').pl.show()
+    import matplotlib.pyplot as plt
+
+    # plt.show()
+    # sdata["table_Roi1"].obs["region"] = "Roi1_CellCoordinates"
+    # sdata.set_table_annotates_spatialelement(
+    #     table_name="table_Roi1", region="Roi1_CellCoordinates", region_key="region", instance_key="instance_id"
+    # )
+
+    gene_name = "Arg1"
+    (
+        sdata.pl.render_images("Roi1_DAPI", cmap="gray")
+        .pl.render_labels("Roi1_Segmentation", color=gene_name)
+        .pl.render_points("Roi1_TranscriptList", color="name", groups=gene_name, palette="orange")
+        .pl.show(title=f"{gene_name} expression over DAPI image", coordinate_systems="global", figsize=(10, 5))
+    )
+    plt.show()
+
+    from napari_spatialdata import Interactive
+
+    Interactive(sdata)
