@@ -63,3 +63,6 @@ def test_example_data(dataset: str, expected: str) -> None:
     extent = get_extent(sdata, exact=False)
     extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
     assert str(extent) == expected
+
+
+# TODO: add tests for Xenium 3.0.0
