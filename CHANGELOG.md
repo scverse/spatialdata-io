@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 - (Visium/Visium HD) lowres and hires images now mapped also to the 'global' coordinate system #230
 - (Macsima) added support @berombau #224
+- (seqFISH) support for v2 instrument #227
 
 ## [0.1.6] - 2024-11-26
 
