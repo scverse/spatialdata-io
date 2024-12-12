@@ -36,7 +36,7 @@ def seqfish(
     load_labels: bool = True,
     load_points: bool = True,
     load_shapes: bool = True,
-    load_additional_shapes: Literal["segmentation", "boundaries", "all"] | str | None = None,
+    load_additional_geometries: Literal["segmentation", "boundaries", "all"] | str | None = None,
     cells_as_circles: bool = False,
     rois: list[int] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -69,9 +69,11 @@ def seqfish(
         Whether to load the transcript locations.
     load_shapes
         Whether to load cells as shape.
-    load_additional_shapes
-        Whether to load additional shapes such as segmentation or boundaries for both cells and nuclei.
-        If "all" is specified, reads all remaining .tiff and .geojson files in the directory.
+    load_additional_geometries
+        Whether to load additional shapes such as segmentation or boundaries for both cells and nuclei. If "all" is
+        specified (default), it reads all remaining .tiff and .geojson files in the directory. Other options are
+        "segmentation", "boundaries", or a string to match in the filename (as a subset). If `None` is passed,
+        no additional geometry is loaded.
     cells_as_circles
         Whether to read cells also as circles instead of labels.
     rois
@@ -198,19 +200,24 @@ def seqfish(
     else:
         labels = {}
 
+    points = {}
     if load_points:
-        points = {
-            f"{os.path.splitext(get_transcript_file(x))[0]}": PointsModel.parse(
-                pd.read_csv(path / get_transcript_file(x), delimiter=","),
+        for x in rois_str:
+
+
+            # prepare data
+            name = f"{os.path.splitext(get_transcript_file(x))[0]}"
+            p = pd.read_csv(path / get_transcript_file(x), delimiter=",")
+            instance_key_points = SK.INSTANCE_KEY_POINTS.value if SK.INSTANCE_KEY_POINTS.value in p.columns else None
+
+            # call parser
+            points[name] = PointsModel.parse(
+                p,
                 coordinates={"x": SK.TRANSCRIPTS_X, "y": SK.TRANSCRIPTS_Y},
                 feature_key=SK.FEATURE_KEY.value,
-                instance_key=None,
+                instance_key=instance_key_points,
                 transformations={"global": Identity()},
             )
-            for x in rois_str
-        }
-    else:
-        points = {}
 
     if load_shapes:
         shapes = {
@@ -226,33 +233,45 @@ def seqfish(
     else:
         shapes = {}
 
-    if load_additional_shapes is not None:
-        shape_file_names = []
-        for filename in os.listdir(path):
-            if filename.endswith((SK.TIFF_FILE, SK.GEOJSON_FILE)):
-                if load_additional_shapes == "all":
-                    if not any(key in filename for key in images.keys()) and not any(
-                        key in filename for key in labels.keys()
-                    ):
-                        shape_file_names.append(filename)
-                elif load_additional_shapes == "segmentation":
-                    if SK.SEGMENTATION in filename and not any(key in filename for key in labels.keys()):
-                        shape_file_names.append(filename)
-                elif load_additional_shapes == "boundaries":
-                    if SK.BOUNDARIES in filename:
-                        shape_file_names.append(filename)
-                elif isinstance(load_additional_shapes, str):
-                    if load_additional_shapes in filename:
-                        shape_file_names.append(filename)
-                else:
-                    raise ValueError(f"No file found with identifier {load_additional_shapes}")
+    if load_additional_geometries is not None:
+        labels_filenames = []
+        shapes_filenames = []
 
-        for x in range(len(shape_file_names)):
-            shapes[f"{os.path.splitext(shape_file_names[x])[0]}"] = ShapesModel.parse(
-                path / shape_file_names[x],
+        for filename in os.listdir(path):
+            if filename.endswith(SK.TIFF_FILE):
+                if (
+                    load_additional_geometries == "all"
+                    or load_additional_geometries == "segmentation" and SK.SEGMENTATION in filename
+                    or isinstance(load_additional_geometries, str) and load_additional_geometries in filename
+                ):
+                    labels_filenames.append(filename)
+                    continue
+            if filename.endswith(SK.GEOJSON_FILE):
+                if (
+                    load_additional_geometries == "all"
+                    or load_additional_geometries == "boundaries" and SK.BOUNDARIES in filename
+                    or isinstance(load_additional_geometries, str) and load_additional_geometries in filename
+                ):
+                    shapes_filenames.append(filename)
+                    continue
+            raise ValueError(f"No file found with identifier {load_additional_geometries}")
+
+        for labels_filename in labels_filenames:
+            labels[f"{os.path.splitext(labels_filename)[0]}"] = Labels2DModel.parse(
+                imread(path / labels_filename, **imread_kwargs).squeeze(),
+                dims=("y", "x"),
+                scale_factors=raster_models_scale_factors,
+                transformations={"global": scaled[x]},
+            )
+
+        for shape_filename in shapes_filenames:
+            # TODO: check that indices of newly parsed shapes match the indices of the existing shapes
+            shapes[f"{os.path.splitext(shape_filename)[0]}"] = ShapesModel.parse(
+                path / shape_filename,
                 index=adata.obs[SK.INSTANCE_KEY_TABLE].copy(),
                 transformations={"global": Identity()},
             )
+            pass
 
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
 
@@ -287,6 +306,7 @@ if __name__ == "__main__":
     # sdata.set_table_annotates_spatialelement(
     #     table_name="table_Roi1", region="Roi1_CellCoordinates", region_key="region", instance_key="instance_id"
     # )
+    import spatialdata_plot
 
     gene_name = "Arg1"
     (
