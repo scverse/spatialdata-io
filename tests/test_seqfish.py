@@ -10,7 +10,9 @@ from tests._utils import skip_if_below_python_version
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml for instructions on
 # how to download and place the data on disk
 @skip_if_below_python_version()
-@pytest.mark.parametrize("dataset,expected", [("instrument 2 official", "{'y': (0, 108), 'x': (0, 108)}")])
+@pytest.mark.parametrize(
+    "dataset,expected", [("seqfish-2-test-dataset/instrument 2 official", "{'y': (0, 108), 'x': (0, 108)}")]
+)
 @pytest.mark.parametrize("rois", [[1], None])
 @pytest.mark.parametrize("cells_as_circles", [False, True])
 def test_example_data(dataset: str, expected: str, rois: list[int] | None, cells_as_circles: bool) -> None:
