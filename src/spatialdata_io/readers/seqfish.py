@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any
 
 import anndata as ad
 import numpy as np
@@ -36,7 +36,6 @@ def seqfish(
     load_labels: bool = True,
     load_points: bool = True,
     load_shapes: bool = True,
-    load_additional_geometries: Literal["segmentation", "boundaries", "all"] | str | None = None,
     cells_as_circles: bool = False,
     rois: list[int] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -69,11 +68,6 @@ def seqfish(
         Whether to load the transcript locations.
     load_shapes
         Whether to load cells as shape.
-    load_additional_geometries
-        Whether to load additional shapes such as segmentation or boundaries for both cells and nuclei. If "all" is
-        specified (default), it reads all remaining .tiff and .geojson files in the directory. Other options are
-        "segmentation", "boundaries", or a string to match in the filename (as a subset). If `None` is passed,
-        no additional geometry is loaded.
     cells_as_circles
         Whether to read cells also as circles instead of labels.
     rois
@@ -87,13 +81,13 @@ def seqfish(
 
     Examples
     --------
-    This code shows how to change the annotation target of the table from the cell labels to the cell cirlces.
-    Please check that Roi1 is present in your dataset, otherwise adjust the code below.
+    This code shows how to change the annotation target of the table from the cell labels to the cell boundaries.
+    Please check that the string Roi1 is used in the naming of your dataset, otherwise adjust the code below.
     >>> from spatialdata_io import seqfish
     >>> sdata = seqfish("path/to/raw/data")
-    >>> sdata["table"].obs["region"] = "Roi1_CellCoordinates"
+    >>> sdata["table_Roi1"].obs["region"] = "Roi1_Boundaries"
     >>> sdata.set_table_annotates_spatialelement(
-    ...     table_name="Roi1", region="Roi1_CellCoordinates", region_key="region", instance_key="instance_id"
+    ...     table_name="table_Roi1", region="Roi1_Boundaries", region_key="region", instance_key="instance_id"
     ... )
     >>> sdata.write("path/to/data.zarr")
     """
@@ -126,8 +120,11 @@ def seqfish(
     def get_dapi_file(roi: str) -> str:
         return f"{roi}_{SK.DAPI}{SK.TIFF_FILE}"
 
-    def get_cell_mask_file(roi: str) -> str:
+    def get_cell_segmentation_labels_file(roi: str) -> str:
         return f"{roi}_{SK.SEGMENTATION}{SK.TIFF_FILE}"
+
+    def get_cell_segmentation_shapes_file(roi: str) -> str:
+        return f"{roi}_{SK.BOUNDARIES}{SK.GEOJSON_FILE}"
 
     def get_transcript_file(roi: str) -> str:
         return f"{roi}_{SK.TRANSCRIPT_COORDINATES}{SK.CSV_FILE}"
@@ -154,7 +151,7 @@ def seqfish(
         adata.obsm[SK.SPATIAL_KEY] = cell_info[[SK.CELL_X, SK.CELL_Y]].to_numpy()
 
         # map tables to cell labels (defined later)
-        region = os.path.splitext(get_cell_mask_file(roi_str))[0]
+        region = os.path.splitext(get_cell_segmentation_labels_file(roi_str))[0]
         adata.obs[SK.REGION_KEY] = region
         adata.obs[SK.REGION_KEY] = adata.obs[SK.REGION_KEY].astype("category")
         adata.obs[SK.INSTANCE_KEY_TABLE] = instance_id.to_numpy().astype(np.uint16)
@@ -189,8 +186,8 @@ def seqfish(
 
     if load_labels:
         labels = {
-            f"{os.path.splitext(get_cell_mask_file(x))[0]}": Labels2DModel.parse(
-                imread(path / get_cell_mask_file(x), **imread_kwargs).squeeze(),
+            f"{os.path.splitext(get_cell_segmentation_labels_file(x))[0]}": Labels2DModel.parse(
+                imread(path / get_cell_segmentation_labels_file(x), **imread_kwargs).squeeze(),
                 dims=("y", "x"),
                 scale_factors=raster_models_scale_factors,
                 transformations={"global": scaled[x]},
@@ -203,7 +200,6 @@ def seqfish(
     points = {}
     if load_points:
         for x in rois_str:
-
 
             # prepare data
             name = f"{os.path.splitext(get_transcript_file(x))[0]}"
@@ -219,59 +215,25 @@ def seqfish(
                 transformations={"global": Identity()},
             )
 
-    if load_shapes:
-        shapes = {
-            f"{os.path.splitext(get_cell_file(x))[0]}": ShapesModel.parse(
+    shapes = {}
+    if cells_as_circles:
+        for x, adata in zip(rois_str, tables.values()):
+            shapes[f"{os.path.splitext(get_cell_file(x))[0]}"] = ShapesModel.parse(
                 adata.obsm[SK.SPATIAL_KEY],
                 geometry=0,
                 radius=np.sqrt(adata.obs[SK.AREA].to_numpy() / np.pi),
                 index=adata.obs[SK.INSTANCE_KEY_TABLE].copy(),
                 transformations={"global": Identity()},
             )
-            for x, adata in zip(rois_str, tables.values())
-        }
-    else:
-        shapes = {}
-
-    if load_additional_geometries is not None:
-        labels_filenames = []
-        shapes_filenames = []
-
-        for filename in os.listdir(path):
-            if filename.endswith(SK.TIFF_FILE):
-                if (
-                    load_additional_geometries == "all"
-                    or load_additional_geometries == "segmentation" and SK.SEGMENTATION in filename
-                    or isinstance(load_additional_geometries, str) and load_additional_geometries in filename
-                ):
-                    labels_filenames.append(filename)
-                    continue
-            if filename.endswith(SK.GEOJSON_FILE):
-                if (
-                    load_additional_geometries == "all"
-                    or load_additional_geometries == "boundaries" and SK.BOUNDARIES in filename
-                    or isinstance(load_additional_geometries, str) and load_additional_geometries in filename
-                ):
-                    shapes_filenames.append(filename)
-                    continue
-            raise ValueError(f"No file found with identifier {load_additional_geometries}")
-
-        for labels_filename in labels_filenames:
-            labels[f"{os.path.splitext(labels_filename)[0]}"] = Labels2DModel.parse(
-                imread(path / labels_filename, **imread_kwargs).squeeze(),
-                dims=("y", "x"),
-                scale_factors=raster_models_scale_factors,
+    if load_shapes:
+        for x in rois_str:
+            # this assumes that the index matches the instance key of the table. A more robust approach could be
+            # implemented, as described here https://github.com/scverse/spatialdata-io/issues/249
+            shapes[f"{os.path.splitext(get_cell_segmentation_shapes_file(x))[0]}"] = ShapesModel.parse(
+                path / get_cell_segmentation_shapes_file(x),
                 transformations={"global": scaled[x]},
-            )
-
-        for shape_filename in shapes_filenames:
-            # TODO: check that indices of newly parsed shapes match the indices of the existing shapes
-            shapes[f"{os.path.splitext(shape_filename)[0]}"] = ShapesModel.parse(
-                path / shape_filename,
                 index=adata.obs[SK.INSTANCE_KEY_TABLE].copy(),
-                transformations={"global": Identity()},
             )
-            pass
 
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
 
@@ -287,36 +249,3 @@ def _get_scale_factors(DAPI_path: Path, scalefactor_x_key: str, scalefactor_y_ke
                 scalefactor_x = element.attrib[scalefactor_x_key]
                 scalefactor_y = element.attrib[scalefactor_y_key]
     return [float(scalefactor_x), float(scalefactor_y)]
-
-
-if __name__ == "__main__":
-    path_read = "/Users/macbook/ssd/biodata/seqfish/instrument 2 official"
-    sdata = seqfish(
-        path=path_read,
-        # load_images=True,
-        # load_labels=True,
-        # load_points=True,
-        # rois=[1],
-    )
-    # sdata.pl.render_labels(color='Arg1').pl.show()
-    import matplotlib.pyplot as plt
-
-    # plt.show()
-    # sdata["table_Roi1"].obs["region"] = "Roi1_CellCoordinates"
-    # sdata.set_table_annotates_spatialelement(
-    #     table_name="table_Roi1", region="Roi1_CellCoordinates", region_key="region", instance_key="instance_id"
-    # )
-    import spatialdata_plot
-
-    gene_name = "Arg1"
-    (
-        sdata.pl.render_images("Roi1_DAPI", cmap="gray")
-        .pl.render_labels("Roi1_Segmentation", color=gene_name)
-        .pl.render_points("Roi1_TranscriptList", color="name", groups=gene_name, palette="orange")
-        .pl.show(title=f"{gene_name} expression over DAPI image", coordinate_systems="global", figsize=(10, 5))
-    )
-    plt.show()
-
-    from napari_spatialdata import Interactive
-
-    Interactive(sdata)
