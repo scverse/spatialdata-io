@@ -204,7 +204,6 @@ def seqfish(
     if load_points:
         for x in rois_str:
 
-
             # prepare data
             name = f"{os.path.splitext(get_transcript_file(x))[0]}"
             p = pd.read_csv(path / get_transcript_file(x), delimiter=",")
@@ -241,16 +240,20 @@ def seqfish(
             if filename.endswith(SK.TIFF_FILE):
                 if (
                     load_additional_geometries == "all"
-                    or load_additional_geometries == "segmentation" and SK.SEGMENTATION in filename
-                    or isinstance(load_additional_geometries, str) and load_additional_geometries in filename
+                    or load_additional_geometries == "segmentation"
+                    and SK.SEGMENTATION in filename
+                    or isinstance(load_additional_geometries, str)
+                    and load_additional_geometries in filename
                 ):
                     labels_filenames.append(filename)
                     continue
             if filename.endswith(SK.GEOJSON_FILE):
                 if (
                     load_additional_geometries == "all"
-                    or load_additional_geometries == "boundaries" and SK.BOUNDARIES in filename
-                    or isinstance(load_additional_geometries, str) and load_additional_geometries in filename
+                    or load_additional_geometries == "boundaries"
+                    and SK.BOUNDARIES in filename
+                    or isinstance(load_additional_geometries, str)
+                    and load_additional_geometries in filename
                 ):
                     shapes_filenames.append(filename)
                     continue
@@ -271,7 +274,6 @@ def seqfish(
                 index=adata.obs[SK.INSTANCE_KEY_TABLE].copy(),
                 transformations={"global": Identity()},
             )
-            pass
 
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
 
@@ -306,7 +308,6 @@ if __name__ == "__main__":
     # sdata.set_table_annotates_spatialelement(
     #     table_name="table_Roi1", region="Roi1_CellCoordinates", region_key="region", instance_key="instance_id"
     # )
-    import spatialdata_plot
 
     gene_name = "Arg1"
     (
