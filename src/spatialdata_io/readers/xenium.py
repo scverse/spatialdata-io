@@ -84,7 +84,7 @@ def xenium(
 
     .. seealso::
 
-        - `10X Genomics Xenium file format  <https://cf.10xgenomics.com/supp/xenium/xenium_documentation.html>`_.
+        - `10X Genomics Xenium file format  <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
 
     Parameters
     ----------
