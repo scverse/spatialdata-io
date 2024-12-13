@@ -33,6 +33,8 @@ from xarray import DataArray
 from spatialdata_io._constants._constants import VisiumHDKeys
 from spatialdata_io._docs import inject_docs
 
+RNG = default_rng(0)
+
 
 @inject_docs(vx=VisiumHDKeys)
 def visium_hd(
@@ -71,7 +73,8 @@ def visium_hd(
         If `True`, the bins are represented as squares. If `False`, the bins are represented as circles. For a correct
         visualization one should use squares.
     annotate_table_by_labels
-        If `True` will annotate the table with corresponding labels layer representing the bins, if `False`, table will be annotated by a shapes layer.
+        If `True`, the tables will annotate labels layers representing the bins, if `False`, the tables will annotate
+        shapes layer.
     fullres_image_file
         Path to the full-resolution image. By default the image is searched in the ``{vx.MICROSCOPE_IMAGE!r}``
         directory.
@@ -278,10 +281,8 @@ def visium_hd(
         # make image that can visualy represent the cells
         labels_element[y, x] = adata.obs[VisiumHDKeys.INSTANCE_KEY].values.T
 
-        # estimate the transformation to go from this raster to original dimension (i.e. in pixel coordinates)
-        RNG = default_rng(0)
-
-        # get the transformation
+        # estimate the transformation to go from this raster to original dimension (i.e. in pixel coordinates); the code
+        # closely follows the approach used in spatialdata.rasterize_bins() https://github.com/scverse/spatialdata/blob/eb1d713c9e7d4fbb730c6342cc9c61bae66471c8/src/spatialdata/_core/operations/rasterize_bins.py#L151
         if adata.n_obs < 6:
             raise ValueError("At least 6 bins are needed to estimate the transformation.")
 
