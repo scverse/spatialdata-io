@@ -17,10 +17,9 @@ from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
 from numpy.random import default_rng
-from skimage.transform import estimate_transform
 from spatial_image import SpatialImage
-from spatialdata import SpatialData
-from spatialdata.models import Image2DModel, Labels2DModel, ShapesModel, TableModel
+from spatialdata import SpatialData, rasterize_bins
+from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata.transformations import (
     Affine,
     Identity,
@@ -198,10 +197,7 @@ def visium_hd(
                 VisiumHDKeys.LOCATIONS_X,
             ]
         )
-        # let instance key range from 1 to coords.index.stop+1
         assert isinstance(coords.index, pd.RangeIndex)
-        assert coords.index.start == 0
-        coords.index = coords.index + 1
         dtype = _get_uint_dtype(coords.index.stop)
 
         coords = coords.reset_index().rename(columns={"index": VisiumHDKeys.INSTANCE_KEY})
@@ -265,62 +261,12 @@ def visium_hd(
                 GeoDataFrame(geometry=squares_series), transformations=transformations
             )
 
-        # add labels layer (rasterized bins).
-        labels_name = f"{dataset_id}_{bin_size_str}_labels"
-
-        min_row, min_col = adata.obs[VisiumHDKeys.ARRAY_ROW].min(), adata.obs[VisiumHDKeys.ARRAY_COL].min()
-        n_rows, n_cols = (
-            adata.obs[VisiumHDKeys.ARRAY_ROW].max() - min_row + 1,
-            adata.obs[VisiumHDKeys.ARRAY_COL].max() - min_col + 1,
-        )
-        y = (adata.obs[VisiumHDKeys.ARRAY_ROW] - min_row).values
-        x = (adata.obs[VisiumHDKeys.ARRAY_COL] - min_col).values
-
-        labels_element = np.zeros((n_rows, n_cols), dtype=dtype)
-
-        # make image that can visualy represent the cells
-        labels_element[y, x] = adata.obs[VisiumHDKeys.INSTANCE_KEY].values.T
-
-        # estimate the transformation to go from this raster to original dimension (i.e. in pixel coordinates); the code
-        # closely follows the approach used in spatialdata.rasterize_bins() https://github.com/scverse/spatialdata/blob/eb1d713c9e7d4fbb730c6342cc9c61bae66471c8/src/spatialdata/_core/operations/rasterize_bins.py#L151
-        if adata.n_obs < 6:
-            raise ValueError("At least 6 bins are needed to estimate the transformation.")
-
-        random_indices = RNG.choice(adata.n_obs, min(100, adata.n_obs), replace=True)
-
-        sub_adata_for_transform = adata[random_indices]
-
-        src = np.stack(
-            [
-                sub_adata_for_transform.obs[VisiumHDKeys.ARRAY_COL] - min_col,
-                sub_adata_for_transform.obs[VisiumHDKeys.ARRAY_ROW] - min_row,
-            ],
-            axis=1,
-        )
-        dst = sub_adata_for_transform.obsm["spatial"]  # this is x, y
-
-        to_bins = Sequence(
-            [
-                Affine(
-                    estimate_transform(ttype="affine", src=src, dst=dst).params,
-                    input_axes=("x", "y"),
-                    output_axes=("x", "y"),
-                )
-            ]
-        )
-
-        labels_transformations = {cs: to_bins.compose_with(t) for cs, t in transformations.items()}
-        labels_element = Labels2DModel.parse(
-            data=labels_element, dims=("y", "x"), transformations=labels_transformations
-        )
-        labels[labels_name] = labels_element
-
-        adata.obs[VisiumHDKeys.REGION_KEY] = labels_name if annotate_table_by_labels else shapes_name
+        adata.obs[VisiumHDKeys.REGION_KEY] = shapes_name
         adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
 
         tables[bin_size_str] = TableModel.parse(
             adata,
-            region=labels_name if annotate_table_by_labels else shapes_name,
+            region=shapes_name,
             region_key=str(VisiumHDKeys.REGION_KEY),
             instance_key=str(VisiumHDKeys.INSTANCE_KEY),
         )
@@ -414,7 +360,46 @@ def visium_hd(
         affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
         set_transformation(image, Sequence([affine0, affine1]), "global")
 
-    return SpatialData(tables=tables, images=images, shapes=shapes, labels=labels)
+    sdata = SpatialData(tables=tables, images=images, shapes=shapes, labels=labels)
+
+    if annotate_table_by_labels:
+        for bin_size_str in bin_sizes:
+
+            shapes_name = dataset_id + "_" + bin_size_str
+
+            # add labels layer (rasterized bins).
+            labels_name = f"{dataset_id}_{bin_size_str}_labels"
+
+            labels_element=rasterize_bins(
+                sdata,
+                bins = shapes_name, 
+                table_name=bin_size_str,
+                row_key=VisiumHDKeys.ARRAY_ROW,
+                col_key= VisiumHDKeys.ARRAY_COL,
+                value_key=None,
+                return_region_as_labels=True,
+                )
+            
+            sdata[ labels_name ] = labels_element
+
+            adata = sdata[ bin_size_str ]
+
+            adata.obs[VisiumHDKeys.REGION_KEY] = labels_name
+            adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
+
+            del adata.uns[ TableModel.ATTRS_KEY ]
+
+            adata = TableModel.parse(
+                adata,
+                region=labels_name,
+                region_key=str(VisiumHDKeys.REGION_KEY),
+                instance_key=str(VisiumHDKeys.INSTANCE_KEY),
+            )
+
+            del sdata[ bin_size_str ]
+            sdata[ bin_size_str ] = adata
+
+    return sdata
 
 
 def _infer_dataset_id(path: Path) -> str:
