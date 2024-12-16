@@ -370,24 +370,24 @@ def visium_hd(
             # add labels layer (rasterized bins).
             labels_name = f"{dataset_id}_{bin_size_str}_labels"
 
-            labels_element=rasterize_bins(
+            labels_element = rasterize_bins(
                 sdata,
-                bins = shapes_name, 
+                bins=shapes_name,
                 table_name=bin_size_str,
                 row_key=VisiumHDKeys.ARRAY_ROW,
-                col_key= VisiumHDKeys.ARRAY_COL,
+                col_key=VisiumHDKeys.ARRAY_COL,
                 value_key=None,
                 return_region_as_labels=True,
-                )
-            
-            sdata[ labels_name ] = labels_element
+            )
 
-            adata = sdata[ bin_size_str ]
+            sdata[labels_name] = labels_element
+
+            adata = sdata[bin_size_str]
 
             adata.obs[VisiumHDKeys.REGION_KEY] = labels_name
             adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
 
-            del adata.uns[ TableModel.ATTRS_KEY ]
+            del adata.uns[TableModel.ATTRS_KEY]
 
             adata = TableModel.parse(
                 adata,
@@ -396,8 +396,8 @@ def visium_hd(
                 instance_key=str(VisiumHDKeys.INSTANCE_KEY),
             )
 
-            del sdata[ bin_size_str ]
-            sdata[ bin_size_str ] = adata
+            del sdata[bin_size_str]
+            sdata[bin_size_str] = adata
 
     return sdata
 
