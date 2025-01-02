@@ -20,6 +20,7 @@ from numpy.random import default_rng
 from spatial_image import SpatialImage
 from spatialdata import SpatialData, rasterize_bins
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
+from spatialdata.models._utils import _get_uint_dtype
 from spatialdata.transformations import (
     Affine,
     Identity,
@@ -27,7 +28,6 @@ from spatialdata.transformations import (
     Sequence,
     set_transformation,
 )
-from spatialdata.models._utils import _get_uint_dtype
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumHDKeys
