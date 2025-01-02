@@ -27,6 +27,7 @@ from spatialdata.transformations import (
     Sequence,
     set_transformation,
 )
+from spatialdata.models._utils import _get_uint_dtype
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumHDKeys
@@ -474,19 +475,3 @@ def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any])
         transform_matrices[key.value] = _get_affine(data)
 
     return transform_matrices
-
-
-def _get_uint_dtype(value: int) -> str:
-    max_uint64 = np.iinfo(np.uint64).max
-    max_uint32 = np.iinfo(np.uint32).max
-    max_uint16 = np.iinfo(np.uint16).max
-
-    if max_uint16 >= value:
-        dtype = "uint16"
-    elif max_uint32 >= value:
-        dtype = "uint32"
-    elif max_uint64 >= value:
-        dtype = "uint64"
-    else:
-        raise ValueError(f"Maximum cell number is {value}. Values higher than {max_uint64} are not supported.")
-    return dtype
