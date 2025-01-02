@@ -20,6 +20,7 @@ from numpy.random import default_rng
 from spatial_image import SpatialImage
 from spatialdata import SpatialData, rasterize_bins, rasterize_bins_link_table_to_labels
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
+from spatialdata.models._utils import _get_uint_dtype
 from spatialdata.transformations import (
     Affine,
     Identity,
