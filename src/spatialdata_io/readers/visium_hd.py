@@ -20,7 +20,6 @@ from numpy.random import default_rng
 from spatial_image import SpatialImage
 from spatialdata import SpatialData, rasterize_bins, rasterize_bins_link_table_to_labels
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
-from spatialdata.models._utils import _get_uint_dtype
 from spatialdata.transformations import (
     Affine,
     Identity,
@@ -377,7 +376,9 @@ def visium_hd(
             )
 
             sdata[labels_name] = labels_element
-            rasterize_bins_link_table_to_labels(sdata=sdata, table_name=bin_size_str, labels_name=labels_name)
+            rasterize_bins_link_table_to_labels(
+                sdata=sdata, table_name=bin_size_str, rasterized_labels_name=labels_name
+            )
 
     return sdata
 
