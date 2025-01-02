@@ -18,7 +18,7 @@ from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
 from numpy.random import default_rng
 from spatial_image import SpatialImage
-from spatialdata import SpatialData, rasterize_bins
+from spatialdata import SpatialData, rasterize_bins, rasterize_bins_link_table_to_labels
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata.transformations import (
     Affine,
@@ -27,7 +27,6 @@ from spatialdata.transformations import (
     Sequence,
     set_transformation,
 )
-from spatialdata.models._utils import _get_uint_dtype
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumHDKeys
@@ -198,14 +197,7 @@ def visium_hd(
                 VisiumHDKeys.LOCATIONS_X,
             ]
         )
-        assert isinstance(coords.index, pd.RangeIndex)
-        dtype = _get_uint_dtype(coords.index.stop)
-
-        coords = coords.reset_index().rename(columns={"index": VisiumHDKeys.INSTANCE_KEY})
-        coords[VisiumHDKeys.INSTANCE_KEY] = coords[VisiumHDKeys.INSTANCE_KEY].astype(dtype)
-
         coords.set_index(VisiumHDKeys.BARCODE, inplace=True, drop=True)
-
         coords_filtered = coords.loc[adata.obs.index]
         adata.obs = pd.merge(adata.obs, coords_filtered, how="left", left_index=True, right_index=True)
         # compatibility to legacy squidpy
@@ -218,6 +210,7 @@ def visium_hd(
             ],
             inplace=True,
         )
+        adata.obs[VisiumHDKeys.INSTANCE_KEY] = np.arange(len(adata))
 
         # scaling
         transform_original = Identity()
@@ -262,6 +255,7 @@ def visium_hd(
                 GeoDataFrame(geometry=squares_series), transformations=transformations
             )
 
+        # parse table
         adata.obs[VisiumHDKeys.REGION_KEY] = shapes_name
         adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
 
@@ -382,23 +376,7 @@ def visium_hd(
             )
 
             sdata[labels_name] = labels_element
-
-            adata = sdata[bin_size_str]
-
-            adata.obs[VisiumHDKeys.REGION_KEY] = labels_name
-            adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
-
-            del adata.uns[TableModel.ATTRS_KEY]
-
-            adata = TableModel.parse(
-                adata,
-                region=labels_name,
-                region_key=str(VisiumHDKeys.REGION_KEY),
-                instance_key=str(VisiumHDKeys.INSTANCE_KEY),
-            )
-
-            del sdata[bin_size_str]
-            sdata[bin_size_str] = adata
+            rasterize_bins_link_table_to_labels(sdata=sdata, table_name=bin_size_str, labels_name=labels_name)
 
     return sdata
 
