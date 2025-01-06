@@ -17,37 +17,24 @@ from spatialdata_io.readers.xenium import (
     xenium_explorer_selection,
 )
 
-__all__ = [
-    "curio",
-    "seqfish",
-    "visium",
-    "xenium",
+_readers = [
     "codex",
     "cosmx",
+    "curio",
+    "dbit",
     "mcmicro",
+    "merscope",
+    "seqfish",
     "steinbock",
     "stereoseq",
-    "merscope",
-    "xenium_aligned_image",
-    "xenium_explorer_selection",
-    "dbit",
+    "visium",
     "visium_hd",
+    "xenium",
 ]
 
-__readers__ = [
-    "codex",
-    "cosmx",
-    "curio",
-    "dbit",
-    "iss",
-    "mcmicro",
-    "merscope",
-    "seqfish",
-    "steinbock",
-    "stereoseq",
-    "visium",
-    "visium_hd",
-    "xenium",
-]
+__all__ = [
+    "xenium_aligned_image",
+    "xenium_explorer_selection",
+] + _readers
 
 __version__ = version("spatialdata-io")

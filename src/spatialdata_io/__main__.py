@@ -27,11 +27,11 @@ def cli() -> None:
 
     Usage:
 
-    python -m spatialdata-io <Command> -i <input> -o <output>
+    python -m spatialdata_io <Command> -i <input> -o <output>
 
     For help on how to use a specific command, run:
 
-    python -m spatialdata-io <Command> --help
+    python -m spatialdata_io <Command> --help
     """
 
 
