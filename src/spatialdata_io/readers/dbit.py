@@ -4,7 +4,6 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional, Union
 
 import anndata as ad
 import numpy as np
@@ -27,9 +26,9 @@ def _check_path(
     path: Path,
     pattern: Pattern[str],
     key: DbitKeys,
-    path_specific: Optional[str | Path] = None,
+    path_specific: str | Path | None = None,
     optional_arg: bool = False,
-) -> tuple[Union[Path, None], bool]:
+) -> tuple[Path | None, bool]:
     """
     Check that the path is valid and match a regex pattern.
 
@@ -218,11 +217,11 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
 
 @inject_docs(vx=DbitKeys)
 def dbit(
-    path: Optional[str | Path] = None,
-    anndata_path: Optional[str] = None,
-    barcode_position: Optional[str] = None,
-    image_path: Optional[str] = None,
-    dataset_id: Optional[str] = None,
+    path: str | Path | None = None,
+    anndata_path: str | None = None,
+    barcode_position: str | None = None,
+    image_path: str | None = None,
+    dataset_id: str | None = None,
     border: bool = True,
     border_scale: float = 1,
 ) -> SpatialData:

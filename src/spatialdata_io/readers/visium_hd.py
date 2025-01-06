@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import warnings
 from collections.abc import Mapping
@@ -17,8 +16,9 @@ from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
+from numpy.random import default_rng
 from spatial_image import SpatialImage
-from spatialdata import SpatialData
+from spatialdata import SpatialData, rasterize_bins, rasterize_bins_link_table_to_labels
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata.transformations import (
     Affine,
@@ -32,6 +32,8 @@ from xarray import DataArray
 from spatialdata_io._constants._constants import VisiumHDKeys
 from spatialdata_io._docs import inject_docs
 
+RNG = default_rng(0)
+
 
 @inject_docs(vx=VisiumHDKeys)
 def visium_hd(
@@ -40,6 +42,7 @@ def visium_hd(
     filtered_counts_file: bool = True,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
+    annotate_table_by_labels: bool = False,
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -68,6 +71,9 @@ def visium_hd(
     bins_as_squares
         If `True`, the bins are represented as squares. If `False`, the bins are represented as circles. For a correct
         visualization one should use squares.
+    annotate_table_by_labels
+        If `True`, the tables will annotate labels layers representing the bins, if `False`, the tables will annotate
+        shapes layer.
     fullres_image_file
         Path to the full-resolution image. By default the image is searched in the ``{vx.MICROSCOPE_IMAGE!r}``
         directory.
@@ -79,7 +85,7 @@ def visium_hd(
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
     anndata_kwargs
-        Keyword arguments for :func:`anndata.read_h5ad`.
+        Keyword arguments for :func:`anndata.io.read_h5ad`.
 
     Returns
     -------
@@ -90,6 +96,7 @@ def visium_hd(
     tables = {}
     shapes = {}
     images: dict[str, Any] = {}
+    labels: dict[str, Any] = {}
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
@@ -116,12 +123,12 @@ def visium_hd(
             stacklevel=2,
         )
 
-    def _get_bins(path: Path) -> list[str]:
+    def _get_bins(path_bins: Path) -> list[str]:
         return sorted(
             [
-                bin_size
-                for bin_size in os.listdir(path)
-                if os.path.isdir(os.path.join(path, bin_size)) and bin_size.startswith(VisiumHDKeys.BIN_PREFIX)
+                bin_size.name
+                for bin_size in path_bins.iterdir()
+                if bin_size.is_dir() and bin_size.name.startswith(VisiumHDKeys.BIN_PREFIX)
             ]
         )
 
@@ -265,10 +272,7 @@ def visium_hd(
     else:
         path_fullres = path / VisiumHDKeys.MICROSCOPE_IMAGE
         if path_fullres.exists():
-            fullres_image_filenames = [
-                f for f in os.listdir(path_fullres) if os.path.isfile(os.path.join(path_fullres, f))
-            ]
-            fullres_image_paths = [path_fullres / image_filename for image_filename in fullres_image_filenames]
+            fullres_image_paths = [file for file in path_fullres.iterdir() if file.is_file()]
         elif list((path_fullres := (path / f"{filename_prefix}tissue_image")).parent.glob(f"{path_fullres.name}.*")):
             fullres_image_paths = list(path_fullres.parent.glob(f"{path_fullres.name}.*"))
         else:
@@ -291,7 +295,7 @@ def visium_hd(
 
     if fullres_image_file is not None:
         load_image(
-            path=path / fullres_image_file,
+            path=fullres_image_file,
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
@@ -310,7 +314,7 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_hires_image"],
-        {"downscaled_hires": Identity()},
+        {"downscaled_hires": Identity(), "global": transform_hires.inverse()},
         set_all=True,
     )
 
@@ -328,7 +332,7 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_lowres_image"],
-        {"downscaled_lowres": Identity()},
+        {"downscaled_lowres": Identity(), "global": transform_lowres.inverse()},
         set_all=True,
     )
 
@@ -351,12 +355,37 @@ def visium_hd(
         affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
         set_transformation(image, Sequence([affine0, affine1]), "global")
 
-    return SpatialData(tables=tables, images=images, shapes=shapes)
+    sdata = SpatialData(tables=tables, images=images, shapes=shapes, labels=labels)
+
+    if annotate_table_by_labels:
+        for bin_size_str in bin_sizes:
+
+            shapes_name = dataset_id + "_" + bin_size_str
+
+            # add labels layer (rasterized bins).
+            labels_name = f"{dataset_id}_{bin_size_str}_labels"
+
+            labels_element = rasterize_bins(
+                sdata,
+                bins=shapes_name,
+                table_name=bin_size_str,
+                row_key=VisiumHDKeys.ARRAY_ROW,
+                col_key=VisiumHDKeys.ARRAY_COL,
+                value_key=None,
+                return_region_as_labels=True,
+            )
+
+            sdata[labels_name] = labels_element
+            rasterize_bins_link_table_to_labels(
+                sdata=sdata, table_name=bin_size_str, rasterized_labels_name=labels_name
+            )
+
+    return sdata
 
 
 def _infer_dataset_id(path: Path) -> str:
     suffix = f"_{VisiumHDKeys.FEATURE_SLICE_FILE.value}"
-    files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f)) and f.endswith(suffix)]
+    files = [file.name for file in path.iterdir() if file.is_file() and file.name.endswith(suffix)]
     if len(files) == 0 or len(files) > 1:
         raise ValueError(
             f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an argument."

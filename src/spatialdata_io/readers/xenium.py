@@ -10,7 +10,7 @@ import zipfile
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Optional
+from typing import Any
 
 import dask.array as da
 import numpy as np
@@ -22,7 +22,6 @@ import zarr
 from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
-from datatree.datatree import DataTree
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from pyarrow import Table
@@ -38,7 +37,7 @@ from spatialdata.models import (
     TableModel,
 )
 from spatialdata.transformations.transformations import Affine, Identity, Scale
-from xarray import DataArray
+from xarray import DataArray, DataTree
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
@@ -85,7 +84,7 @@ def xenium(
 
     .. seealso::
 
-        - `10X Genomics Xenium file format  <https://cf.10xgenomics.com/supp/xenium/xenium_documentation.html>`_.
+        - `10X Genomics Xenium file format  <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
 
     Parameters
     ----------
@@ -364,7 +363,7 @@ def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
 
 
 def _get_polygons(
-    path: Path, file: str, specs: dict[str, Any], n_jobs: int, idx: Optional[ArrayLike] = None
+    path: Path, file: str, specs: dict[str, Any], n_jobs: int, idx: ArrayLike | None = None
 ) -> GeoDataFrame:
     def _poly(arr: ArrayLike) -> Polygon:
         return Polygon(arr[:-1])

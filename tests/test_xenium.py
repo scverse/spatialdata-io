@@ -1,5 +1,4 @@
 import math
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +9,7 @@ from spatialdata_io.readers.xenium import (
     prefix_suffix_uint32_from_cell_id_str,
     xenium,
 )
+from tests._utils import skip_if_below_python_version
 
 
 def test_cell_id_str_from_prefix_suffix_uint32() -> None:
@@ -40,13 +40,9 @@ def test_roundtrip_with_data_limits() -> None:
     assert np.array_equal(cell_id_str, f0(*f1(cell_id_str)))
 
 
-# The datasets should be downloaded from
-# https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/resources/xenium-example-data#test-data
-# and placed in the "data" directory; if you run the tests locally you may need to create a symlink in "tests/data"
-# pointing to "data".
-# The GitHub workflow "prepare_test_data.yaml" takes care of downloading the datasets and uploading an artifact for the
-# tests to use
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Test requires Python 3.10 or higher")
+# See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml for instructions on
+# how to download and place the data on disk
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
@@ -63,3 +59,6 @@ def test_example_data(dataset: str, expected: str) -> None:
     extent = get_extent(sdata, exact=False)
     extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
     assert str(extent) == expected
+
+
+# TODO: add tests for Xenium 3.0.0

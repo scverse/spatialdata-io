@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import anndata
 import dask.dataframe as dd
@@ -15,6 +15,7 @@ import pandas as pd
 import xarray
 from dask import array as da
 from dask_image.imread import imread
+from shapely.geometry import MultiPolygon
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
@@ -313,7 +314,8 @@ def _get_polygons(boundaries_path: Path, transformations: dict[str, BaseTransfor
     geo_df = geopandas.read_parquet(boundaries_path)
     geo_df = geo_df.rename_geometry("geometry")
     geo_df = geo_df[geo_df[MerscopeKeys.Z_INDEX] == 0]  # Avoid duplicate boundaries on all z-levels
-    geo_df.geometry = geo_df.geometry.map(lambda x: x.geoms[0])  # The MultiPolygons contain only one polygon
+    geo_df = geo_df[geo_df.geometry.is_valid]  # Remove invalid geometries
+    geo_df.geometry = geo_df.geometry.map(lambda x: MultiPolygon(x.geoms))
     geo_df.index = geo_df[MerscopeKeys.METADATA_CELL_KEY].astype(str)
 
     return ShapesModel.parse(geo_df, transformations=transformations)

@@ -115,13 +115,13 @@ We recommend using [readthedocs.org][] (RTD) to build and host the documentation
 To enable readthedocs, head over to [their website][readthedocs.org] and sign in with your GitHub account.
 On the RTD dashboard choose "Import a Project" and follow the instructions to add your repository.
 
--   Make sure to choose the correct name of the default branch. On GitHub, the name of the default branch should be `main` (it has
-    recently changed from `master` to `main`).
--   We recommend to enable documentation builds for pull requests (PRs). This ensures that a PR doesn't introduce changes
-    that break the documentation. To do so, got to `Admin -> Advanced Settings`, check the
-    `Build pull requests for this projects` option, and click `Save`. For more information, please refer to
-    the [official RTD documentation](https://docs.readthedocs.io/en/stable/pull-requests.html).
--   If you find the RTD builds are failing, you can disable the `fail_on_warning` option in `.readthedocs.yaml`.
+- Make sure to choose the correct name of the default branch. On GitHub, the name of the default branch should be `main` (it has
+  recently changed from `master` to `main`).
+- We recommend to enable documentation builds for pull requests (PRs). This ensures that a PR doesn't introduce changes
+  that break the documentation. To do so, got to `Admin -> Advanced Settings`, check the
+  `Build pull requests for this projects` option, and click `Save`. For more information, please refer to
+  the [official RTD documentation](https://docs.readthedocs.io/en/stable/pull-requests.html).
+- If you find the RTD builds are failing, you can disable the `fail_on_warning` option in `.readthedocs.yaml`.
 
 If your project is private, there are ways to enable docs rendering on [readthedocs.org][] but it is more cumbersome and requires a different subscription for read the docs. See a guide [here](https://docs.readthedocs.io/en/stable/guides/importing-private-repositories.html).
 
@@ -144,52 +144,52 @@ Once authorized, pre-commit.ci should automatically be activated.
 
 The following pre-commit checks are for code style and format:
 
--   [black](https://black.readthedocs.io/en/stable/): standard code
-    formatter in Python.
--   [isort](https://pycqa.github.io/isort/): sort module imports into
-    sections and types.
--   [prettier](https://prettier.io/docs/en/index.html): standard code
-    formatter for non-Python files (e.g. YAML).
--   [blacken-docs](https://github.com/asottile/blacken-docs): black on
-    python code in docs.
+- [black](https://black.readthedocs.io/en/stable/): standard code
+  formatter in Python.
+- [isort](https://pycqa.github.io/isort/): sort module imports into
+  sections and types.
+- [prettier](https://prettier.io/docs/en/index.html): standard code
+  formatter for non-Python files (e.g. YAML).
+- [blacken-docs](https://github.com/asottile/blacken-docs): black on
+  python code in docs.
 
 The following pre-commit checks are for errors and inconsistencies:
 
--   [flake8](https://flake8.pycqa.org/en/latest/): standard check for errors in Python files.
-    -   [flake8-tidy-imports](https://github.com/adamchainz/flake8-tidy-imports):
-        tidy module imports.
-    -   [flake8-docstrings](https://github.com/PyCQA/flake8-docstrings):
-        pydocstyle extension of flake8.
-    -   [flake8-rst-docstrings](https://github.com/peterjc/e8-rst-docstrings):
-        extension of `flake8-docstrings` for `rst` docs.
-    -   [flake8-comprehensions](https://github.com/adamchainz/e8-comprehensions):
-        write better list/set/dict comprehensions.
-    -   [flake8-bugbear](https://github.com/PyCQA/flake8-bugbear):
-        find possible bugs and design issues in program.
-    -   [flake8-blind-except](https://github.com/elijahandrews/flake8-blind-except):
-        checks for blind, catch-all `except` statements.
--   [yesqa](https://github.com/asottile/yesqa):
-    remove unneccesary `# noqa` comments, follows additional dependencies listed above.
--   [autoflake](https://github.com/PyCQA/autoflake):
-    remove unused imports and variables.
--   [pre-commit-hooks](https://github.com/pre-commit/pre-commit-hooks): generic pre-commit hooks.
-    -   **detect-private-key**: checks for the existence of private keys.
-    -   **check-ast**: check whether files parse as valid python.
-    -   **end-of-file-fixer**:check files end in a newline and only a newline.
-    -   **mixed-line-ending**: checks mixed line ending.
-    -   **trailing-whitespace**: trims trailing whitespace.
-    -   **check-case-conflict**: check files that would conflict with case-insensitive file systems.
--   [pyupgrade](https://github.com/asottile/pyupgrade):
-    upgrade syntax for newer versions of the language.
--   **forbid-to-commit**: Make sure that `*.rej` files cannot be commited. These files are created by the
-    [automated template sync](#automated-template-sync) if there's a merge conflict and need to be addressed manually.
+- [flake8](https://flake8.pycqa.org/en/latest/): standard check for errors in Python files.
+    - [flake8-tidy-imports](https://github.com/adamchainz/flake8-tidy-imports):
+      tidy module imports.
+    - [flake8-docstrings](https://github.com/PyCQA/flake8-docstrings):
+      pydocstyle extension of flake8.
+    - [flake8-rst-docstrings](https://github.com/peterjc/e8-rst-docstrings):
+      extension of `flake8-docstrings` for `rst` docs.
+    - [flake8-comprehensions](https://github.com/adamchainz/e8-comprehensions):
+      write better list/set/dict comprehensions.
+    - [flake8-bugbear](https://github.com/PyCQA/flake8-bugbear):
+      find possible bugs and design issues in program.
+    - [flake8-blind-except](https://github.com/elijahandrews/flake8-blind-except):
+      checks for blind, catch-all `except` statements.
+- [yesqa](https://github.com/asottile/yesqa):
+  remove unneccesary `# noqa` comments, follows additional dependencies listed above.
+- [autoflake](https://github.com/PyCQA/autoflake):
+  remove unused imports and variables.
+- [pre-commit-hooks](https://github.com/pre-commit/pre-commit-hooks): generic pre-commit hooks.
+    - **detect-private-key**: checks for the existence of private keys.
+    - **check-ast**: check whether files parse as valid python.
+    - **end-of-file-fixer**:check files end in a newline and only a newline.
+    - **mixed-line-ending**: checks mixed line ending.
+    - **trailing-whitespace**: trims trailing whitespace.
+    - **check-case-conflict**: check files that would conflict with case-insensitive file systems.
+- [pyupgrade](https://github.com/asottile/pyupgrade):
+  upgrade syntax for newer versions of the language.
+- **forbid-to-commit**: Make sure that `*.rej` files cannot be commited. These files are created by the
+  [automated template sync](#automated-template-sync) if there's a merge conflict and need to be addressed manually.
 
 ### How to disable or add pre-commit checks
 
--   To ignore lint warnigs from **flake8**, see [Ignore certain lint warnings](#how-to-ignore-certain-lint-warnings).
--   You can add or remove pre-commit checks by simply deleting relevant lines in the `.pre-commit-config.yaml` file.
-    Some pre-commit checks have additional options that can be specified either in the `pyproject.toml` or tool-specific
-    config files, such as `.prettierrc.yml` for **prettier** and `.flake8` for **flake8**.
+- To ignore lint warnigs from **flake8**, see [Ignore certain lint warnings](#how-to-ignore-certain-lint-warnings).
+- You can add or remove pre-commit checks by simply deleting relevant lines in the `.pre-commit-config.yaml` file.
+  Some pre-commit checks have additional options that can be specified either in the `pyproject.toml` or tool-specific
+  config files, such as `.prettierrc.yml` for **prettier** and `.flake8` for **flake8**.
 
 ### How to ignore certain lint warnings
 
@@ -220,10 +220,10 @@ W504
 Scverse ecosystem packages should operate on [AnnData][] and/or [MuData][] data structures and typically use an API
 as originally [introduced by scanpy][scanpy-api] with the following submodules:
 
--   `pp` for preprocessing
--   `tl` for tools (that, compared to `pp` generate interpretable output, often associated with a corresponding plotting
-    function)
--   `pl` for plotting functions
+- `pp` for preprocessing
+- `tl` for tools (that, compared to `pp` generate interpretable output, often associated with a corresponding plotting
+  function)
+- `pl` for plotting functions
 
 You may add additional submodules as appropriate. While we encourage to follow a scanpy-like API for ecosystem packages,
 there may also be good reasons to choose a different approach, e.g. using an object-oriented API.
@@ -280,12 +280,12 @@ The pull request can only be merged after all `*.rej` files have been removed.
 :::{tip}
 The following hints may be useful to work with the template sync:
 
--   GitHub automatically disables scheduled actions if there has been not activity to the repository for 60 days.
-    You can re-enable or manually trigger the sync by navigating to `Actions` -> `Sync Template` in your GitHub repository.
--   If you want to ignore certain files from the template update, you can add them to the `[tool.cruft]` section in the
-    `pyproject.toml` file in the root of your repository. More details are described in the
-    [cruft documentation][cruft-update-project].
--   To disable the sync entirely, simply remove the file `.github/workflows/sync.yaml`.
+- GitHub automatically disables scheduled actions if there has been not activity to the repository for 60 days.
+  You can re-enable or manually trigger the sync by navigating to `Actions` -> `Sync Template` in your GitHub repository.
+- If you want to ignore certain files from the template update, you can add them to the `[tool.cruft]` section in the
+  `pyproject.toml` file in the root of your repository. More details are described in the
+  [cruft documentation][cruft-update-project].
+- To disable the sync entirely, simply remove the file `.github/workflows/sync.yaml`.
 
 :::
 
