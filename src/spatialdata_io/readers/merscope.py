@@ -117,7 +117,7 @@ def merscope(
             - ``{ms.CELL_METADATA_FILE!r}``
             - ``{ms.BOUNDARIES_FILE!r}``
 
-        If a dictionnary, then the following keys should be provided with the desired path:
+        If a dictionary, then the following keys should be provided with the desired path:
 
             - ``{ms.VPT_NAME_COUNTS!r}``
             - ``{ms.VPT_NAME_OBS!r}``
