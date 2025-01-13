@@ -1,9 +1,11 @@
 from importlib.metadata import version
 
+from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
 from spatialdata_io.readers.codex import codex
 from spatialdata_io.readers.cosmx import cosmx
 from spatialdata_io.readers.curio import curio
 from spatialdata_io.readers.dbit import dbit
+from spatialdata_io.readers.generic import read_generic, read_geojson, read_image
 from spatialdata_io.readers.macsima import macsima
 from spatialdata_io.readers.mcmicro import mcmicro
 from spatialdata_io.readers.merscope import merscope
@@ -18,7 +20,7 @@ from spatialdata_io.readers.xenium import (
     xenium_explorer_selection,
 )
 
-_readers = [
+_readers_technologies = [
     "codex",
     "cosmx",
     "curio",
@@ -34,9 +36,26 @@ _readers = [
     "xenium",
 ]
 
-__all__ = [
-    "xenium_aligned_image",
-    "xenium_explorer_selection",
-] + _readers
+_readers_file_types = [
+    "read_generic",
+    "read_image",
+    "read_geojson",
+]
+
+_converters = [
+    "generic_to_zarr",
+]
+
+
+__all__ = (
+    [
+        "xenium_aligned_image",
+        "xenium_explorer_selection",
+    ]
+    + _readers_technologies
+    + _readers_file_types
+    + _converters
+)
+
 
 __version__ = version("spatialdata-io")

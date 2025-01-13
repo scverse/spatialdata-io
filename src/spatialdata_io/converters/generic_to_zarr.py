@@ -1,53 +1,84 @@
 from pathlib import Path
-from typing import Union
 
-import spatialdata as sd
-from dask_image.imread import imread
-from spatialdata.models import Image2DModel, ShapesModel
-from spatialdata.transformations import Identity
+from spatialdata import SpatialData
+from spatialdata._docs import docstring_parameter
+from spatialdata.models.models import DEFAULT_COORDINATE_SYSTEM
+
+from spatialdata_io.readers.generic import VALID_IMAGE_TYPES, VALID_SHAPE_TYPES
+
+__all__ = ["generic_to_zarr"]
 
 
-def read_generic(
-    input: Path,
-    filetype: str,
-    name: str,
-    output: Path,
-    coordinate_system: Union[str, None] = None,
-    geometry: Union[int, None] = None,
-    radius: Union[int, None] = None,
-) -> sd.SpatialData:
-    """Reads a generic shape or image and converts it to zarr"""
-    if filetype == "shape":
-        data = Path(input)
-        if not name:
-            name = data.stem
-        sdata_path = Path(output)
-        sdata = sd.read_zarr(sdata_path)
-        if filetype == "shape":
-            if data.suffix == ".geojson":
-                if sdata_path.exists():
-                    sdata.shapes[name] = ShapesModel.parse(
-                        data, transformations={coordinate_system: Identity()}, geometry=geometry, radius=radius
-                    )
-                else:
-                    shapes = {}
-                    shapes[name] = ShapesModel.parse(data)
-                    sdata = sd.SpatialData(shapes=shapes)
-            else:
-                raise ValueError("Invalid file type for shape element. Must be .geojson")
-        if filetype == "image":
-            if data.suffix == ".tif" or data.suffix == ".tiff" or data.suffix == ".png":
-                if sdata_path.exists():
-                    sdata.images[name] = Image2DModel.parse(data)
-                else:
-                    image = imread(data)
-                    images = {}
-                    images[name] = Image2DModel.parse(image, dims=("c", "y", "x"))
-                    sdata = sd.SpatialData(images=images)
-            else:
-                raise ValueError("Invalid file type for image element. Must be .tif, .tiff, or .png")
-        # TODO: how to deal with geometries, transformations, indices?
-        # TODO: really necessary to move code from spatialdata/models.py to here?
-        # TODO: how to overwrite existing zarr store?
+@docstring_parameter(
+    valid_image_types=", ".join(VALID_IMAGE_TYPES),
+    valid_shape_types=", ".join(VALID_SHAPE_TYPES),
+    default_coordinate_system=DEFAULT_COORDINATE_SYSTEM,
+)
+def generic_to_zarr(
+    input: str | Path,
+    output: str | Path,
+    name: str | None = None,
+    data_axes: str | None = None,
+    coordinate_system: str | None = None,
+) -> None:
+    """
+    Read generic data from an input file and save it as a SpatialData zarr store.
 
-        return sdata
+    Parameters
+    ----------
+    input
+        Path to the image/shapes input file. The file must exist and have a supported extension.
+        Supported image extensions: {valid_image_types}.
+        Supported shapes extensions: {valid_shape_types}.
+    output
+        Path to the zarr store to write to. If the zarr store does not exist, it will be created from the input.
+    name
+        Name of the element to be stored. If not provided, the name will default to the stem of the input file.
+    data_axes
+        Axes of the data for image files. Valid values are 'cyx' and 'czyx'. If not provided, it defaults to None.
+    coordinate_system
+        Coordinate system in the spatialdata object to which an element should belong. If not provided, it defaults
+        to {default_coordinate_system}.
+
+    Raises
+    ------
+    ValueError
+        If the name already exists in the output zarr store, a ValueError is raised, prompting the user to provide
+        a different name or delete the existing element.
+
+    Notes
+    -----
+    This function reads data using the `read_generic` method from `spatialdata_io` and writes it to a zarr store
+    using the `SpatialData` class. It handles both existing and new zarr stores, ensuring that data is appropriately
+    appended or initialized.
+    """
+    from spatialdata_io.readers.generic import read_generic
+
+    input = Path(input)
+    output = Path(output)
+
+    if name is None:
+        name = input.stem
+    if not data_axes:
+        data_axes = None
+    if not coordinate_system:
+        coordinate_system = "global"
+
+    element = read_generic(
+        input=input, data_axes=list(data_axes) if data_axes is not None else None, coordinate_system=coordinate_system
+    )
+
+    if output.exists():
+        sdata = SpatialData.read_zarr(output)
+        if name in sdata:
+            raise ValueError(
+                f"Name {name} already exists in {output}; please provide a different name or delete the "
+                f"existing element."
+            )
+        sdata[name] = element
+        sdata.write_element(name, element_name=name)
+        print(f"Element {name} written to {output}")
+    else:
+        sdata = SpatialData.init_from_elements(elements={name: element})
+        sdata.write(output)
+        print(f"Data written to {output}")

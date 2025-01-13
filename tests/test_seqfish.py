@@ -1,8 +1,12 @@
 import math
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
+from click.testing import CliRunner
+from spatialdata import read_zarr
 
+from spatialdata_io.__main__ import seqfish_wrapper
 from spatialdata_io.readers.seqfish import seqfish
 from tests._utils import skip_if_below_python_version
 
@@ -27,3 +31,23 @@ def test_example_data(dataset: str, expected: str, rois: list[int] | None, cells
         # manual correction required to take into account for the circle radii
         expected = "{'y': (-2, 109), 'x': (-2, 109)}"
     assert str(extent) == expected
+
+
+@skip_if_below_python_version()
+@pytest.mark.parametrize("dataset", ["seqfish-2-test-dataset/instrument 2 official"])
+def test_cli_seqfish(runner: CliRunner, dataset: str) -> None:
+    f = Path("./data") / dataset
+    assert f.is_dir()
+    with TemporaryDirectory() as tmpdir:
+        output_zarr = Path(tmpdir) / "data.zarr"
+        result = runner.invoke(
+            seqfish_wrapper,
+            [
+                "--input",
+                f,
+                "--output",
+                output_zarr,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        _ = read_zarr(output_zarr)
