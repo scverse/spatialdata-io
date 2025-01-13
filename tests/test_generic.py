@@ -48,9 +48,9 @@ def test_read_generic_image(runner: CliRunner, cli: bool, element_name: str | No
                     output_zarr_path,
                     "--name",
                     element_name,
-                    "--data_axes",
+                    "--data-axes",
                     "cyx",
-                    "--coordinate_system",
+                    "--coordinate-system",
                     "global",
                 ],
             )
@@ -82,7 +82,7 @@ def test_cli_read_generic_image_invalid_data_axes(runner: CliRunner) -> None:
                 image_path,
                 "--output",
                 output_zarr_path,
-                "--data_axes",
+                "--data-axes",
                 "invalid_axes",
             ],
         )
@@ -103,7 +103,7 @@ def test_read_generic_geojson(runner: CliRunner, cli: bool) -> None:
                     geojson_path,
                     "--output",
                     output_zarr_path,
-                    "--coordinate_system",
+                    "--coordinate-system",
                     "global",
                 ],
             )

@@ -221,7 +221,7 @@ def test_cli_macimsa(runner: CliRunner, dataset: str) -> None:
                 output_zarr,
                 "--subset",
                 500,
-                "--c_subset",
+                "--c-subset",
                 1,
                 "--multiscale",
                 False,
