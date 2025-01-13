@@ -286,7 +286,7 @@ def xenium(
     else:
         if morphology_focus:
             morphology_focus_dir = path / XeniumKeys.MORPHOLOGY_FOCUS_DIR
-            files = {f for f in os.listdir(morphology_focus_dir) if f.endswith(".ome.tif")}
+            files = {f for f in os.listdir(morphology_focus_dir) if f.endswith(".ome.tif") and not f.startswith("._")}
             if len(files) not in [1, 4]:
                 raise ValueError(
                     "Expected 1 (no segmentation kit) or 4 (segmentation kit) files in the morphology focus directory, "
