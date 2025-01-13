@@ -16,7 +16,7 @@ from xarray import DataArray
 VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
 
-__all__ = ["read_generic", "read_geojson", "read_image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
+__all__ = ["generic", "geojson", "image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
 
 
 @docstring_parameter(
@@ -24,7 +24,7 @@ __all__ = ["read_generic", "read_geojson", "read_image", "VALID_IMAGE_TYPES", "V
     valid_shape_types=", ".join(VALID_SHAPE_TYPES),
     default_coordinate_system=DEFAULT_COORDINATE_SYSTEM,
 )
-def read_generic(
+def generic(
     input: Path,
     data_axes: Sequence[str] | None = None,
     coordinate_system: str | None = None,
@@ -54,21 +54,21 @@ def read_generic(
     if input.suffix in VALID_SHAPE_TYPES:
         if data_axes is not None:
             warnings.warn("data_axes is not used for geojson files", UserWarning, stacklevel=2)
-        return read_geojson(input, coordinate_system=coordinate_system)
+        return geojson(input, coordinate_system=coordinate_system)
     elif input.suffix in VALID_IMAGE_TYPES:
         if data_axes is None:
             raise ValueError("data_axes must be provided for image files")
-        return read_image(input, data_axes=data_axes, coordinate_system=coordinate_system)
+        return image(input, data_axes=data_axes, coordinate_system=coordinate_system)
     else:
         raise ValueError(f"Invalid file type. Must be one of {VALID_SHAPE_TYPES + VALID_IMAGE_TYPES}")
 
 
-def read_geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
+def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
     """Reads a GeoJSON file and returns a parsed GeoDataFrame spatial element"""
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
-def read_image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> DataArray:
+def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> DataArray:
     """Reads an image file and returns a parsed Image2D spatial element"""
     # this function is just a draft, the more general one will be available when
     # https://github.com/scverse/spatialdata-io/pull/234 is merged

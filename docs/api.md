@@ -37,9 +37,9 @@ I/O for the `spatialdata` project.
 .. autosummary::
     :toctree: generated
 
-    read_generic
-    read_image
-    read_geojson
+    generic
+    image
+    geojson
 ```
 
 ### Conversion functions

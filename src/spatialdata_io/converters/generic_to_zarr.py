@@ -52,7 +52,7 @@ def generic_to_zarr(
     using the `SpatialData` class. It handles both existing and new zarr stores, ensuring that data is appropriately
     appended or initialized.
     """
-    from spatialdata_io.readers.generic import read_generic
+    from spatialdata_io.readers.generic import generic
 
     input = Path(input)
     output = Path(output)
@@ -64,7 +64,7 @@ def generic_to_zarr(
     if not coordinate_system:
         coordinate_system = "global"
 
-    element = read_generic(
+    element = generic(
         input=input, data_axes=list(data_axes) if data_axes is not None else None, coordinate_system=coordinate_system
     )
 
