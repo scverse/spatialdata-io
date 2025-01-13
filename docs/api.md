@@ -1,5 +1,7 @@
 # API
 
+This section documents the Application Programming Interface (API) for the `spatialdata_io` package.
+
 ```{eval-rst}
 .. module:: spatialdata_io
 ```
