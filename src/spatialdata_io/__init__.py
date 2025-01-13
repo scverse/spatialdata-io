@@ -37,9 +37,9 @@ _readers_technologies = [
 ]
 
 _readers_file_types = [
-    "read_generic",
-    "read_image",
-    "read_geojson",
+    "generic",
+    "image",
+    "geojson",
 ]
 
 _converters = [

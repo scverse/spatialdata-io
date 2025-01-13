@@ -48,7 +48,7 @@ def generic_to_zarr(
 
     Notes
     -----
-    This function reads data using the `read_generic` method from `spatialdata_io` and writes it to a zarr store
+    This function reads data using the `generic()` method from `spatialdata_io` and writes it to a zarr store
     using the `SpatialData` class. It handles both existing and new zarr stores, ensuring that data is appropriately
     appended or initialized.
     """
