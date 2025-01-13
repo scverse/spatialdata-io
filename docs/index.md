@@ -9,7 +9,6 @@
 api.md
 cli.md
 changelog.md
-template_usage.md
 contributing.md
 references.md
 ```
