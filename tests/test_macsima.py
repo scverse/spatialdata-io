@@ -1,12 +1,16 @@
 import math
 from copy import deepcopy
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import dask.array as da
 import pytest
+from click.testing import CliRunner
+from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
 
+from spatialdata_io.__main__ import macsima_wrapper
 from spatialdata_io.readers.macsima import (
     ChannelMetadata,
     MultiChannelImage,
@@ -199,3 +203,29 @@ def test_mci_array_reference() -> None:
     assert not da.all(deepcopy_mci.data[0] == orig_arr1)
     # test that the original mci is not changed
     assert da.all(mci.data[0] == orig_arr1)
+
+
+@skip_if_below_python_version()
+@pytest.mark.parametrize("dataset", ["Lung_adc_demo", "MACSimaData_HCA/HumanLiverH35"])
+def test_cli_macimsa(runner: CliRunner, dataset: str) -> None:
+    f = Path("./data") / dataset
+    assert f.is_dir()
+    with TemporaryDirectory() as tmpdir:
+        output_zarr = Path(tmpdir) / "data.zarr"
+        result = runner.invoke(
+            macsima_wrapper,
+            [
+                "--input",
+                f,
+                "--output",
+                output_zarr,
+                "--subset",
+                500,
+                "--c-subset",
+                1,
+                "--multiscale",
+                False,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        _ = read_zarr(output_zarr)
