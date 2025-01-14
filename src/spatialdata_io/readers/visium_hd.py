@@ -407,14 +407,22 @@ def _load_image(
             data = imread(path, **imread_kwargs)
             if len(data.shape) == 4:
                 # this happens for the cytassist, hires and lowres images; the umi image doesn't need processing
-                data = data.squeeze().transpose(2, 0, 1)
+                data = data.squeeze()
         else:
             if "MAX_IMAGE_PIXELS" in imread_kwargs:
                 from PIL import Image as ImagePIL
 
                 ImagePIL.MAX_IMAGE_PIXELS = dict(imread_kwargs).pop("MAX_IMAGE_PIXELS")
             # dask_image doesn't recognize .btf automatically and imageio v3 throws error due to pixel limit -> use imageio v2
-            data = imread2(path, **imread_kwargs).squeeze().transpose(2, 0, 1)
+            data = imread2(path, **imread_kwargs).squeeze()
+
+        if data.shape[-1] == 3:  # HE image in RGB format
+            data = data.transpose(2, 0, 1)
+        else:
+            assert data.shape[0] == min(
+                data.shape
+            ), "When the image is not in RGB, the first dimension should be the number of channels."
+
         image = DataArray(data, dims=("c", "y", "x"))
         parsed = Image2DModel.parse(image, scale_factors=scale_factors, rgb=None, **image_models_kwargs)
         images[dataset_id + suffix] = parsed
