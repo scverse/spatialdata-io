@@ -47,6 +47,7 @@ Contributions for addressing the below limitations are very welcomed.
 Please refer to the [documentation][link-docs]. In particular, the
 
 - [API documentation][link-api].
+- [CLI documentation][link-cli].
 
 ## Installation
 
@@ -109,3 +110,4 @@ Marconato, L., Palla, G., Yamauchi, K.A. et al. SpatialData: an open and univers
 [changelog]: https://spatialdata.scverse.org/projects/io/en/latest/changelog.html
 [link-docs]: https://spatialdata.scverse.org/projects/io/en/latest/
 [link-api]: https://spatialdata.scverse.org/projects/io/en/latest/api.html
+[link-cli]: https://spatialdata.scverse.org/projects/io/en/latest/cli.html
