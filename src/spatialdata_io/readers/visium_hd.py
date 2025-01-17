@@ -100,7 +100,11 @@ def visium_hd(
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
-    filename_prefix = f"{dataset_id}_"
+
+    if dataset_id is "":
+        filename_prefix = ""
+    else:
+        filename_prefix = f"{dataset_id}_"
 
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
