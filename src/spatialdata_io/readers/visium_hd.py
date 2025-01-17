@@ -101,7 +101,7 @@ def visium_hd(
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
 
-    if dataset_id is "":
+    if dataset_id == "":
         filename_prefix = ""
     else:
         filename_prefix = f"{dataset_id}_"
