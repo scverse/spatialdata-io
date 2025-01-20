@@ -83,6 +83,17 @@ def steinbock(
     adata.obs["cell_id"] = idx
     adata.obs["region"] = regions
     adata.obsm["spatial"] = adata.obs[["centroid-0", "centroid-1"]].to_numpy()
+
+    # duplicate of adata.obs['image']
+    del adata.obs["Image"]
+
+    # / is an invalid character
+    adata.var["Final Concentration"] = adata.var["Final Concentration / Dilution"]
+    del adata.var["Final Concentration / Dilution"]
+
+    # replace all spaces with underscores
+    adata.var.columns = adata.var.columns.str.replace(" ", "_")
+
     if len({f"{s}_labels" for s in samples}.difference(set(regions.unique()))):
         raise ValueError("Samples in table and images are inconsistent, please check.")
     table = TableModel.parse(adata, region=regions.unique().tolist(), region_key="region", instance_key="cell_id")
