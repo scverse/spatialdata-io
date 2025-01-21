@@ -202,9 +202,9 @@ def visium(
         radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
         transformations={
-            "global": transform_original,
-            "downscaled_hires": transform_hires,
-            "downscaled_lowres": transform_lowres,
+            dataset_id: transform_original,
+            f"{dataset_id}_downscaled_hires": transform_hires,
+            f"{dataset_id}_downscaled_lowres": transform_lowres,
         },
     )
     shapes[dataset_id] = circles
@@ -220,7 +220,7 @@ def visium(
             images[dataset_id + "_full_image"] = Image2DModel.parse(
                 full_image,
                 scale_factors=[2, 2, 2, 2],
-                transformations={"global": transform_original},
+                transformations={dataset_id: transform_original},
                 rgb=None,
                 **image_models_kwargs,
             )
@@ -231,14 +231,14 @@ def visium(
         image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image_hires = DataArray(image_hires, dims=("c", "y", "x"))
         images[dataset_id + "_hires_image"] = Image2DModel.parse(
-            image_hires, transformations={"downscaled_hires": Identity(), "global": transform_hires.inverse()}, rgb=None
+            image_hires, transformations={f"{dataset_id}_downscaled_hires": Identity(), dataset_id: transform_hires.inverse()}, rgb=None
         )
     if (path / VisiumKeys.IMAGE_LOWRES_FILE).exists():
         image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image_lowres = DataArray(image_lowres, dims=("c", "y", "x"))
         images[dataset_id + "_lowres_image"] = Image2DModel.parse(
             image_lowres,
-            transformations={"downscaled_lowres": Identity(), "global": transform_lowres.inverse()},
+            transformations={f"{dataset_id}_downscaled_lowres": Identity(), dataset_id: transform_lowres.inverse()},
             rgb=None,
         )
 
