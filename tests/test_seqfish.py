@@ -17,7 +17,7 @@ from tests._utils import skip_if_below_python_version
 @pytest.mark.parametrize(
     "dataset,expected", [("seqfish-2-test-dataset/instrument 2 official", "{'y': (0, 108), 'x': (0, 108)}")]
 )
-@pytest.mark.parametrize("rois", [[1], None])
+@pytest.mark.parametrize("rois", [["Roi1"], None])
 @pytest.mark.parametrize("cells_as_circles", [False, True])
 def test_example_data(dataset: str, expected: str, rois: list[int] | None, cells_as_circles: bool) -> None:
     f = Path("./data") / dataset
