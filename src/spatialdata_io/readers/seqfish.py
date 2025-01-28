@@ -298,7 +298,7 @@ def _get_n_pixels(ome_tiff_file: Path) -> int:
     with tifffile.TiffFile(ome_tiff_file, is_ome=True) as tif:
         page = tif.pages[0]
         shape = page.shape
-        n_pixels = np.array(shape).prod()
+        n_pixels = np.array(shape).prod().item()
         assert isinstance(n_pixels, int)
         return n_pixels
 
