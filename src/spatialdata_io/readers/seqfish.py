@@ -185,8 +185,8 @@ def seqfish(
         )
 
     def _get_scale_factors(raster_path: Path, raster_models_scale_factors: list[int] | None) -> list[int] | None:
-        sizes = _get_resolution_scale0(raster_path)
-        if sizes["x"] * sizes["y"] > LARGE_IMAGE_THRESHOLD and raster_models_scale_factors is None:
+        n_pixels = _get_n_pixels(raster_path)
+        if n_pixels > LARGE_IMAGE_THRESHOLD and raster_models_scale_factors is None:
             return [2, 2, 2]
         else:
             return raster_models_scale_factors
@@ -294,16 +294,13 @@ def _is_ome_tiff_multiscale(ome_tiff_file: Path) -> bool:
     return True
 
 
-def _get_resolution_scale0(ome_tiff_file: Path) -> dict[str, int]:
-    sizes = {}
+def _get_n_pixels(ome_tiff_file: Path) -> int:
     with tifffile.TiffFile(ome_tiff_file, is_ome=True) as tif:
-        ome_metadata = xmltodict.parse(tif.ome_metadata)
-        sizes["c"] = int(ome_metadata["OME"]["Image"]["Pixels"]["@SizeC"])
-        sizes["t"] = int(ome_metadata["OME"]["Image"]["Pixels"]["@SizeT"])
-        sizes["x"] = int(ome_metadata["OME"]["Image"]["Pixels"]["@SizeX"])
-        sizes["y"] = int(ome_metadata["OME"]["Image"]["Pixels"]["@SizeY"])
-        sizes["z"] = int(ome_metadata["OME"]["Image"]["Pixels"]["@SizeZ"])
-    return sizes
+        page = tif.pages[0]
+        shape = page.shape
+        n_pixels = np.array(shape).prod()
+        assert isinstance(n_pixels, int)
+        return n_pixels
 
 
 def _get_scale_factors_scale0(DAPI_path: Path) -> list[float]:

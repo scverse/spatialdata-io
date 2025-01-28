@@ -25,8 +25,9 @@ def test_example_data(dataset: str, expected: str, rois: list[int] | None, cells
     sdata = seqfish(f, cells_as_circles=cells_as_circles, rois=rois)
     from spatialdata import get_extent
 
-    extent = get_extent(sdata, exact=False)
+    extent = get_extent(sdata, exact=False, coordinate_system="Roi1")
     extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
+    del extent["z"]
     if cells_as_circles:
         # manual correction required to take into account for the circle radii
         expected = "{'y': (-2, 109), 'x': (-2, 109)}"
