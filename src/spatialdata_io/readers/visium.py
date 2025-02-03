@@ -33,6 +33,7 @@ def visium(
     fullres_image_file: str | Path | None = None,
     tissue_positions_file: str | Path | None = None,
     scalefactors_file: str | Path | None = None,
+    var_names_make_unique: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
@@ -72,6 +73,8 @@ def visium(
         Path to the tissue positions file.
     scalefactors_file
         Path to the scalefactors file.
+    var_names_make_unique
+        If `True`, call `.var_names_make_unique()` on each `AnnData` table.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -114,7 +117,10 @@ def visium(
     assert counts_file is not None
 
     if library_id is None and dataset_id is None:
-        raise ValueError("Cannot determine the `library_id`. Please provide `dataset_id`.")
+        raise ValueError(
+            "Cannot determine the `library_id`. Please provide `dataset_id`; the `dataset_id` value will be used to "
+            "name the elements in the `SpatialData` object."
+        )
 
     if dataset_id is not None:
         if dataset_id != library_id and library_id is not None:
@@ -210,6 +216,8 @@ def visium(
     shapes[dataset_id] = circles
     adata.obs["region"] = dataset_id
     table = TableModel.parse(adata, region=dataset_id, region_key="region", instance_key="spot_id")
+    if var_names_make_unique:
+        table.var_names_make_unique()
 
     images = {}
     if fullres_image_file is not None:
