@@ -1,9 +1,13 @@
 import math
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 import pytest
+from click.testing import CliRunner
+from spatialdata import read_zarr
 
+from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
     cell_id_str_from_prefix_suffix_uint32,
     prefix_suffix_uint32_from_cell_id_str,
@@ -40,12 +44,9 @@ def test_roundtrip_with_data_limits() -> None:
     assert np.array_equal(cell_id_str, f0(*f1(cell_id_str)))
 
 
-# The datasets should be downloaded from
-# https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/resources/xenium-example-data#test-data
-# and placed in the "data" directory; if you run the tests locally you may need to create a symlink in "tests/data"
-# pointing to "data".
-# The GitHub workflow "prepare_test_data.yaml" takes care of downloading the datasets and uploading an artifact for the
-# tests to use
+# See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml for instructions on
+# how to download and place the data on disk
+# TODO: add tests for Xenium 3.0.0
 @skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
@@ -63,3 +64,24 @@ def test_example_data(dataset: str, expected: str) -> None:
     extent = get_extent(sdata, exact=False)
     extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
     assert str(extent) == expected
+
+
+# TODO: add tests for Xenium 3.0.0
+@skip_if_below_python_version()
+@pytest.mark.parametrize("dataset", ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs"])
+def test_cli_xenium(runner: CliRunner, dataset: str) -> None:
+    f = Path("./data") / dataset
+    assert f.is_dir()
+    with TemporaryDirectory() as tmpdir:
+        output_zarr = Path(tmpdir) / "data.zarr"
+        result = runner.invoke(
+            xenium_wrapper,
+            [
+                "--input",
+                f,
+                "--output",
+                output_zarr,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        _ = read_zarr(output_zarr)

@@ -12,19 +12,19 @@
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
--   10x Genomics Visium®
--   10x Genomics Visium HD®
--   10x Genomics Xenium®
--   Akoya PhenoCycler® (formerly CODEX®)
--   Curio Seeker®
--   DBiT-seq
--   MCMICRO (output data)
--   NanoString CosMx®
--   Spatial Genomics GenePS® (seqFISH)
--   Steinbock (output data)
--   STOmics Stereo-seq®
--   Vizgen MERSCOPE® (MERFISH)
--   MACSima® (MACS® iQ View output)
+- 10x Genomics Visium®
+- 10x Genomics Visium HD®
+- 10x Genomics Xenium®
+- Akoya PhenoCycler® (formerly CODEX®)
+- Curio Seeker®
+- DBiT-seq
+- MCMICRO (output data)
+- NanoString CosMx®
+- Spatial Genomics GenePS® (seqFISH)
+- Steinbock (output data)
+- STOmics Stereo-seq®
+- Vizgen MERSCOPE® (MERFISH)
+- MACSima® (MACS® iQ View output)
 
 Note: all mentioned technologies are registered trademarks of their respective companies.
 
@@ -32,7 +32,7 @@ Note: all mentioned technologies are registered trademarks of their respective c
 
 Contributions for addressing the below limitations are very welcomed.
 
--   Only Stereo-seq 7.x is supported, 8.x is not currently supported. https://github.com/scverse/spatialdata-io/issues/161
+- Only Stereo-seq 7.x is supported, 8.x is not currently supported. https://github.com/scverse/spatialdata-io/issues/161
 
 ### How to Contribute
 
@@ -46,7 +46,8 @@ Contributions for addressing the below limitations are very welcomed.
 
 Please refer to the [documentation][link-docs]. In particular, the
 
--   [API documentation][link-api].
+- [API documentation][link-api].
+- [CLI documentation][link-cli].
 
 ## Installation
 
@@ -76,14 +77,29 @@ If you found a bug, please use the [issue tracker][issue-tracker].
 
 Technologies that can be read into `SpatialData` objects using third-party libraries:
 
--   METASPACE (MALDI, ...): [metaspace-converter](https://github.com/metaspace2020/metaspace-converter)
--   PhenoCycler®: [SOPA](https://github.com/gustaveroussy/sopa)
--   MACSima®: [SOPA](https://github.com/gustaveroussy/sopa)
--   Hyperion® (Imaging Mass Cytometry): [SOPA](https://github.com/gustaveroussy/sopa)
+- METASPACE (MALDI, ...): [metaspace-converter](https://github.com/metaspace2020/metaspace-converter)
+- PhenoCycler®: [SOPA](https://github.com/gustaveroussy/sopa)
+- MACSima®: [SOPA](https://github.com/gustaveroussy/sopa)
+- Hyperion® (Imaging Mass Cytometry): [SOPA](https://github.com/gustaveroussy/sopa)
 
 ## Disclaimer
 
 This library is community maintained and is not officially endorsed by the aforementioned spatial technology companies. As such, we cannot offer any warranty of the correctness of the representation. Furthermore, we cannot ensure the correctness of the readers for every data version as the technologies evolve and update their formats. If you find a bug or notice a misrepresentation of the data please report it via our [Bug Tracking System](https://github.com/scverse/spatialdata-io/issues?q=sort%3Aupdated-desc+is%3Aissue+is%3Aopen) so that it can be addressed either by the maintainers of this library or by the community.
+
+## Solutions to common problems
+
+### Problem: I cannot visualize the data, everything is slow
+
+Solution: after parsing the data with `spatialdata-io` readers, you need to write it to Zarr and read it again. Otherwise the performance advantage given by the SpatialData Zarr format will not available.
+
+```python
+from spatialdata_io import xenium
+from spatialdata import read_zarr
+
+sdata = xenium("raw_data")
+sdata.write("data.zarr")
+sdata = read_zarr("sdata.zarr")
+```
 
 ## Citation
 
@@ -94,3 +110,4 @@ Marconato, L., Palla, G., Yamauchi, K.A. et al. SpatialData: an open and univers
 [changelog]: https://spatialdata.scverse.org/projects/io/en/latest/changelog.html
 [link-docs]: https://spatialdata.scverse.org/projects/io/en/latest/
 [link-api]: https://spatialdata.scverse.org/projects/io/en/latest/api.html
+[link-cli]: https://spatialdata.scverse.org/projects/io/en/latest/cli.html

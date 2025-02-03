@@ -23,6 +23,7 @@ urls.Source = "https://github.com/scverse/spatialdata-io"
 urls.Home-page = "https://github.com/scverse/spatialdata-io"
 dependencies = [
     "anndata",
+    "click",
     "numpy",
     "scanpy",
     "spatialdata>=0.2.6",
@@ -50,6 +51,7 @@ doc = [
     "sphinxcontrib-bibtex>=1.0.0",
     "sphinx-autodoc-typehints",
     "sphinx-design",
+    "sphinx-click",
     # For notebooks
     "ipython>=8.6.0",
     "sphinx-copybutton",

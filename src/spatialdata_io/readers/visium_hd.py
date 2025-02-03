@@ -16,10 +16,16 @@ from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
+from numpy.random import default_rng
 from shapely import Polygon
 from skimage.transform import ProjectiveTransform, warp
 from spatial_image import SpatialImage
-from spatialdata import SpatialData, get_extent
+from spatialdata import (
+    SpatialData,
+    get_extent,
+    rasterize_bins,
+    rasterize_bins_link_table_to_labels,
+)
 from spatialdata._types import ArrayLike
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata.transformations import Affine, Identity, Scale, set_transformation
@@ -27,6 +33,8 @@ from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumHDKeys
 from spatialdata_io._docs import inject_docs
+
+RNG = default_rng(0)
 
 
 @inject_docs(vx=VisiumHDKeys)
@@ -36,8 +44,10 @@ def visium_hd(
     filtered_counts_file: bool = True,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
+    annotate_table_by_labels: bool = False,
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
+    var_names_make_unique: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -54,7 +64,8 @@ def visium_hd(
     path
         Path to directory containing the *10x Genomics* Visium HD output.
     dataset_id
-        Unique identifier of the dataset. If `None`, it tries to infer it from the file name of the feature slice file.
+        Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it tries to
+         infer it from the file name of the feature slice file.
     filtered_counts_file
         It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to
         ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
@@ -64,12 +75,17 @@ def visium_hd(
     bins_as_squares
         If `True`, the bins are represented as squares. If `False`, the bins are represented as circles. For a correct
         visualization one should use squares.
+    annotate_table_by_labels
+        If `True`, the tables will annotate labels layers representing the bins, if `False`, the tables will annotate
+        shapes layer.
     fullres_image_file
         Path to the full-resolution image. By default the image is searched in the ``{vx.MICROSCOPE_IMAGE!r}``
         directory.
     load_all_images
         If `False`, load only the full resolution, high resolution and low resolution images. If `True`, also the
         following images: ``{vx.IMAGE_CYTASSIST!r}``.
+    var_names_make_unique
+        If `True`, call `.var_names_make_unique()` on each `AnnData` table.
     imread_kwargs
         Keyword arguments for :func:`imageio.imread`.
     image_models_kwargs
@@ -86,10 +102,12 @@ def visium_hd(
     tables = {}
     shapes = {}
     images: dict[str, Any] = {}
+    labels: dict[str, Any] = {}
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
-    filename_prefix = f"{dataset_id}_"
+
+    filename_prefix = _get_filename_prefix(path, dataset_id)
 
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
@@ -254,6 +272,8 @@ def visium_hd(
             region_key=str(VisiumHDKeys.REGION_KEY),
             instance_key=str(VisiumHDKeys.INSTANCE_KEY),
         )
+        if var_names_make_unique:
+            tables[bin_size_str].var_names_make_unique()
 
     # read full resolution image
     if fullres_image_file is not None:
@@ -391,7 +411,32 @@ def visium_hd(
             # we replace the cytassist image with the warped image
             images[dataset_id + "_cytassist_image"] = warped
 
-    return SpatialData(tables=tables, images=images, shapes=shapes)
+    sdata = SpatialData(tables=tables, images=images, shapes=shapes, labels=labels)
+
+    if annotate_table_by_labels:
+        for bin_size_str in bin_sizes:
+
+            shapes_name = dataset_id + "_" + bin_size_str
+
+            # add labels layer (rasterized bins).
+            labels_name = f"{dataset_id}_{bin_size_str}_labels"
+
+            labels_element = rasterize_bins(
+                sdata,
+                bins=shapes_name,
+                table_name=bin_size_str,
+                row_key=VisiumHDKeys.ARRAY_ROW,
+                col_key=VisiumHDKeys.ARRAY_COL,
+                value_key=None,
+                return_region_as_labels=True,
+            )
+
+            sdata[labels_name] = labels_element
+            rasterize_bins_link_table_to_labels(
+                sdata=sdata, table_name=bin_size_str, rasterized_labels_name=labels_name
+            )
+
+    return sdata
 
 
 def _infer_dataset_id(path: Path) -> str:
@@ -399,7 +444,8 @@ def _infer_dataset_id(path: Path) -> str:
     files = [file.name for file in path.iterdir() if file.is_file() and file.name.endswith(suffix)]
     if len(files) == 0 or len(files) > 1:
         raise ValueError(
-            f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an argument."
+            f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an "
+            f"argument. The `dataset_id` value will be used to name the elements in the `SpatialData` object."
         )
     return files[0].replace(suffix, "")
 
@@ -418,14 +464,22 @@ def _load_image(
             data = imread(path, **imread_kwargs)
             if len(data.shape) == 4:
                 # this happens for the cytassist, hires and lowres images; the umi image doesn't need processing
-                data = data.squeeze().transpose(2, 0, 1)
+                data = data.squeeze()
         else:
             if "MAX_IMAGE_PIXELS" in imread_kwargs:
                 from PIL import Image as ImagePIL
 
                 ImagePIL.MAX_IMAGE_PIXELS = dict(imread_kwargs).pop("MAX_IMAGE_PIXELS")
             # dask_image doesn't recognize .btf automatically and imageio v3 throws error due to pixel limit -> use imageio v2
-            data = imread2(path, **imread_kwargs).squeeze().transpose(2, 0, 1)
+            data = imread2(path, **imread_kwargs).squeeze()
+
+        if data.shape[-1] == 3:  # HE image in RGB format
+            data = data.transpose(2, 0, 1)
+        else:
+            assert data.shape[0] == min(
+                data.shape
+            ), "When the image is not in RGB, the first dimension should be the number of channels."
+
         image = DataArray(data, dims=("c", "y", "x"))
         parsed = Image2DModel.parse(image, scale_factors=scale_factors, rgb=None, **image_models_kwargs)
         images[dataset_id + suffix] = parsed
@@ -467,6 +521,16 @@ def _decompose_projective_matrix(projective_matrix: ArrayLike) -> tuple[ArrayLik
     projective_shift = np.linalg.inv(affine_matrix) @ projective_matrix
     projective_shift /= projective_shift[2, 2]
     return affine_matrix, projective_shift
+
+
+def _get_filename_prefix(path: Path, dataset_id: str) -> str:
+    if (path / f"{dataset_id}_{VisiumHDKeys.FEATURE_SLICE_FILE.value}").exists():
+        return f"{dataset_id}_"
+    assert (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists(), (
+        f"Cannot locate the feature slice file, please ensure the file is present in the {path} directory and/or adjust"
+        "the `dataset_id` parameter"
+    )
+    return ""
 
 
 def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:

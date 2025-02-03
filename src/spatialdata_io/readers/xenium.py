@@ -84,7 +84,7 @@ def xenium(
 
     .. seealso::
 
-        - `10X Genomics Xenium file format  <https://cf.10xgenomics.com/supp/xenium/xenium_documentation.html>`_.
+        - `10X Genomics Xenium file format  <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
 
     Parameters
     ----------
@@ -286,7 +286,7 @@ def xenium(
     else:
         if morphology_focus:
             morphology_focus_dir = path / XeniumKeys.MORPHOLOGY_FOCUS_DIR
-            files = {f for f in os.listdir(morphology_focus_dir) if f.endswith(".ome.tif")}
+            files = {f for f in os.listdir(morphology_focus_dir) if f.endswith(".ome.tif") and not f.startswith("._")}
             if len(files) not in [1, 4]:
                 raise ValueError(
                     "Expected 1 (no segmentation kit) or 4 (segmentation kit) files in the morphology focus directory, "
