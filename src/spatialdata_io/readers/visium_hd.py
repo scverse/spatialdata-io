@@ -45,6 +45,7 @@ def visium_hd(
     annotate_table_by_labels: bool = False,
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
+    var_names_make_unique: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -61,7 +62,8 @@ def visium_hd(
     path
         Path to directory containing the *10x Genomics* Visium HD output.
     dataset_id
-        Unique identifier of the dataset. If `None`, it tries to infer it from the file name of the feature slice file.
+        Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it tries to
+         infer it from the file name of the feature slice file.
     filtered_counts_file
         It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to
         ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
@@ -80,6 +82,8 @@ def visium_hd(
     load_all_images
         If `False`, load only the full resolution, high resolution and low resolution images. If `True`, also the
         following images: ``{vx.IMAGE_CYTASSIST!r}``.
+    var_names_make_unique
+        If `True`, call `.var_names_make_unique()` on each `AnnData` table.
     imread_kwargs
         Keyword arguments for :func:`imageio.imread`.
     image_models_kwargs
@@ -100,7 +104,8 @@ def visium_hd(
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
-    filename_prefix = f"{dataset_id}_"
+
+    filename_prefix = _get_filename_prefix(path, dataset_id)
 
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
@@ -265,6 +270,8 @@ def visium_hd(
             region_key=str(VisiumHDKeys.REGION_KEY),
             instance_key=str(VisiumHDKeys.INSTANCE_KEY),
         )
+        if var_names_make_unique:
+            tables[bin_size_str].var_names_make_unique()
 
     # read full resolution image
     if fullres_image_file is not None:
@@ -388,7 +395,8 @@ def _infer_dataset_id(path: Path) -> str:
     files = [file.name for file in path.iterdir() if file.is_file() and file.name.endswith(suffix)]
     if len(files) == 0 or len(files) > 1:
         raise ValueError(
-            f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an argument."
+            f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an "
+            f"argument. The `dataset_id` value will be used to name the elements in the `SpatialData` object."
         )
     return files[0].replace(suffix, "")
 
@@ -438,6 +446,16 @@ def _get_affine(coefficients: list[int]) -> Affine:
     assert np.allclose(matrix[2], [0, 0, 1], atol=1e-2), matrix
     matrix[2] = [0, 0, 1]
     return Affine(matrix, input_axes=("x", "y"), output_axes=("x", "y"))
+
+
+def _get_filename_prefix(path: Path, dataset_id: str) -> str:
+    if (path / f"{dataset_id}_{VisiumHDKeys.FEATURE_SLICE_FILE.value}").exists():
+        return f"{dataset_id}_"
+    assert (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists(), (
+        f"Cannot locate the feature slice file, please ensure the file is present in the {path} directory and/or adjust"
+        "the `dataset_id` parameter"
+    )
+    return ""
 
 
 def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
