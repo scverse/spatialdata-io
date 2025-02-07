@@ -17,7 +17,6 @@ from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
 from numpy.random import default_rng
-from shapely import Polygon
 from skimage.transform import ProjectiveTransform, warp
 from spatial_image import SpatialImage
 from spatialdata import (
@@ -380,7 +379,6 @@ def visium_hd(
             x1 -= 1
             y1 -= 1
             corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-            Polygon(corners)
 
             transformed_corners = []
             for x, y in corners:
@@ -394,7 +392,7 @@ def visium_hd(
                 np.max(transformed_corners_array[:, 1]),
             )
             # the first two components are <= 0, we just discard them since the cytassist image has a lot of padding
-            # and therefore we discard pixels with negative coordinates
+            # and therefore we can safely discard pixels with negative coordinates
             transformed_shape = (np.ceil(transformed_bounds[2]), np.ceil(transformed_bounds[3]))
 
             # flip xy
