@@ -721,10 +721,10 @@ def _parse_version_of_xenium_analyzer(
 ) -> packaging.version.Version | None:
 
     # After using xeniumranger (e.g. 3.0.1.1) to resegment data from previous versions (e.g. xenium-1.6.0.7), a new dict is added to
-    # `specs`, named 'xenium_ranger', which contains the key 'version' and whose value specifies the version of xeniumrenger used to
+    # `specs`, named 'xenium_ranger', which contains the key 'version' and whose value specifies the version of xeniumranger used to
     # resegment the data (e.g. 'xenium-3.0.1.1').
-    # Using this version (rather than the original 'analysis_sw_version'), corrects branching and parsing when using xenium() on the
-    # xeniumranger resegmented /outs/ folder path
+    # When parsing the outs/ folder from the resegmented data, this version (rather than the original 'analysis_sw_version') is used
+    # whenever a code branch is dependent on the data version
     if specs.get(XeniumKeys.XENIUM_RANGER):
         string = specs[XeniumKeys.XENIUM_RANGER]["version"]
     else:
