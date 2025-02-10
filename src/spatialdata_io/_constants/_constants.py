@@ -148,6 +148,9 @@ class XeniumKeys(ModeEnum):
 
     # specs keys
     ANALYSIS_SW_VERSION = "analysis_sw_version"
+    # spec which contains xeniumranger version whenever xeniumranger is used to resegment the data; the new, resegmented data
+    # needs to be parsed by considering the xeniumranger version
+    XENIUM_RANGER = "xenium_ranger"
 
     # zarr file with labels file and cell summary keys
     CELLS_ZARR = "cells.zarr.zip"
