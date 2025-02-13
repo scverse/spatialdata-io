@@ -298,7 +298,6 @@ def xenium(
                     f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)} to "
                     f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(len(files) - 1)}, found {files}"
                 )
-            # the 'dummy' channel is a temporary workaround, see _get_images() for more details
             if len(files) == 1:
                 channel_names = {
                     0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
@@ -309,7 +308,6 @@ def xenium(
                     1: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_1.value,
                     2: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_2.value,
                     3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3.value,
-                    4: "dummy",
                 }
             # this reads the scale 0 for all the 1 or 4 channels (the other files are parsed automatically)
             # dask.image.imread will call tifffile.imread which will give a warning saying that reading multi-file
@@ -601,6 +599,8 @@ def xenium_aligned_image(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     dims: tuple[str, ...] | None = None,
+    rgba: bool = False,
+    c_coords: list[str] | None = None,
 ) -> DataTree:
     """
     Read an image aligned to a Xenium dataset, with an optional alignment file.
@@ -619,6 +619,13 @@ def xenium_aligned_image(
         Example: for an image with shape (1, y, 1, x, 3), use dims=("anystring", "y", "dummy", "x", "c"). Values that
         are not "c", "x" or "y" are considered dummy dimensions and will be squeezed (the data must have len 1 for
         those axes).
+    rgba
+        Interprets the `c` channel as RGBA, by setting the channel names to `r`, `g`, `b` (`a`). When `c_coords` is not
+        `None`, this argument is ignored.
+    c_coords
+        Channel names for the image. By default, the function will try to infer the channel names from the image
+        shape and name (by detecting if the name suggests that the image is a H&E image). Example: for an RGB image with
+        shape (3, y, x), use c_coords=["r", "g", "b"].
 
     Returns
     -------
@@ -645,10 +652,6 @@ def xenium_aligned_image(
         else:
             assert len(image.shape) == 3
             assert image.shape[0] in [3, 4]
-            if image.shape[0] == 4:
-                # as explained before in _get_images(), we need to add a dummy channel until we support 4-channel images as
-                # non-RGBA images in napari
-                image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
             dims = ("c", "y", "x")
     else:
         logging.info(f"Image has shape {image.shape}, parsing with dims={dims}.")
@@ -667,10 +670,19 @@ def xenium_aligned_image(
         alignment = pd.read_csv(alignment_file, header=None).values
         transformation = Affine(alignment, input_axes=("x", "y"), output_axes=("x", "y"))
 
+    if c_coords is None and (rgba or image_path.name.endswith(XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX)):
+        c_index = dims.index("c")
+        n_channels = image.shape[c_index]
+        if n_channels == 3:
+            c_coords = ["r", "g", "b"]
+        elif n_channels == 4:
+            c_coords = ["r", "g", "b", "a"]
+
     return Image2DModel.parse(
         image,
         dims=dims,
         transformations={"global": transformation},
+        c_coords=c_coords,
         **image_models_kwargs,
     )
 
@@ -719,7 +731,10 @@ def _parse_version_of_xenium_analyzer(
     specs: dict[str, Any],
     hide_warning: bool = True,
 ) -> packaging.version.Version | None:
-    string = specs[XeniumKeys.ANALYSIS_SW_VERSION]
+    if specs.get(XeniumKeys.XENIUM_RANGER):
+        string = specs[XeniumKeys.XENIUM_RANGER]["version"]
+    else:
+        string = specs[XeniumKeys.ANALYSIS_SW_VERSION]
     pattern = r"^(?:x|X)enium-(\d+\.\d+\.\d+(\.\d+-\d+)?)"
 
     result = re.search(pattern, string)
@@ -780,6 +795,3 @@ def prefix_suffix_uint32_from_cell_id_str(cell_id_str: ArrayLike) -> tuple[Array
     cell_id_prefix = [int(x, 16) for x in cell_id_prefix_hex]
 
     return np.array(cell_id_prefix, dtype=np.uint32), np.array(dataset_suffix_int)
-
-
-##
