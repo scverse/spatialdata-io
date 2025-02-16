@@ -46,6 +46,12 @@ def test_compute_chunk_sizes_positions(
             (0, 0),
             np.array([[[0, 0, 2, 2], [2, 0, 1, 2]], [[0, 2, 2, 1], [2, 2, 1, 1]]]),
         ),
+        (
+            (2, 2),
+            (1, 1),
+            (-1, 0),
+            np.array([[[0, -1, 1, 1], [1, -1, 1, 1]], [[0, 0, 1, 1], [1, 0, 1, 1]]]),
+        ),
     ],
 )
 def test_compute_chunks(
@@ -56,4 +62,4 @@ def test_compute_chunks(
 ) -> None:
     tiles = _compute_chunks(dimensions, chunk_size, min_coordinates)
 
-    assert (tiles == result).all(), tiles
+    assert (tiles == result).all()
