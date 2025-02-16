@@ -79,7 +79,7 @@ def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
-def _compute_sizes_positions(size: int, chunk: int, min_coord: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
+def _compute_chunk_sizes_positions(size: int, chunk: int, min_coord: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
     """Calculate chunk sizes and positions for a given dimension and chunk size"""
     # All chunks have the same size except for the last one
     positions = np.arange(min_coord, size, chunk)
@@ -117,8 +117,8 @@ def _compute_chunks(
         Array of shape (n_tiles_x, n_tiles_y, 4). Each entry defines a tile
         as (x, y, width, height).
     """
-    x_positions, widths = _compute_sizes_positions(dimensions[1], chunk_size[1], min_coord=min_coordinates[1])
-    y_positions, heights = _compute_sizes_positions(dimensions[0], chunk_size[0], min_coord=min_coordinates[0])
+    x_positions, widths = _compute_chunk_sizes_positions(dimensions[1], chunk_size[1], min_coord=min_coordinates[1])
+    y_positions, heights = _compute_chunk_sizes_positions(dimensions[0], chunk_size[0], min_coord=min_coordinates[0])
 
     # Generate the tiles
     tiles = np.array(
@@ -139,7 +139,7 @@ def _read_chunks(
     dtype: np.number,
     **func_kwargs: Any,
 ) -> list[list[da.array]]:
-    """Abstract factory method to tile a large microscopy image.
+    """Abstract method to tile a large microscopy image.
 
     Parameters
     ----------
