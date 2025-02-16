@@ -10,11 +10,11 @@ from numpy.typing import NDArray
 def _compute_chunk_sizes_positions(size: int, chunk: int, min_coord: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
     """Calculate chunk sizes and positions for a given dimension and chunk size"""
     # All chunks have the same size except for the last one
-    positions = np.arange(min_coord, size, chunk)
+    positions = np.arange(min_coord, min_coord + size, chunk)
     lengths = np.full_like(positions, chunk, dtype=int)
 
-    if positions[-1] + chunk > size:
-        lengths[-1] = size - positions[-1]
+    if positions[-1] + chunk > size + min_coord:
+        lengths[-1] = size + min_coord - positions[-1]
 
     return positions, lengths
 
