@@ -123,8 +123,8 @@ def _compute_chunks(
     # Generate the tiles
     tiles = np.array(
         [
-            [[x, y, w, h] for y, h in zip(y_positions, heights, strict=True)]
-            for x, w in zip(x_positions, widths, strict=True)
+            [[x, y, w, h] for x, w in zip(x_positions, widths, strict=True)]
+            for y, h in zip(y_positions, heights, strict=True)
         ],
         dtype=int,
     )
@@ -136,7 +136,7 @@ def _read_chunks(
     slide: Any,
     coords: NDArray[np.int_],
     n_channel: int,
-    dtype: type,
+    dtype: np.number,
     **func_kwargs: Any,
 ) -> list[list[da.array]]:
     """Abstract factory method to tile a large microscopy image.
@@ -185,23 +185,23 @@ def _read_chunks(
             da.from_delayed(
                 delayed(func)(
                     slide,
-                    x0=coords[x, y, 0],
-                    y0=coords[x, y, 1],
-                    width=coords[x, y, 2],
-                    height=coords[x, y, 3],
+                    x0=coords[y, x, 0],
+                    y0=coords[y, x, 1],
+                    width=coords[y, x, 2],
+                    height=coords[y, x, 3],
                     **func_kwargs,
                 ),
                 dtype=dtype,
-                shape=(n_channel, *coords[x, y, [2, 3]]),
+                shape=(n_channel, *coords[y, x, [3, 2]]),
             )
-            for y in range(coords.shape[0])
+            for x in range(coords.shape[1])
         ]
-        for x in range(coords.shape[1])
+        for y in range(coords.shape[0])
     ]
     return chunks
 
 
-def _tiff_to_chunks(input: Path) -> list[list[DaskArray[np.int_]]]:
+def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[DaskArray[np.int_]]]:
     """Chunkwise reader for tiff files.
 
     Parameters
@@ -216,26 +216,32 @@ def _tiff_to_chunks(input: Path) -> list[list[DaskArray[np.int_]]]:
     # Lazy file reader
     slide = tiffmmemap(input)
 
-    # Get dimensions in (y, x)
-    slide_dimensions = slide.shape[:-1]
+    # Transpose to cyx order
+    slide = np.transpose(slide, (axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"]))
+
+    # Get dimensions in (x, y)
+    slide_dimensions = slide.shape[2], slide.shape[1]
 
     # Get number of channels (c)
-    n_channel = slide.shape[-1]
+    n_channel = slide.shape[0]
 
     # Compute chunk coords
     chunk_coords = _compute_chunks(slide_dimensions, chunk_size=DEFAULT_CHUNKSIZE, min_coordinates=(0, 0))
 
     # Define reader func
     def _reader_func(slide: NDArray[np.int_], x0: int, y0: int, width: int, height: int) -> NDArray[np.int_]:
-        return np.array(slide[y0 : y0 + height, x0 : x0 + width, :]).T
+        return np.array(slide[:, y0 : y0 + height, x0 : x0 + width])
 
     return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
 
 
 def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> DataArray:
     """Reads an image file and returns a parsed Image2DModel"""
+    # Map passed data axes to position of dimension
+    axes_dim_mapping = {axes: ndim for ndim, axes in enumerate(data_axes)}
+
     if input.suffix in [".tiff", ".tif"]:
-        chunks = _tiff_to_chunks(input)
+        chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping)
     else:
         raise NotImplementedError(f"File format {input.suffix} not implemented")
 
