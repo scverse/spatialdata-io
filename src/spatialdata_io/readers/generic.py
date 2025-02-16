@@ -1,22 +1,33 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any, Protocol, TypeVar
 
+import dask.array as da
 import numpy as np
-from dask_image.imread import imread
+from dask import delayed
 from geopandas import GeoDataFrame
+from numpy.typing import NDArray
 from spatialdata._docs import docstring_parameter
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.models._utils import DEFAULT_COORDINATE_SYSTEM
 from spatialdata.transformations import Identity
+from tifffile import memmap as tiffmmemap
 from xarray import DataArray
 
-VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+VALID_IMAGE_TYPES = [".tif", ".tiff"]
 VALID_SHAPE_TYPES = [".geojson"]
+DEFAULT_CHUNKSIZE = (1000, 1000)
 
 __all__ = ["generic", "geojson", "image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
+
+T = TypeVar("T", bound=np.generic)  # Restrict to NumPy scalar types
+
+
+class DaskArray(Protocol[T]):
+    dtype: np.dtype[T]
 
 
 @docstring_parameter(
@@ -68,11 +79,166 @@ def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
+def _compute_sizes_positions(size: int, chunk: int, min_coord: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
+    """Calculate chunk sizes and positions for a given dimension and chunk size"""
+    # All chunks have the same size except for the last one
+    positions = np.arange(min_coord, size, chunk)
+    lengths = np.full_like(positions, chunk, dtype=int)
+
+    if positions[-1] + chunk > size:
+        lengths[-1] = size - positions[-1]
+
+    return positions, lengths
+
+
+def _compute_chunks(
+    dimensions: tuple[int, int],
+    chunk_size: tuple[int, int],
+    min_coordinates: tuple[int, int] = (0, 0),
+) -> NDArray[np.int_]:
+    """Create all chunk specs for a given image and chunk size.
+
+    Creates specifications (x, y, width, height) with (x, y) being the upper left corner
+    of chunks of size chunk_size. Chunks at the edges correspond to the remainder of
+    chunk size and dimensions
+
+    Parameters
+    ----------
+    dimensions : tuple[int, int]
+        Size of the image in (width, height).
+    chunk_size : tuple[int, int]
+        Size of individual tiles in (width, height).
+    min_coordinates : tuple[int, int], optional
+        Minimum coordinates (x, y) in the image, defaults to (0, 0).
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape (n_tiles_x, n_tiles_y, 4). Each entry defines a tile
+        as (x, y, width, height).
+    """
+    x_positions, widths = _compute_sizes_positions(dimensions[1], chunk_size[1], min_coord=min_coordinates[1])
+    y_positions, heights = _compute_sizes_positions(dimensions[0], chunk_size[0], min_coord=min_coordinates[0])
+
+    # Generate the tiles
+    tiles = np.array(
+        [
+            [[x, y, w, h] for y, h in zip(y_positions, heights, strict=True)]
+            for x, w in zip(x_positions, widths, strict=True)
+        ],
+        dtype=int,
+    )
+    return tiles
+
+
+def _read_chunks(
+    func: Callable[..., NDArray[np.int_]],
+    slide: Any,
+    coords: NDArray[np.int_],
+    n_channel: int,
+    dtype: type,
+    **func_kwargs: Any,
+) -> list[list[da.array]]:
+    """Abstract factory method to tile a large microscopy image.
+
+    Parameters
+    ----------
+    func
+        Function to retrieve a rectangular tile from the slide image. Must take the
+        arguments:
+
+            - slide Full slide image
+            - x0: x (col) coordinate of upper left corner of chunk
+            - y0: y (row) coordinate of upper left corner of chunk
+            - width: Width of chunk
+            - height: Height of chunk
+
+        and should return the chunk as numpy array of shape (c, y, x)
+    slide
+        Slide image in lazyly loaded format compatible with func
+    coords
+        Coordinates of the upper left corner of the image in format (n_row_x, n_row_y, 4)
+        where the last dimension defines the rectangular tile in format (x, y, width, height).
+        n_row_x represents the number of chunks in x dimension and n_row_y the number of chunks
+        in y dimension.
+    n_channel
+        Number of channels in array
+    dtype
+        Data type of image
+    func_kwargs
+        Additional keyword arguments passed to func
+
+    Returns
+    -------
+    list[list[da.array]]
+        List (length: n_row_x) of lists (length: n_row_y) of chunks.
+        Represents all chunks of the full image.
+    """
+    func_kwargs = func_kwargs if func_kwargs else {}
+
+    # Collect each delayed chunk as item in list of list
+    # Inner list becomes dim=-1 (cols/x)
+    # Outer list becomes dim=-2 (rows/y)
+    # see dask.array.block
+    chunks = [
+        [
+            da.from_delayed(
+                delayed(func)(
+                    slide,
+                    x0=coords[x, y, 0],
+                    y0=coords[x, y, 1],
+                    width=coords[x, y, 2],
+                    height=coords[x, y, 3],
+                    **func_kwargs,
+                ),
+                dtype=dtype,
+                shape=(n_channel, *coords[x, y, [2, 3]]),
+            )
+            for y in range(coords.shape[0])
+        ]
+        for x in range(coords.shape[1])
+    ]
+    return chunks
+
+
+def _tiff_to_chunks(input: Path) -> list[list[DaskArray[np.int_]]]:
+    """Chunkwise reader for tiff files.
+
+    Parameters
+    ----------
+    input
+        Path to image
+
+    Returns
+    -------
+    list[list[DaskArray]]
+    """
+    # Lazy file reader
+    slide = tiffmmemap(input)
+
+    # Get dimensions in (y, x)
+    slide_dimensions = slide.shape[:-1]
+
+    # Get number of channels (c)
+    n_channel = slide.shape[-1]
+
+    # Compute chunk coords
+    chunk_coords = _compute_chunks(slide_dimensions, chunk_size=DEFAULT_CHUNKSIZE, min_coordinates=(0, 0))
+
+    # Define reader func
+    def _reader_func(slide: NDArray[np.int_], x0: int, y0: int, width: int, height: int) -> NDArray[np.int_]:
+        return np.array(slide[y0 : y0 + height, x0 : x0 + width, :]).T
+
+    return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
+
+
 def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> DataArray:
-    """Reads an image file and returns a parsed Image2D spatial element"""
-    # this function is just a draft, the more general one will be available when
-    # https://github.com/scverse/spatialdata-io/pull/234 is merged
-    image = imread(input)
-    if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
-        image = np.squeeze(image, axis=0)
-    return Image2DModel.parse(image, dims=data_axes, transformations={coordinate_system: Identity()})
+    """Reads an image file and returns a parsed Image2DModel"""
+    if input.suffix in [".tiff", ".tif"]:
+        chunks = _tiff_to_chunks(input)
+    else:
+        raise NotImplementedError(f"File format {input.suffix} not implemented")
+
+    img = da.block(chunks, allow_unknown_chunksizes=True)
+
+    return Image2DModel.parse(img, dims=data_axes, transformations={coordinate_system: Identity()})
