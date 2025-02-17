@@ -7,6 +7,7 @@ from typing import Protocol, TypeVar
 
 import dask.array as da
 import numpy as np
+from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from numpy.typing import NDArray
 from spatialdata._docs import docstring_parameter
@@ -18,7 +19,7 @@ from xarray import DataArray
 
 from ._utils._image import _compute_chunks, _read_chunks
 
-VALID_IMAGE_TYPES = [".tif", ".tiff"]
+VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
 DEFAULT_CHUNKSIZE = (1000, 1000)
 
@@ -123,6 +124,10 @@ def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> Data
 
     if input.suffix in [".tiff", ".tif"]:
         chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping)
+    elif input.suffix in [".png", "jpg", "jpeg"]:
+        image = imread(input)
+        if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
+            image = np.squeeze(image, axis=0)
     else:
         raise NotImplementedError(f"File format {input.suffix} not implemented")
 
