@@ -124,13 +124,14 @@ def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> Data
 
     if input.suffix in [".tiff", ".tif"]:
         chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping)
-    elif input.suffix in [".png", "jpg", "jpeg"]:
+        image = da.block(chunks, allow_unknown_chunksizes=True)
+
+    elif input.suffix in [".png", ".jpg", ".jpeg"]:
         image = imread(input)
         if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
             image = np.squeeze(image, axis=0)
+
     else:
         raise NotImplementedError(f"File format {input.suffix} not implemented")
 
-    img = da.block(chunks, allow_unknown_chunksizes=True)
-
-    return Image2DModel.parse(img, dims=data_axes, transformations={coordinate_system: Identity()})
+    return Image2DModel.parse(image, dims=data_axes, transformations={coordinate_system: Identity()})
