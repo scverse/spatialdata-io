@@ -16,8 +16,10 @@ from spatialdata_io.readers.xenium import (
     xenium_aligned_image,
     xenium_explorer_selection,
 )
+from spatialdata_io.readers.g4x import g4x
 
 __all__ = [
+    "g4x",
     "curio",
     "seqfish",
     "visium",
