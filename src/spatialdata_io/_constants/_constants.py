@@ -66,14 +66,15 @@ class SeqfishKeys(ModeEnum):
     # file extensions
     CSV_FILE = ".csv"
     TIFF_FILE = ".tiff"
-    OME_TIFF_FILE = ".ome.tiff"
+    GEOJSON_FILE = ".geojson"
     # file identifiers
-    SECTION = "section"
-    TRANSCRIPT_COORDINATES = "TranscriptCoordinates"
+    ROI = "Roi"
+    TRANSCRIPT_COORDINATES = "TranscriptList"
     DAPI = "DAPI"
-    COUNTS_FILE = "CxG"
-    CELL_MASK_FILE = "CellMask"
+    COUNTS_FILE = "CellxGene"
+    SEGMENTATION = "Segmentation"
     CELL_COORDINATES = "CellCoordinates"
+    BOUNDARIES = "Boundaries"
     # transcripts
     TRANSCRIPTS_X = "x"
     TRANSCRIPTS_Y = "y"
@@ -87,6 +88,8 @@ class SeqfishKeys(ModeEnum):
     SPATIAL_KEY = "spatial"
     REGION_KEY = "region"
     INSTANCE_KEY_TABLE = "instance_id"
+    SCALEFEFACTOR_X = "PhysicalSizeX"
+    SCALEFEFACTOR_Y = "PhysicalSizeY"
 
 
 @unique
@@ -145,6 +148,9 @@ class XeniumKeys(ModeEnum):
 
     # specs keys
     ANALYSIS_SW_VERSION = "analysis_sw_version"
+    # spec which contains xeniumranger version whenever xeniumranger is used to resegment the data; the new, resegmented data
+    # needs to be parsed by considering the xeniumranger version
+    XENIUM_RANGER = "xenium_ranger"
 
     # zarr file with labels file and cell summary keys
     CELLS_ZARR = "cells.zarr.zip"
@@ -322,6 +328,7 @@ class MerscopeKeys(ModeEnum):
     GLOBAL_Z = "global_z"
     Z_INDEX = "ZIndex"
     REGION_KEY = "cells_region"
+    GENE_KEY = "gene"
 
 
 @unique
@@ -353,9 +360,9 @@ class VisiumHDKeys(ModeEnum):
     TISSUE_POSITIONS_FILE = "tissue_positions.parquet"
 
     # images
-    IMAGE_HIRES_FILE = "spatial/tissue_hires_image.png"
-    IMAGE_LOWRES_FILE = "spatial/tissue_lowres_image.png"
-    IMAGE_CYTASSIST = "spatial/cytassist_image.tiff"
+    IMAGE_HIRES_FILE = "tissue_hires_image.png"
+    IMAGE_LOWRES_FILE = "tissue_lowres_image.png"
+    IMAGE_CYTASSIST = "cytassist_image.tiff"
 
     # scalefactors
     SCALEFACTORS_FILE = "scalefactors_json.json"
