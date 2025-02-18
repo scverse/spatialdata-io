@@ -21,11 +21,11 @@ from tqdm.auto import tqdm
 from spatialdata_io._constants._constants import G4XKeys
 from spatialdata_io._docs import inject_docs
 
-__all__ = ["g4x_sample", "g4x_run"]
+__all__ = ["g4x"]
 
 
 @inject_docs(xx=G4XKeys)
-def g4x_run(
+def g4x(
     input_path: Union[str, Path],
     output_path: Union[str, Path, None] = None,
     include_he: bool = True,
@@ -36,14 +36,13 @@ def g4x_run(
     mode: str = "append",
 ):
     """
-    Create SpatialData objects for each sample in a run directory.
-
-    See :func:`g4x_sample` for more details.
+    Create SpatialData objects for each sample in a run directory or a single sample directory.
 
     Parameters
     ----------
     input_path : Union[str, Path]
-        Path to input directory containing run data. Assumes each subdirectory contains a sample. e.g. `input_path/A01`, `input_path/B01`, etc.
+        Path to input directory containing run data or a single sample directory.
+        If a run directory, assumes each subdirectory contains a sample. e.g. `input_path/A01`, `input_path/B01`, etc.
     output_path : Union[str, Path]
         Path to directory where SpatialData zarr stores will be written. If None, zarr stores will be written to each sample directory found in `input_path`.
     include_he : bool
@@ -62,52 +61,70 @@ def g4x_run(
         - "overwrite": Replace existing elements
     Returns
     -------
-    sdatas : list[SpatialData]
-        List of SpatialData objects
+    sdatas : Union[SpatialData, list[SpatialData]]
+        A single SpatialData object if processing a single sample directory, otherwise a list of SpatialData objects.
     """
     if isinstance(input_path, str):
         input_path = Path(input_path)
     if isinstance(output_path, str):
         output_path = Path(output_path)
 
-    # Make sure paths match expected format e.g. A01, B01
-    sample_input_paths = []
-    for p in input_path.iterdir():
-        if p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name):
-            sample_input_paths.append(p)
-    logger.debug(f"Found {len(sample_input_paths)} samples.")
-
-    if output_path is None:
-        sample_output_paths = [
-            input_path / p.name / f"{p.name}.zarr" for p in sample_input_paths
-        ]
-    else:
-        sample_output_paths = [
-            output_path / f"{p.name}.zarr" for p in sample_input_paths
-        ]
-
-    kwargs = {
-        "include_he": include_he,
-        "include_segmentation": include_segmentation,
-        "include_protein": include_protein,
-        "include_transcripts": include_transcripts,
-        "include_tables": include_tables,
-        "mode": mode,
-    }
-
-    sdatas = []
-    for sample_input_path, sample_output_path in tqdm(
-        zip(sample_input_paths, sample_output_paths),
-        total=len(sample_input_paths),
-        desc="Processing samples",
+    # Determine if input_path is a run directory or a single sample directory
+    if any(
+        p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name) for p in input_path.iterdir()
     ):
+        # Run directory with multiple samples
+        sample_input_paths = [
+            p
+            for p in input_path.iterdir()
+            if p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name)
+        ]
+        logger.debug(f"Found {len(sample_input_paths)} samples.")
+
+        if output_path is None:
+            sample_output_paths = [
+                input_path / p.name / f"{p.name}.zarr" for p in sample_input_paths
+            ]
+        else:
+            sample_output_paths = [
+                output_path / f"{p.name}.zarr" for p in sample_input_paths
+            ]
+
+        sdatas = []
+        for sample_input_path, sample_output_path in tqdm(
+            zip(sample_input_paths, sample_output_paths),
+            total=len(sample_input_paths),
+            desc="Processing samples",
+        ):
+            sdata = g4x_sample(
+                input_path=sample_input_path,
+                output_zarr_path=sample_output_path,
+                include_he=include_he,
+                include_segmentation=include_segmentation,
+                include_protein=include_protein,
+                include_transcripts=include_transcripts,
+                include_tables=include_tables,
+                mode=mode,
+            )
+            sdatas.append(sdata)
+        return sdatas
+    else:
+        # Single sample directory
+        logger.debug("Processing single sample directory.")
+        if output_path is None:
+            output_path = input_path / f"{input_path.name}.zarr"
+
         sdata = g4x_sample(
-            input_path=sample_input_path,
-            output_zarr_path=sample_output_path,
-            **kwargs,
+            input_path=input_path,
+            output_zarr_path=output_path,
+            include_he=include_he,
+            include_segmentation=include_segmentation,
+            include_protein=include_protein,
+            include_transcripts=include_transcripts,
+            include_tables=include_tables,
+            mode=mode,
         )
-        sdatas.append(sdata)
-    return sdatas
+        return sdata
 
 
 def g4x_sample(
