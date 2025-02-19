@@ -5,8 +5,8 @@ from spatialdata_io.readers.codex import codex
 from spatialdata_io.readers.cosmx import cosmx
 from spatialdata_io.readers.curio import curio
 from spatialdata_io.readers.dbit import dbit
-from spatialdata_io.readers.generic import generic, geojson, image
 from spatialdata_io.readers.g4x import g4x
+from spatialdata_io.readers.generic import generic, geojson, image
 from spatialdata_io.readers.macsima import macsima
 from spatialdata_io.readers.mcmicro import mcmicro
 from spatialdata_io.readers.merscope import merscope

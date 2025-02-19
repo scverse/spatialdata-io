@@ -406,39 +406,25 @@ class G4XKeys(str, ModeEnum):
     # H&E
     HE_DIR = "h_and_e"
     HE_PATTERN = "*.jp2"
-    HE_IMG2DMODEL_KWARGS = {
-        "dims": ["y", "x", "c"],
-        "scale_factors": [2, 2, 2],
-        "chunks": "auto"
-    }
+    HE_IMG2DMODEL_KWARGS = {"dims": ["y", "x", "c"], "scale_factors": [2, 2, 2], "chunks": "auto"}
 
     # Nuclei
     NUCLEI_BOUNDARIES_KEY = "nuclei"
     CELL_BOUNDARIES_KEY = "nuclei_exp"
     SEGMENTATION_DIR = "segmentation"
     SEGMENTATION_PATTERN = "segmentation_mask.npz"
-    SEG_IMG2DMODEL_KWARGS = {
-        "dims": ["y", "x"],
-        "chunks": "auto"
-    }
+    SEG_IMG2DMODEL_KWARGS = {"dims": ["y", "x"], "chunks": "auto"}
 
     # Protein
     PROTEIN_KEY = "protein"
     PROTEIN_DIR = "protein"
     PROTEIN_PATTERN = "*.jp2"
-    PROTEIN_IMG2DMODEL_KWARGS = {
-        "dims": ["c", "y", "x"],
-        "scale_factors": [2, 2, 2],
-        "chunks": "auto"
-    }
+    PROTEIN_IMG2DMODEL_KWARGS = {"dims": ["c", "y", "x"], "scale_factors": [2, 2, 2], "chunks": "auto"}
 
     # Transcripts
     TRANSCRIPTS_DIR = "rna"
     TRANSCRIPTS_PATTERN = "*transcript_table.csv.gz"
-    TRANSCRIPTS_COORDS = {
-        "x": "x_pixel_coordinate",
-        "y": "y_pixel_coordinate"
-    }
+    TRANSCRIPTS_COORDS = {"x": "x_pixel_coordinate", "y": "y_pixel_coordinate"}
     TRANSCRIPTS_FEATURE_KEY = "gene_name"
     TRANSCRIPTS_SWAP_XY = True
 

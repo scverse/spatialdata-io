@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Union
 
+import dask.dataframe as dd
 import numpy as np
 from anndata.io import read_h5ad
 from dask_image.imread import imread
@@ -15,7 +16,6 @@ from spatialdata.models import (
     PointsModel,
     TableModel,
 )
-import dask.dataframe as dd
 from tqdm.auto import tqdm
 
 from spatialdata_io._constants._constants import G4XKeys
@@ -26,8 +26,8 @@ __all__ = ["g4x"]
 
 @inject_docs(xx=G4XKeys)
 def g4x(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path, None] = None,
+    input_path: str | Path,
+    output_path: str | Path | None = None,
     include_he: bool = True,
     include_segmentation: bool = True,
     include_protein: bool = True,
@@ -70,25 +70,15 @@ def g4x(
         output_path = Path(output_path)
 
     # Determine if input_path is a run directory or a single sample directory
-    if any(
-        p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name) for p in input_path.iterdir()
-    ):
+    if any(p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name) for p in input_path.iterdir()):
         # Run directory with multiple samples
-        sample_input_paths = [
-            p
-            for p in input_path.iterdir()
-            if p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name)
-        ]
+        sample_input_paths = [p for p in input_path.iterdir() if p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name)]
         logger.debug(f"Found {len(sample_input_paths)} samples.")
 
         if output_path is None:
-            sample_output_paths = [
-                input_path / p.name / f"{p.name}.zarr" for p in sample_input_paths
-            ]
+            sample_output_paths = [input_path / p.name / f"{p.name}.zarr" for p in sample_input_paths]
         else:
-            sample_output_paths = [
-                output_path / f"{p.name}.zarr" for p in sample_input_paths
-            ]
+            sample_output_paths = [output_path / f"{p.name}.zarr" for p in sample_input_paths]
 
         sdatas = []
         for sample_input_path, sample_output_path in tqdm(
@@ -128,8 +118,8 @@ def g4x(
 
 
 def g4x_sample(
-    input_path: Union[str, Path],
-    output_zarr_path: Union[str, Path],
+    input_path: str | Path,
+    output_zarr_path: str | Path,
     include_he: bool = True,
     include_segmentation: bool = True,
     include_protein: bool = True,
@@ -178,9 +168,7 @@ def g4x_sample(
         output_zarr_path = Path(output_zarr_path)
         if output_zarr_path.suffix != ".zarr":
             logger.error(f"Output path must end with '.zarr'. Got {output_zarr_path}")
-            raise ValueError(
-                f"Output path must end with '.zarr'. Got {output_zarr_path}"
-            )
+            raise ValueError(f"Output path must end with '.zarr'. Got {output_zarr_path}")
 
     if mode not in ["append", "overwrite"]:
         msg = f"Invalid mode '{mode}'. Must be one of: 'append', 'overwrite'"
@@ -269,7 +257,7 @@ def g4x_sample(
 
 def _write_he(
     sdata: SpatialData,
-    he_dir: Union[str, None],
+    he_dir: str | None,
     pattern: str,
     mode: str = "append",
     **kwargs,
@@ -350,7 +338,7 @@ def _write_he(
 
 def _write_segmentation(
     sdata: SpatialData,
-    nuclei_dir: Union[str, None],
+    nuclei_dir: str | None,
     pattern: str,
     nuclei_key: str,
     nuclei_exp_key: str,
@@ -413,9 +401,7 @@ def _write_segmentation(
         f"shapes/{shapes_exp_key}",
     ]
 
-    if mode == "append" and any(
-        p in sdata.elements_paths_on_disk() for p in elements_paths
-    ):
+    if mode == "append" and any(p in sdata.elements_paths_on_disk() for p in elements_paths):
         logger.debug("Segmentation already exist. Skipping...")
         return
     elif mode == "overwrite":
@@ -423,10 +409,7 @@ def _write_segmentation(
         for el in elements:
             if el in sdata:
                 del sdata[el]
-            if (
-                f"labels/{el}" in sdata.elements_paths_on_disk()
-                or f"shapes/{el}" in sdata.elements_paths_on_disk()
-            ):
+            if f"labels/{el}" in sdata.elements_paths_on_disk() or f"shapes/{el}" in sdata.elements_paths_on_disk():
                 sdata.delete_element_from_disk(el)
 
     # Load and process segmentation data
@@ -451,7 +434,7 @@ def _write_segmentation(
 
 def _write_protein_images(
     sdata: SpatialData,
-    protein_dir: Union[str, None],
+    protein_dir: str | None,
     pattern: str,
     mode: str = "append",
     **kwargs,
@@ -486,9 +469,7 @@ def _write_protein_images(
     img_list.sort()
 
     if not img_list:
-        logger.warning(
-            f"No protein images found matching pattern '{pattern}' in {protein_dir}"
-        )
+        logger.warning(f"No protein images found matching pattern '{pattern}' in {protein_dir}")
         return
     logger.debug(f"Found {len(img_list)} protein images")
 
@@ -514,9 +495,7 @@ def _write_protein_images(
 
     # Create Image2DModel and write
     logger.debug("Converting to Image2DModel")
-    sdata[G4XKeys.PROTEIN_KEY] = Image2DModel.parse(
-        protein_stack, c_coords=channel_names, **kwargs
-    )
+    sdata[G4XKeys.PROTEIN_KEY] = Image2DModel.parse(protein_stack, c_coords=channel_names, **kwargs)
 
     logger.debug("Writing protein images")
     sdata.write_element(G4XKeys.PROTEIN_KEY)
@@ -524,7 +503,7 @@ def _write_protein_images(
 
 def _write_transcripts(
     sdata: SpatialData,
-    transcripts_dir: Union[str, None],
+    transcripts_dir: str | None,
     pattern: str,
     coordinates: dict,
     feature_key: str,
@@ -587,9 +566,7 @@ def _write_transcripts(
         pbar.update(1)
 
         if swap_xy:
-            transcripts[[coordinates["x"], coordinates["y"]]] = transcripts[
-                [coordinates["y"], coordinates["x"]]
-            ]
+            transcripts[[coordinates["x"], coordinates["y"]]] = transcripts[[coordinates["y"], coordinates["x"]]]
 
         pbar.set_description("Converting to PointsModel")
         sdata[G4XKeys.TRANSCRIPTS_KEY] = PointsModel.parse(
@@ -606,7 +583,7 @@ def _write_transcripts(
 
 def _write_table(
     sdata: SpatialData,
-    table_path: Union[str, None],
+    table_path: str | None,
     mode: str = "append",
 ):
     """
@@ -628,11 +605,7 @@ def _deep_update(base_dict, update_dict):
     Recursively update a dictionary with another dictionary.
     """
     for key, value in update_dict.items():
-        if (
-            isinstance(value, dict)
-            and key in base_dict
-            and isinstance(base_dict[key], dict)
-        ):
+        if isinstance(value, dict) and key in base_dict and isinstance(base_dict[key], dict):
             _deep_update(base_dict[key], value)
         else:
             base_dict[key] = value
