@@ -242,9 +242,9 @@ def visium_hd(
         shapes_name = dataset_id + "_" + bin_size_str
         radius = scalefactors[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
         transformations = {
-            "global": transform_original,
-            "downscaled_hires": transform_hires,
-            "downscaled_lowres": transform_lowres,
+            dataset_id: transform_original,
+            f"{dataset_id}_downscaled_hires": transform_hires,
+            f"{dataset_id}_downscaled_lowres": transform_lowres,
         }
         circles = ShapesModel.parse(
             adata.obsm["spatial"],
@@ -322,7 +322,10 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_hires_image"],
-        {"downscaled_hires": Identity(), "global": transform_hires.inverse()},
+        {
+            f"{dataset_id}_downscaled_hires": Identity(),
+            dataset_id: transform_hires.inverse(),
+        },
         set_all=True,
     )
 
@@ -340,7 +343,10 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_lowres_image"],
-        {"downscaled_lowres": Identity(), "global": transform_lowres.inverse()},
+        {
+            f"{dataset_id}_downscaled_lowres": Identity(),
+            dataset_id: transform_lowres.inverse(),
+        },
         set_all=True,
     )
 
@@ -365,7 +371,7 @@ def visium_hd(
         projective /= projective[2, 2]
         if _projective_matrix_is_affine(projective):
             affine = Affine(projective, input_axes=("x", "y"), output_axes=("x", "y"))
-            set_transformation(image, affine, "global")
+            set_transformation(image, affine, dataset_id)
         else:
             # the projective matrix is not affine, we will separate the affine part and the projective shift, and apply
             # the projective shift to the image
@@ -413,7 +419,6 @@ def visium_hd(
 
     if annotate_table_by_labels:
         for bin_size_str in bin_sizes:
-
             shapes_name = dataset_id + "_" + bin_size_str
 
             # add labels layer (rasterized bins).
