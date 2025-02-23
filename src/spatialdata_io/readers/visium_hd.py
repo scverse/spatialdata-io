@@ -516,7 +516,8 @@ def _decompose_projective_matrix(projective_matrix: ArrayLike) -> tuple[ArrayLik
     assert np.allclose(projective_matrix[2, 2], 1), "A projective matrix should have a 1 in the bottom right corner."
     affine_matrix = projective_matrix.copy()
     affine_matrix[2] = [0, 0, 1]
-    projective_shift = np.linalg.inv(affine_matrix) @ projective_matrix
+    # equivalent to np.linalg.inv(affine_matrix) @ projective_matrix, but more numerically stable
+    projective_shift = np.linalg.solve(affine_matrix, projective_matrix)
     projective_shift /= projective_shift[2, 2]
     return affine_matrix, projective_shift
 
