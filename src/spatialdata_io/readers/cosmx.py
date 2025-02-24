@@ -138,7 +138,7 @@ def _infer_dataset_id(path: Path, dataset_id: str | None) -> str:
         counts_files = list(path.rglob(f"*_fov_positions_file{suffix}"))
 
         if len(counts_files) == 1:
-            found = re.match(rf"(.*)_fov_positions_file{suffix}", str(counts_files[0]))
+            found = re.match(rf"(.*)_fov_positions_file{suffix}", counts_files[0].name)
             if found:
                 return found.group(1)
 
