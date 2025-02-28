@@ -9,9 +9,12 @@ from click.testing import CliRunner
 from PIL import Image
 from spatialdata import SpatialData
 from spatialdata.datasets import blobs
+from tifffile import imread as tiffread
+from tifffile import imwrite as tiffwrite
 
 from spatialdata_io.__main__ import read_generic_wrapper
 from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
+from spatialdata_io.readers.generic import image
 
 
 @contextmanager
@@ -31,6 +34,32 @@ def save_temp_files() -> Generator[tuple[Path, Path, Path], None, None]:
         gdf.to_file(geojson_path, driver="GeoJSON")
 
         yield jpg_path, geojson_path, Path(tmpdir)
+
+
+@pytest.fixture(scope="module", params=[("c", "y", "x"), ("x", "y", "c")])
+def save_tiff_files(
+    request: pytest.FixtureRequest,
+) -> Generator[tuple[Path, tuple[str], Path], None, None]:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        axes = request.param
+        sdata = blobs()
+        # save the image as tiff
+        x = sdata["blobs_image"].transpose(*axes).data.compute()
+        img = np.clip(x * 255, 0, 255).astype(np.uint8)
+
+        tiff_path = Path(tmpdir) / "blobs_image.tiff"
+        tiffwrite(tiff_path, img)
+
+        yield tiff_path, axes, Path(tmpdir)
+
+
+def test_read_tiff(save_tiff_files: tuple[Path, tuple[str], Path]) -> None:
+    tiff_path, axes, _ = save_tiff_files
+    img = image(tiff_path, data_axes=axes, coordinate_system="global")
+
+    reference = tiffread(tiff_path)
+
+    assert (img.compute() == reference).all()
 
 
 @pytest.mark.parametrize("cli", [True, False])
