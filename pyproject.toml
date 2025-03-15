@@ -10,7 +10,7 @@ dynamic= [
 ]
 description = "SpatialData IO for common techs"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [
     {name = "scverse"},
@@ -23,9 +23,10 @@ urls.Source = "https://github.com/scverse/spatialdata-io"
 urls.Home-page = "https://github.com/scverse/spatialdata-io"
 dependencies = [
     "anndata",
+    "click",
     "numpy",
     "scanpy",
-    "spatialdata>=0.2.3",
+    "spatialdata>=0.2.6",
     "scikit-image",
     "h5py",
     "joblib",
@@ -34,6 +35,7 @@ dependencies = [
     "pyarrow",
     "readfcs",
     "tifffile>=2023.8.12",
+    "ome-types",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +51,7 @@ doc = [
     "sphinxcontrib-bibtex>=1.0.0",
     "sphinx-autodoc-typehints",
     "sphinx-design",
+    "sphinx-click",
     # For notebooks
     "ipython>=8.6.0",
     "sphinx-copybutton",
@@ -83,7 +86,7 @@ skip_glob = ["docs/*"]
 
 [tool.black]
 line-length = 120
-target-version = ['py39']
+target-version = ['py310']
 include = '\.pyi?$'
 exclude = '''
 (

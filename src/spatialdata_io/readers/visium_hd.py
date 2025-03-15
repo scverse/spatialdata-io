@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import warnings
 from collections.abc import Mapping
@@ -17,20 +16,24 @@ from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from multiscale_spatial_image import MultiscaleSpatialImage
+from numpy.random import default_rng
+from skimage.transform import ProjectiveTransform, warp
 from spatial_image import SpatialImage
-from spatialdata import SpatialData
-from spatialdata.models import Image2DModel, ShapesModel, TableModel
-from spatialdata.transformations import (
-    Affine,
-    Identity,
-    Scale,
-    Sequence,
-    set_transformation,
+from spatialdata import (
+    SpatialData,
+    get_extent,
+    rasterize_bins,
+    rasterize_bins_link_table_to_labels,
 )
+from spatialdata._types import ArrayLike
+from spatialdata.models import Image2DModel, ShapesModel, TableModel
+from spatialdata.transformations import Affine, Identity, Scale, set_transformation
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumHDKeys
 from spatialdata_io._docs import inject_docs
+
+RNG = default_rng(0)
 
 
 @inject_docs(vx=VisiumHDKeys)
@@ -40,8 +43,10 @@ def visium_hd(
     filtered_counts_file: bool = True,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
+    annotate_table_by_labels: bool = False,
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
+    var_names_make_unique: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -58,7 +63,8 @@ def visium_hd(
     path
         Path to directory containing the *10x Genomics* Visium HD output.
     dataset_id
-        Unique identifier of the dataset. If `None`, it tries to infer it from the file name of the feature slice file.
+        Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it tries to
+         infer it from the file name of the feature slice file.
     filtered_counts_file
         It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to
         ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
@@ -68,18 +74,23 @@ def visium_hd(
     bins_as_squares
         If `True`, the bins are represented as squares. If `False`, the bins are represented as circles. For a correct
         visualization one should use squares.
+    annotate_table_by_labels
+        If `True`, the tables will annotate labels layers representing the bins, if `False`, the tables will annotate
+        shapes layer.
     fullres_image_file
         Path to the full-resolution image. By default the image is searched in the ``{vx.MICROSCOPE_IMAGE!r}``
         directory.
     load_all_images
         If `False`, load only the full resolution, high resolution and low resolution images. If `True`, also the
         following images: ``{vx.IMAGE_CYTASSIST!r}``.
+    var_names_make_unique
+        If `True`, call `.var_names_make_unique()` on each `AnnData` table.
     imread_kwargs
         Keyword arguments for :func:`imageio.imread`.
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
     anndata_kwargs
-        Keyword arguments for :func:`anndata.read_h5ad`.
+        Keyword arguments for :func:`anndata.io.read_h5ad`.
 
     Returns
     -------
@@ -90,10 +101,12 @@ def visium_hd(
     tables = {}
     shapes = {}
     images: dict[str, Any] = {}
+    labels: dict[str, Any] = {}
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
-    filename_prefix = f"{dataset_id}_"
+
+    filename_prefix = _get_filename_prefix(path, dataset_id)
 
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
@@ -107,7 +120,6 @@ def visium_hd(
         )
 
     metadata, hd_layout = _parse_metadata(path, filename_prefix)
-    transform_matrices = _get_transform_matrices(metadata, hd_layout)
     file_format = hd_layout[VisiumHDKeys.FILE_FORMAT]
     if file_format != "1.0":
         warnings.warn(
@@ -117,12 +129,12 @@ def visium_hd(
             stacklevel=2,
         )
 
-    def _get_bins(path: Path) -> list[str]:
+    def _get_bins(path_bins: Path) -> list[str]:
         return sorted(
             [
-                bin_size
-                for bin_size in os.listdir(path)
-                if os.path.isdir(os.path.join(path, bin_size)) and bin_size.startswith(VisiumHDKeys.BIN_PREFIX)
+                bin_size.name
+                for bin_size in path_bins.iterdir()
+                if bin_size.is_dir() and bin_size.name.startswith(VisiumHDKeys.BIN_PREFIX)
             ]
         )
 
@@ -230,9 +242,9 @@ def visium_hd(
         shapes_name = dataset_id + "_" + bin_size_str
         radius = scalefactors[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
         transformations = {
-            "global": transform_original,
-            "downscaled_hires": transform_hires,
-            "downscaled_lowres": transform_lowres,
+            dataset_id: transform_original,
+            f"{dataset_id}_downscaled_hires": transform_hires,
+            f"{dataset_id}_downscaled_lowres": transform_lowres,
         }
         circles = ShapesModel.parse(
             adata.obsm["spatial"],
@@ -259,6 +271,8 @@ def visium_hd(
             region_key=str(VisiumHDKeys.REGION_KEY),
             instance_key=str(VisiumHDKeys.INSTANCE_KEY),
         )
+        if var_names_make_unique:
+            tables[bin_size_str].var_names_make_unique()
 
     # read full resolution image
     if fullres_image_file is not None:
@@ -266,10 +280,7 @@ def visium_hd(
     else:
         path_fullres = path / VisiumHDKeys.MICROSCOPE_IMAGE
         if path_fullres.exists():
-            fullres_image_filenames = [
-                f for f in os.listdir(path_fullres) if os.path.isfile(os.path.join(path_fullres, f))
-            ]
-            fullres_image_paths = [path_fullres / image_filename for image_filename in fullres_image_filenames]
+            fullres_image_paths = [file for file in path_fullres.iterdir() if file.is_file()]
         elif list((path_fullres := (path / f"{filename_prefix}tissue_image")).parent.glob(f"{path_fullres.name}.*")):
             fullres_image_paths = list(path_fullres.parent.glob(f"{path_fullres.name}.*"))
         else:
@@ -292,7 +303,7 @@ def visium_hd(
 
     if fullres_image_file is not None:
         load_image(
-            path=path / fullres_image_file,
+            path=fullres_image_file,
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
@@ -311,7 +322,10 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_hires_image"],
-        {"downscaled_hires": Identity()},
+        {
+            f"{dataset_id}_downscaled_hires": Identity(),
+            dataset_id: transform_hires.inverse(),
+        },
         set_all=True,
     )
 
@@ -329,7 +343,10 @@ def visium_hd(
     )
     set_transformation(
         images[dataset_id + "_lowres_image"],
-        {"downscaled_lowres": Identity()},
+        {
+            f"{dataset_id}_downscaled_lowres": Identity(),
+            dataset_id: transform_lowres.inverse(),
+        },
         set_all=True,
     )
 
@@ -347,19 +364,91 @@ def visium_hd(
             suffix="_cytassist_image",
         )
         image = images[dataset_id + "_cytassist_image"]
-        affine0 = transform_matrices["cytassist_colrow_to_spot_colrow"]
-        affine1 = transform_matrices["spot_colrow_to_microscope_colrow"]
-        set_transformation(image, Sequence([affine0, affine1]), "global")
+        transform_matrices = _get_transform_matrices(metadata, hd_layout)
+        projective0 = transform_matrices["cytassist_colrow_to_spot_colrow"]
+        projective1 = transform_matrices["spot_colrow_to_microscope_colrow"]
+        projective = projective1 @ projective0
+        projective /= projective[2, 2]
+        if _projective_matrix_is_affine(projective):
+            affine = Affine(projective, input_axes=("x", "y"), output_axes=("x", "y"))
+            set_transformation(image, affine, dataset_id)
+        else:
+            # the projective matrix is not affine, we will separate the affine part and the projective shift, and apply
+            # the projective shift to the image
+            affine_matrix, projective_shift = _decompose_projective_matrix(projective)
+            affine = Affine(affine_matrix, input_axes=("x", "y"), output_axes=("x", "y"))
 
-    return SpatialData(tables=tables, images=images, shapes=shapes)
+            # determine the size of the transformed image
+            bounding_box = get_extent(image)
+            x0, x1 = bounding_box["x"]
+            y0, y1 = bounding_box["y"]
+            x1 -= 1
+            y1 -= 1
+            corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+            transformed_corners = []
+            for x, y in corners:
+                px, py = _projective_matrix_transform_point(projective_shift, x, y)
+                transformed_corners.append((px, py))
+            transformed_corners_array = np.array(transformed_corners)
+            transformed_bounds = (
+                np.min(transformed_corners_array[:, 0]),
+                np.min(transformed_corners_array[:, 1]),
+                np.max(transformed_corners_array[:, 0]),
+                np.max(transformed_corners_array[:, 1]),
+            )
+            # the first two components are <= 0, we just discard them since the cytassist image has a lot of padding
+            # and therefore we can safely discard pixels with negative coordinates
+            transformed_shape = (np.ceil(transformed_bounds[2]), np.ceil(transformed_bounds[3]))
+
+            # flip xy
+            transformed_shape = (transformed_shape[1], transformed_shape[0])
+
+            # the cytassist image is a small, single-scale image, so we can compute it in memory
+            numpy_data = image.transpose("y", "x", "c").data.compute()
+            warped = warp(
+                numpy_data, ProjectiveTransform(projective_shift).inverse, output_shape=transformed_shape, order=1
+            )
+            warped = np.round(warped * 255).astype(np.uint8)
+            warped = Image2DModel.parse(warped, dims=("y", "x", "c"), transformations={"global": affine}, rgb=True)
+
+            # we replace the cytassist image with the warped image
+            images[dataset_id + "_cytassist_image"] = warped
+
+    sdata = SpatialData(tables=tables, images=images, shapes=shapes, labels=labels)
+
+    if annotate_table_by_labels:
+        for bin_size_str in bin_sizes:
+            shapes_name = dataset_id + "_" + bin_size_str
+
+            # add labels layer (rasterized bins).
+            labels_name = f"{dataset_id}_{bin_size_str}_labels"
+
+            labels_element = rasterize_bins(
+                sdata,
+                bins=shapes_name,
+                table_name=bin_size_str,
+                row_key=VisiumHDKeys.ARRAY_ROW,
+                col_key=VisiumHDKeys.ARRAY_COL,
+                value_key=None,
+                return_region_as_labels=True,
+            )
+
+            sdata[labels_name] = labels_element
+            rasterize_bins_link_table_to_labels(
+                sdata=sdata, table_name=bin_size_str, rasterized_labels_name=labels_name
+            )
+
+    return sdata
 
 
 def _infer_dataset_id(path: Path) -> str:
     suffix = f"_{VisiumHDKeys.FEATURE_SLICE_FILE.value}"
-    files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f)) and f.endswith(suffix)]
+    files = [file.name for file in path.iterdir() if file.is_file() and file.name.endswith(suffix)]
     if len(files) == 0 or len(files) > 1:
         raise ValueError(
-            f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an argument."
+            f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an "
+            f"argument. The `dataset_id` value will be used to name the elements in the `SpatialData` object."
         )
     return files[0].replace(suffix, "")
 
@@ -378,14 +467,22 @@ def _load_image(
             data = imread(path, **imread_kwargs)
             if len(data.shape) == 4:
                 # this happens for the cytassist, hires and lowres images; the umi image doesn't need processing
-                data = data.squeeze().transpose(2, 0, 1)
+                data = data.squeeze()
         else:
             if "MAX_IMAGE_PIXELS" in imread_kwargs:
                 from PIL import Image as ImagePIL
 
                 ImagePIL.MAX_IMAGE_PIXELS = dict(imread_kwargs).pop("MAX_IMAGE_PIXELS")
             # dask_image doesn't recognize .btf automatically and imageio v3 throws error due to pixel limit -> use imageio v2
-            data = imread2(path, **imread_kwargs).squeeze().transpose(2, 0, 1)
+            data = imread2(path, **imread_kwargs).squeeze()
+
+        if data.shape[-1] == 3:  # HE image in RGB format
+            data = data.transpose(2, 0, 1)
+        else:
+            assert data.shape[0] == min(
+                data.shape
+            ), "When the image is not in RGB, the first dimension should be the number of channels."
+
         image = DataArray(data, dims=("c", "y", "x"))
         parsed = Image2DModel.parse(image, scale_factors=scale_factors, rgb=None, **image_models_kwargs)
         images[dataset_id + suffix] = parsed
@@ -394,13 +491,50 @@ def _load_image(
     return None
 
 
-def _get_affine(coefficients: list[int]) -> Affine:
-    matrix = np.array(coefficients).reshape(3, 3)
-    # the last row doesn't match with machine precision, let's check the matrix it's still close to a homogeneous
-    # matrix, and fix this
-    assert np.allclose(matrix[2], [0, 0, 1], atol=1e-2), matrix
-    matrix[2] = [0, 0, 1]
-    return Affine(matrix, input_axes=("x", "y"), output_axes=("x", "y"))
+def _projective_matrix_transform_point(projective_shift: ArrayLike, x: float, y: float) -> tuple[float, float]:
+    v = np.array([x, y, 1])
+    v = projective_shift @ v
+    v /= v[2]
+    return v[0], v[1]
+
+
+def _projective_matrix_is_affine(projective_matrix: ArrayLike) -> bool:
+    assert np.allclose(projective_matrix[2, 2], 1), "A projective matrix should have a 1 in the bottom right corner."
+    return np.allclose(projective_matrix[2, :2], [0, 0])
+
+
+def _decompose_projective_matrix(projective_matrix: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
+    """
+    Decompose a projective transformation matrix into an affine transformation and a projective shift.
+
+    Parameters
+    ----------
+    projective_matrix
+        Projective transformation matrix.
+
+    Returns
+    -------
+    A tuple where the first element is the affine matrix and the second element is the projective shift.
+
+    Let P be the initial projective matrix and A the affine matrix. The projective shift S is defined as: S = A^-1 @ P.
+    """
+    assert np.allclose(projective_matrix[2, 2], 1), "A projective matrix should have a 1 in the bottom right corner."
+    affine_matrix = projective_matrix.copy()
+    affine_matrix[2] = [0, 0, 1]
+    # equivalent to np.linalg.inv(affine_matrix) @ projective_matrix, but more numerically stable
+    projective_shift = np.linalg.solve(affine_matrix, projective_matrix)
+    projective_shift /= projective_shift[2, 2]
+    return affine_matrix, projective_shift
+
+
+def _get_filename_prefix(path: Path, dataset_id: str) -> str:
+    if (path / f"{dataset_id}_{VisiumHDKeys.FEATURE_SLICE_FILE.value}").exists():
+        return f"{dataset_id}_"
+    assert (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists(), (
+        f"Cannot locate the feature slice file, please ensure the file is present in the {path} directory and/or adjust"
+        "the `dataset_id` parameter"
+    )
+    return ""
 
 
 def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -410,11 +544,29 @@ def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], d
     return metadata, hd_layout
 
 
-def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any]) -> dict[str, Affine]:
+def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any]) -> dict[str, ArrayLike]:
+    """
+    Gets 4 projective transformation matrices, describing how to align the CytAssist, spots and microscope coordinates.
+
+    Parameters
+    ----------
+    metadata
+        Metadata of the Visium HD dataset parsed using `_parse_metadata()` from the feature slice file.
+    hd_layout
+        Layout of the Visium HD dataset parsed using `_parse_metadata()` from the feature slice file.
+
+    Returns
+    -------
+    A dictionary containing four projective transformation matrices:
+    - CytAssist col/row to Spot col/row
+    - Spot col/row to CytAssist col/row
+    - Microscope col/row to Spot col/row
+    - Spot col/row to Microscope col/row
+    """
     transform_matrices = {}
 
-    # not used
-    transform_matrices["hd_layout_transform"] = _get_affine(hd_layout[VisiumHDKeys.TRANSFORM])
+    # this transformation is parsed but not used in the current implementation
+    transform_matrices["hd_layout_transform"] = np.array(hd_layout[VisiumHDKeys.TRANSFORM]).reshape(3, 3)
 
     for key in [
         VisiumHDKeys.CYTASSIST_COLROW_TO_SPOT_COLROW,
@@ -422,7 +574,7 @@ def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any])
         VisiumHDKeys.MICROSCOPE_COLROW_TO_SPOT_COLROW,
         VisiumHDKeys.SPOT_COLROW_TO_MICROSCOPE_COLROW,
     ]:
-        data = metadata[VisiumHDKeys.TRANSFORM_MATRICES][key]
-        transform_matrices[key.value] = _get_affine(data)
+        coefficients = metadata[VisiumHDKeys.TRANSFORM_MATRICES][key]
+        transform_matrices[key] = np.array(coefficients).reshape(3, 3)
 
     return transform_matrices

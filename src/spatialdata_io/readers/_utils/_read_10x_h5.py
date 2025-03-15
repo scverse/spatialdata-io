@@ -31,7 +31,7 @@
 # code below taken from https://github.com/scverse/scanpy/blob/master/scanpy/readwrite.py
 
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import h5py
 import numpy as np
@@ -40,8 +40,8 @@ from spatialdata._logging import logger
 
 
 def _read_10x_h5(
-    filename: Union[str, Path],
-    genome: Optional[str] = None,
+    filename: str | Path,
+    genome: str | None = None,
     gex_only: bool = True,
 ) -> AnnData:
     """
@@ -96,7 +96,7 @@ def _read_10x_h5(
     return adata
 
 
-def _read_v3_10x_h5(filename: Union[str, Path], *, start: Optional[Any] = None) -> AnnData:
+def _read_v3_10x_h5(filename: str | Path, *, start: Any | None = None) -> AnnData:
     """Read hdf5 file from Cell Ranger v3 or later versions."""
     with h5py.File(str(filename), "r") as f:
         try:
