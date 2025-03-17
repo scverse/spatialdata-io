@@ -27,7 +27,7 @@ from joblib import Parallel, delayed
 from ome_zarr.io import parse_url
 from pyarrow import Table
 from shapely import Polygon
-from spatialdata import SpatialData
+from spatialdata import SpatialData, read_zarr
 from spatialdata._core.query.relational_query import get_element_instances
 from spatialdata._types import ArrayLike
 from spatialdata.models import (
@@ -126,12 +126,11 @@ def xenium(
     labels_models_kwargs
         Keyword arguments to pass to the labels models.
     output_path
-        Path to directly write the output to a zarr file. This can decrease the memory requirement. If not provided, the
-        function will return a :class:`spatialdata.SpatialData` object.
+        Path to directly write every element to a zarr file as soon as it is read. This can decrease the memory requirement.
 
     Returns
     -------
-    If `output_path` is provided, the function will return `None`. Otherwise, it will return a :class:`spatialdata.SpatialData` object.
+    :class:`spatialdata.SpatialData`
 
     Notes
     -----
@@ -190,6 +189,7 @@ def xenium(
 
     if cells_table:
         return_values = _get_tables_and_circles(path, cells_as_circles, specs)
+        print(return_values)
         if cells_as_circles:
             table, circles = return_values
         else:
@@ -213,11 +213,7 @@ def xenium(
     sdata = SpatialData()
 
     if output_path is not None:
-        sdata.path = output_path
-        sdata._validate_can_safely_write_to_path(output_path, overwrite=False)
-        store = parse_url(output_path, mode="w").store
-        _ = zarr.group(store=store, overwrite=False)
-        store.close()
+        sdata.write(output_path)
 
     # From the public release notes here:
     # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa
@@ -235,13 +231,7 @@ def xenium(
             labels_models_kwargs=labels_models_kwargs,
         )
         if output_path is not None:
-            sdata._write_element(
-                element=sdata.labels["nucleus_labels"],
-                zarr_container_path=output_path,
-                element_type="labels",
-                element_name="nucleus_labels",
-                overwrite=False,
-            )
+            sdata.write_element(element_name="nucleus_labels")
             del sdata.labels["nucleus_labels"]
     if cells_labels:
         sdata.labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
@@ -253,13 +243,7 @@ def xenium(
             labels_models_kwargs=labels_models_kwargs,
         )
         if output_path is not None:
-            sdata._write_element(
-                element=sdata.labels["cell_labels"],
-                zarr_container_path=output_path,
-                element_type="labels",
-                element_name="cell_labels",
-                overwrite=False,
-            )
+            sdata.write_element(element_name="cell_labels")
             del sdata.labels["cell_labels"]
         if cell_labels_indices_mapping is not None and table is not None:
             if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
@@ -284,15 +268,8 @@ def xenium(
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
         if output_path is not None:
-            sdata._write_element(
-                element=sdata.shapes["nucleus_boundaries"],
-                zarr_container_path=output_path,
-                element_type="shapes",
-                element_name="nucleus_boundaries",
-                overwrite=False,
-            )
+            sdata.write_element(element_name="nucleus_boundaries")
             del sdata.shapes["nucleus_boundaries"]
-
     if cells_boundaries:
         sdata.shapes["cell_boundaries"] = _get_polygons(
             path,
@@ -302,27 +279,13 @@ def xenium(
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
         if output_path is not None:
-            sdata._write_element(
-                element=sdata.shapes["cell_boundaries"],
-                zarr_container_path=output_path,
-                element_type="shapes",
-                element_name="cell_boundaries",
-                overwrite=False,
-            )
+            sdata.write_element(element_name="cell_boundaries")
             del sdata.shapes["cell_boundaries"]
-
     if transcripts:
         sdata.points["transcripts"] = _get_points(path, specs)
         if output_path is not None:
-            sdata._write_element(
-                element=sdata.points["transcripts"],
-                zarr_container_path=output_path,
-                element_type="points",
-                element_name="transcripts",
-                overwrite=False,
-            )
+            sdata.write_element(element_name="transcripts")
             del sdata.points["transcripts"]
-
     if version is None or version < packaging.version.parse("2.0.0"):
         if morphology_mip:
             sdata.images["morphology_mip"] = _get_images(
@@ -332,13 +295,7 @@ def xenium(
                 image_models_kwargs,
             )
             if output_path is not None:
-                sdata._write_element(
-                    element=sdata.images["morphology_mip"],
-                    zarr_container_path=output_path,
-                    element_type="images",
-                    element_name="morphology_mip",
-                    overwrite=False,
-                )
+                sdata.write_element(element_name="morphology_mip")
                 del sdata.images["morphology_mip"]
         if morphology_focus:
             sdata.images["morphology_focus"] = _get_images(
@@ -348,13 +305,7 @@ def xenium(
                 image_models_kwargs,
             )
             if output_path is not None:
-                sdata._write_element(
-                    element=sdata.images["morphology_focus"],
-                    zarr_container_path=output_path,
-                    element_type="images",
-                    element_name="morphology_focus",
-                    overwrite=False,
-                )
+                sdata.write_element(element_name="morphology_focus")
                 del sdata.images["morphology_focus"]
     else:
         if morphology_focus:
@@ -409,26 +360,14 @@ def xenium(
             )
             del image_models_kwargs["c_coords"]
             if output_path is not None:
-                sdata._write_element(
-                    element=sdata.images["morphology_focus"],
-                    zarr_container_path=output_path,
-                    element_type="images",
-                    element_name="morphology_focus",
-                    overwrite=False,
-                )
+                sdata.write_element(element_name="morphology_focus")
                 del sdata.images["morphology_focus"]
             logger.removeFilter(IgnoreSpecificMessage())
 
     if table is not None:
         sdata.tables["table"] = table
         if output_path is not None:
-            sdata._write_element(
-                element=sdata.tables["table"],
-                zarr_container_path=output_path,
-                element_type="tables",
-                element_name="table",
-                overwrite=False,
-            )
+            sdata.write_element(element_name="table")
             del sdata.tables["table"]
 
     if cells_as_circles:
@@ -440,18 +379,12 @@ def xenium(
         for key, value in extra_images.items():
             sdata.images[key] = value
             if output_path is not None:
-                sdata._write_element(
-                    element=sdata.images[key],
-                    zarr_container_path=output_path,
-                    element_type="images",
-                    element_name=key,
-                    overwrite=False,
-                )
+                sdata.write_element(element_name=key)
                 del sdata.images[key]
 
     if output_path is not None:
-        sdata.write_consolidated_metadata()
-
+        sdata = read_zarr(output_path)
+    
     return sdata
 
 
