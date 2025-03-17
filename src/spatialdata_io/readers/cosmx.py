@@ -76,7 +76,7 @@ def cosmx(
 
     # If output path is provided, save the empty SpatialData object to create directories and hierarchy
     if output_path is not None:
-        sdata.write(output_path)
+        sdata.write(output_path, overwrite=True)
 
     # tries to infer dataset_id from the name of the counts file
     if dataset_id is None:
@@ -166,7 +166,7 @@ def cosmx(
         sdata.write_element(element_name="table")
         del adata
         del table
-        del sdata.tables
+        del sdata.tables['table']
 
     # prepare to read images and labels
     file_extensions = (".jpg", ".png", ".jpeg", ".tif", ".tiff")
@@ -326,11 +326,3 @@ def cosmx(
     if output_path is not None:
         return read_zarr(output_path)
     return SpatialData(images=images, labels=labels, points=points, table=table)
-
-if __name__ == "__main__":
-    cosmx(
-        path="/Users/ldumont/git/cosmx_data",
-        dataset_id="1",
-        transcripts=True,
-        output_path="/Users/ldumont/cosmx_data_output",
-    )
