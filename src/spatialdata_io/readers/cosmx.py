@@ -327,6 +327,7 @@ def cosmx(
         return read_zarr(output_path)
     return SpatialData(images=images, labels=labels, points=points, table=table)
 
+
 if __name__ == "__main__":
     cosmx(
         path="/Users/ldumont/git/cosmx_data",
