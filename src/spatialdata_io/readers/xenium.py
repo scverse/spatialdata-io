@@ -24,7 +24,6 @@ from dask.dataframe import read_parquet
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
-from ome_zarr.io import parse_url
 from pyarrow import Table
 from shapely import Polygon
 from spatialdata import SpatialData, read_zarr
@@ -386,7 +385,7 @@ def xenium(
 
     if output_path is not None:
         sdata = read_zarr(output_path)
-    
+
     return sdata
 
 
