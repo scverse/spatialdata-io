@@ -371,8 +371,9 @@ def xenium(
 
     if cells_as_circles:
         sdata.shapes[specs["region"]] = circles
-        sdata.write_element(element_name=specs["region"])
-        del sdata.shapes[specs["region"]]
+        if output_path is not None:
+            sdata.write_element(element_name=specs["region"])
+            del sdata.shapes[specs["region"]]
 
     # find and add additional aligned images
     if aligned_images:
