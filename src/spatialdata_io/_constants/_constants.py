@@ -425,7 +425,7 @@ class G4XKeys(ModeEnum):
     TRANSCRIPTS_COORD_X = "x_pixel_coordinate"
     TRANSCRIPTS_COORD_Y = "y_pixel_coordinate"
     TRANSCRIPTS_FEATURE_KEY = "gene_name"
-    TRANSCRIPTS_SWAP_XY = True
+    TRANSCRIPTS_SWAP_XY = False
 
     # Tables
     TABLES_DIR = "single_cell_data"
