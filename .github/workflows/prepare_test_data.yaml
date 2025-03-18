@@ -18,15 +18,30 @@ jobs:
               run: |
                   mkdir -p ./data
                   cd ./data
+
+                  # 10x Genomics Xenium 2.0.0
                   curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Breast_2fov/Xenium_V1_human_Breast_2fov_outs.zip
                   curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Lung_2fov/Xenium_V1_human_Lung_2fov_outs.zip
 
+                  # 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, multimodal cell segmentation
+                  # this file seems to be corrupted; skipping it for now
+                  # curl -O https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny.zip
+
+                  # 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, nuclear expansion
+                  curl -O https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Mouse_Ileum_tiny/Xenium_Prime_Mouse_Ileum_tiny_outs.zip
+
+                  # Spatial Genomics seqFISH v2
+                  curl -O https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip
+
             - name: Unzip files
               run: |
-                  unzip ./data/Xenium_V1_human_Breast_2fov_outs.zip -d ./data/Xenium_V1_human_Breast_2fov_outs
-                  unzip ./data/Xenium_V1_human_Lung_2fov_outs.zip -d ./data/Xenium_V1_human_Lung_2fov_outs
-                  rm ./data/Xenium_V1_human_Breast_2fov_outs.zip
-                  rm ./data/Xenium_V1_human_Lung_2fov_outs.zip
+                  cd ./data
+                  for file in *.zip; do
+                      dir="${file%.zip}"
+                      mkdir -p "$dir"
+                      unzip "$file" -d "$dir"
+                      rm "$file"
+                  done
 
             - name: Upload artifacts
               uses: actions/upload-artifact@v3

@@ -1,5 +1,7 @@
 # API
 
+This section documents the Application Programming Interface (API) for the `spatialdata_io` package.
+
 ```{eval-rst}
 .. module:: spatialdata_io
 ```
@@ -10,6 +12,8 @@ I/O for the `spatialdata` project.
 
 ### Readers
 
+#### Spatial technologies
+
 ```{eval-rst}
 .. autosummary::
     :toctree: generated
@@ -18,6 +22,7 @@ I/O for the `spatialdata` project.
     cosmx
     curio
     dbit
+    experimental.iss
     mcmicro
     merscope
     seqfish
@@ -28,15 +33,15 @@ I/O for the `spatialdata` project.
     xenium
 ```
 
-### Experimental readers
+#### Data types
 
 ```{eval-rst}
-.. currentmodule:: spatialdata_io.experimental
-
 .. autosummary::
     :toctree: generated
 
-    iss
+    generic
+    image
+    geojson
 ```
 
 ### Conversion functions
@@ -47,18 +52,8 @@ I/O for the `spatialdata` project.
 .. autosummary::
     :toctree: generated
 
-```
-
-### Experimental conversion functions
-
-```{eval-rst}
-.. currentmodule:: spatialdata_io.experimental
-
-.. autosummary::
-    :toctree: generated
-
-    from_legacy_anndata
-    to_legacy_anndata
+    experimental.from_legacy_anndata
+    experimental.to_legacy_anndata
 ```
 
 ### Utility functions
