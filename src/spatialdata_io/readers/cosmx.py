@@ -167,6 +167,8 @@ def cosmx(
         del adata
         del table
         del sdata.tables['table']
+        del counts
+        del obs
 
     # prepare to read images and labels
     file_extensions = (".jpg", ".png", ".jpeg", ".tif", ".tiff")
@@ -287,6 +289,8 @@ def cosmx(
             transcripts_data = pd.read_csv(path / transcripts_file, header=0)
             transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
             print("done")
+            if output_path is not None:
+                del transcripts_data
 
             ptable = pq.read_table(Path(tmpdir) / "transcripts.parquet")
             for fov in fovs_counts:
@@ -324,5 +328,6 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
     if output_path is not None:
+        sdata.write_consolidated_metadata()
         return read_zarr(output_path)
     return SpatialData(images=images, labels=labels, points=points, table=table)
