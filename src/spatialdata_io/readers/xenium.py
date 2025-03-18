@@ -188,7 +188,6 @@ def xenium(
 
     if cells_table:
         return_values = _get_tables_and_circles(path, cells_as_circles, specs)
-        print(return_values)
         if cells_as_circles:
             table, circles = return_values
         else:
