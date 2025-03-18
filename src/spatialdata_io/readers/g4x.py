@@ -7,7 +7,7 @@ from typing import Union
 import dask.dataframe as dd
 import numpy as np
 from anndata.io import read_h5ad
-from dask_image.imread import imread
+from dask.array.image import imread
 from spatialdata import SpatialData, to_polygons
 from spatialdata._logging import logger
 from spatialdata.models import (
@@ -70,15 +70,25 @@ def g4x(
         output_path = Path(output_path)
 
     # Determine if input_path is a run directory or a single sample directory
-    if any(p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name) for p in input_path.iterdir()):
+    if any(
+        p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name) for p in input_path.iterdir()
+    ):
         # Run directory with multiple samples
-        sample_input_paths = [p for p in input_path.iterdir() if p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name)]
+        sample_input_paths = [
+            p
+            for p in input_path.iterdir()
+            if p.is_dir() and re.match(r"[A-Z][0-9]{2}", p.name)
+        ]
         logger.debug(f"Found {len(sample_input_paths)} samples.")
 
         if output_path is None:
-            sample_output_paths = [input_path / p.name / f"{p.name}.zarr" for p in sample_input_paths]
+            sample_output_paths = [
+                input_path / p.name / f"{p.name}.zarr" for p in sample_input_paths
+            ]
         else:
-            sample_output_paths = [output_path / f"{p.name}.zarr" for p in sample_input_paths]
+            sample_output_paths = [
+                output_path / f"{p.name}.zarr" for p in sample_input_paths
+            ]
 
         sdatas = []
         for sample_input_path, sample_output_path in tqdm(
@@ -168,7 +178,9 @@ def g4x_sample(
         output_zarr_path = Path(output_zarr_path)
         if output_zarr_path.suffix != ".zarr":
             logger.error(f"Output path must end with '.zarr'. Got {output_zarr_path}")
-            raise ValueError(f"Output path must end with '.zarr'. Got {output_zarr_path}")
+            raise ValueError(
+                f"Output path must end with '.zarr'. Got {output_zarr_path}"
+            )
 
     if mode not in ["append", "overwrite"]:
         msg = f"Invalid mode '{mode}'. Must be one of: 'append', 'overwrite'"
@@ -195,10 +207,9 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_he(
                 sdata,
-                he_dir=G4XKeys.HE_DIR,
+                he_dir=input_path / G4XKeys.HE_DIR,
                 pattern=G4XKeys.HE_PATTERN,
                 mode=mode,
-                **G4XKeys.HE_IMG2DMODEL_KWARGS,
             )
             pbar.update(1)
 
@@ -206,12 +217,11 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_segmentation(
                 sdata,
-                nuclei_dir=G4XKeys.SEGMENTATION_DIR,
+                nuclei_dir=input_path / G4XKeys.SEGMENTATION_DIR,
                 pattern=G4XKeys.SEGMENTATION_PATTERN,
                 nuclei_key=G4XKeys.NUCLEI_BOUNDARIES_KEY,
                 nuclei_exp_key=G4XKeys.CELL_BOUNDARIES_KEY,
                 mode=mode,
-                **G4XKeys.SEG_IMG2DMODEL_KWARGS,
             )
             pbar.update(1)
 
@@ -219,10 +229,9 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_protein_images(
                 sdata,
-                protein_dir=G4XKeys.PROTEIN_DIR,
+                protein_dir=input_path / G4XKeys.PROTEIN_DIR,
                 pattern=G4XKeys.PROTEIN_PATTERN,
                 mode=mode,
-                **G4XKeys.PROTEIN_IMG2DMODEL_KWARGS,
             )
             pbar.update(1)
 
@@ -230,9 +239,12 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_transcripts(
                 sdata,
-                transcripts_dir=G4XKeys.TRANSCRIPTS_DIR,
+                transcripts_dir=input_path / G4XKeys.TRANSCRIPTS_DIR,
                 pattern=G4XKeys.TRANSCRIPTS_PATTERN,
-                coordinates=G4XKeys.TRANSCRIPTS_COORDS,
+                coordinates={
+                    "x": G4XKeys.TRANSCRIPTS_COORD_X,
+                    "y": G4XKeys.TRANSCRIPTS_COORD_Y,
+                },
                 feature_key=G4XKeys.TRANSCRIPTS_FEATURE_KEY,
                 swap_xy=G4XKeys.TRANSCRIPTS_SWAP_XY,
                 mode=mode,
@@ -243,7 +255,7 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_table(
                 sdata,
-                table_path=G4XKeys.TABLE_PATTERN,
+                table_path=input_path / G4XKeys.TABLES_DIR / G4XKeys.TABLE_PATTERN,
                 mode=mode,
             )
             pbar.update(1)
@@ -278,7 +290,7 @@ def _write_he(
         - "append": Skip if element exists (default)
         - "overwrite": Replace if element exists
     kwargs : dict
-        Additional arguments passed to Image2DModel.parse()
+        Keyword arguments for Image2DModel
 
     Modifies
     -------
@@ -321,16 +333,20 @@ def _write_he(
 
         # Load and process image
         logger.debug(f"Loading H&E image from {he_file}")
-        img = imread(str(he_file))
-        if len(img.shape) == 4:
-            img = img[0]  # [0] to remove extra dimension
-        elif len(img.shape) == 3:
-            img = img.transpose(1, 2, 0)  # move first dimension to last
+        img = imread(str(he_file)).compute().squeeze()
         logger.debug(f"H&E image shape: {img.shape}")
         logger.debug(f"H&E image dtype: {img.dtype}")
-
+        if len(img.shape) == 2:
+            img = img[np.newaxis, :, :]
+        elif len(img.shape) == 3:
+            img = img.transpose(2, 0, 1)
         # Create Image2DModel and write
         logger.debug(f"Creating Image2DModel for {img_key}")
+        kwargs["dims"] = ["c", "y", "x"] if "dims" not in kwargs else kwargs["dims"]
+        kwargs["scale_factors"] = (
+            [2, 2, 2] if "scale_factors" not in kwargs else kwargs["scale_factors"]
+        )
+        kwargs["chunks"] = "auto" if "chunks" not in kwargs else kwargs["chunks"]
         sdata[img_key] = Image2DModel.parse(img, **kwargs)
         logger.debug(f"Writing Image2DModel for {img_key}")
         sdata.write_element(img_key)
@@ -366,7 +382,7 @@ def _write_segmentation(
         - "append": Skip if elements exist (default)
         - "overwrite": Replace if elements exist
     kwargs : dict
-        Additional arguments passed to Labels2DModel.parse()
+        Keyword arguments for Labels2DModel
 
     Modifies
     --------
@@ -389,19 +405,21 @@ def _write_segmentation(
         return
 
     # Process each nuclei file
-    shapes_seg_key = f"{nuclei_key}_shapes"
-    shapes_exp_key = f"{nuclei_exp_key}_shapes"
+    shapes_nuclei_key = f"{nuclei_key}_shapes"
+    shapes_nuclei_exp_key = f"{nuclei_exp_key}_shapes"
 
     # Check if elements exist
-    elements = [nuclei_key, nuclei_exp_key, shapes_seg_key, shapes_exp_key]
+    elements = [nuclei_key, nuclei_exp_key, shapes_nuclei_key, shapes_nuclei_exp_key]
     elements_paths = [
         f"labels/{nuclei_key}",
         f"labels/{nuclei_exp_key}",
-        f"shapes/{shapes_seg_key}",
-        f"shapes/{shapes_exp_key}",
+        f"shapes/{shapes_nuclei_key}",
+        f"shapes/{shapes_nuclei_exp_key}",
     ]
 
-    if mode == "append" and any(p in sdata.elements_paths_on_disk() for p in elements_paths):
+    if mode == "append" and any(
+        p in sdata.elements_paths_on_disk() for p in elements_paths
+    ):
         logger.debug("Segmentation already exist. Skipping...")
         return
     elif mode == "overwrite":
@@ -409,7 +427,10 @@ def _write_segmentation(
         for el in elements:
             if el in sdata:
                 del sdata[el]
-            if f"labels/{el}" in sdata.elements_paths_on_disk() or f"shapes/{el}" in sdata.elements_paths_on_disk():
+            if (
+                f"labels/{el}" in sdata.elements_paths_on_disk()
+                or f"shapes/{el}" in sdata.elements_paths_on_disk()
+            ):
                 sdata.delete_element_from_disk(el)
 
     # Load and process segmentation data
@@ -425,8 +446,14 @@ def _write_segmentation(
     sdata[nuclei_key] = Labels2DModel.parse(nuclei_raw, **kwargs)
     sdata[nuclei_exp_key] = Labels2DModel.parse(nuclei_exp, **kwargs)
     logger.debug("Converting to polygons")
-    sdata[shapes_seg_key] = to_polygons(sdata[nuclei_key]).reset_index(drop=True)
-    sdata[shapes_exp_key] = to_polygons(sdata[nuclei_exp_key]).reset_index(drop=True)
+    sdata[shapes_nuclei_key] = to_polygons(sdata[nuclei_key]).reset_index(drop=True)
+    sdata[shapes_nuclei_exp_key] = to_polygons(sdata[nuclei_exp_key]).reset_index(
+        drop=True
+    )
+    # Set index for shapes
+    sdata[shapes_nuclei_exp_key] = sdata[shapes_nuclei_exp_key].set_index("label")
+    sdata[shapes_nuclei_exp_key].index = sdata[shapes_nuclei_exp_key].index.astype(str)
+
     logger.debug("Writing elements")
     for element in elements:
         sdata.write_element(element)
@@ -456,7 +483,7 @@ def _write_protein_images(
         - "append": Skip if element exists (default)
         - "overwrite": Replace if element exists
     kwargs : dict
-        Additional arguments passed to Image2DModel.parse()
+        Keyword arguments for Image2DModel
     """
     if protein_dir is None:
         logger.debug("Protein skipped...")
@@ -469,7 +496,9 @@ def _write_protein_images(
     img_list.sort()
 
     if not img_list:
-        logger.warning(f"No protein images found matching pattern '{pattern}' in {protein_dir}")
+        logger.warning(
+            f"No protein images found matching pattern '{pattern}' in {protein_dir}"
+        )
         return
     logger.debug(f"Found {len(img_list)} protein images")
 
@@ -493,9 +522,21 @@ def _write_protein_images(
     protein_stack = imread(str(protein_dir / pattern))
     logger.debug(f"Images shape: {protein_stack.shape}")
 
+    kwargs["dims"] = ["c", "y", "x"] if "dims" not in kwargs else kwargs["dims"]
+    kwargs["scale_factors"] = (
+        [2, 2, 2] if "scale_factors" not in kwargs else kwargs["scale_factors"]
+    )
+    kwargs["chunks"] = (
+        [1, protein_stack.shape[-2], protein_stack.shape[-1]]
+        if "chunks" not in kwargs
+        else kwargs["chunks"]
+    )
+
     # Create Image2DModel and write
     logger.debug("Converting to Image2DModel")
-    sdata[G4XKeys.PROTEIN_KEY] = Image2DModel.parse(protein_stack, c_coords=channel_names, **kwargs)
+    sdata[G4XKeys.PROTEIN_KEY] = Image2DModel.parse(
+        protein_stack, c_coords=channel_names, **kwargs
+    )
 
     logger.debug("Writing protein images")
     sdata.write_element(G4XKeys.PROTEIN_KEY)
@@ -566,7 +607,9 @@ def _write_transcripts(
         pbar.update(1)
 
         if swap_xy:
-            transcripts[[coordinates["x"], coordinates["y"]]] = transcripts[[coordinates["y"], coordinates["x"]]]
+            transcripts[[coordinates["x"], coordinates["y"]]] = transcripts[
+                [coordinates["y"], coordinates["x"]]
+            ]
 
         pbar.set_description("Converting to PointsModel")
         sdata[G4XKeys.TRANSCRIPTS_KEY] = PointsModel.parse(
@@ -588,13 +631,51 @@ def _write_table(
 ):
     """
     Write tables to SpatialData object.
+
+    Parameters
+    ----------
+    sdata : SpatialData
+        SpatialData object to write to
+    table_path : Union[str, None]
+        Path to the table file.
+        If None, this step will be skipped.
+    mode : str, optional
+        Mode for handling existing elements. Options:
+        - "append": Skip if element exists (default)
+        - "overwrite": Replace if element exists
+
+    Modifies
+    --------
+    sdata : SpatialData
+        Adds a table element to the SpatialData object
     """
     if table_path is None:
         logger.debug("Table skipped...")
         return
 
+    if f"tables/{G4XKeys.TABLE_KEY}" in sdata.elements_paths_on_disk():
+        if mode == "append":
+            logger.debug("Table already exists. Skipping...")
+            return
+        elif mode == "overwrite":
+            logger.debug("Deleting existing table")
+            if G4XKeys.TABLE_KEY in sdata:
+                del sdata[G4XKeys.TABLE_KEY]
+            sdata.delete_element_from_disk(G4XKeys.TABLE_KEY)
+
     adata = read_h5ad(table_path)
+
+    # Link table annotations to cell shapes
+    shape_key = f"{G4XKeys.CELL_BOUNDARIES_KEY}_shapes"
+    adata.obs["region"] = shape_key
+    adata.obs["label"] = adata.obs["cell_id"].str.split("-").str[1]
     sdata[G4XKeys.TABLE_KEY] = TableModel.parse(adata)
+    sdata.set_table_annotates_spatialelement(
+        G4XKeys.TABLE_KEY,
+        region=shape_key,
+        region_key="region",
+        instance_key="label",
+    )
 
     logger.debug("Writing table to disk")
     sdata.write_element(G4XKeys.TABLE_KEY)
@@ -605,7 +686,11 @@ def _deep_update(base_dict, update_dict):
     Recursively update a dictionary with another dictionary.
     """
     for key, value in update_dict.items():
-        if isinstance(value, dict) and key in base_dict and isinstance(base_dict[key], dict):
+        if (
+            isinstance(value, dict)
+            and key in base_dict
+            and isinstance(base_dict[key], dict)
+        ):
             _deep_update(base_dict[key], value)
         else:
             base_dict[key] = value
