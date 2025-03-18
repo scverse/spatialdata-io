@@ -16,7 +16,7 @@ from dask.dataframe import DataFrame as DaskDataFrame
 from dask_image.imread import imread
 from scipy.sparse import csr_matrix
 from skimage.transform import estimate_transform
-from spatialdata import SpatialData
+from spatialdata import SpatialData, read_zarr
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, Labels2DModel, PointsModel, TableModel
 from spatialdata.transformations.transformations import Affine, Identity
@@ -34,6 +34,7 @@ def cosmx(
     transcripts: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    output_path: str | Path | None = None,
 ) -> SpatialData:
     """
     Read *Cosmx Nanostring* data.
@@ -62,12 +63,20 @@ def cosmx(
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
+    output_path
+        Path where the output will be saved. If ``None``, the output will not be saved.
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
+    output_path = Path(output_path) if output_path is not None else None
+    sdata = SpatialData()
+
+    # If output path is provided, save the empty SpatialData object to create directories and hierarchy
+    if output_path is not None:
+        sdata.write(output_path, overwrite=True)
 
     # tries to infer dataset_id from the name of the counts file
     if dataset_id is None:
@@ -151,6 +160,16 @@ def cosmx(
         inplace=True,
     )
 
+    # Add table to SpatialData object, write it and delete temporary objects to save memory
+    sdata.tables["table"] = table
+    if output_path is not None:
+        sdata.write_element(element_name="table")
+        del adata
+        del table
+        del sdata.tables['table']
+        del counts
+        del obs
+
     # prepare to read images and labels
     file_extensions = (".jpg", ".png", ".jpeg", ".tif", ".tiff")
     pat = re.compile(r".*_F(\d+)")
@@ -195,7 +214,14 @@ def cosmx(
                     rgb=None,
                     **image_models_kwargs,
                 )
-                images[f"{fov}_image"] = parsed_im
+                image_name = f"{fov}_image"
+                images[image_name] = parsed_im
+                if output_path is not None:
+                    sdata.images[image_name] = parsed_im
+                    sdata.write_element(element_name=image_name)
+                    del parsed_im
+                    del images[image_name]
+                    del sdata.images[image_name]
             else:
                 logger.warning(f"FOV {fov} not found in counts file. Skipping image {fname}.")
 
@@ -218,7 +244,14 @@ def cosmx(
                     dims=("y", "x"),
                     **image_models_kwargs,
                 )
-                labels[f"{fov}_labels"] = parsed_la
+                label_name = f"{fov}_labels"
+                labels[label_name] = parsed_la
+                if output_path is not None:
+                    sdata.labels[label_name] = parsed_la
+                    sdata.write_element(element_name=label_name)
+                    del parsed_la
+                    del labels[label_name]
+                    del sdata.labels[label_name]
             else:
                 logger.warning(f"FOV {fov} not found in counts file. Skipping labels {fname}.")
 
@@ -256,6 +289,8 @@ def cosmx(
             transcripts_data = pd.read_csv(path / transcripts_file, header=0)
             transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
             print("done")
+            if output_path is not None:
+                del transcripts_data
 
             ptable = pq.read_table(Path(tmpdir) / "transcripts.parquet")
             for fov in fovs_counts:
@@ -265,7 +300,8 @@ def cosmx(
                 # we rename z because we want to treat the data as 2d
                 sub_table.rename(columns={"z": "z_raw"}, inplace=True)
                 if len(sub_table) > 0:
-                    points[f"{fov}_points"] = PointsModel.parse(
+                    point_name = f"{fov}_points"
+                    points[point_name] = PointsModel.parse(
                         sub_table,
                         coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
                         feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
@@ -276,6 +312,11 @@ def cosmx(
                             "global_only_labels": aff,
                         },
                     )
+                    if output_path is not None:
+                        sdata.points[point_name] = points[point_name]
+                        sdata.write_element(element_name=point_name)
+                        del points[point_name]
+                        del sdata.points[point_name]
 
     # TODO: what to do with fov file?
     # if fov_file is not None:
@@ -286,5 +327,7 @@ def cosmx(
     #         except KeyError:
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
-
+    if output_path is not None:
+        sdata.write_consolidated_metadata()
+        return read_zarr(output_path)
     return SpatialData(images=images, labels=labels, points=points, table=table)
