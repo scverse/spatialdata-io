@@ -166,7 +166,7 @@ def cosmx(
         sdata.write_element(element_name="table")
         del adata
         del table
-        del sdata.tables['table']
+        del sdata.tables["table"]
         del counts
         del obs
 
