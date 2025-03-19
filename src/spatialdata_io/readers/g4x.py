@@ -6,6 +6,7 @@ from typing import Union
 
 import dask.dataframe as dd
 import numpy as np
+import glymur
 from anndata.io import read_h5ad
 from dask.array.image import imread
 from spatialdata import SpatialData, to_polygons
@@ -333,7 +334,7 @@ def _write_he(
 
         # Load and process image
         logger.debug(f"Loading H&E image from {he_file}")
-        img = imread(str(he_file)).compute().squeeze()
+        img = imread(str(he_file), imread=_glymur_imread).compute().squeeze()
         logger.debug(f"H&E image shape: {img.shape}")
         logger.debug(f"H&E image dtype: {img.dtype}")
         if len(img.shape) == 2:
@@ -706,3 +707,10 @@ def _deep_update(base_dict, update_dict):
             _deep_update(base_dict[key], value)
         else:
             base_dict[key] = value
+
+
+def _glymur_imread(img_path: str):
+    """
+    Read a JP2 file using glymur. This is for compatibility with 16-bit JP2 files.
+    """
+    return glymur.Jp2k(img_path)[:]
