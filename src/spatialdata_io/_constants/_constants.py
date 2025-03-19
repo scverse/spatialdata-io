@@ -412,6 +412,7 @@ class G4XKeys(ModeEnum):
     CELL_BOUNDARIES_KEY = "nuclei_exp"
     SEGMENTATION_DIR = "segmentation"
     SEGMENTATION_PATTERN = "segmentation_mask.npz"
+    OFFSET = "-0.5"
 
     # Protein
     PROTEIN_KEY = "protein"

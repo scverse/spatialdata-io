@@ -445,13 +445,23 @@ def _write_segmentation(
     logger.debug("Converting to Labels2DModel")
     sdata[nuclei_key] = Labels2DModel.parse(nuclei_raw, **kwargs)
     sdata[nuclei_exp_key] = Labels2DModel.parse(nuclei_exp, **kwargs)
+
+    # Convert labels to polygons using "label" as index and translating xy coordinates to (almost) match label pixel coordinates
     logger.debug("Converting to polygons")
-    sdata[shapes_nuclei_key] = to_polygons(sdata[nuclei_key]).reset_index(drop=True)
-    sdata[shapes_nuclei_exp_key] = to_polygons(sdata[nuclei_exp_key]).reset_index(
-        drop=True
+    offset = float(G4XKeys.OFFSET)
+
+    # Nuclei shapes
+    sdata[shapes_nuclei_key] = to_polygons(sdata[nuclei_key]).set_index("label")
+    sdata[shapes_nuclei_key].geometry = sdata[shapes_nuclei_key].translate(
+        xoff=offset, yoff=offset
     )
-    # Set index for shapes
-    sdata[shapes_nuclei_exp_key] = sdata[shapes_nuclei_exp_key].set_index("label")
+    sdata[shapes_nuclei_key].index = sdata[shapes_nuclei_key].index.astype(str)
+
+    # Expanded nuclei shapes
+    sdata[shapes_nuclei_exp_key] = to_polygons(sdata[nuclei_exp_key]).set_index("label")
+    sdata[shapes_nuclei_exp_key].geometry = sdata[shapes_nuclei_exp_key].translate(
+        xoff=offset, yoff=offset
+    )
     sdata[shapes_nuclei_exp_key].index = sdata[shapes_nuclei_exp_key].index.astype(str)
 
     logger.debug("Writing elements")
