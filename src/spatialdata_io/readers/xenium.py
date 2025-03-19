@@ -17,6 +17,7 @@ import numpy as np
 import packaging.version
 import pandas as pd
 import pyarrow.parquet as pq
+import scanpy as sc
 import tifffile
 import zarr
 from anndata import AnnData
@@ -42,7 +43,6 @@ from xarray import DataArray, DataTree
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io._utils import deprecation_alias
-from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
@@ -520,7 +520,7 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
 def _get_tables_and_circles(
     path: Path, cells_as_circles: bool, specs: dict[str, Any]
 ) -> AnnData | tuple[AnnData, AnnData]:
-    adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
+    adata = sc.read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str), adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
