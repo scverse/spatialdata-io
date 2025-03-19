@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import scanpy as sc
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Union
@@ -10,8 +11,6 @@ from h5py import File
 from ome_types import from_tiff
 from ome_types.model import Pixels, UnitsLength
 from spatialdata._logging import logger
-
-from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
 PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
 
@@ -24,7 +23,7 @@ def _read_counts(
 ) -> tuple[AnnData, str]:
     path = Path(path)
     if counts_file.endswith(".h5"):
-        adata: AnnData = _read_10x_h5(path / counts_file, **kwargs)
+        adata: AnnData = sc.read_10x_h5(path / counts_file, **kwargs)
         with File(path / counts_file, mode="r") as f:
             attrs = dict(f.attrs)
             if library_id is None:
