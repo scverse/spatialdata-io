@@ -26,7 +26,7 @@ from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from pyarrow import Table
 from shapely import Polygon
-from spatialdata import SpatialData
+from spatialdata import SpatialData, read_zarr
 from spatialdata._core.query.relational_query import get_element_instances
 from spatialdata._types import ArrayLike
 from spatialdata.models import (
@@ -67,6 +67,7 @@ def xenium(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    output_path: Path | None = None,
 ) -> SpatialData:
     """
     Read a *10X Genomics Xenium* dataset into a SpatialData object.
@@ -123,6 +124,8 @@ def xenium(
         Keyword arguments to pass to the image models.
     labels_models_kwargs
         Keyword arguments to pass to the labels models.
+    output_path
+        Path to directly write every element to a zarr file as soon as it is read. This can decrease the memory requirement.
 
     Returns
     -------
@@ -159,6 +162,8 @@ def xenium(
         image_models_kwargs, labels_models_kwargs
     )
     path = Path(path)
+    output_path = Path(output_path) if output_path is not None else None
+
     with open(path / XeniumKeys.XENIUM_SPECS) as f:
         specs = json.load(f)
     # to trigger the warning if the version cannot be parsed
@@ -203,11 +208,10 @@ def xenium(
         table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL]
         table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT]
 
-    polygons = {}
-    labels = {}
-    tables = {}
-    points = {}
-    images = {}
+    sdata = SpatialData()
+
+    if output_path is not None:
+        sdata.write(output_path)
 
     # From the public release notes here:
     # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa
@@ -216,7 +220,7 @@ def xenium(
     # nuclei to cells. Therefore for the moment we only link the table to the cell labels, and not to the nucleus
     # labels.
     if nucleus_labels:
-        labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
+        sdata.labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
             path,
             XeniumKeys.CELLS_ZARR,
             specs,
@@ -224,8 +228,11 @@ def xenium(
             labels_name="nucleus_labels",
             labels_models_kwargs=labels_models_kwargs,
         )
+        if output_path is not None:
+            sdata.write_element(element_name="nucleus_labels")
+            del sdata.labels["nucleus_labels"]
     if cells_labels:
-        labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
+        sdata.labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
             path,
             XeniumKeys.CELLS_ZARR,
             specs,
@@ -233,6 +240,9 @@ def xenium(
             labels_name="cell_labels",
             labels_models_kwargs=labels_models_kwargs,
         )
+        if output_path is not None:
+            sdata.write_element(element_name="cell_labels")
+            del sdata.labels["cell_labels"]
         if cell_labels_indices_mapping is not None and table is not None:
             if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
                 warnings.warn(
@@ -248,41 +258,53 @@ def xenium(
                     table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
     if nucleus_boundaries:
-        polygons["nucleus_boundaries"] = _get_polygons(
+        sdata.shapes["nucleus_boundaries"] = _get_polygons(
             path,
             XeniumKeys.NUCLEUS_BOUNDARIES_FILE,
             specs,
             n_jobs,
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
-
+        if output_path is not None:
+            sdata.write_element(element_name="nucleus_boundaries")
+            del sdata.shapes["nucleus_boundaries"]
     if cells_boundaries:
-        polygons["cell_boundaries"] = _get_polygons(
+        sdata.shapes["cell_boundaries"] = _get_polygons(
             path,
             XeniumKeys.CELL_BOUNDARIES_FILE,
             specs,
             n_jobs,
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
-
+        if output_path is not None:
+            sdata.write_element(element_name="cell_boundaries")
+            del sdata.shapes["cell_boundaries"]
     if transcripts:
-        points["transcripts"] = _get_points(path, specs)
-
+        sdata.points["transcripts"] = _get_points(path, specs)
+        if output_path is not None:
+            sdata.write_element(element_name="transcripts")
+            del sdata.points["transcripts"]
     if version is None or version < packaging.version.parse("2.0.0"):
         if morphology_mip:
-            images["morphology_mip"] = _get_images(
+            sdata.images["morphology_mip"] = _get_images(
                 path,
                 XeniumKeys.MORPHOLOGY_MIP_FILE,
                 imread_kwargs,
                 image_models_kwargs,
             )
+            if output_path is not None:
+                sdata.write_element(element_name="morphology_mip")
+                del sdata.images["morphology_mip"]
         if morphology_focus:
-            images["morphology_focus"] = _get_images(
+            sdata.images["morphology_focus"] = _get_images(
                 path,
                 XeniumKeys.MORPHOLOGY_FOCUS_FILE,
                 imread_kwargs,
                 image_models_kwargs,
             )
+            if output_path is not None:
+                sdata.write_element(element_name="morphology_focus")
+                del sdata.images["morphology_focus"]
     else:
         if morphology_focus:
             morphology_focus_dir = path / XeniumKeys.MORPHOLOGY_FOCUS_DIR
@@ -328,28 +350,42 @@ def xenium(
                 "c_coords" not in image_models_kwargs
             ), "The channel names for the morphology focus images are handled internally"
             image_models_kwargs["c_coords"] = list(channel_names.values())
-            images["morphology_focus"] = _get_images(
+            sdata.images["morphology_focus"] = _get_images(
                 morphology_focus_dir,
                 XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.format(0),
                 imread_kwargs,
                 image_models_kwargs,
             )
             del image_models_kwargs["c_coords"]
+            if output_path is not None:
+                sdata.write_element(element_name="morphology_focus")
+                del sdata.images["morphology_focus"]
             logger.removeFilter(IgnoreSpecificMessage())
 
     if table is not None:
-        tables["table"] = table
+        sdata.tables["table"] = table
+        if output_path is not None:
+            sdata.write_element(element_name="table")
+            del sdata.tables["table"]
 
-    elements_dict = {"images": images, "labels": labels, "points": points, "tables": tables, "shapes": polygons}
     if cells_as_circles:
-        elements_dict["shapes"][specs["region"]] = circles
-    sdata = SpatialData(**elements_dict)
+        sdata.shapes[specs["region"]] = circles
+        if output_path is not None:
+            sdata.write_element(element_name=specs["region"])
+            del sdata.shapes[specs["region"]]
 
     # find and add additional aligned images
     if aligned_images:
         extra_images = _add_aligned_images(path, imread_kwargs, image_models_kwargs)
         for key, value in extra_images.items():
             sdata.images[key] = value
+            if output_path is not None:
+                sdata.write_element(element_name=key)
+                del sdata.images[key]
+
+    if output_path is not None:
+        sdata.write_consolidated_metadata()
+        sdata = read_zarr(output_path)
 
     return sdata
 
@@ -415,7 +451,7 @@ def _get_labels_and_indices_mapping(
 
         with zarr.open(str(tmpdir), mode="r") as z:
             # get the labels
-            masks = z["masks"][f"{mask_index}"][...]
+            masks = da.from_array(z["masks"][f"{mask_index}"])
             labels = Labels2DModel.parse(
                 masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs
             )
