@@ -246,7 +246,7 @@ def g4x_sample(
                     "y": G4XKeys.TRANSCRIPTS_COORD_Y,
                 },
                 feature_key=G4XKeys.TRANSCRIPTS_FEATURE_KEY,
-                swap_xy=G4XKeys.TRANSCRIPTS_SWAP_XY,
+                swap_xy=G4XKeys.TRANSCRIPTS_SWAP_XY == "True",
                 mode=mode,
             )
             pbar.update(1)
@@ -606,7 +606,9 @@ def _write_transcripts(
             raise ValueError(f"Unsupported file type: {transcript_dir / pattern}")
         pbar.update(1)
 
+        logger.debug(f"swap_xy: {swap_xy}, {type(swap_xy)}")
         if swap_xy:
+            logger.debug("Swapping x and y coordinates")
             transcripts[[coordinates["x"], coordinates["y"]]] = transcripts[
                 [coordinates["y"], coordinates["x"]]
             ]
