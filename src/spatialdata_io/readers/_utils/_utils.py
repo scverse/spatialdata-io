@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-import scanpy as sc
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Union
 
+import scanpy as sc
 from anndata import AnnData, read_text
 from h5py import File
 from ome_types import from_tiff

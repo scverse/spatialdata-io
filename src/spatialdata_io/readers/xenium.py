@@ -17,9 +17,9 @@ import numpy as np
 import packaging.version
 import pandas as pd
 import pyarrow.parquet as pq
+import scanpy as sc
 import tifffile
 import zarr
-import scanpy as sc
 from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
