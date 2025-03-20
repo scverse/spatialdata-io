@@ -64,6 +64,14 @@ def g4x(
     -------
     sdatas : Union[SpatialData, list[SpatialData]]
         A single SpatialData object if processing a single sample directory, otherwise a list of SpatialData objects.
+
+    Notes
+    -----
+    There will be several minor differences between the original data and the generated SpatialData object:
+
+    - cell and nuclear polygons are smoothed when vectorized from label data
+    - cell and nuclear polygons are offset by `-0.5` pixels relative to the rasterized label data
+    - transcript table counts correspond exactly to cell labels but not necessarily to cell polygons
     """
     if isinstance(input_path, str):
         input_path = Path(input_path)
