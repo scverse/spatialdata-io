@@ -402,6 +402,7 @@ class VisiumHDKeys(ModeEnum):
 
 
 class G4XKeys(ModeEnum):
+    """Keys for G4X formatted dataset."""
 
     # H&E
     HE_DIR = "h_and_e"

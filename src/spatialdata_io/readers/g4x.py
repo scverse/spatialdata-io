@@ -216,8 +216,8 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_he(
                 sdata,
-                he_dir=input_path / G4XKeys.HE_DIR,
-                pattern=G4XKeys.HE_PATTERN,
+                he_dir=input_path / G4XKeys.HE_DIR.v,
+                pattern=G4XKeys.HE_PATTERN.v,
                 mode=mode,
             )
             pbar.update(1)
@@ -226,10 +226,10 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_segmentation(
                 sdata,
-                nuclei_dir=input_path / G4XKeys.SEGMENTATION_DIR,
-                pattern=G4XKeys.SEGMENTATION_PATTERN,
-                nuclei_key=G4XKeys.NUCLEI_BOUNDARIES_KEY,
-                nuclei_exp_key=G4XKeys.CELL_BOUNDARIES_KEY,
+                nuclei_dir=input_path / G4XKeys.SEGMENTATION_DIR.v,
+                pattern=G4XKeys.SEGMENTATION_PATTERN.v,
+                nuclei_key=G4XKeys.NUCLEI_BOUNDARIES_KEY.v,
+                nuclei_exp_key=G4XKeys.CELL_BOUNDARIES_KEY.v,
                 mode=mode,
             )
             pbar.update(1)
@@ -238,8 +238,8 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_protein_images(
                 sdata,
-                protein_dir=input_path / G4XKeys.PROTEIN_DIR,
-                pattern=G4XKeys.PROTEIN_PATTERN,
+                protein_dir=input_path / G4XKeys.PROTEIN_DIR.v,
+                pattern=G4XKeys.PROTEIN_PATTERN.v,
                 mode=mode,
             )
             pbar.update(1)
@@ -248,14 +248,14 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_transcripts(
                 sdata,
-                transcripts_dir=input_path / G4XKeys.TRANSCRIPTS_DIR,
-                pattern=G4XKeys.TRANSCRIPTS_PATTERN,
+                transcripts_dir=input_path / G4XKeys.TRANSCRIPTS_DIR.v,
+                pattern=G4XKeys.TRANSCRIPTS_PATTERN.v,
                 coordinates={
-                    "x": G4XKeys.TRANSCRIPTS_COORD_X,
-                    "y": G4XKeys.TRANSCRIPTS_COORD_Y,
+                    "x": G4XKeys.TRANSCRIPTS_COORD_X.v,
+                    "y": G4XKeys.TRANSCRIPTS_COORD_Y.v,
                 },
-                feature_key=G4XKeys.TRANSCRIPTS_FEATURE_KEY,
-                swap_xy=G4XKeys.TRANSCRIPTS_SWAP_XY == "True",
+                feature_key=G4XKeys.TRANSCRIPTS_FEATURE_KEY.v,
+                swap_xy=G4XKeys.TRANSCRIPTS_SWAP_XY.v == "True",
                 mode=mode,
             )
             pbar.update(1)
@@ -264,7 +264,7 @@ def g4x_sample(
             pbar.set_description(steps[pbar.n])
             _write_table(
                 sdata,
-                table_path=input_path / G4XKeys.TABLES_DIR / G4XKeys.TABLE_PATTERN,
+                table_path=input_path / G4XKeys.TABLES_DIR.v / G4XKeys.TABLE_PATTERN.v,
                 mode=mode,
             )
             pbar.update(1)
@@ -457,7 +457,7 @@ def _write_segmentation(
 
     # Convert labels to polygons using "label" as index and translating xy coordinates to (almost) match label pixel coordinates
     logger.debug("Converting to polygons")
-    offset = float(G4XKeys.OFFSET)
+    offset = float(G4XKeys.OFFSET.v)
 
     # Nuclei shapes
     sdata[shapes_nuclei_key] = to_polygons(sdata[nuclei_key]).set_index("label")
@@ -528,9 +528,9 @@ def _write_protein_images(
             return
         elif mode == "overwrite":
             logger.debug("Deleting existing protein images")
-            if G4XKeys.PROTEIN_KEY in sdata:
-                del sdata[G4XKeys.PROTEIN_KEY]
-            sdata.delete_element_from_disk(G4XKeys.PROTEIN_KEY)
+            if G4XKeys.PROTEIN_KEY.v in sdata:
+                del sdata[G4XKeys.PROTEIN_KEY.v]
+            sdata.delete_element_from_disk(G4XKeys.PROTEIN_KEY.v)
     img_list.sort()
 
     # Get channel names from filenames
@@ -553,12 +553,12 @@ def _write_protein_images(
 
     # Create Image2DModel and write
     logger.debug("Converting to Image2DModel")
-    sdata[G4XKeys.PROTEIN_KEY] = Image2DModel.parse(
+    sdata[G4XKeys.PROTEIN_KEY.v] = Image2DModel.parse(
         protein_stack, c_coords=channel_names, **kwargs
     )
 
     logger.debug("Writing protein images")
-    sdata.write_element(G4XKeys.PROTEIN_KEY)
+    sdata.write_element(G4XKeys.PROTEIN_KEY.v)
 
 
 def _write_transcripts(
@@ -601,15 +601,15 @@ def _write_transcripts(
         logger.debug("Transcripts skipped...")
         return
 
-    if f"points/{G4XKeys.TRANSCRIPTS_KEY}" in sdata.elements_paths_on_disk():
+    if f"points/{G4XKeys.TRANSCRIPTS_KEY.v}" in sdata.elements_paths_on_disk():
         if mode == "append":
             logger.debug("Transcripts already exist. Skipping...")
             return
         elif mode == "overwrite":
             logger.debug("Deleting existing transcripts")
-            if G4XKeys.TRANSCRIPTS_KEY in sdata:
-                del sdata[G4XKeys.TRANSCRIPTS_KEY]
-            sdata.delete_element_from_disk(G4XKeys.TRANSCRIPTS_KEY)
+            if G4XKeys.TRANSCRIPTS_KEY.v in sdata:
+                del sdata[G4XKeys.TRANSCRIPTS_KEY.v]
+            sdata.delete_element_from_disk(G4XKeys.TRANSCRIPTS_KEY.v)
 
     transcript_dir = Path(transcripts_dir)
     with tqdm(total=3, desc="Processing transcripts", leave=False) as pbar:
@@ -633,7 +633,7 @@ def _write_transcripts(
             ]
 
         pbar.set_description("Converting to PointsModel")
-        sdata[G4XKeys.TRANSCRIPTS_KEY] = PointsModel.parse(
+        sdata[G4XKeys.TRANSCRIPTS_KEY.v] = PointsModel.parse(
             transcripts,
             coordinates=coordinates,
             feature_key=feature_key,
@@ -641,7 +641,7 @@ def _write_transcripts(
         pbar.update(1)
 
         pbar.set_description("Writing to disk")
-        sdata.write_element(G4XKeys.TRANSCRIPTS_KEY)
+        sdata.write_element(G4XKeys.TRANSCRIPTS_KEY.v)
         pbar.update(1)
 
 
@@ -674,32 +674,32 @@ def _write_table(
         logger.debug("Table skipped...")
         return
 
-    if f"tables/{G4XKeys.TABLE_KEY}" in sdata.elements_paths_on_disk():
+    if f"tables/{G4XKeys.TABLE_KEY.v}" in sdata.elements_paths_on_disk():
         if mode == "append":
             logger.debug("Table already exists. Skipping...")
             return
         elif mode == "overwrite":
             logger.debug("Deleting existing table")
-            if G4XKeys.TABLE_KEY in sdata:
-                del sdata[G4XKeys.TABLE_KEY]
-            sdata.delete_element_from_disk(G4XKeys.TABLE_KEY)
+            if G4XKeys.TABLE_KEY.v in sdata:
+                del sdata[G4XKeys.TABLE_KEY.v]
+            sdata.delete_element_from_disk(G4XKeys.TABLE_KEY.v)
 
     adata = read_h5ad(table_path)
 
     # Link table annotations to cell shapes
-    shape_key = f"{G4XKeys.CELL_BOUNDARIES_KEY}_shapes"
+    shape_key = f"{G4XKeys.CELL_BOUNDARIES_KEY.v}_shapes"
     adata.obs["region"] = shape_key
     adata.obs["label"] = adata.obs["cell_id"].str.split("-").str[1]
-    sdata[G4XKeys.TABLE_KEY] = TableModel.parse(adata)
+    sdata[G4XKeys.TABLE_KEY.v] = TableModel.parse(adata)
     sdata.set_table_annotates_spatialelement(
-        G4XKeys.TABLE_KEY,
+        G4XKeys.TABLE_KEY.v,
         region=shape_key,
         region_key="region",
         instance_key="label",
     )
 
     logger.debug("Writing table to disk")
-    sdata.write_element(G4XKeys.TABLE_KEY)
+    sdata.write_element(G4XKeys.TABLE_KEY.v)
 
 
 def _deep_update(base_dict, update_dict):
