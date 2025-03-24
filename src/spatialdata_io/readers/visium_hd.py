@@ -464,7 +464,7 @@ def _load_image(
 ) -> None:
     if path.exists():
         if path.suffix != ".btf":
-            data = imread(path, **imread_kwargs)
+            data = imread(path)
             if len(data.shape) == 4:
                 # this happens for the cytassist, hires and lowres images; the umi image doesn't need processing
                 data = data.squeeze()
