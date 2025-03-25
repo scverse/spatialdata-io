@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import functools
 import warnings
-from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 RT = TypeVar("RT")
 
@@ -11,8 +13,7 @@ RT = TypeVar("RT")
 # these two functions should be removed and imported from spatialdata._utils once the multi_table branch, which
 # introduces them, is merged
 def deprecation_alias(**aliases: str) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
-    """
-    Decorate a function to warn user of use of arguments set for deprecation.
+    """Decorate a function to warn user of use of arguments set for deprecation.
 
     Parameters
     ----------

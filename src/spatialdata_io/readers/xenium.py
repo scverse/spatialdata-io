@@ -7,10 +7,9 @@ import re
 import tempfile
 import warnings
 import zipfile
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
@@ -19,7 +18,6 @@ import pandas as pd
 import pyarrow.parquet as pq
 import tifffile
 import zarr
-from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
@@ -28,7 +26,6 @@ from pyarrow import Table
 from shapely import Polygon
 from spatialdata import SpatialData
 from spatialdata._core.query.relational_query import get_element_instances
-from spatialdata._types import ArrayLike
 from spatialdata.models import (
     Image2DModel,
     Labels2DModel,
@@ -44,6 +41,12 @@ from spatialdata_io._docs import inject_docs
 from spatialdata_io._utils import deprecation_alias
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from anndata import AnnData
+    from spatialdata._types import ArrayLike
 
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
@@ -68,8 +71,7 @@ def xenium(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read a *10X Genomics Xenium* dataset into a SpatialData object.
+    """Read a *10X Genomics Xenium* dataset into a SpatialData object.
 
     This function reads the following files:
 
@@ -475,8 +477,7 @@ def _get_cells_metadata_table_from_zarr(
     file: str,
     specs: dict[str, Any],
 ) -> AnnData:
-    """
-    Read cells metadata from ``{xx.CELLS_ZARR}``.
+    """Read cells metadata from ``{xx.CELLS_ZARR}``.
 
     Read the cells summary table, which contains the z_level information for versions < 2.0.0, and also the
     nucleus_count for versions >= 2.0.0.
@@ -602,8 +603,7 @@ def xenium_aligned_image(
     rgba: bool = False,
     c_coords: list[str] | None = None,
 ) -> DataTree:
-    """
-    Read an image aligned to a Xenium dataset, with an optional alignment file.
+    """Read an image aligned to a Xenium dataset, with an optional alignment file.
 
     Parameters
     ----------
@@ -781,14 +781,16 @@ def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suf
     cell_id_prefix_hex_shifted = ["".join([hex_shift[c] for c in x]) for x in cell_id_prefix_hex]
 
     # merge the prefix and the suffix
-    cell_id_str = [str(x[0]).rjust(8, "a") + f"-{x[1]}" for x in zip(cell_id_prefix_hex_shifted, dataset_suffix)]
+    cell_id_str = [
+        str(x[0]).rjust(8, "a") + f"-{x[1]}" for x in zip(cell_id_prefix_hex_shifted, dataset_suffix, strict=False)
+    ]
 
     return np.array(cell_id_str)
 
 
 def prefix_suffix_uint32_from_cell_id_str(cell_id_str: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
     # parse the string into the prefix and suffix
-    cell_id_prefix_str, dataset_suffix = zip(*[x.split("-") for x in cell_id_str])
+    cell_id_prefix_str, dataset_suffix = zip(*[x.split("-") for x in cell_id_str], strict=False)
     dataset_suffix_int = [int(x) for x in dataset_suffix]
 
     # reverse the shifted hex conversion

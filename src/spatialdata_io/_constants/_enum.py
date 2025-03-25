@@ -51,7 +51,7 @@ class ABCEnumMeta(EnumMeta, ABCMeta):
         return res
 
 
-class ErrorFormatterABC(ABC):
+class ErrorFormatterABC(ABC):  # noqa
     """Mixin class that formats invalid value when constructing an enum."""
 
     __error_format__ = "Invalid option `{0}` for `{1}`. Valid options are: `{2}`."

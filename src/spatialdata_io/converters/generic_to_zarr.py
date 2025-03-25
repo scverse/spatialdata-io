@@ -21,8 +21,7 @@ def generic_to_zarr(
     data_axes: str | None = None,
     coordinate_system: str | None = None,
 ) -> None:
-    """
-    Read generic data from an input file and save it as a SpatialData zarr store.
+    """Read generic data from an input file and save it as a SpatialData zarr store.
 
     Parameters
     ----------

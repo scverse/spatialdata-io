@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import anndata as ad
 from dask_image.imread import imread
-from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, Labels2DModel, TableModel
 from spatialdata.transformations.transformations import Identity
 
 from spatialdata_io._constants._constants import SteinbockKeys
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
+    from spatial_image import SpatialImage
 
 __all__ = ["steinbock"]
 
@@ -26,8 +29,7 @@ def steinbock(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read a *Steinbock* output into a SpatialData object.
+    """Read a *Steinbock* output into a SpatialData object.
 
     .. seealso::
 

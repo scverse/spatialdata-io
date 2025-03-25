@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 import numpy as np
@@ -12,14 +11,18 @@ import pandas as pd
 import yaml
 from anndata import AnnData
 from dask_image.imread import imread
-from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata.models import Image2DModel, Labels2DModel, TableModel
 from spatialdata.transformations import Identity, Translation, set_transformation
 from yaml.loader import SafeLoader
 
 from spatialdata_io._constants._constants import McmicroKeys
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
+    from spatial_image import SpatialImage
 
 __all__ = ["mcmicro"]
 
@@ -48,8 +51,7 @@ def mcmicro(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read a *Mcmicro* output into a SpatialData object.
+    """Read a *Mcmicro* output into a SpatialData object.
 
     .. seealso::
 

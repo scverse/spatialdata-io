@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import re
 import warnings
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import h5py
 import numpy as np
@@ -15,23 +14,27 @@ import scanpy as sc
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from imageio import imread as imread2
-from multiscale_spatial_image import MultiscaleSpatialImage
 from numpy.random import default_rng
 from skimage.transform import ProjectiveTransform, warp
-from spatial_image import SpatialImage
 from spatialdata import (
     SpatialData,
     get_extent,
     rasterize_bins,
     rasterize_bins_link_table_to_labels,
 )
-from spatialdata._types import ArrayLike
 from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata.transformations import Affine, Identity, Scale, set_transformation
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumHDKeys
 from spatialdata_io._docs import inject_docs
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from multiscale_spatial_image import MultiscaleSpatialImage
+    from spatial_image import SpatialImage
+    from spatialdata._types import ArrayLike
 
 RNG = default_rng(0)
 
@@ -51,8 +54,7 @@ def visium_hd(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *10x Genomics* Visium HD formatted dataset.
+    """Read *10x Genomics* Visium HD formatted dataset.
 
     .. seealso::
 
@@ -504,8 +506,7 @@ def _projective_matrix_is_affine(projective_matrix: ArrayLike) -> bool:
 
 
 def _decompose_projective_matrix(projective_matrix: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
-    """
-    Decompose a projective transformation matrix into an affine transformation and a projective shift.
+    """Decompose a projective transformation matrix into an affine transformation and a projective shift.
 
     Parameters
     ----------
@@ -545,8 +546,7 @@ def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], d
 
 
 def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any]) -> dict[str, ArrayLike]:
-    """
-    Gets 4 projective transformation matrices, describing how to align the CytAssist, spots and microscope coordinates.
+    """Gets 4 projective transformation matrices, describing how to align the CytAssist, spots and microscope coordinates.
 
     Parameters
     ----------

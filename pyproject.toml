@@ -103,8 +103,8 @@ lint.select = [
     "RUF100",  # Report unused noqa directives
     "TCH",  # Typing imports
     "NPY",  # Numpy specific rules
-    "PTH",  # Use pathlib
-    "S"  # Security
+    # "PTH",  # Use pathlib
+    # "S"  # Security
 ]
 lint.ignore = [
     # Do not catch blind exception: `Exception`

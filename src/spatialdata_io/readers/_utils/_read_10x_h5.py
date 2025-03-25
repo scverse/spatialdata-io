@@ -44,8 +44,7 @@ def _read_10x_h5(
     genome: str | None = None,
     gex_only: bool = True,
 ) -> AnnData:
-    """
-    Read 10x-Genomics-formatted hdf5 file.
+    """Read 10x-Genomics-formatted hdf5 file.
 
     Parameters
     ----------
@@ -126,7 +125,7 @@ def _read_v3_10x_h5(filename: str | Path, *, start: Any | None = None) -> AnnDat
             )
             return adata
         except KeyError:
-            raise Exception("File is missing one or more required datasets.")
+            raise Exception("File is missing one or more required datasets.") from None
 
 
 def _collect_datasets(dsets: dict[str, Any], group: h5py.Group) -> None:

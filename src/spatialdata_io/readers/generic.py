@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from dask_image.imread import imread
-from geopandas import GeoDataFrame
 from spatialdata._docs import docstring_parameter
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.models._utils import DEFAULT_COORDINATE_SYSTEM
 from spatialdata.transformations import Identity
-from xarray import DataArray
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+
+    from geopandas import GeoDataFrame
+    from xarray import DataArray
 
 VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
@@ -29,8 +33,7 @@ def generic(
     data_axes: Sequence[str] | None = None,
     coordinate_system: str | None = None,
 ) -> DataArray | GeoDataFrame:
-    """
-    Read a generic shapes or image file and save it as SpatialData zarr.
+    """Read a generic shapes or image file and save it as SpatialData zarr.
 
     Supported image types: {valid_image_types}.
     Supported shape types: {valid_shape_types} (only Polygons and MultiPolygons are supported).
@@ -64,12 +67,12 @@ def generic(
 
 
 def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
-    """Reads a GeoJSON file and returns a parsed GeoDataFrame spatial element"""
+    """Reads a GeoJSON file and returns a parsed GeoDataFrame spatial element."""
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
 def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> DataArray:
-    """Reads an image file and returns a parsed Image2D spatial element"""
+    """Reads an image file and returns a parsed Image2D spatial element."""
     # this function is just a draft, the more general one will be available when
     # https://github.com/scverse/spatialdata-io/pull/234 is merged
     image = imread(input)

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-from anndata import AnnData
 from spatialdata import (
     SpatialData,
     get_centroids,
@@ -15,6 +15,9 @@ from spatialdata._core.operations._utils import transform_to_data_extent
 from spatialdata.models import Image2DModel, ShapesModel, TableModel, get_table_keys
 from spatialdata.transformations import Identity, Scale
 
+if TYPE_CHECKING:
+    from anndata import AnnData
+
 
 def to_legacy_anndata(
     sdata: SpatialData,
@@ -22,8 +25,7 @@ def to_legacy_anndata(
     table_name: str | None = None,
     include_images: bool = False,
 ) -> AnnData:
-    """
-    Convert a SpatialData object to a (legacy) spatial AnnData object.
+    """Convert a SpatialData object to a (legacy) spatial AnnData object.
 
     This is useful for using packages expecting spatial information in AnnData, for example Scanpy and older versions
     of Squidpy. Using this format for any new package is not recommended.
@@ -219,8 +221,7 @@ def to_legacy_anndata(
 
 
 def from_legacy_anndata(adata: AnnData) -> SpatialData:
-    """
-    Convert (legacy) spatial AnnData object to SpatialData object.
+    """Convert (legacy) spatial AnnData object to SpatialData object.
 
     This is useful for parsing a (legacy) spatial AnnData object, for example the ones produced by Scanpy and older
     version of Squidpy.
