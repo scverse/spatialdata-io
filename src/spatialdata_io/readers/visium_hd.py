@@ -307,6 +307,7 @@ def visium_hd(
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
+        set_transformation(images[f"{dataset_id}_full_image"], {dataset_id: Identity()}, set_all=True)
 
     # hires image
     hires_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_HIRES_FILE in str(path)]
