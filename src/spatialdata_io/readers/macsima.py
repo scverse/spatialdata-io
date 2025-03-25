@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import warnings
 from collections import defaultdict
-from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 import dask.array as da
@@ -23,6 +22,9 @@ from spatialdata_io.readers._utils._utils import (
     parse_channels,
     parse_physical_size,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 __all__ = ["macsima"]
 
@@ -185,8 +187,7 @@ def macsima(
     skip_rounds: list[int] | None = None,
     include_cycle_in_channel_name: bool = False,
 ) -> SpatialData:
-    """
-    Read *MACSima* formatted dataset.
+    """Read *MACSima* formatted dataset.
 
     This function reads images from a MACSima cyclic imaging experiment. Metadata of the cycle rounds is parsed from
     the image names. The channel names are parsed from the OME metadata.

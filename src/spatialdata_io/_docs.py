@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from textwrap import dedent
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
-def inject_docs(**kwargs: Any) -> Callable[..., Any]:  # noqa: D103
+def inject_docs(**kwargs: Any) -> Callable[..., Any]:
     # taken from scanpy
     def decorator(obj: Any) -> Any:
         obj.__doc__ = dedent(obj.__doc__).format(**kwargs)
