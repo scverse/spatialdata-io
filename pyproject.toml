@@ -78,32 +78,17 @@ addopts = [
     "--import-mode=importlib",  # allow using test files with same name
 ]
 
-[tool.isort]
-include_trailing_comma = true
-multi_line_output = 3
-profile = "black"
-skip_glob = ["docs/*"]
-
-[tool.black]
+[tool.ruff]
 line-length = 120
-target-version = ['py310']
-include = '\.pyi?$'
-exclude = '''
-(
-  /(
-      \.eggs
-    | \.git
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | buck-out
-    | build
-    | dist
-  )/
-)
-'''
+exclude = [
+    ".git",
+    ".tox",
+    "__pycache__",
+    "build",
+    "docs/_build",
+    "dist",
+    "setup.py",
+]
 
 [tool.jupytext]
 formats = "ipynb,md"
