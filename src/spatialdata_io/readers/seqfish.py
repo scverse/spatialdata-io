@@ -200,7 +200,6 @@ def seqfish(
     points = {}
     if load_points:
         for x in rois_str:
-
             # prepare data
             name = f"{os.path.splitext(get_transcript_file(x))[0]}"
             p = pd.read_csv(path / get_transcript_file(x), delimiter=",")

@@ -324,9 +324,9 @@ def xenium(
             logger = tifffile.logger()
             logger.addFilter(IgnoreSpecificMessage())
             image_models_kwargs = dict(image_models_kwargs)
-            assert (
-                "c_coords" not in image_models_kwargs
-            ), "The channel names for the morphology focus images are handled internally"
+            assert "c_coords" not in image_models_kwargs, (
+                "The channel names for the morphology focus images are handled internally"
+            )
             image_models_kwargs["c_coords"] = list(channel_names.values())
             images["morphology_focus"] = _get_images(
                 morphology_focus_dir,
@@ -731,7 +731,6 @@ def _parse_version_of_xenium_analyzer(
     specs: dict[str, Any],
     hide_warning: bool = True,
 ) -> packaging.version.Version | None:
-
     # After using xeniumranger (e.g. 3.0.1.1) to resegment data from previous versions (e.g. xenium-1.6.0.7), a new dict is added to
     # `specs`, named 'xenium_ranger', which contains the key 'version' and whose value specifies the version of xeniumranger used to
     # resegment the data (e.g. 'xenium-3.0.1.1').

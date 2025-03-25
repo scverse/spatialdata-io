@@ -113,9 +113,9 @@ def to_legacy_anndata(
         assert len(css) == 1, "The SpatialData object has more than one coordinate system. Please specify one."
         coordinate_system = css[0]
     else:
-        assert (
-            coordinate_system in css
-        ), f"The SpatialData object does not have the coordinate system {coordinate_system}."
+        assert coordinate_system in css, (
+            f"The SpatialData object does not have the coordinate system {coordinate_system}."
+        )
     sdata = sdata.filter_by_coordinate_system(coordinate_system)
 
     if table_name is None:
@@ -288,9 +288,9 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
             # construct the spatialdata elements
             if hires is not None:
                 # prepare the hires image
-                assert (
-                    tissue_hires_scalef is not None
-                ), "tissue_hires_scalef is required when an the hires image is present"
+                assert tissue_hires_scalef is not None, (
+                    "tissue_hires_scalef is required when an the hires image is present"
+                )
                 hires_image = Image2DModel.parse(
                     hires, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_hires": Identity()}
                 )
@@ -301,9 +301,9 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
                 shapes_transformations[f"{dataset_id}_downscaled_hires"] = scale_hires
             if lowres is not None:
                 # prepare the lowres image
-                assert (
-                    tissue_lowres_scalef is not None
-                ), "tissue_lowres_scalef is required when an the lowres image is present"
+                assert tissue_lowres_scalef is not None, (
+                    "tissue_lowres_scalef is required when an the lowres image is present"
+                )
                 lowres_image = Image2DModel.parse(
                     lowres, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_lowres": Identity()}
                 )
