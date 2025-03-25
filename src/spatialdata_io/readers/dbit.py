@@ -279,10 +279,16 @@ def dbit(
 
     # search for files paths. Gives priority to files matching the pattern found in path.
     anndata_path_checked = _check_path(
-        path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE  # type: ignore
+        path=path,
+        path_specific=anndata_path,
+        pattern=patt_h5ad,
+        key=DbitKeys.COUNTS_FILE,  # type: ignore
     )[0]
     barcode_position_checked = _check_path(
-        path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION  # type: ignore
+        path=path,
+        path_specific=barcode_position,
+        pattern=patt_barcode,
+        key=DbitKeys.BARCODE_POSITION,  # type: ignore
     )[0]
     image_path_checked, hasimage = _check_path(
         path=path,  # type: ignore

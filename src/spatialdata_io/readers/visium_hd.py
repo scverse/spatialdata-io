@@ -479,9 +479,9 @@ def _load_image(
         if data.shape[-1] == 3:  # HE image in RGB format
             data = data.transpose(2, 0, 1)
         else:
-            assert data.shape[0] == min(
-                data.shape
-            ), "When the image is not in RGB, the first dimension should be the number of channels."
+            assert data.shape[0] == min(data.shape), (
+                "When the image is not in RGB, the first dimension should be the number of channels."
+            )
 
         image = DataArray(data, dims=("c", "y", "x"))
         parsed = Image2DModel.parse(image, scale_factors=scale_factors, rgb=None, **image_models_kwargs)

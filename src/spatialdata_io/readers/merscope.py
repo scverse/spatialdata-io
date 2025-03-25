@@ -58,9 +58,9 @@ def _get_file_paths(path: Path, vpt_outputs: Path | str | dict[str, Any] | None)
         ]
         valid_boundaries = [path for path in plausible_boundaries if path.exists()]
 
-        assert (
-            valid_boundaries
-        ), f"Boundary file not found - expected to find one of these files: {', '.join(map(str, plausible_boundaries))}"
+        assert valid_boundaries, (
+            f"Boundary file not found - expected to find one of these files: {', '.join(map(str, plausible_boundaries))}"
+        )
 
         return (
             vpt_outputs / MerscopeKeys.COUNTS_FILE,
@@ -160,9 +160,9 @@ def merscope(
         assert isinstance(image_models_kwargs, dict)
         image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
 
-    assert (
-        backend is None or backend in SUPPORTED_BACKENDS
-    ), f"Backend '{backend} not supported. Should be one of: {', '.join(SUPPORTED_BACKENDS)}"
+    assert backend is None or backend in SUPPORTED_BACKENDS, (
+        f"Backend '{backend} not supported. Should be one of: {', '.join(SUPPORTED_BACKENDS)}"
+    )
 
     path = Path(path).absolute()
     count_path, obs_path, boundaries_path = _get_file_paths(path, vpt_outputs)

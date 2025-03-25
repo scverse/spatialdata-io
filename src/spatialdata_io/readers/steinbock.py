@@ -58,8 +58,7 @@ def steinbock(
     labels = {}
     if len(set(samples).difference(set(samples_labels))):
         logger.warning(
-            f"Samples {set(samples).difference(set(samples_labels))} have images but no labels. "
-            "They will be ignored."
+            f"Samples {set(samples).difference(set(samples_labels))} have images but no labels. They will be ignored."
         )
     for sample in samples:
         images[f"{sample}_image"] = _get_images(
