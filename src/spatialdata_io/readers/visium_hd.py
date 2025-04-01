@@ -307,6 +307,7 @@ def visium_hd(
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
+        set_transformation(images[f"{dataset_id}_full_image"], {dataset_id: Identity()}, set_all=True)
 
     # hires image
     hires_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_HIRES_FILE in str(path)]
@@ -464,7 +465,7 @@ def _load_image(
 ) -> None:
     if path.exists():
         if path.suffix != ".btf":
-            data = imread(path, **imread_kwargs)
+            data = imread(path)
             if len(data.shape) == 4:
                 # this happens for the cytassist, hires and lowres images; the umi image doesn't need processing
                 data = data.squeeze()
