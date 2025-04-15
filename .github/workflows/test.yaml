@@ -10,6 +10,7 @@ on:
 
 jobs:
     test:
+        needs: prepare-data
         runs-on: ${{ matrix.os }}
         defaults:
             run:
