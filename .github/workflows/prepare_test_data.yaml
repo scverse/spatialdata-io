@@ -1,6 +1,8 @@
 name: Prepare test data
 
 on:
+    schedule:
+        - cron: "0 0 1 * *" # run once a month to prevent artifact expiration
     workflow_dispatch:
 # uncomment and adjust the branch name if you need to add new datasets to the artifact
 #    push:
