@@ -379,7 +379,7 @@ def visium_hd(
             affine = Affine(affine_matrix, input_axes=("x", "y"), output_axes=("x", "y"))
 
             # determine the size of the transformed image
-            bounding_box = get_extent(image)
+            bounding_box = get_extent(image, coordinate_system=dataset_id)
             x0, x1 = bounding_box["x"]
             y0, y1 = bounding_box["y"]
             x1 -= 1
@@ -410,7 +410,7 @@ def visium_hd(
                 numpy_data, ProjectiveTransform(projective_shift).inverse, output_shape=transformed_shape, order=1
             )
             warped = np.round(warped * 255).astype(np.uint8)
-            warped = Image2DModel.parse(warped, dims=("y", "x", "c"), transformations={"global": affine}, rgb=True)
+            warped = Image2DModel.parse(warped, dims=("y", "x", "c"), transformations={dataset_id: affine}, rgb=True)
 
             # we replace the cytassist image with the warped image
             images[dataset_id + "_cytassist_image"] = warped
@@ -484,7 +484,13 @@ def _load_image(
             ), "When the image is not in RGB, the first dimension should be the number of channels."
 
         image = DataArray(data, dims=("c", "y", "x"))
-        parsed = Image2DModel.parse(image, scale_factors=scale_factors, rgb=None, **image_models_kwargs)
+        parsed = Image2DModel.parse(
+            image,
+            scale_factors=scale_factors,
+            rgb=None,
+            transformations={dataset_id: Identity()},
+            **image_models_kwargs,
+        )
         images[dataset_id + suffix] = parsed
     else:
         warnings.warn(f"File {path} does not exist, skipping it.", UserWarning, stacklevel=2)
