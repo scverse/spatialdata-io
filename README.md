@@ -107,10 +107,10 @@ Marconato, L., Palla, G., Yamauchi, K.A. et al. SpatialData: an open and univers
 
 [scverse-discourse]: https://discourse.scverse.org/
 [issue-tracker]: https://github.com/scverse/spatialdata-io/issues
-[changelog]: https://spatialdata.scverse.org/projects/io/en/latest/changelog.html
-[link-docs]: https://spatialdata.scverse.org/projects/io/en/latest/
-[link-api]: https://spatialdata.scverse.org/projects/io/en/latest/api.html
-[link-cli]: https://spatialdata.scverse.org/projects/io/en/latest/cli.html
+[changelog]: https://spatialdata.scverse.org/projects/io/en/stable/changelog.html
+[link-docs]: https://spatialdata.scverse.org/projects/io/en/stable/
+[link-api]: https://spatialdata.scverse.org/projects/io/en/stable/api.html
+[link-cli]: https://spatialdata.scverse.org/projects/io/en/stable/cli.html
 [//]: # "numfocus-fiscal-sponsor-attribution"
 
 spatialdata-io is part of the scverse® project ([website](https://scverse.org), [governance](https://scverse.org/about/roles)) and is fiscally sponsored by [NumFOCUS](https://numfocus.org/).
