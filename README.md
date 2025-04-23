@@ -5,10 +5,14 @@
 [![Tests][badge-tests]][link-tests]
 [![Documentation][badge-docs]][link-docs]
 [![DOI](https://zenodo.org/badge/544045123.svg)](https://zenodo.org/badge/latestdoi/544045123)
+[![Documentation][badge-pypi]][link-pypi]
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/spatialdata-io/badges/version.svg)](https://anaconda.org/conda-forge/spatialdata-io)
 
 [badge-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml/badge.svg
 [link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml
 [badge-docs]: https://img.shields.io/readthedocs/spatialdata-io
+[badge-pypi]: https://badge.fury.io/py/spatialdata-io.svg
+[link-pypi]: https://pypi.org/project/spatialdata-io/
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
