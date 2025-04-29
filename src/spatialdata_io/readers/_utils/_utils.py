@@ -5,7 +5,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Union
 
-from anndata import AnnData, read_text
+from anndata import AnnData
+from anndata.io import read_text
 from h5py import File
 from ome_types import from_tiff
 from ome_types.model import Pixels, UnitsLength
