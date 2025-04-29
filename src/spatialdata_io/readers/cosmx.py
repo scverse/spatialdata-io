@@ -256,7 +256,7 @@ def cosmx(
         with tempfile.TemporaryDirectory() as tmpdir:
             print("converting .csv to .parquet to improve the speed of the slicing operations... ", end="")
             assert transcripts_file is not None
-            transcripts_data = pd.read_csv(path / transcripts_file, header=0)
+            transcripts_data = pd.read_csv(transcripts_file, header=0)
             transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
             print("done")
 
