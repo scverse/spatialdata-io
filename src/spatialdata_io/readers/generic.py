@@ -7,6 +7,7 @@ from typing import Protocol, TypeVar
 
 import dask.array as da
 import numpy as np
+import tifffile
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from numpy.typing import NDArray
@@ -14,7 +15,6 @@ from spatialdata._docs import docstring_parameter
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.models._utils import DEFAULT_COORDINATE_SYSTEM
 from spatialdata.transformations import Identity
-from tifffile import memmap as tiffmmemap
 from xarray import DataArray
 
 from ._utils._image import _compute_chunks, _read_chunks
@@ -81,7 +81,9 @@ def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
-def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[DaskArray[np.int_]]]:
+def _tiff_to_chunks(
+    input: Path, axes_dim_mapping: dict[str, int]
+) -> DaskArray[np.int_] | list[list[DaskArray[np.int_]]]:
     """Chunkwise reader for tiff files.
 
     Parameters
@@ -96,7 +98,7 @@ def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[
     list[list[DaskArray]]
     """
     # Lazy file reader
-    slide = tiffmmemap(input)
+    slide = tifffile.memmap(input)
 
     # Transpose to cyx order
     slide = np.transpose(slide, (axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"]))
@@ -123,8 +125,20 @@ def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> Data
     axes_dim_mapping = {axes: ndim for ndim, axes in enumerate(data_axes)}
 
     if input.suffix in [".tiff", ".tif"]:
-        chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping)
-        image = da.block(chunks, allow_unknown_chunksizes=True)
+        try:
+            chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping)
+            image = da.block(chunks, allow_unknown_chunksizes=True)
+
+        # Edge case: Compressed images are not memory-mappable
+        except ValueError:
+            warnings.warn(
+                "Image data are not memory-mappable, potentially due to compression. Trying to load the image into memory at once",
+                stacklevel=2,
+            )
+            image = imread(input)
+            if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
+                image = np.squeeze(image, axis=0)
+            image = image.transpose(axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"])
 
     elif input.suffix in [".png", ".jpg", ".jpeg"]:
         image = imread(input)
