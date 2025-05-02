@@ -11,10 +11,7 @@ def _compute_chunk_sizes_positions(size: int, chunk: int, min_coord: int) -> tup
     """Calculate chunk sizes and positions for a given dimension and chunk size"""
     # All chunks have the same size except for the last one
     positions = np.arange(min_coord, min_coord + size, chunk)
-    lengths = np.full_like(positions, chunk, dtype=int)
-
-    if positions[-1] + chunk > size + min_coord:
-        lengths[-1] = size + min_coord - positions[-1]
+    lengths = np.minimum(chunk, min_coord + size - positions)
 
     return positions, lengths
 
