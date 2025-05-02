@@ -20,7 +20,7 @@ def _compute_chunk_sizes_positions(size: int, chunk: int, min_coord: int) -> tup
 
 
 def _compute_chunks(
-    dimensions: tuple[int, int],
+    shape: tuple[int, int],
     chunk_size: tuple[int, int],
     min_coordinates: tuple[int, int] = (0, 0),
 ) -> NDArray[np.int_]:
@@ -32,7 +32,7 @@ def _compute_chunks(
 
     Parameters
     ----------
-    dimensions : tuple[int, int]
+    shape : tuple[int, int]
         Size of the image in (width, height).
     chunk_size : tuple[int, int]
         Size of individual tiles in (width, height).
