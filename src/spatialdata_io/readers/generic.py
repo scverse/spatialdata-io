@@ -81,9 +81,7 @@ def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
-def _tiff_to_chunks(
-    input: Path, axes_dim_mapping: dict[str, int]
-) -> DaskArray[np.int_] | list[list[DaskArray[np.int_]]]:
+def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[DaskArray[np.int_]]]:
     """Chunkwise reader for tiff files.
 
     Parameters
