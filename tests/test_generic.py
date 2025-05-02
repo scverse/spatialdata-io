@@ -36,19 +36,29 @@ def save_temp_files() -> Generator[tuple[Path, Path, Path], None, None]:
         yield jpg_path, geojson_path, Path(tmpdir)
 
 
-@pytest.fixture(scope="module", params=[("c", "y", "x"), ("x", "y", "c")])
+@pytest.fixture(
+    scope="module",
+    params=[
+        {"axes": ("c", "y", "x"), "compression": None},
+        {"axes": ("x", "y", "c"), "compression": None},
+        {"axes": ("c", "y", "x"), "compression": "lzw"},
+        {"axes": ("x", "y", "c"), "compression": "lzw"},
+    ],
+)
 def save_tiff_files(
     request: pytest.FixtureRequest,
 ) -> Generator[tuple[Path, tuple[str], Path], None, None]:
     with tempfile.TemporaryDirectory() as tmpdir:
-        axes = request.param
+        axes = request.param["axes"]
+        compression = request.param["compression"]
+
         sdata = blobs()
         # save the image as tiff
         x = sdata["blobs_image"].transpose(*axes).data.compute()
         img = np.clip(x * 255, 0, 255).astype(np.uint8)
 
         tiff_path = Path(tmpdir) / "blobs_image.tiff"
-        tiffwrite(tiff_path, img)
+        tiffwrite(tiff_path, img, compression=compression)
 
         yield tiff_path, axes, Path(tmpdir)
 
