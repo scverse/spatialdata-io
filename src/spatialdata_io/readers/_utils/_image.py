@@ -45,8 +45,8 @@ def _compute_chunks(
         Array of shape (n_tiles_x, n_tiles_y, 4). Each entry defines a tile
         as (x, y, width, height).
     """
-    x_positions, widths = _compute_chunk_sizes_positions(dimensions[1], chunk_size[1], min_coord=min_coordinates[1])
-    y_positions, heights = _compute_chunk_sizes_positions(dimensions[0], chunk_size[0], min_coord=min_coordinates[0])
+    x_positions, widths = _compute_chunk_sizes_positions(shape[1], chunk_size[1], min_coord=min_coordinates[1])
+    y_positions, heights = _compute_chunk_sizes_positions(shape[0], chunk_size[0], min_coord=min_coordinates[0])
 
     # Generate the tiles
     tiles = np.array(
