@@ -5,10 +5,14 @@
 [![Tests][badge-tests]][link-tests]
 [![Documentation][badge-docs]][link-docs]
 [![DOI](https://zenodo.org/badge/544045123.svg)](https://zenodo.org/badge/latestdoi/544045123)
+[![Documentation][badge-pypi]][link-pypi]
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/spatialdata-io/badges/version.svg)](https://anaconda.org/conda-forge/spatialdata-io)
 
 [badge-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml/badge.svg
 [link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml
 [badge-docs]: https://img.shields.io/readthedocs/spatialdata-io
+[badge-pypi]: https://badge.fury.io/py/spatialdata-io.svg
+[link-pypi]: https://pypi.org/project/spatialdata-io/
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
@@ -107,10 +111,10 @@ Marconato, L., Palla, G., Yamauchi, K.A. et al. SpatialData: an open and univers
 
 [scverse-discourse]: https://discourse.scverse.org/
 [issue-tracker]: https://github.com/scverse/spatialdata-io/issues
-[changelog]: https://spatialdata.scverse.org/projects/io/en/latest/changelog.html
-[link-docs]: https://spatialdata.scverse.org/projects/io/en/latest/
-[link-api]: https://spatialdata.scverse.org/projects/io/en/latest/api.html
-[link-cli]: https://spatialdata.scverse.org/projects/io/en/latest/cli.html
+[changelog]: https://spatialdata.scverse.org/projects/io/en/stable/changelog.html
+[link-docs]: https://spatialdata.scverse.org/projects/io/en/stable/
+[link-api]: https://spatialdata.scverse.org/projects/io/en/stable/api.html
+[link-cli]: https://spatialdata.scverse.org/projects/io/en/stable/cli.html
 [//]: # "numfocus-fiscal-sponsor-attribution"
 
 spatialdata-io is part of the scverse® project ([website](https://scverse.org), [governance](https://scverse.org/about/roles)) and is fiscally sponsored by [NumFOCUS](https://numfocus.org/).
