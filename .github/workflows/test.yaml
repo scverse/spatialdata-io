@@ -53,17 +53,11 @@ jobs:
 
             - name: Download artifact of test data
               if: matrix.python == '3.12'
-              uses: dawidd6/action-download-artifact@v2
+              uses: dawidd6/action-download-artifact@v9
               with:
                   workflow: prepare_test_data.yaml
                   name: data
                   path: ./data
-
-            - name: List the data directory
-              if: matrix.python == '3.12'
-              run: |
-                  ls -l ./data
-                  pwd
 
             - name: Test
               env:

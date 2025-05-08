@@ -52,6 +52,8 @@ def generic(
     -------
     Parsed spatial element.
     """
+    if isinstance(input, str):
+        input = Path(input)
     if coordinate_system is None:
         coordinate_system = DEFAULT_COORDINATE_SYSTEM
     if input.suffix in VALID_SHAPE_TYPES:

@@ -620,8 +620,8 @@ def macsima_wrapper(
 @click.option("--name", "-n", type=str, help="name of the element to be stored")
 @click.option(
     "--data-axes",
-    type=click.Choice(["cyx", "czyx"], case_sensitive=False),
-    help="Axes of the data for image files. Valid values are 'cyx' and 'czyx'.",
+    type=str,
+    help="Axes of the data for image files. Valid values are permutations of 'cyx' and 'czyx'.",
 )
 @click.option(
     "--coordinate-system",
@@ -636,7 +636,9 @@ def read_generic_wrapper(
     data_axes: str | None = None,
     coordinate_system: str | None = None,
 ) -> None:
-    """Read generic data to SpatialData."""
+    """Read generic data to SpatialData"""
+    if data_axes is not None and "".join(sorted(data_axes)) not in ["cxy", "cxyz"]:
+        raise ValueError("data_axes must be a permutation of 'cyx' or 'czyx'.")
     generic_to_zarr(input=input, output=output, name=name, data_axes=data_axes, coordinate_system=coordinate_system)
 
 
