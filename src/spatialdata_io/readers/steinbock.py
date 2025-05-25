@@ -87,9 +87,11 @@ def steinbock(
     # duplicate of adata.obs['image']
     del adata.obs["Image"]
 
-    # / is an invalid character
-    adata.var["Final Concentration"] = adata.var["Final Concentration / Dilution"]
-    del adata.var["Final Concentration / Dilution"]
+    # for backwards compatibility with the demo dataset from spatialdata-io
+    if "Final Concentration / Dilution" in adata.var.columns:
+        # / is an invalid character
+        adata.var["Final Concentration"] = adata.var["Final Concentration / Dilution"]
+        del adata.var["Final Concentration / Dilution"]
 
     # replace all spaces with underscores
     adata.var.columns = adata.var.columns.str.replace(" ", "_")
