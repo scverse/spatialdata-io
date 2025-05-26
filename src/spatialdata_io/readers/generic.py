@@ -3,20 +3,33 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol, TypeVar
 
+import dask.array as da
 import numpy as np
+import tifffile
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
+from numpy.typing import NDArray
 from spatialdata._docs import docstring_parameter
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.models._utils import DEFAULT_COORDINATE_SYSTEM
 from spatialdata.transformations import Identity
 from xarray import DataArray
 
+from ._utils._image import _compute_chunks, _read_chunks
+
 VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
+DEFAULT_CHUNKSIZE = (1000, 1000)
 
 __all__ = ["generic", "geojson", "image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
+
+T = TypeVar("T", bound=np.generic)  # Restrict to NumPy scalar types
+
+
+class DaskArray(Protocol[T]):
+    dtype: np.dtype[T]
 
 
 @docstring_parameter(
@@ -70,11 +83,69 @@ def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
+def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[DaskArray[np.int_]]]:
+    """Chunkwise reader for tiff files.
+
+    Parameters
+    ----------
+    input
+        Path to image
+    axes_dim_mapping
+        Mapping between dimension name (x, y, c) and index
+
+    Returns
+    -------
+    list[list[DaskArray]]
+    """
+    # Lazy file reader
+    slide = tifffile.memmap(input)
+
+    # Transpose to cyx order
+    slide = np.transpose(slide, (axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"]))
+
+    # Get dimensions in (x, y)
+    slide_dimensions = slide.shape[2], slide.shape[1]
+
+    # Get number of channels (c)
+    n_channel = slide.shape[0]
+
+    # Compute chunk coords
+    chunk_coords = _compute_chunks(slide_dimensions, chunk_size=DEFAULT_CHUNKSIZE, min_coordinates=(0, 0))
+
+    # Define reader func
+    def _reader_func(slide: NDArray[np.int_], x0: int, y0: int, width: int, height: int) -> NDArray[np.int_]:
+        return np.array(slide[:, y0 : y0 + height, x0 : x0 + width])
+
+    return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
+
+
 def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> DataArray:
-    """Reads an image file and returns a parsed Image2D spatial element"""
-    # this function is just a draft, the more general one will be available when
-    # https://github.com/scverse/spatialdata-io/pull/234 is merged
-    image = imread(input)
-    if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
-        image = np.squeeze(image, axis=0)
+    """Reads an image file and returns a parsed Image2DModel"""
+    # Map passed data axes to position of dimension
+    axes_dim_mapping = {axes: ndim for ndim, axes in enumerate(data_axes)}
+
+    if input.suffix in [".tiff", ".tif"]:
+        try:
+            chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping)
+            image = da.block(chunks, allow_unknown_chunksizes=True)
+
+        # Edge case: Compressed images are not memory-mappable
+        except ValueError:
+            warnings.warn(
+                "Image data are not memory-mappable, potentially due to compression. Trying to load the image into memory at once",
+                stacklevel=2,
+            )
+            image = imread(input)
+            if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
+                image = np.squeeze(image, axis=0)
+            image = image.transpose(axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"])
+
+    elif input.suffix in [".png", ".jpg", ".jpeg"]:
+        image = imread(input)
+        if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
+            image = np.squeeze(image, axis=0)
+
+    else:
+        raise NotImplementedError(f"File format {input.suffix} not implemented")
+
     return Image2DModel.parse(image, dims=data_axes, transformations={coordinate_system: Identity()})
