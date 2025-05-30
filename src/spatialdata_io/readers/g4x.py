@@ -28,7 +28,6 @@ PIL.Image.MAX_IMAGE_PIXELS = 500000000
 __all__ = ["g4x"]
 
 
-
 @inject_docs(xx=G4XKeys)
 def g4x(
     input_path: str | Path,
@@ -357,9 +356,11 @@ def _write_he(
         logger.debug(f"Creating Image2DModel for {img_key}")
         kwargs["dims"] = ["c", "y", "x"] if "dims" not in kwargs else kwargs["dims"]
         kwargs["scale_factors"] = (
-            [2, 2, 2] if "scale_factors" not in kwargs else kwargs["scale_factors"]
+            [2] if "scale_factors" not in kwargs else kwargs["scale_factors"]
         )
-        kwargs["chunks"] = [1, 1024, 1024] if "chunks" not in kwargs else kwargs["chunks"]
+        kwargs["chunks"] = (
+            [1, 1024, 1024] if "chunks" not in kwargs else kwargs["chunks"]
+        )
         sdata[img_key] = Image2DModel.parse(img, **kwargs)
         logger.debug(f"Writing Image2DModel for {img_key}")
         sdata.write_element(img_key)
@@ -547,13 +548,9 @@ def _write_protein_images(
 
     kwargs["dims"] = ["c", "y", "x"] if "dims" not in kwargs else kwargs["dims"]
     kwargs["scale_factors"] = (
-        [2, 2, 2] if "scale_factors" not in kwargs else kwargs["scale_factors"]
+        [2] if "scale_factors" not in kwargs else kwargs["scale_factors"]
     )
-    kwargs["chunks"] = (
-        [1, protein_stack.shape[-2], protein_stack.shape[-1]]
-        if "chunks" not in kwargs
-        else kwargs["chunks"]
-    )
+    kwargs["chunks"] = [1, 2048, 2048] if "chunks" not in kwargs else kwargs["chunks"]
 
     # Create Image2DModel and write
     logger.debug("Converting to Image2DModel")
