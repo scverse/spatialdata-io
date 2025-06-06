@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 import h5py
@@ -23,6 +22,9 @@ from spatialdata_io._constants._constants import StereoseqKeys as SK
 from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 __all__ = ["stereoseq"]
 
 
@@ -35,8 +37,7 @@ def stereoseq(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *Stereo-seq* formatted dataset.
+    """Read *Stereo-seq* formatted dataset.
 
     Parameters
     ----------
@@ -311,7 +312,7 @@ def stereoseq(
     y_coords = df_coords.filter(regex="y_")
     polygons = []
     for (x_index, x_row), (y_index, y_row) in tqdm(
-        zip(x_coords.iterrows(), y_coords.iterrows()), desc="creating polygons", total=len(df_coords)
+        zip(x_coords.iterrows(), y_coords.iterrows(), strict=False), desc="creating polygons", total=len(df_coords)
     ):
         assert x_index == y_index
         # the polygonal cells coordinates are stored as offsets from the centroids, so let's add the centroids
