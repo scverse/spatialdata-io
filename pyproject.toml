@@ -36,6 +36,7 @@ dependencies = [
     "readfcs",
     "tifffile>=2023.8.12",
     "ome-types",
+    "xmltodict",
 ]
 
 [project.optional-dependencies]
