@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -21,6 +20,9 @@ from xarray import DataArray
 from spatialdata_io._constants._constants import VisiumKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _read_counts
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 __all__ = ["visium"]
 
@@ -38,8 +40,7 @@ def visium(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
 ) -> SpatialData:
-    """
-    Read *10x Genomics* Visium formatted dataset.
+    """Read *10x Genomics* Visium formatted dataset.
 
     This function reads the following files:
 

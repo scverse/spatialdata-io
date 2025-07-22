@@ -301,7 +301,7 @@ class McmicroKeys(ModeEnum):
 
 @unique
 class MerscopeKeys(ModeEnum):
-    """Keys for *MERSCOPE* data (Vizgen plateform)"""
+    """Keys for *MERSCOPE* data (Vizgen plateform)."""
 
     # files and directories
     IMAGES_DIR = "images"

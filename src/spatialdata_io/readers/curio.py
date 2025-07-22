@@ -19,8 +19,7 @@ __all__ = ["curio"]
 def curio(
     path: str | Path,
 ) -> SpatialData:
-    """
-    Read *Curio* formatted dataset.
+    """Read *Curio* formatted dataset.
 
     This function reads the following files:
 
@@ -73,7 +72,7 @@ def curio(
     categories = metrics[CurioKeys.CATEGORY].unique()
     for cat in categories:
         df = metrics.loc[metrics[CurioKeys.CATEGORY] == cat]
-        adata.uns[cat] = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
+        adata.uns[cat] = dict(zip(df.iloc[:, 0], df.iloc[:, 1], strict=False))
     adata.uns[CurioKeys.TOP_CLUSTER_DEFINING_FEATURES] = var_features_clusters
 
     # adding Moran's I information in adata.var, for the variable for which it is available

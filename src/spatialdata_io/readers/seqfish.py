@@ -3,10 +3,9 @@ from __future__ import annotations
 import os
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 import numpy as np
@@ -26,6 +25,9 @@ from spatialdata.transformations.transformations import Identity, Scale
 from spatialdata_io._constants._constants import SeqfishKeys as SK
 from spatialdata_io._docs import inject_docs
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 __all__ = ["seqfish"]
 
 
@@ -41,8 +43,7 @@ def seqfish(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     raster_models_scale_factors: list[float] | None = None,
 ) -> SpatialData:
-    """
-    Read *seqfish* formatted dataset.
+    """Read *seqfish* formatted dataset.
 
     This function reads the following files:
 
@@ -200,7 +201,6 @@ def seqfish(
     points = {}
     if load_points:
         for x in rois_str:
-
             # prepare data
             name = f"{os.path.splitext(get_transcript_file(x))[0]}"
             p = pd.read_csv(path / get_transcript_file(x), delimiter=",")
@@ -217,7 +217,7 @@ def seqfish(
 
     shapes = {}
     if cells_as_circles:
-        for x, adata in zip(rois_str, tables.values()):
+        for x, adata in zip(rois_str, tables.values(), strict=False):
             shapes[f"{os.path.splitext(get_cell_file(x))[0]}"] = ShapesModel.parse(
                 adata.obsm[SK.SPATIAL_KEY],
                 geometry=0,
