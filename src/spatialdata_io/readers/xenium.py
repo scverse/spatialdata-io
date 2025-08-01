@@ -324,9 +324,7 @@ def xenium(
                         f"chNNNN_<name>.ome.tif starting with {XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value}"
                     )
                 first_tiff_path = morphology_focus_dir / XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value
-                ome = ome_types.from_xml(
-                    tifffile.tiffcomment(first_tiff_path),
-                    validate=False)
+                ome = ome_types.from_xml(tifffile.tiffcomment(first_tiff_path), validate=False)
 
                 # Get channel names from the OME XML
                 ome_channels = ome.images[0].pixels.channels
