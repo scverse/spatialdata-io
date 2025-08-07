@@ -384,7 +384,7 @@ def _get_polygons(
         assert idx is not None
         assert len(idx) == len(geo_df)
         assert np.unique(geo_df.index).size == len(geo_df)
-        assert index.equals(idx)
+        assert np.array_equal(index.to_numpy(), idx.to_numpy())
         geo_df.index = idx
     else:
         geo_df.index = index
