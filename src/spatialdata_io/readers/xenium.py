@@ -384,7 +384,8 @@ def _get_polygons(
         assert idx is not None
         assert len(idx) == len(geo_df)
         assert np.unique(geo_df.index).size == len(geo_df)
-        assert np.array_equal(index.to_numpy(), idx.to_numpy())
+        assert index.equals(idx)
+        # assert np.array_equal(index.to_numpy(), idx.to_numpy())
         geo_df.index = idx
     else:
         geo_df.index = index
@@ -468,6 +469,8 @@ def _get_labels_and_indices_mapping(
                     "label_index": real_label_index.astype(np.int64),
                 }
             )
+            # because AnnData converts the indices to str
+            indices_mapping.index = indices_mapping.index.astype(str)
             return labels, indices_mapping
 
 
@@ -497,6 +500,8 @@ def _get_cells_metadata_table_from_zarr(
 
             cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
             df[XeniumKeys.CELL_ID] = cell_id_str
+            # because AnnData converts the indices to str
+            df.index = df.index.astype(str)
             return df
 
 
