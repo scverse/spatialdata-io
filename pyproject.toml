@@ -61,8 +61,10 @@ test = [
     "pytest-cov",
 ]
 # this will be used by readthedocs and will make pip also look for pre-releases, generally installing the latest available version
+# update: readthedocs doens't seem to try to install pre-releases even if when trying to install the pre optional-dependency. For
+# the moment, if needed, let's add the latest pre-release explicitly here.
 pre = [
-    "spatialdata>=0.1.0-pre0"
+    "spatialdata>=0.4.0rc0"
 ]
 
 [tool.coverage.run]
