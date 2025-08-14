@@ -373,6 +373,8 @@ def _get_polygons(
 
     group_by = df.groupby(XeniumKeys.CELL_ID)
     index = pd.Series(group_by.indices.keys())
+    # convert the index to str since we will compare it with an AnnData object, where the index is a str
+    index.index = index.index.astype(str)
     index = _decode_cell_id_column(index)
     out = Parallel(n_jobs=n_jobs)(
         delayed(_poly)(i.to_numpy())
