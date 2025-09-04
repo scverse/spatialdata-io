@@ -293,7 +293,8 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
                     "tissue_hires_scalef is required when an the hires image is present"
                 )
                 hires_image = Image2DModel.parse(
-                    hires, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_hires": Identity()}
+                    hires, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_hires": Identity()},
+                    rgb=None,
                 )
                 images[f"{dataset_id}_hires_image"] = hires_image
 
@@ -306,7 +307,8 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
                     "tissue_lowres_scalef is required when an the lowres image is present"
                 )
                 lowres_image = Image2DModel.parse(
-                    lowres, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_lowres": Identity()}
+                    lowres, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_lowres": Identity()},
+                    rgb=None,
                 )
                 images[f"{dataset_id}_lowres_image"] = lowres_image
 
