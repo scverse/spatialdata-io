@@ -5,7 +5,8 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pytest
 from click.testing import CliRunner
-from spatialdata import read_zarr
+from spatialdata import match_table_to_element, read_zarr
+from spatialdata.models import TableModel, get_table_keys
 
 from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
@@ -51,11 +52,17 @@ def test_roundtrip_with_data_limits() -> None:
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("Xenium_V1_human_Breast_2fov_outs", "{'y': (0, 3529), 'x': (0, 5792), 'z': (10, 25)}"),
-        ("Xenium_V1_human_Lung_2fov_outs", "{'y': (0, 3553), 'x': (0, 5793), 'z': (7, 32)}"),
+        (
+            "Xenium_V1_human_Breast_2fov_outs",
+            "{'y': (0, 3529), 'x': (0, 5792), 'z': (10, 25)}",
+        ),
+        (
+            "Xenium_V1_human_Lung_2fov_outs",
+            "{'y': (0, 3553), 'x': (0, 5793), 'z': (7, 32)}",
+        ),
     ],
 )
-def test_example_data(dataset: str, expected: str) -> None:
+def test_example_data_data_extent(dataset: str, expected: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
     sdata = xenium(f, cells_as_circles=False)
@@ -64,6 +71,53 @@ def test_example_data(dataset: str, expected: str) -> None:
     extent = get_extent(sdata, exact=False)
     extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
     assert str(extent) == expected
+
+
+# TODO: add tests for Xenium 3.0.0
+@skip_if_below_python_version()
+@pytest.mark.parametrize("dataset", ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs"])
+def test_example_data_index_integrity(dataset) -> None:
+    f = Path("./data") / dataset
+    assert f.is_dir()
+    sdata = xenium(f, cells_as_circles=False)
+
+    # testing Xenium_V1_human_Breast_2fov_outs
+    # fmt: off
+    # test elements
+    assert sdata["morphology_focus"]["scale0"]["image"].sel(c="DAPI", y=20.5, x=20.5).data.compute() == 94
+    assert sdata["morphology_focus"]["scale0"]["image"].sel(c="AlphaSMA/Vimentin", y=3528.5, x=5775.5).data.compute() == 1
+    assert sdata["cell_labels"]["scale0"]["image"].sel(y=73.5, x=33.5).data.compute() == 4088
+    assert sdata["cell_labels"]["scale0"]["image"].sel(y=76.5, x=33.5).data.compute() == 4081
+    assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=11.5, x=1687.5).data.compute() == 5030
+    assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=3515.5, x=4618.5).data.compute() == 6392
+    assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 1113949]]['x'], [2.608911, 194.917831, 1227.499268])
+    assert np.isclose(sdata['cell_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4864931162789)
+    assert np.isclose(sdata['nucleus_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4931256878282)
+    assert np.array_equal(sdata['table'].X.indices[:3], [1, 3, 34])
+    # fmt: on
+
+    # test table annotation
+    region, region_key, instance_key = get_table_keys(sdata["table"])
+    sdata["table"].obs.iloc[0]
+    print(region, region_key, instance_key)
+    assert region == "cell_labels"
+    # to debug you can see that spatialdata.get_element_instances(sdata[region]) and sdata['table'].obs[instance_key] are different
+    sdata["table"].obs.columns
+    # TableModel.parse(sdata['table'], region=region, region_key=region_key, instance_key = 'labels_id', overwrite_metadata=True)
+    match_table_to_element(sdata, element_name=region, table_name="table")
+
+    pass
+
+    # testing Xenium_V1_human_Lung_2fov_outs
+
+    d = {"morphology_focus": {(0, 0, 0): None}}
+    for element_name, indexes_values in d.items():
+        print(f"Checking element '{element_name}'")
+        for index, _value in indexes_values.items():
+            print(f"  Checking index {index}")
+            print(f"    Expected value: {sdata[element_name]}")
+    sdata
+    pass
 
 
 # TODO: add tests for Xenium 3.0.0
