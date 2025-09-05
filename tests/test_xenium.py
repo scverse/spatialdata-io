@@ -76,48 +76,62 @@ def test_example_data_data_extent(dataset: str, expected: str) -> None:
 # TODO: add tests for Xenium 3.0.0
 @skip_if_below_python_version()
 @pytest.mark.parametrize("dataset", ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs"])
-def test_example_data_index_integrity(dataset) -> None:
+def test_example_data_index_integrity(dataset: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
     sdata = xenium(f, cells_as_circles=False)
 
-    # testing Xenium_V1_human_Breast_2fov_outs
-    # fmt: off
-    # test elements
-    assert sdata["morphology_focus"]["scale0"]["image"].sel(c="DAPI", y=20.5, x=20.5).data.compute() == 94
-    assert sdata["morphology_focus"]["scale0"]["image"].sel(c="AlphaSMA/Vimentin", y=3528.5, x=5775.5).data.compute() == 1
-    assert sdata["cell_labels"]["scale0"]["image"].sel(y=73.5, x=33.5).data.compute() == 4088
-    assert sdata["cell_labels"]["scale0"]["image"].sel(y=76.5, x=33.5).data.compute() == 4081
-    assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=11.5, x=1687.5).data.compute() == 5030
-    assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=3515.5, x=4618.5).data.compute() == 6392
-    assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 1113949]]['x'], [2.608911, 194.917831, 1227.499268])
-    assert np.isclose(sdata['cell_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4864931162789)
-    assert np.isclose(sdata['nucleus_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4931256878282)
-    assert np.array_equal(sdata['table'].X.indices[:3], [1, 3, 34])
-    # fmt: on
+    if dataset == "Xenium_V1_human_Breast_2fov_outs":
+        # fmt: off
+        # test elements
+        assert sdata["morphology_focus"]["scale0"]["image"].sel(c="DAPI", y=20.5, x=20.5).data.compute() == 94
+        assert sdata["morphology_focus"]["scale0"]["image"].sel(c="AlphaSMA/Vimentin", y=3528.5, x=5775.5).data.compute() == 1
+        assert sdata["cell_labels"]["scale0"]["image"].sel(y=73.5, x=33.5).data.compute() == 4088
+        assert sdata["cell_labels"]["scale0"]["image"].sel(y=76.5, x=33.5).data.compute() == 4081
+        assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=11.5, x=1687.5).data.compute() == 5030
+        assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=3515.5, x=4618.5).data.compute() == 6392
+        assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 1113949]]['x'], [2.608911, 194.917831, 1227.499268])
+        assert np.isclose(sdata['cell_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4864931162789)
+        assert np.isclose(sdata['nucleus_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4931256878282)
+        assert np.array_equal(sdata['table'].X.indices[:3], [1, 3, 34])
+        # fmt: on
 
-    # test table annotation
-    region, region_key, instance_key = get_table_keys(sdata["table"])
-    sdata["table"].obs.iloc[0]
-    print(region, region_key, instance_key)
-    assert region == "cell_labels"
-    # to debug you can see that spatialdata.get_element_instances(sdata[region]) and sdata['table'].obs[instance_key] are different
-    sdata["table"].obs.columns
-    # TableModel.parse(sdata['table'], region=region, region_key=region_key, instance_key = 'labels_id', overwrite_metadata=True)
-    match_table_to_element(sdata, element_name=region, table_name="table")
+        # test table annotation
+        region, region_key, instance_key = get_table_keys(sdata["table"])
+        assert region == "cell_labels"
+        matched_table = match_table_to_element(sdata, element_name=region, table_name="table")
+        assert len(matched_table) == 7275
+        assert matched_table.obs["cell_id"][:3].tolist() == [
+            "aaaiikim-1",
+            "aaaljapa-1",
+            "aabhbgmg-1",
+        ]
+    else:
+        assert dataset == "Xenium_V1_human_Lung_2fov_outs"
+        # fmt: off
+        # test elements
+        assert sdata["morphology_focus"]["scale0"]["image"].sel(c="DAPI", y=0.5, x=2215.5).data.compute() == 1
+        assert sdata["morphology_focus"]["scale0"]["image"].sel(c="DAPI", y=11.5, x=4437.5).data.compute() == 2007
+        assert sdata["cell_labels"]["scale0"]["image"].sel(y=0.5, x=2940.5).data.compute() == 2605
+        assert sdata["cell_labels"]["scale0"]["image"].sel(y=3.5, x=4801.5).data.compute() == 7618
+        assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=8.5, x=4359.5).data.compute() == 7000
+        assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=18.5, x=3015.5).data.compute() == 2764
+        assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 20000]]['x'], [174.258392, 12.210024, 214.759186])
+        assert np.isclose(sdata['cell_boundaries'].loc['aaanbaof-1'].geometry.centroid.x, 43.96894317275074)
+        assert np.isclose(sdata['nucleus_boundaries'].loc['aaanbaof-1'].geometry.centroid.x,43.31874577809517)
+        assert np.array_equal(sdata['table'].X.indices[:3], [1, 8, 19])
+        # fmt: on
 
-    pass
-
-    # testing Xenium_V1_human_Lung_2fov_outs
-
-    d = {"morphology_focus": {(0, 0, 0): None}}
-    for element_name, indexes_values in d.items():
-        print(f"Checking element '{element_name}'")
-        for index, _value in indexes_values.items():
-            print(f"  Checking index {index}")
-            print(f"    Expected value: {sdata[element_name]}")
-    sdata
-    pass
+        # test table annotation
+        region, region_key, instance_key = get_table_keys(sdata["table"])
+        assert region == "cell_labels"
+        matched_table = match_table_to_element(sdata, element_name=region, table_name="table")
+        assert len(matched_table) == 11898
+        assert matched_table.obs["cell_id"][:3].tolist() == [
+            "aaafiiei-1",
+            "aaanbaof-1",
+            "aabdiein-1",
+        ]
 
 
 # TODO: add tests for Xenium 3.0.0
