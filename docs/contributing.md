@@ -125,7 +125,7 @@ We encourage to test the reader function and any helper function.
 
 When multiple versions of the raw data format are present, we encourage to test the reader on all of them to ensure backward compatibility. This task is greatly simplified if small tests datasets are used for the CI tests. If this is not available, we suggest to run the tests locally on multiple versions of the data before the PR is ready for review.
 
-### Testing that the visualization is correct
+### Testing that the visualization and table annotations are correct
 
 Using `spatialdata-plot` and/or `napari-spatialdata` to visualize the data is a quick way to easily spot issues with spatial alignment or table annotations.
 
@@ -133,18 +133,30 @@ We encourage to manually check the visualization of the data. Please refer to th
 
 In `napari-spatialdata` and `spatialdata-plot` we have tests that visually compare programmatic visualizations with reference images. We may consider adding such tests also for `spatialdata-io`, but for the moment these are not available. We recommend the two following proxy tests:
 
-1. Proxy test to check that the spatial aligment is correct. This can be achieved by testing that the data extent (i.e. the visual bounds of the data) is correct. The extent can be computed with [`spatialdata.get_extent()`](https://spatialdata.scverse.org/en/stable/api/operations.html#spatialdata.get_extent). Here is an [example of such a test](https://github.com/scverse/spatialdata-io/blob/d2fe0bc18349093ad2cafce752590117729baee8/tests/test_xenium.py#L58).
-2. Proxy test to check that the coloring of the spatial entities are correct. This can be achieved by checking that for each element, and for a small set of instance ids (i.e. data indices), and for a few feature columns, the values are correct.
+1. Proxy test to check that the spatial aligment is correct. This can be achieved by testing that the data extent (i.e. the visual bounds of the data) is correct. The extent can be computed with [`spatialdata.get_extent()`](https://spatialdata.scverse.org/en/stable/api/operations.html#spatialdata.get_extent). Here is an [example of such a test](https://github.com/LucaMarconato/spatialdata-io/blob/1df4a2261ee7f82469fa67cb83bdb856d69f6dac/tests/test_xenium.py#L51).
+2. Proxy test to check that the coloring of the spatial entities are correct. This can be achieved by checking that for each element, and for a small set of instance ids (i.e. data indices), and for a few feature columns, the values are correct. Here is an [example of such a test](https://github.com/LucaMarconato/spatialdata-io/blob/1df4a2261ee7f82469fa67cb83bdb856d69f6dac/tests/test_xenium.py#L79).
 
-#### Testing data queries and bounds
-
-### Testing data integrity
+Note: writing these tests require some manual work to explore the data. If you find this too time-consuming, we could consider adding some external scripts to create these tests automatically: if you are interested please reach out to us.
 
 ### Testing auxiliary functions
 
+Some technology make use of auxiliary functions to parse the data. We encourage to test these functions as well. Here is an [example of such an auxiliary function for Xenium data](https://github.com/LucaMarconato/spatialdata-io/blob/4ee33da99781ccb2ea284be0614bdaaf69bfb2ed/src/spatialdata_io/readers/xenium.py#L771) and the [corresponding test](https://github.com/LucaMarconato/spatialdata-io/blob/4ee33da99781ccb2ea284be0614bdaaf69bfb2ed/tests/test_xenium.py#L19).
+
 ## Adding a new converter
 
+Readers are developed to parse raw data from spatial omics technologies. We also provide converters to convert data from/to other general data formats, i.e. data formats that are not specific to a single (or a small set) of spatial omics technologies.
+An example of this is the legacy `AnnData` spatial format, used in early versions of `squidpy`.
+
+Converters are not the primary scope of `spatialdata-io`, so we will just give some general indications: if you are interested in contributing to a converter, please adapt and follow the guidelines as for readers (in particular link to a specification, provide test data, and write extensive tests). Feedback is welcome: if you find it useful we can expand this section of the contribution guide.
+
 ## Updating the CLI for readers and converters
+
+The readers and converters from `spatialdata-io` can be invoked via the command line (see the [CLI documentation](https://spatialdata.scverse.org/projects/io/en/stable/cli.html)). This Python file defines the CLI: [src/spatialdata_io/**main**.py](https://github.com/scverse/spatialdata-io/blob/main/src/spatialdata_io/__main__.py). Please if you add or modify a reder or converter, update the CLI accordingly.
+
+#### Technical notes
+
+- In the future we may consider to automatically generate the CLI from the readers and converters, [see more here](https://github.com/scverse/spatialdata-io/pull/239#issuecomment-2588005228).
+- Keeping the CLI code up-to-date could be a good task for the GitHub Copilot code agent. We will experiment with this in the future.
 
 # Bug tracking
 
