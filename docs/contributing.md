@@ -32,7 +32,7 @@ The advantage of a public specification is that it makes contributions and bugfi
 
 The reader files are located under [src/spatialdata_io/readers](https://github.com/scverse/spatialdata-io/tree/main/src/spatialdata_io/readers). For each supported technology, the reader file is a single function, named after the technology, that takes as input the path to the raw data and extra arguments, and returns a `SpatialData` object:
 
-```python=
+```python
 from pathlib import Path
 from spatialdata import SpatialData
 
@@ -44,7 +44,7 @@ def technology(path: str | Path, ...) -> SpatialData:
 
 For example, the reader for Xenium data, is called `xenium()` and is located under [`src/spatialdata_io/readers/xenium.py`](https://github.com/scverse/spatialdata-io/blob/main/src/spatialdata_io/readers/xenium.py).
 
-#### Technical notes
+**Technical notes**
 
 > Feel free to skip this section (and all the "technical notes") if you are doing a first read and just want an overview of the contribution process.
 
@@ -114,7 +114,7 @@ There are a series of reasons to prefer public datasets provided with a permissi
 
 If the data cannot be public yet, please reach out to scverse via [Zulip](https://scverse.zulipchat.com/#narrow/channel/443514-spatialdata-dev) via private message, or via email. Please give us access to a private repository where you can upload a `download.py` and `to_zarr.py` script working as described above. In alternative, you can also send us the data directly instead of the `download.py` script.
 
-#### Technical notes
+**Technical notes**
 
 If the `download.py` and `to_zarr.py` scripts require Python imports for packages that are not available in an environment where `spatialdata` is installed, please provide also a `requirement.txt` file (see for instance a [legacy one here](https://github.com/giovp/spatialdata-sandbox/blob/main/merfish/requirements.txt)), specify the dependencies in the scripts as [inline script metadata (PEP 723)](https://docs.astral.sh/uv/guides/scripts/#declaring-script-dependencies).
 
@@ -154,7 +154,7 @@ Converters are not the primary scope of `spatialdata-io`, so we will just give s
 
 The readers and converters from `spatialdata-io` can be invoked via the command line (see the [CLI documentation](https://spatialdata.scverse.org/projects/io/en/stable/cli.html)). This Python file defines the CLI: [src/spatialdata_io/**main**.py](https://github.com/scverse/spatialdata-io/blob/main/src/spatialdata_io/__main__.py). Please if you add or modify a reder or converter, update the CLI accordingly.
 
-#### Technical notes
+**Technical notes**
 
 - In the future we may consider to automatically generate the CLI from the readers and converters, [see more here](https://github.com/scverse/spatialdata-io/pull/239#issuecomment-2588005228).
 - Keeping the CLI code up-to-date could be a good task for the GitHub Copilot code agent. We will experiment with this in the future.
