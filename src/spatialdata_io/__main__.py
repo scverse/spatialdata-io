@@ -262,6 +262,13 @@ def merscope_wrapper(
     default=None,
     help="Which sections to load. Provide one or more section indices. [default: All sections are loaded]",
 )
+@click.option(
+    "--raster-models-scale-factors",
+    type=float,
+    multiple=True,
+    default=None,
+    help="Scale factors for raster models. [default: None]",
+)
 def seqfish_wrapper(
     input: str,
     output: str,
@@ -271,9 +278,11 @@ def seqfish_wrapper(
     load_shapes: bool = True,
     cells_as_circles: bool = False,
     rois: list[int] | None = None,
+    raster_models_scale_factors: list[float] | None = None,
 ) -> None:
     """Seqfish conversion to SpatialData."""
     rois = list(rois) if rois else None
+    raster_models_scale_factors = list(raster_models_scale_factors) if raster_models_scale_factors else None
     sdata = seqfish(  # type: ignore[name-defined] # noqa: F821
         input,
         load_images=load_images,
@@ -282,6 +291,7 @@ def seqfish_wrapper(
         load_shapes=load_shapes,
         cells_as_circles=cells_as_circles,
         rois=rois,
+        raster_models_scale_factors=raster_models_scale_factors,
     )
     sdata.write(output)
 
@@ -351,6 +361,12 @@ def stereoseq_wrapper(
     default=None,
     help="Path to the scalefactors file. [default: None]",
 )
+@click.option(
+    "--var-names-make-unique",
+    type=bool,
+    default=True,
+    help="Whether to make variable names unique. [default: True]",
+)
 def visium_wrapper(
     input: str,
     output: str,
@@ -359,6 +375,7 @@ def visium_wrapper(
     fullres_image_file: str | Path | None = None,
     tissue_positions_file: str | Path | None = None,
     scalefactors_file: str | Path | None = None,
+    var_names_make_unique: bool = True,
 ) -> None:
     """Visium conversion to SpatialData."""
     sdata = visium(  # type: ignore[name-defined] # noqa: F821
@@ -368,6 +385,7 @@ def visium_wrapper(
         fullres_image_file=fullres_image_file,
         tissue_positions_file=tissue_positions_file,
         scalefactors_file=scalefactors_file,
+        var_names_make_unique=var_names_make_unique,
     )
     sdata.write(output)
 
@@ -412,6 +430,12 @@ def visium_wrapper(
     default=False,
     help="If true, annotates the table by labels. [default: False]",
 )
+@click.option(
+    "--var-names-make-unique",
+    type=bool,
+    default=True,
+    help="Whether to make variable names unique. [default: True]",
+)
 def visium_hd_wrapper(
     input: str,
     output: str,
@@ -422,6 +446,7 @@ def visium_hd_wrapper(
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
     annotate_table_by_labels: bool = False,
+    var_names_make_unique: bool = True,
 ) -> None:
     """Visium HD conversion to SpatialData."""
     sdata = visium_hd(  # type: ignore[name-defined] # noqa: F821
@@ -433,6 +458,7 @@ def visium_hd_wrapper(
         fullres_image_file=fullres_image_file,
         load_all_images=load_all_images,
         annotate_table_by_labels=annotate_table_by_labels,
+        var_names_make_unique=var_names_make_unique,
     )
     sdata.write(output)
 
@@ -503,6 +529,12 @@ def xenium_wrapper(
 @cli.command(name="macsima")
 @_input_output_click_options
 @click.option(
+    "--parsing-style",
+    type=click.Choice(["auto", "processed_single_folder", "processed_multiple_folders", "raw"]),
+    default="auto",
+    help="Parsing style for MACSima data. [default: auto]",
+)
+@click.option(
     "--filter-folder-names",
     type=str,
     multiple=True,
@@ -568,6 +600,7 @@ def macsima_wrapper(
     input: str,
     output: str,
     *,
+    parsing_style: str = "auto",
     filter_folder_names: list[str] | None = None,
     subset: int | None = None,
     c_subset: int | None = None,
@@ -585,6 +618,7 @@ def macsima_wrapper(
     """Read MACSima formatted dataset and convert to SpatialData."""
     sdata = macsima(  # type: ignore[name-defined] # noqa: F821
         path=input,
+        parsing_style=parsing_style,
         filter_folder_names=filter_folder_names,
         subset=subset,
         c_subset=c_subset,
