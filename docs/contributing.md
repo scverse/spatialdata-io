@@ -9,6 +9,7 @@ This guide is written for:
 The `spatialdata-io` repository inherits the technical stack from `spatialdata`, therefore please read also the [contribution guide from the `spatialdata` repository](https://github.com/scverse/spatialdata/blob/main/docs/contributing.md).
 
 The rest of the document will be specific to `spatialdata-io`. Feedback on this document is highly welcomed: you are encouraged to open a PR to improve this guide.
+**A summary checklist is provided at the end of the document.**
 
 ## Adding a new reader
 
@@ -160,19 +161,66 @@ The readers and converters from `spatialdata-io` can be invoked via the command 
 
 # Bug tracking
 
-- tracking bugs also outside spatialdata-io
-- tracking bugs also in spatialdata
+To see current open [issues](https://github.com/scverse/spatialdata-io/issues?q=sort%3Aupdated-desc+is%3Aissue+is%3Aopen) and [PRs](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aopen) for a particular technology please filter the issues/PRs by label. Not all the issues have been labeled yet, so additional issues/PRs for a particular technology may be present.
+
+To provide an overview of the open bugs, and to help prioritizing them, we setup a [public (view-only) project board](https://github.com/orgs/scverse/projects/63/views/1). The project board can list also issues and PRs that are not in the `spatialdata-io` repository, for instance blockers in `spatialdata` or problems in downstream libraries that are linked to a bug in `spatialdata`/`spatialdata-io`. If you would like to update/edit the board please reach out to us.
+
+The issues in the project board need to be added manually, so the board may not be complete and we invite you to consult also the issues/PRs list. Due to the redundant nature of the project board, we are still experimenting with it, so please give us feedback if you find it useful or not.
 
 # Limitations and possible improvements
 
+We are aware of some limitations of the current implementation of `spatialdata-io`.
+
 ## Unsupported technologies
+
+Certain highly-used technologies, or certain versions for a particular technology are not supported yet, and we encourage community contributions to help with implementations.
 
 ## Naming constistency across readers
 
+The naming of the arguments of the readers is not fully consistent across technologies. An improvement would be to standardize the naming of the arguments across readers, for instance using always `path` for the path to the raw data, `sample_id` for the sample identifier, etc.
+
 ## Pixel space vs physical space
+
+For certain use cases the "pixel" space is more convenient, for others the "physical" space. Thanks to the flexibility of coordinate transformations one can easily handle the data in both spaces. However for some technologies the first coordinate system (i.e. the default one) is the "pixel" space, for others the "physical" space. An improvement would be to standardize this across technologies.
 
 ## Transformations between coordinate systems
 
+Coordinate transformations are currently only available from elements to coordinate systems. We are working (initially in a separate repository) to a large refactoring of coordinate transformations to allow transformations also between coordinate systems. This will make it easier to work with multiple samples and multiple coordinate systems and simplify the process of dealing with transformations in `spatialdata-io` readers.
+
 ## Summary table of supported technlogies and specifications
 
-# Checklist
+In our README we list the supported technologies but we do not list the supported versions for each technology. An overview table could be helpful.
+
+# Wrap-up: checklist
+
+As a wrap-up, here is a checklist of the main points to consider when contributing to a reader.
+
+- Specification
+    - [ ] Provide a link to the public specification/changelog of the raw data format (if no public specification available yet, reach out to scverse privately (Zulip/email))
+
+- Reader implementation
+    - [ ] Implement reader functions in `src/spatialdata_io/readers/` (if no formal spec available, place under `experimental/`)
+    - [ ] Place string constants in `src/spatialdata_io/_constants/_constants.py`
+
+- Example data
+    - [ ] Provide (very) small public test dataset(s) (~100kB–10MB, preferred)
+    - [ ] Ensure dataset(s) cover edge cases of the format
+    - [ ] In addition to the small dataset(s) (or if only large datasets are available), create scripts in `spatialdata-sandbox`:
+        - [ ] `download.py` (fetch raw data → `data/`)
+        - [ ] `to_zarr.py` (convert raw data → `data.zarr`)
+        - [ ] Include `requirements.txt` (or add PEP 723 metadata to the scripts) for dependencies not included in `spatialdata`
+    - [ ] Strong encouragement to use permissive licenses (e.g. CC BY 4.0)
+    - [ ] If only private data is available, provide private repo with `download.py` and `to_zarr.py` (or data directly)
+
+- Tests
+    - [ ] Add test functions for the reader
+    - [ ] Test multiple versions of the raw format if applicable
+    - [ ] Verify visualization/alignment with `spatialdata-plot` or `napari-spatialdata`
+    - [ ] Add proxy tests for spatial extent correctness (`spatialdata.get_extent()`)
+    - [ ] Add proxy tests for coloring/annotations of selected elements/features
+    - [ ] Add tests for auxiliary/helper functions if present
+
+- Extra
+    - [ ] Update CLI in `src/spatialdata_io/__main__.py` if reader/converter is added/modified
+    - [ ] Consider contributing to the public project board (currently view only, please reach out for edits)
+    - [ ] Provide feedback on this contribution guide to improve it further
