@@ -23,7 +23,7 @@ sys.path.insert(0, str(HERE / "extensions"))
 info = metadata("spatialdata-io")
 project_name = info["Name"]
 author = info["Author"]
-copyright = f"{datetime.now():%Y}, {author}."
+copyright = f"{datetime.now():%Y}, {author}"
 version = info["Version"]
 repository_url = f"https://github.com/scverse/{project_name}"
 
