@@ -25,6 +25,6 @@ def skip_if_below_python_version() -> pytest.mark.skipif:
     >>> def test_some_feature():
     >>>     assert True
     """
-    MIN_VERSION = (3, 12)
+    MIN_VERSION = (3, 13)
     reason = f"Test requires Python {'.'.join(map(str, MIN_VERSION))} or higher"
     return pytest.mark.skipif(sys.version_info < MIN_VERSION, reason=reason)
