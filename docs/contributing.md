@@ -81,7 +81,7 @@ Notes:
 
 ### When only real (large) public data is available
 
-Even when a small dataset is not available, we encourage to produce one. If this is not possible a public real dataset can be used. A possibility is also to use both: use small test datasets for CI testing, and a real dataset for double-checking real world usability and performance.
+Even when a small dataset is not available, we encourage you to produce one. If this is not possible a public real dataset can be used. A possibility is also to use both: use small test datasets for CI testing, and a real dataset for double-checking real world usability and performance.
 
 To streamline the usage of datasets we kindly ask you to provide two scripts via a PR to the [`spatialdata-sandbox`](https://github.com/giovp/spatialdata-sandbox) repository (not `spatialdata-io`): a script to download the data and a script to convert the downloaded data to the SpatialData Zarr format.
 
