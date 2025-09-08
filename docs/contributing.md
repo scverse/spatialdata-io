@@ -105,9 +105,9 @@ The `to_zarr.py` script: (1) imports a suitable reader from `spatialdata_io`; (2
 
 ### The importance of public data and permissive licenses
 
-There are a series of reasons to prefer public datasets provided with a permissive license (e.g. 10x public datasets often uses the [CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/)):
+There are a series of reasons to prefer public datasets provided with a permissive license (e.g. 10x public datasets often use the [CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/)):
 
-- It allow the community to use the `download.py` script to download the data. An example of data accessible to the public but when this is not possible is when the data can be downloaded only after completing a questionnaire. For private data, collaborations and community contributions are difficult.
+- It allows the community to use the `download.py` script to download the data. An example of data accessible to the public but when this is not possible is when the data can be downloaded only after completing a questionnaire. For private data, collaborations and community contributions are difficult.
 - It allow the community to modify (e.g. subset, to make download faster) and rehost the data. This makes it easier to share results and collaborate effectively.
 
 ### When only private data is available
@@ -120,7 +120,7 @@ If the `download.py` and `to_zarr.py` scripts require Python imports for package
 
 ## What to test
 
-We encourage to test the reader function and any helper function.
+We encourage testing the reader function and any helper function.
 
 ### Testing multiple versions
 
