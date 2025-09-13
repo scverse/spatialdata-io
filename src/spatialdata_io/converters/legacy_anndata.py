@@ -350,4 +350,4 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
         new_table = TableModel.parse(new_table, region=REGION, region_key=REGION_KEY, instance_key=INSTANCE_KEY)
     else:
         new_table = adata.copy()
-    return SpatialData(table=new_table, images=images, shapes=shapes)
+    return SpatialData(tables={"table": new_table}, images=images, shapes=shapes)
