@@ -359,8 +359,10 @@ class VisiumHDKeys(ModeEnum):
     FILTERED_COUNTS_FILE = "filtered_feature_bc_matrix.h5"
     RAW_COUNTS_FILE = "raw_feature_bc_matrix.h5"
     TISSUE_POSITIONS_FILE = "tissue_positions.parquet"
+    BARCODE_MAPPINGS_FILE = "barcode_mappings.parquet"
     FILTERED_CELL_COUNTS_FILE = "filtered_feature_cell_matrix.h5"
-    SEGMENTATION_GEOJSON_PATH = "cell_segmentations.geojson"
+    CELL_SEGMENTATION_GEOJSON_PATH = "cell_segmentations.geojson"
+    NUCLEUS_SEGMENTATION_GEOJSON_PATH = "nucleus_segmentations.geojson"
 
     # images
     IMAGE_HIRES_FILE = "tissue_hires_image.png"
@@ -405,3 +407,4 @@ class VisiumHDKeys(ModeEnum):
 
     # Cell Segmentation keys
     CELL_SEG_KEY_HD = 'cell_segmentations'
+    NUCLEUS_SEG_KEY_HD = 'nucleus_segmentations'
