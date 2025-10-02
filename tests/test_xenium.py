@@ -63,7 +63,7 @@ def test_roundtrip_with_data_limits() -> None:
         (
             "Xenium_V1_Protein_Human_Kidney_tiny_outs",
             "{'y': (0, 6915), 'x': (0, 2963), 'z': (6, 22)}",
-        )
+        ),
     ],
 )
 def test_example_data_data_extent(dataset: str, expected: str) -> None:
@@ -79,7 +79,10 @@ def test_example_data_data_extent(dataset: str, expected: str) -> None:
 
 # TODO: add tests for Xenium 3.0.0
 @skip_if_below_python_version()
-@pytest.mark.parametrize("dataset", ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs", "Xenium_V1_Protein_Human_Kidney_tiny_outs"])
+@pytest.mark.parametrize(
+    "dataset",
+    ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs", "Xenium_V1_Protein_Human_Kidney_tiny_outs"],
+)
 def test_example_data_index_integrity(dataset: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
@@ -165,7 +168,10 @@ def test_example_data_index_integrity(dataset: str) -> None:
 
 # TODO: add tests for Xenium 3.0.0
 @skip_if_below_python_version()
-@pytest.mark.parametrize("dataset", ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs", "Xenium_V1_Protein_Human_Kidney_tiny_outs"])
+@pytest.mark.parametrize(
+    "dataset",
+    ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs", "Xenium_V1_Protein_Human_Kidney_tiny_outs"],
+)
 def test_cli_xenium(runner: CliRunner, dataset: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
