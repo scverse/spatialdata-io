@@ -75,7 +75,7 @@ def make_filtered_nucleus_adata(
     barcode_mappings = pq.read_table(barcode_mappings_parquet_path)
 
     # Filter to only include valid cell IDs that are in both nucleus and cell
-    barcode_mappings = barcode_mappings.filter((barcode_mappings['cell_id'].is_valid()) and barcode_mappings["in_nucleus"] and barcode_mappings["in_cell"])
+    barcode_mappings = barcode_mappings.filter((barcode_mappings['cell_id'].is_valid()) and barcode_mappings["in_nucleus"])
     
     # Filter the 2um adata to only include squares present in the barcode mappings
     valid_squares = barcode_mappings[bin_col_name].unique()
@@ -110,6 +110,42 @@ def make_filtered_nucleus_adata(
     adata_nucleus.var = adata_filtered.var
     
     return adata_nucleus
+def extract_geometries_from_geojson(adata: anndata.AnnData, geojson_features_map: dict[str, Any]) -> GeoDataFrame:
+            """Extract geometries and create a GeoDataFrame from a GeoJSON features map.
+
+            Parameters
+            ----------
+            cell_adata : anndata.AnnData
+                AnnData object containing cell data.
+            geojson_features_map : dict[str, Any]
+                Dictionary mapping cell IDs to GeoJSON features.
+
+            Returns
+            -------
+            GeoDataFrame
+                A GeoDataFrame containing cell IDs and their corresponding geometries.
+            """
+            geometries = []
+            cell_ids_ordered = []
+
+            for obs_index_str in adata.obs.index:
+                feature = geojson_features_map.get(obs_index_str)
+                if feature:
+                    polygon_coords = np.array(feature['geometry']['coordinates'][0])
+                    geometries.append(Polygon(polygon_coords))
+                    cell_ids_ordered.append(obs_index_str)
+                else:
+                    geometries.append(None)
+                    cell_ids_ordered.append(obs_index_str)
+
+            valid_indices = [i for i, geom in enumerate(geometries) if geom is not None]
+            geometries = [geometries[i] for i in valid_indices]
+            cell_ids_ordered = [cell_ids_ordered[i] for i in valid_indices]
+
+            return GeoDataFrame({
+                'cell_id': cell_ids_ordered,
+                'geometry': geometries
+            }, index=cell_ids_ordered)
 def make_shapes_transformation(scale_factors_path: Path, dataset_id: str) -> dict[str, Scale]:
     """Load scale factors for lowres and hires images and create transformations.
 
@@ -386,88 +422,43 @@ def visium_hd(
     # Integrate the segmentation data (skipped if segmentation files are not found)
     if cell_segmentation_files_exist:
         print("Found segmentation data. Incorporating cell_segmentations.")
-        adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH)
-        adata_hd.var_names_make_unique()
+        cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH)
+        cell_adata_hd.var_names_make_unique()
         
-        shapes_transformations_hd = make_shapes_transformation(scale_factors_path=SCALE_FACTORS_PATH, dataset_id=dataset_id)
-        
-        geojson_features_map = make_geojson_features_map(CELL_GEOJSON_PATH)
-
-        geometries = []
-        cell_ids_ordered = []
-
-        for obs_index_str in adata_hd.obs.index:
-            feature = geojson_features_map.get(obs_index_str)
-            if feature:
-                polygon_coords = np.array(feature['geometry']['coordinates'][0])
-                geometries.append(Polygon(polygon_coords))
-                cell_ids_ordered.append(obs_index_str)
-            else:
-                geometries.append(None)
-                cell_ids_ordered.append(obs_index_str)
-
-        valid_indices = [i for i, geom in enumerate(geometries) if geom is not None]
-        geometries = [geometries[i] for i in valid_indices]
-        cell_ids_ordered = [cell_ids_ordered[i] for i in valid_indices]
-
-        shapes_gdf = GeoDataFrame({
-            'cell_id': cell_ids_ordered,
-            'geometry': geometries
-        }, index=cell_ids_ordered)
+        shapes_transformations_hd = make_shapes_transformation(scale_factors_path=SCALE_FACTORS_PATH, dataset_id=dataset_id) # Used for both cell and nucleus segmentations
+        cell_geojson_features_map = make_geojson_features_map(CELL_GEOJSON_PATH)
+        cell_shapes_gdf = extract_geometries_from_geojson(cell_adata_hd, geojson_features_map=cell_geojson_features_map)
         
         SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.CELL_SEG_KEY_HD}"
-        cell_adata_hd = adata_hd.copy()
         cell_adata_hd.obs['cell_id'] = cell_adata_hd.obs.index
         cell_adata_hd.obs['region'] = SHAPES_KEY_HD
         cell_adata_hd.obs['region'] = cell_adata_hd.obs['region'].astype('category')
-        cell_adata_hd = cell_adata_hd[shapes_gdf.index].copy()        
+        cell_adata_hd = cell_adata_hd[cell_shapes_gdf.index].copy()        
 
-        shapes[SHAPES_KEY_HD] = ShapesModel.parse(shapes_gdf, transformations=shapes_transformations_hd)
+        shapes[SHAPES_KEY_HD] = ShapesModel.parse(cell_shapes_gdf, transformations=shapes_transformations_hd)
         tables[VisiumHDKeys.CELL_SEG_KEY_HD] = TableModel.parse(
             cell_adata_hd,
             region=SHAPES_KEY_HD,
             region_key='region',
             instance_key='cell_id'
         )
+        
         # load nucleus segmentations if available
         if nucleus_segmentation_files_exist and load_nucleus_segmentations:
             print("Found nucleus segmentation data. Incorporating nucleus_segmentations.")
             
             nucleus_adata_hd = make_filtered_nucleus_adata(filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH,barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH)
-            
-            with open(NUCLEUS_GEOJSON_PATH, 'r') as f:
-                geojson_data = json.load(f)
-
-            geometries = []
-            cell_ids_ordered = []
-
-            for obs_index_str in adata_hd.obs.index:
-                feature = geojson_features_map.get(obs_index_str)
-                if feature:
-                    polygon_coords = np.array(feature['geometry']['coordinates'][0])
-                    geometries.append(Polygon(polygon_coords))
-                    cell_ids_ordered.append(obs_index_str)
-                else:
-                    geometries.append(None)
-                    cell_ids_ordered.append(obs_index_str)
-
-            valid_indices = [i for i, geom in enumerate(geometries) if geom is not None]
-            geometries = [geometries[i] for i in valid_indices]
-            cell_ids_ordered = [cell_ids_ordered[i] for i in valid_indices]
-
-            shapes_gdf = GeoDataFrame({
-                'cell_id': cell_ids_ordered,
-                'geometry': geometries
-            }, index=cell_ids_ordered)
+            geojson_features_map = make_geojson_features_map(NUCLEUS_GEOJSON_PATH)
+            nucleus_shapes_gdf = extract_geometries_from_geojson(adata=nucleus_adata_hd, geojson_features_map=geojson_features_map)
             
             SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
             nucleus_adata_hd.obs['cell_id'] = nucleus_adata_hd.obs.index
             nucleus_adata_hd.obs['region'] = SHAPES_KEY_HD
             nucleus_adata_hd.obs['region'] = nucleus_adata_hd.obs['region'].astype('category')
-            nucleus_adata_hd = nucleus_adata_hd[shapes_gdf.index].copy()      
+            nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()      
 
-            shapes[SHAPES_KEY_HD] = ShapesModel.parse(shapes_gdf, transformations=shapes_transformations_hd)
-            tables[VisiumHDKeys.CELL_SEG_KEY_HD] = TableModel.parse(
+            shapes[SHAPES_KEY_HD] = ShapesModel.parse(nucleus_shapes_gdf, transformations=shapes_transformations_hd)
+            tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD] = TableModel.parse(
                 nucleus_adata_hd,
                 region=SHAPES_KEY_HD,
                 region_key='region',
