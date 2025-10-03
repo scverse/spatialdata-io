@@ -32,6 +32,9 @@ jobs:
                   # 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, nuclear expansion
                   curl -O https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Mouse_Ileum_tiny/Xenium_Prime_Mouse_Ileum_tiny_outs.zip
 
+                  # 10x Genomics Xenium 4.0.0 (v1+Protein) Human kidney, multimodal cell segmentation
+                  curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip
+
                   # Spatial Genomics seqFISH v2
                   curl -O https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip
 
