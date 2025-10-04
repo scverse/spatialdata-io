@@ -72,7 +72,7 @@ def xenium(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """Read a *10X Genomics Xenium* dataset into a SpatialData object.
+    """Read a *10x Genomics Xenium* dataset into a SpatialData object.
 
     This function reads the following files:
 
@@ -87,7 +87,8 @@ def xenium(
 
     .. seealso::
 
-        - `10X Genomics Xenium file format  <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
+        - `10x Genomics Xenium file format <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
+        - `Release notes for the Xenium format <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa>`_.
 
     Parameters
     ----------
@@ -490,7 +491,7 @@ def _get_labels_and_indices_mapping(
                         f"{expected_label_index}."
                     )
             else:
-                labels_positional_indices = z["polygon_sets"][mask_index]["cell_index"][...]
+                labels_positional_indices = z["polygon_sets"][f"{mask_index}"]["cell_index"][...]
                 if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
                     raise ValueError(
                         "The positional indices of the labels do not match the expected range. Please report this "
