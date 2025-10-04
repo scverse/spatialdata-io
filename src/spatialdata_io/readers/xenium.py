@@ -38,7 +38,7 @@ from xarray import DataArray, DataTree
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io._utils import deprecation_alias
+from spatialdata_io._utils import deprecation_alias, zarr_open
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
@@ -417,7 +417,7 @@ def _get_labels_and_indices_mapping(
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             zip_ref.extractall(tmpdir)
 
-        with zarr.open(str(tmpdir), mode="r") as z:
+        with zarr_open(str(tmpdir), mode="r") as z:
             # get the labels
             masks = z["masks"][f"{mask_index}"][...]
             labels = Labels2DModel.parse(
@@ -492,7 +492,7 @@ def _get_cells_metadata_table_from_zarr(
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             zip_ref.extractall(tmpdir)
 
-        with zarr.open(str(tmpdir), mode="r") as z:
+        with zarr_open(str(tmpdir), mode="r") as z:
             x = z["cell_summary"][...]
             column_names = z["cell_summary"].attrs["column_names"]
             df = pd.DataFrame(x, columns=column_names)
