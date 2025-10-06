@@ -646,8 +646,8 @@ def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any])
     return transform_matrices
 
 def _make_filtered_nucleus_adata(
-    filtered_matrix_h5_path: str,
-    barcode_mappings_parquet_path: str,
+    filtered_matrix_h5_path: Path,
+    barcode_mappings_parquet_path: Path,
     bin_col_name: str = 'square_002um',
     aggregate_col_name: str = 'cell_id'
 ) -> anndata.AnnData:
@@ -660,9 +660,9 @@ def _make_filtered_nucleus_adata(
 
     Parameters:
     -----------
-    filtered_matrix_h5_path : str
+    filtered_matrix_h5_path : Path
         Path to the 10x Genomics HDF5 matrix file.
-    barcode_mappings_parquet_path : str
+    barcode_mappings_parquet_path : Path
         Path to the Parquet file containing barcode mappings.
     bin_col_name : str, optional
         Column name in the barcode mappings that specifies the spatial bin (default is 'square_002um').
