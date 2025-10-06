@@ -6,18 +6,18 @@ import warnings
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
-from shapely.geometry import Polygon
-import pyarrow.parquet as pq
-import anndata
-from scipy.sparse import csc_matrix
+
 import h5py
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import scanpy as sc
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from imageio import imread as imread2
 from numpy.random import default_rng
+from scipy.sparse import csc_matrix
+from shapely.geometry import Polygon
 from skimage.transform import ProjectiveTransform, warp
 from spatialdata import (
     SpatialData,
@@ -25,7 +25,7 @@ from spatialdata import (
     rasterize_bins,
     rasterize_bins_link_table_to_labels,
 )
-from spatialdata.models import Image2DModel, ShapesModel, TableModel, PointsModel
+from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata.transformations import Affine, Identity, Scale, set_transformation
 from xarray import DataArray
 
@@ -35,6 +35,7 @@ from spatialdata_io._docs import inject_docs
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    import anndata
     from multiscale_spatial_image import MultiscaleSpatialImage
     from spatial_image import SpatialImage
     from spatialdata._types import ArrayLike
@@ -107,7 +108,7 @@ def visium_hd(
     shapes = {}
     images: dict[str, Any] = {}
     labels: dict[str, Any] = {}
-    
+
     # Check for segmentation files
     SEGMENTED_OUTPUTS_PATH = path / VisiumHDKeys.SEGMENTATION_OUTPUTS
     COUNT_MATRIX_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.FILTERED_CELL_COUNTS_FILE
@@ -250,7 +251,7 @@ def visium_hd(
             )
             shapes_name = dataset_id + "_" + bin_size_str
             radius = scalefactors[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
-            
+
             # Here we ensure that only the correct coordinate systems are created for the binned data
             transformations = {
                 f"{dataset_id}_downscaled_hires": transform_hires,
@@ -288,16 +289,16 @@ def visium_hd(
         print("Found segmentation data. Incorporating cell_segmentations.")
         cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH)
         cell_adata_hd.var_names_make_unique()
-        
+
         shapes_transformations_hd = _make_shapes_transformation(scale_factors_path=SCALE_FACTORS_PATH, dataset_id=dataset_id) # Used for both cell and nucleus segmentations
         cell_geojson_features_map = _make_geojson_features_map(CELL_GEOJSON_PATH)
         cell_shapes_gdf = _extract_geometries_from_geojson(cell_adata_hd, geojson_features_map=cell_geojson_features_map)
-        
+
         SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.CELL_SEG_KEY_HD}"
         cell_adata_hd.obs['cell_id'] = cell_adata_hd.obs.index
         cell_adata_hd.obs['region'] = SHAPES_KEY_HD
         cell_adata_hd.obs['region'] = cell_adata_hd.obs['region'].astype('category')
-        cell_adata_hd = cell_adata_hd[cell_shapes_gdf.index].copy()        
+        cell_adata_hd = cell_adata_hd[cell_shapes_gdf.index].copy()
 
         shapes[SHAPES_KEY_HD] = ShapesModel.parse(cell_shapes_gdf, transformations=shapes_transformations_hd)
         tables[VisiumHDKeys.CELL_SEG_KEY_HD] = TableModel.parse(
@@ -306,20 +307,20 @@ def visium_hd(
             region_key='region',
             instance_key='cell_id'
         )
-        
+
         # load nucleus segmentations if available
         if nucleus_segmentation_files_exist and load_nucleus_segmentations:
             print("Found nucleus segmentation data. Incorporating nucleus_segmentations.")
-            
+
             nucleus_adata_hd = _make_filtered_nucleus_adata(filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH,barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH)
             geojson_features_map = _make_geojson_features_map(NUCLEUS_GEOJSON_PATH)
             nucleus_shapes_gdf = _extract_geometries_from_geojson(adata=nucleus_adata_hd, geojson_features_map=geojson_features_map)
-            
+
             SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
             nucleus_adata_hd.obs['cell_id'] = nucleus_adata_hd.obs.index
             nucleus_adata_hd.obs['region'] = SHAPES_KEY_HD
             nucleus_adata_hd.obs['region'] = nucleus_adata_hd.obs['region'].astype('category')
-            nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()      
+            nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()
 
             shapes[SHAPES_KEY_HD] = ShapesModel.parse(nucleus_shapes_gdf, transformations=shapes_transformations_hd)
             tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD] = TableModel.parse(
@@ -398,7 +399,7 @@ def visium_hd(
             UserWarning,
             stacklevel=2,
         )
-    
+
     lowres_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_LOWRES_FILE in str(path)]
     if len(lowres_image_path) > 0:
         load_image(
@@ -426,7 +427,7 @@ def visium_hd(
             UserWarning,
             stacklevel=2,
         )
-    
+
     cytassist_path = [path for path in all_files if VisiumHDKeys.IMAGE_CYTASSIST in str(path)]
     if load_all_images and len(cytassist_path) > 0:
         load_image(
@@ -650,13 +651,13 @@ def _make_filtered_nucleus_adata(
     bin_col_name: str = 'square_002um',
     aggregate_col_name: str = 'cell_id'
 ) -> anndata.AnnData:
-    """Generate a filtered AnnData object by aggregating 2um binned data 
-    based on nucleus segmentation.
-    Uses a 2um filtered_feature_bc_matrix.h5 file and a barcode_mappings.parquet file containing 
-    barcode mappings, filters the data to include only valid nucleus mappings, 
+    """Generate a filtered AnnData object by aggregating 2um binned data based on nucleus segmentation.
+
+    Uses a 2um filtered_feature_bc_matrix.h5 file and a barcode_mappings.parquet file containing
+    barcode mappings, filters the data to include only valid nucleus mappings,
     and aggregates the data based on specified bin into cell IDs which only contain
     the 2um square data under segmented nuclei.
-    
+
     Parameters:
     -----------
     filtered_matrix_h5_path : str
@@ -667,10 +668,11 @@ def _make_filtered_nucleus_adata(
         Column name in the barcode mappings that specifies the spatial bin (default is 'square_002um').
     aggregate_col_name : str, optional
         Column name in the barcode mappings that specifies the aggregate cell ID (default is 'cell_id').
+
     Returns:
     --------
     anndata.AnnData
-        An AnnData object where the observations correspond to filtered cell IDs 
+        An AnnData object where the observations correspond to filtered cell IDs
         and the variables correspond to the original features from the input data.
     """
     # Read in the necessary files
@@ -679,7 +681,7 @@ def _make_filtered_nucleus_adata(
 
     # Filter to only include valid cell IDs that are in both nucleus and cell
     barcode_mappings = barcode_mappings.filter((barcode_mappings['cell_id'].is_valid()) and barcode_mappings["in_nucleus"])
-    
+
     # Filter the 2um adata to only include squares present in the barcode mappings
     valid_squares = barcode_mappings[bin_col_name].unique()
     squares_to_keep = np.intersect1d(adata_2um.obs_names, valid_squares)
@@ -688,7 +690,7 @@ def _make_filtered_nucleus_adata(
     # Map each square to its corresponding cell ID
     square_to_cell_map = dict(zip(
         barcode_mappings[bin_col_name].to_pylist(),
-        barcode_mappings[aggregate_col_name].to_pylist()
+        barcode_mappings[aggregate_col_name].to_pylist(), strict=False
 
     ))
     ordered_cell_ids = [square_to_cell_map[square] for square in adata_filtered.obs_names]
@@ -711,45 +713,45 @@ def _make_filtered_nucleus_adata(
     adata_nucleus = sc.AnnData(nucleus_matrix_sparse.T)
     adata_nucleus.obs_names = unique_cells
     adata_nucleus.var = adata_filtered.var
-    
+
     return adata_nucleus
 
 def _extract_geometries_from_geojson(adata: anndata.AnnData, geojson_features_map: dict[str, Any]) -> GeoDataFrame:
-            """Extract geometries and create a GeoDataFrame from a GeoJSON features map.
+    """Extract geometries and create a GeoDataFrame from a GeoJSON features map.
 
-            Parameters
-            ----------
-            cell_adata : anndata.AnnData
-                AnnData object containing cell data.
-            geojson_features_map : dict[str, Any]
-                Dictionary mapping cell IDs to GeoJSON features.
+    Parameters
+    ----------
+    cell_adata : anndata.AnnData
+        AnnData object containing cell data.
+    geojson_features_map : dict[str, Any]
+        Dictionary mapping cell IDs to GeoJSON features.
 
-            Returns
-            -------
-            GeoDataFrame
-                A GeoDataFrame containing cell IDs and their corresponding geometries.
-            """
-            geometries = []
-            cell_ids_ordered = []
+    Returns
+    -------
+    GeoDataFrame
+        A GeoDataFrame containing cell IDs and their corresponding geometries.
+    """
+    geometries = []
+    cell_ids_ordered = []
 
-            for obs_index_str in adata.obs.index:
-                feature = geojson_features_map.get(obs_index_str)
-                if feature:
-                    polygon_coords = np.array(feature['geometry']['coordinates'][0])
-                    geometries.append(Polygon(polygon_coords))
-                    cell_ids_ordered.append(obs_index_str)
-                else:
-                    geometries.append(None)
-                    cell_ids_ordered.append(obs_index_str)
+    for obs_index_str in adata.obs.index:
+        feature = geojson_features_map.get(obs_index_str)
+        if feature:
+            polygon_coords = np.array(feature['geometry']['coordinates'][0])
+            geometries.append(Polygon(polygon_coords))
+            cell_ids_ordered.append(obs_index_str)
+        else:
+            geometries.append(None)
+            cell_ids_ordered.append(obs_index_str)
 
-            valid_indices = [i for i, geom in enumerate(geometries) if geom is not None]
-            geometries = [geometries[i] for i in valid_indices]
-            cell_ids_ordered = [cell_ids_ordered[i] for i in valid_indices]
+    valid_indices = [i for i, geom in enumerate(geometries) if geom is not None]
+    geometries = [geometries[i] for i in valid_indices]
+    cell_ids_ordered = [cell_ids_ordered[i] for i in valid_indices]
 
-            return GeoDataFrame({
-                'cell_id': cell_ids_ordered,
-                'geometry': geometries
-            }, index=cell_ids_ordered)
+    return GeoDataFrame({
+        'cell_id': cell_ids_ordered,
+        'geometry': geometries
+    }, index=cell_ids_ordered)
 
 def _make_shapes_transformation(scale_factors_path: Path, dataset_id: str) -> dict[str, Scale]:
     """Load scale factors for lowres and hires images and create transformations.
@@ -766,7 +768,7 @@ def _make_shapes_transformation(scale_factors_path: Path, dataset_id: str) -> di
     dict[str, Scale]
         A dictionary containing the transformations for lowres and hires images.
     """
-    with open(scale_factors_path, 'r') as f:
+    with open(scale_factors_path) as f:
         scale_data_hd = json.load(f)
     lowres_scale_factor_hd = scale_data_hd['tissue_lowres_scalef']
     hires_scale_factor_hd = scale_data_hd['tissue_hires_scalef']
@@ -777,7 +779,7 @@ def _make_shapes_transformation(scale_factors_path: Path, dataset_id: str) -> di
     }
 
 def _make_geojson_features_map(geojson_path: Path) -> dict[str, Any]:
-    with open(geojson_path, 'r') as f:
+    with open(geojson_path) as f:
         geojson_data = json.load(f)
     return {
         f"cellid_{feature['properties']['cell_id']:09d}-1": feature
