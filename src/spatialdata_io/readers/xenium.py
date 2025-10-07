@@ -68,6 +68,7 @@ def xenium(
     aligned_images: bool = True,
     cells_table: bool = True,
     n_jobs: int = 1,
+    gex_only: bool | None = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -121,6 +122,8 @@ def xenium(
         Whether to read the cell annotations in the `AnnData` table.
     n_jobs
         Number of jobs to use for parallel processing.
+    gex_only
+        Whether to load only the "Gene Expression" feature type.
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -186,7 +189,7 @@ def xenium(
             cells_table = True
 
     if cells_table:
-        return_values = _get_tables_and_circles(path, cells_as_circles, specs)
+        return_values = _get_tables_and_circles(path, cells_as_circles, specs, gex_only)
         if cells_as_circles:
             table, circles = return_values
         else:
@@ -561,9 +564,9 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
 
 
 def _get_tables_and_circles(
-    path: Path, cells_as_circles: bool, specs: dict[str, Any]
+    path: Path, cells_as_circles: bool, specs: dict[str, Any], gex_only: bool
 ) -> AnnData | tuple[AnnData, AnnData]:
-    adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
+    adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str), adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
