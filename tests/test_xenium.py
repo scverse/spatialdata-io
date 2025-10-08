@@ -189,18 +189,23 @@ def test_cli_xenium(runner: CliRunner, dataset: str) -> None:
         assert result.exit_code == 0, result.output
         _ = read_zarr(output_zarr)
 
+
 @skip_if_below_python_version()
 @pytest.mark.parametrize(
-    ("dataset", "gex_only",),
-    [("Xenium_V1_human_Lung_2fov_outs", False),
-     ("Xenium_V1_human_Lung_2fov_outs", True),
-     ("Xenium_V1_Human_Ovary_tiny_outs", False),
-     ("Xenium_V1_Human_Ovary_tiny_outs", True),
-     ("Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs", False),
-     ("Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs", True),
-     ("Xenium_V1_Protein_Human_Kidney_tiny_outs", False),
-     ("Xenium_V1_Protein_Human_Kidney_tiny_outs", True)
-    ]
+    (
+        "dataset",
+        "gex_only",
+    ),
+    [
+        ("Xenium_V1_human_Lung_2fov_outs", False),
+        ("Xenium_V1_human_Lung_2fov_outs", True),
+        ("Xenium_V1_Human_Ovary_tiny_outs", False),
+        ("Xenium_V1_Human_Ovary_tiny_outs", True),
+        ("Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs", False),
+        ("Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs", True),
+        ("Xenium_V1_Protein_Human_Kidney_tiny_outs", False),
+        ("Xenium_V1_Protein_Human_Kidney_tiny_outs", True),
+    ],
 )
 def test_xenium_other_feature_types(dataset: str, gex_only: bool) -> None:
     f = Path("./data") / dataset
@@ -209,28 +214,38 @@ def test_xenium_other_feature_types(dataset: str, gex_only: bool) -> None:
     if gex_only:
         assert set(sdata["table"].var["feature_types"]) == {"Gene Expression"}
     elif dataset == "Xenium_V1_human_Lung_2fov_outs":
-        assert set(sdata["table"].var["feature_types"]) == {"Deprecated Codeword",
-                                                            "Gene Expression",
-                                                            "Negative Control Codeword",
-                                                            "Negative Control Probe",
-                                                            "Unassigned Codeword"}
+        assert set(sdata["table"].var["feature_types"]) == {
+            "Deprecated Codeword",
+            "Gene Expression",
+            "Negative Control Codeword",
+            "Negative Control Probe",
+            "Unassigned Codeword",
+        }
     elif dataset in {"Xenium_V1_Human_Ovary_tiny_outs", "Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs"}:
-        assert set(sdata["table"].var["feature_types"]) == {"Gene Expression",
-                                                            "Genomic Control",
-                                                            "Negative Control Codeword",
-                                                            "Negative Control Probe",
-                                                            "Unassigned Codeword"}
+        assert set(sdata["table"].var["feature_types"]) == {
+            "Gene Expression",
+            "Genomic Control",
+            "Negative Control Codeword",
+            "Negative Control Probe",
+            "Unassigned Codeword",
+        }
     elif dataset == "Xenium_V1_Protein_Human_Kidney_tiny_outs":
-        assert set(sdata["table"].var["feature_types"]) == {"Gene Expression",
-                                                            "Genomic Control",
-                                                            "Negative Control Codeword",
-                                                            "Negative Control Probe",
-                                                            "Protein Expression",
-                                                            "Unassigned Codeword"}
+        assert set(sdata["table"].var["feature_types"]) == {
+            "Gene Expression",
+            "Genomic Control",
+            "Negative Control Codeword",
+            "Negative Control Probe",
+            "Protein Expression",
+            "Unassigned Codeword",
+        }
         # Protein feature
-        assert np.allclose(sdata["table"].X[0:3, sdata["table"].var_names.str.match("VISTA")].toarray().squeeze(), [0.7, 1.2, 0.0])
+        assert np.allclose(
+            sdata["table"].X[0:3, sdata["table"].var_names.str.match("VISTA")].toarray().squeeze(), [0.7, 1.2, 0.0]
+        )
         # RNA feature
-        assert np.allclose(sdata["table"].X[[6,7,24], sdata["table"].var_names.str.match("ACTG2")].squeeze(), [1, 0, 2])
+        assert np.allclose(
+            sdata["table"].X[[6, 7, 24], sdata["table"].var_names.str.match("ACTG2")].squeeze(), [1, 0, 2]
+        )
 
     else:
         assert ValueError(f"Unexpected dataset {dataset}")
