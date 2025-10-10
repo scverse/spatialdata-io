@@ -115,10 +115,10 @@ def visium_hd(
     CELL_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.CELL_SEGMENTATION_GEOJSON_PATH
     NUCLEUS_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.NUCLEUS_SEGMENTATION_GEOJSON_PATH
     SCALE_FACTORS_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.SPATIAL / VisiumHDKeys.SCALEFACTORS_FILE
-    BARCODE_MAPPINGS_PATH = path / VisiumHDKeys.BARCODE_MAPPINGS_FILE
+    BARCODE_MAPPINGS_PATH = next((file for file in path.rglob("*") if file.name.endswith(VisiumHDKeys.BARCODE_MAPPINGS_FILE)), None)
     FILTERED_MATRIX_2U_PATH = path / VisiumHDKeys.BINNED_OUTPUTS / f"{VisiumHDKeys.BIN_PREFIX}002um" / VisiumHDKeys.FILTERED_COUNTS_FILE
     cell_segmentation_files_exist = COUNT_MATRIX_PATH.exists() and CELL_GEOJSON_PATH.exists() and SCALE_FACTORS_PATH.exists()
-    nucleus_segmentation_files_exist = NUCLEUS_GEOJSON_PATH.exists() and BARCODE_MAPPINGS_PATH.exists() and FILTERED_MATRIX_2U_PATH.exists()
+    nucleus_segmentation_files_exist = NUCLEUS_GEOJSON_PATH.exists() and (BARCODE_MAPPINGS_PATH is not None and BARCODE_MAPPINGS_PATH.exists()) and FILTERED_MATRIX_2U_PATH.exists()
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
