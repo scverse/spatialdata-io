@@ -21,6 +21,9 @@ jobs:
                   mkdir -p ./data
                   cd ./data
 
+                  # the datasets are licensed as CC BY 4.0, as shown here
+                  # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/resources/xenium-example-data
+
                   # 10x Genomics Xenium 2.0.0
                   curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Breast_2fov/Xenium_V1_human_Breast_2fov_outs.zip
                   curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Lung_2fov/Xenium_V1_human_Lung_2fov_outs.zip

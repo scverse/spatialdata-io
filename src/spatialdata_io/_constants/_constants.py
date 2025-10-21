@@ -137,6 +137,9 @@ class XeniumKeys(ModeEnum):
     MORPHOLOGY_FOCUS_CHANNEL_1 = "ATP1A1/CD45/E-Cadherin"  # boundary
     MORPHOLOGY_FOCUS_CHANNEL_2 = "18S"  # interior - RNA
     MORPHOLOGY_FOCUS_CHANNEL_3 = "AlphaSMA/Vimentin"  # interior - protein
+    # from version 4
+    # The files in `morphology_focus` are named chNNNN_<name>.ome.tif
+    MORPHOLOGY_FOCUS_V4_DAPI_FILENAME = "ch0000_dapi.ome.tif"
 
     # post-xenium images
     ALIGNED_IF_IMAGE_SUFFIX = "if_image.ome.tif"
