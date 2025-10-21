@@ -68,7 +68,7 @@ def xenium(
     aligned_images: bool = True,
     cells_table: bool = True,
     n_jobs: int = 1,
-    gex_only: bool | None = True,
+    gex_only: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
