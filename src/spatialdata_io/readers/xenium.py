@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
+import ome_types
 import packaging.version
 import pandas as pd
 import pyarrow.parquet as pq
@@ -38,7 +39,7 @@ from xarray import DataArray, DataTree
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io._utils import deprecation_alias
+from spatialdata_io._utils import deprecation_alias, zarr_open
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
@@ -67,11 +68,12 @@ def xenium(
     aligned_images: bool = True,
     cells_table: bool = True,
     n_jobs: int = 1,
+    gex_only: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """Read a *10X Genomics Xenium* dataset into a SpatialData object.
+    """Read a *10x Genomics Xenium* dataset into a SpatialData object.
 
     This function reads the following files:
 
@@ -86,7 +88,8 @@ def xenium(
 
     .. seealso::
 
-        - `10X Genomics Xenium file format  <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
+        - `10x Genomics Xenium file format <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
+        - `Release notes for the Xenium format <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa>`_.
 
     Parameters
     ----------
@@ -119,6 +122,8 @@ def xenium(
         Whether to read the cell annotations in the `AnnData` table.
     n_jobs
         Number of jobs to use for parallel processing.
+    gex_only
+        Whether to load only the "Gene Expression" feature type.
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -184,7 +189,7 @@ def xenium(
             cells_table = True
 
     if cells_table:
-        return_values = _get_tables_and_circles(path, cells_as_circles, specs)
+        return_values = _get_tables_and_circles(path, cells_as_circles, specs, gex_only)
         if cells_as_circles:
             table, circles = return_values
         else:
@@ -289,28 +294,62 @@ def xenium(
         if morphology_focus:
             morphology_focus_dir = path / XeniumKeys.MORPHOLOGY_FOCUS_DIR
             files = {f for f in os.listdir(morphology_focus_dir) if f.endswith(".ome.tif") and not f.startswith("._")}
-            if len(files) not in [1, 4]:
-                raise ValueError(
-                    "Expected 1 (no segmentation kit) or 4 (segmentation kit) files in the morphology focus directory, "
-                    f"found {len(files)}: {files}"
-                )
-            if files != {XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(i) for i in range(len(files))}:
-                raise ValueError(
-                    "Expected files in the morphology focus directory to be named as "
-                    f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)} to "
-                    f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(len(files) - 1)}, found {files}"
-                )
-            if len(files) == 1:
-                channel_names = {
-                    0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
-                }
+
+            if XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0) in files:
+                # v2 or v3
+                first_tiff_path = morphology_focus_dir / XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)
+                if len(files) not in [1, 4]:
+                    raise ValueError(
+                        "Expected 1 (no segmentation kit) or 4 (segmentation kit) files in the morphology focus directory, "
+                        f"found {len(files)}: {files}"
+                    )
+                if files != {XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(i) for i in range(len(files))}:
+                    raise ValueError(
+                        "Expected files in the morphology focus directory to be named as "
+                        f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)} to "
+                        f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(len(files) - 1)}, found {files}"
+                    )
+                if len(files) == 1:
+                    channel_names = {
+                        0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
+                    }
+                else:
+                    channel_names = {
+                        0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
+                        1: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_1.value,
+                        2: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_2.value,
+                        3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3.value,
+                    }
             else:
-                channel_names = {
-                    0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
-                    1: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_1.value,
-                    2: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_2.value,
-                    3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3.value,
-                }
+                # v4
+                if XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value not in files:
+                    raise ValueError(
+                        "Expected files in the morphology focus directory to be named as "
+                        f"chNNNN_<name>.ome.tif starting with {XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value}"
+                    )
+                first_tiff_path = morphology_focus_dir / XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value
+                ome = ome_types.from_xml(tifffile.tiffcomment(first_tiff_path), validate=False)
+
+                # Get channel names from the OME XML
+                ome_channels = ome.images[0].pixels.channels
+                channels = []
+                for ome_ch in ome_channels:
+                    if ome_ch.name is None:
+                        raise ValueError(f"Found a channel without a name in {first_tiff_path}")
+                    # Parse the channel index from the channel id
+                    match = re.match(r"Channel:(\d+)", ome_ch.id)
+                    invalid_format_msg: str = (
+                        "Expected OME channel ID to be of the form 'Channel:<index>'. "
+                        + f"Found: {ome_ch.id} in file {first_tiff_path}"
+                    )
+                    if match is None:
+                        raise ValueError(invalid_format_msg)
+                    try:
+                        channel_idx = int(match.group(1))
+                    except ValueError as e:
+                        raise ValueError(invalid_format_msg) from e
+                    channels.append((channel_idx, ome_ch.name))
+                channel_names = dict(sorted(channels))
             # this reads the scale 0 for all the 1 or 4 channels (the other files are parsed automatically)
             # dask.image.imread will call tifffile.imread which will give a warning saying that reading multi-file
             # pyramids is not supported; since we are reading the full scale image and reconstructing the pyramid, we
@@ -332,7 +371,7 @@ def xenium(
             image_models_kwargs["c_coords"] = list(channel_names.values())
             images["morphology_focus"] = _get_images(
                 morphology_focus_dir,
-                XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.format(0),
+                first_tiff_path.name,
                 imread_kwargs,
                 image_models_kwargs,
             )
@@ -417,7 +456,7 @@ def _get_labels_and_indices_mapping(
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             zip_ref.extractall(tmpdir)
 
-        with zarr.open(str(tmpdir), mode="r") as z:
+        with zarr_open(str(tmpdir), mode="r") as z:
             # get the labels
             masks = z["masks"][f"{mask_index}"][...]
             labels = Labels2DModel.parse(
@@ -455,7 +494,7 @@ def _get_labels_and_indices_mapping(
                         f"{expected_label_index}."
                     )
             else:
-                labels_positional_indices = z["polygon_sets"][mask_index]["cell_index"][...]
+                labels_positional_indices = z["polygon_sets"][f"{mask_index}"]["cell_index"][...]
                 if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
                     raise ValueError(
                         "The positional indices of the labels do not match the expected range. Please report this "
@@ -492,7 +531,7 @@ def _get_cells_metadata_table_from_zarr(
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             zip_ref.extractall(tmpdir)
 
-        with zarr.open(str(tmpdir), mode="r") as z:
+        with zarr_open(str(tmpdir), mode="r") as z:
             x = z["cell_summary"][...]
             column_names = z["cell_summary"].attrs["column_names"]
             df = pd.DataFrame(x, columns=column_names)
@@ -525,9 +564,9 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
 
 
 def _get_tables_and_circles(
-    path: Path, cells_as_circles: bool, specs: dict[str, Any]
+    path: Path, cells_as_circles: bool, specs: dict[str, Any], gex_only: bool
 ) -> AnnData | tuple[AnnData, AnnData]:
-    adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
+    adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str), adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()

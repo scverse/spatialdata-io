@@ -69,7 +69,6 @@ def _read_10x_h5(
         - `['gene_ids']`: Gene IDs
         - `['feature_types']`: Feature types
     """
-    start = logger.info(f"reading {filename}")
     filename = Path(filename) if isinstance(filename, str) else filename
     is_present = filename.is_file()
     if not is_present:
@@ -78,7 +77,7 @@ def _read_10x_h5(
         v3 = "/matrix" in f
 
     if v3:
-        adata = _read_v3_10x_h5(filename, start=start)
+        adata = _read_v3_10x_h5(filename)
         if genome:
             if genome not in adata.var["genome"].values:
                 raise ValueError(
@@ -95,7 +94,7 @@ def _read_10x_h5(
     return adata
 
 
-def _read_v3_10x_h5(filename: str | Path, *, start: Any | None = None) -> AnnData:
+def _read_v3_10x_h5(filename: str | Path) -> AnnData:
     """Read hdf5 file from Cell Ranger v3 or later versions."""
     with h5py.File(str(filename), "r") as f:
         try:
@@ -113,6 +112,15 @@ def _read_v3_10x_h5(filename: str | Path, *, start: Any | None = None) -> AnnDat
                 (data, dsets["indices"], dsets["indptr"]),
                 shape=(N, M),
             )
+
+            # Undo fixed-point scaling factor applied to Xenium Protein data
+            # that is stored in HDF5.
+            feature_types = dsets["feature_type"].astype(str)
+            if "protein_scaling_factor" in f.attrs:
+                protein_feats = np.flatnonzero(feature_types == "Protein Expression")
+                if len(protein_feats) > 0:
+                    matrix[:, protein_feats] /= f.attrs["protein_scaling_factor"]
+
             adata = AnnData(
                 matrix,
                 obs={"obs_names": dsets["barcodes"].astype(str)},

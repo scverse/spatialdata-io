@@ -17,7 +17,7 @@ To contribute a reader and make code review efficient, we kindly ask for:
 
 - the **specification** for the raw data: a link to a (ideally) _public_ resource describing how the data is organized, and/or, for a new version of an already supported technology, a changelog describing in detail which changes are introduced;
 - the **reader** itself: a Python function, generally supported by helper functions/classes/enums, that reads the raw data and returns a `SpatialData` object;
-- example **data**: preferably one or more (very) small _public_ datasets, with a permissive license, to represent the data across various versions and cover potential edge cases of the raw data format. Alternatively, scripts to easily download _public_ and licensed data.
+- example **data**: preferably one or more (very) small _public_ datasets, with a permissive license, to represent the data across various versions and cover potential edge cases of the raw data format. Alternatively (or preferably, in addition), scripts to easily download _public_ and licensed data.
 - **test** functions: to ensure that the reader parses the data correctly. If helper functions are used, they should also be tested.
 
 ### The specification
@@ -206,7 +206,7 @@ As a wrap-up, here is a checklist of the main points to consider when contributi
 - Example data
     - [ ] Provide (very) small public test dataset(s) (~100kB–10MB, preferred), licensed with a permissive license (e.g. CC BY 4.0)
     - [ ] Ensure dataset(s) cover edge cases of the format
-    - [ ] In addition to the small dataset(s) (or if only large datasets are available), create scripts in `spatialdata-sandbox`:
+    - [ ] In addition to the small dataset(s), consider creating scripts for downloading and converting a real dataset in `spatialdata-sandbox`:
         - [ ] `download.py` (fetch raw data → `data/`)
         - [ ] `to_zarr.py` (convert raw data → `data.zarr`)
         - [ ] Include `requirements.txt` (or add PEP 723 metadata to the scripts) for dependencies not included in `spatialdata`
