@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 
 RNG = default_rng(0)
 
+
 @inject_docs(vx=VisiumHDKeys)
 def visium_hd(
     path: str | Path,
@@ -115,15 +116,26 @@ def visium_hd(
     CELL_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.CELL_SEGMENTATION_GEOJSON_PATH
     NUCLEUS_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.NUCLEUS_SEGMENTATION_GEOJSON_PATH
     SCALE_FACTORS_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.SPATIAL / VisiumHDKeys.SCALEFACTORS_FILE
-    BARCODE_MAPPINGS_PATH = next((file for file in path.rglob("*") if file.name.endswith(VisiumHDKeys.BARCODE_MAPPINGS_FILE)), None)
-    FILTERED_MATRIX_2U_PATH = path / VisiumHDKeys.BINNED_OUTPUTS / f"{VisiumHDKeys.BIN_PREFIX}002um" / VisiumHDKeys.FILTERED_COUNTS_FILE
-    cell_segmentation_files_exist = COUNT_MATRIX_PATH.exists() and CELL_GEOJSON_PATH.exists() and SCALE_FACTORS_PATH.exists()
-    nucleus_segmentation_files_exist = NUCLEUS_GEOJSON_PATH.exists() and (BARCODE_MAPPINGS_PATH is not None and BARCODE_MAPPINGS_PATH.exists()) and FILTERED_MATRIX_2U_PATH.exists()
+    BARCODE_MAPPINGS_PATH = next(
+        (file for file in path.rglob("*") if file.name.endswith(VisiumHDKeys.BARCODE_MAPPINGS_FILE)), None
+    )
+    FILTERED_MATRIX_2U_PATH = (
+        path / VisiumHDKeys.BINNED_OUTPUTS / f"{VisiumHDKeys.BIN_PREFIX}002um" / VisiumHDKeys.FILTERED_COUNTS_FILE
+    )
+    cell_segmentation_files_exist = (
+        COUNT_MATRIX_PATH.exists() and CELL_GEOJSON_PATH.exists() and SCALE_FACTORS_PATH.exists()
+    )
+    nucleus_segmentation_files_exist = (
+        NUCLEUS_GEOJSON_PATH.exists()
+        and (BARCODE_MAPPINGS_PATH is not None and BARCODE_MAPPINGS_PATH.exists())
+        and FILTERED_MATRIX_2U_PATH.exists()
+    )
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
 
     filename_prefix = _get_filename_prefix(path, dataset_id)
+
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
             path=path,
@@ -147,6 +159,7 @@ def visium_hd(
 
     # Load Binned Data (skipped if load_segmentations_only is True)
     if not load_segmentations_only:
+
         def _get_bins(path_bins: Path) -> list[str]:
             return sorted(
                 [
@@ -158,9 +171,7 @@ def visium_hd(
 
         all_path_bins = [path_bin for path_bin in all_files if VisiumHDKeys.BINNED_OUTPUTS in str(path_bin)]
         if len(all_path_bins) != 0:
-            path_bins_parts = all_path_bins[
-                -1
-            ].parts
+            path_bins_parts = all_path_bins[-1].parts
             path_bins = Path(*path_bins_parts[: path_bins_parts.index(VisiumHDKeys.BINNED_OUTPUTS) + 1])
         else:
             path_bins = path
@@ -290,44 +301,46 @@ def visium_hd(
         cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH)
         cell_adata_hd.var_names_make_unique()
 
-        shapes_transformations_hd = _make_shapes_transformation(scale_factors_path=SCALE_FACTORS_PATH, dataset_id=dataset_id) # Used for both cell and nucleus segmentations
+        shapes_transformations_hd = _make_shapes_transformation(
+            scale_factors_path=SCALE_FACTORS_PATH, dataset_id=dataset_id
+        )  # Used for both cell and nucleus segmentations
         cell_geojson_features_map = _make_geojson_features_map(CELL_GEOJSON_PATH)
-        cell_shapes_gdf = _extract_geometries_from_geojson(cell_adata_hd, geojson_features_map=cell_geojson_features_map)
+        cell_shapes_gdf = _extract_geometries_from_geojson(
+            cell_adata_hd, geojson_features_map=cell_geojson_features_map
+        )
 
         SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.CELL_SEG_KEY_HD}"
-        cell_adata_hd.obs['cell_id'] = cell_adata_hd.obs.index
-        cell_adata_hd.obs['region'] = SHAPES_KEY_HD
-        cell_adata_hd.obs['region'] = cell_adata_hd.obs['region'].astype('category')
+        cell_adata_hd.obs["cell_id"] = cell_adata_hd.obs.index
+        cell_adata_hd.obs["region"] = SHAPES_KEY_HD
+        cell_adata_hd.obs["region"] = cell_adata_hd.obs["region"].astype("category")
         cell_adata_hd = cell_adata_hd[cell_shapes_gdf.index].copy()
 
         shapes[SHAPES_KEY_HD] = ShapesModel.parse(cell_shapes_gdf, transformations=shapes_transformations_hd)
         tables[VisiumHDKeys.CELL_SEG_KEY_HD] = TableModel.parse(
-            cell_adata_hd,
-            region=SHAPES_KEY_HD,
-            region_key='region',
-            instance_key='cell_id'
+            cell_adata_hd, region=SHAPES_KEY_HD, region_key="region", instance_key="cell_id"
         )
 
         # load nucleus segmentations if available
         if nucleus_segmentation_files_exist and load_nucleus_segmentations:
             print("Found nucleus segmentation data. Incorporating nucleus_segmentations.")
 
-            nucleus_adata_hd = _make_filtered_nucleus_adata(filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH,barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH)
+            nucleus_adata_hd = _make_filtered_nucleus_adata(
+                filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH, barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH
+            )
             geojson_features_map = _make_geojson_features_map(NUCLEUS_GEOJSON_PATH)
-            nucleus_shapes_gdf = _extract_geometries_from_geojson(adata=nucleus_adata_hd, geojson_features_map=geojson_features_map)
+            nucleus_shapes_gdf = _extract_geometries_from_geojson(
+                adata=nucleus_adata_hd, geojson_features_map=geojson_features_map
+            )
 
             SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
-            nucleus_adata_hd.obs['cell_id'] = nucleus_adata_hd.obs.index
-            nucleus_adata_hd.obs['region'] = SHAPES_KEY_HD
-            nucleus_adata_hd.obs['region'] = nucleus_adata_hd.obs['region'].astype('category')
+            nucleus_adata_hd.obs["cell_id"] = nucleus_adata_hd.obs.index
+            nucleus_adata_hd.obs["region"] = SHAPES_KEY_HD
+            nucleus_adata_hd.obs["region"] = nucleus_adata_hd.obs["region"].astype("category")
             nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()
 
             shapes[SHAPES_KEY_HD] = ShapesModel.parse(nucleus_shapes_gdf, transformations=shapes_transformations_hd)
             tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD] = TableModel.parse(
-                nucleus_adata_hd,
-                region=SHAPES_KEY_HD,
-                region_key='region',
-                instance_key='cell_id'
+                nucleus_adata_hd, region=SHAPES_KEY_HD, region_key="region", instance_key="cell_id"
             )
 
     # Read all images and add transformations for both binning and segmentation
@@ -472,7 +485,9 @@ def visium_hd(
             )
             warped = np.round(warped * 255).astype(np.uint8)
             if not load_segmentations_only:
-                warped = Image2DModel.parse(warped, dims=("y", "x", "c"), transformations={dataset_id: affine}, rgb=True)
+                warped = Image2DModel.parse(
+                    warped, dims=("y", "x", "c"), transformations={dataset_id: affine}, rgb=True
+                )
                 images[dataset_id + "_cytassist_image"] = warped
     elif load_all_images:
         warnings.warn(
@@ -645,11 +660,12 @@ def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any])
 
     return transform_matrices
 
+
 def _make_filtered_nucleus_adata(
     filtered_matrix_h5_path: Path,
     barcode_mappings_parquet_path: Path,
-    bin_col_name: str = 'square_002um',
-    aggregate_col_name: str = 'cell_id'
+    bin_col_name: str = "square_002um",
+    aggregate_col_name: str = "cell_id",
 ) -> anndata.AnnData:
     """Generate a filtered AnnData object by aggregating 2um binned data based on nucleus segmentation.
 
@@ -680,7 +696,9 @@ def _make_filtered_nucleus_adata(
     barcode_mappings = pq.read_table(barcode_mappings_parquet_path)
 
     # Filter to only include valid cell IDs that are in both nucleus and cell
-    barcode_mappings = barcode_mappings.filter((barcode_mappings['cell_id'].is_valid()) and barcode_mappings["in_nucleus"])
+    barcode_mappings = barcode_mappings.filter(
+        (barcode_mappings["cell_id"].is_valid()) and barcode_mappings["in_nucleus"]
+    )
 
     # Filter the 2um adata to only include squares present in the barcode mappings
     valid_squares = barcode_mappings[bin_col_name].unique()
@@ -688,11 +706,9 @@ def _make_filtered_nucleus_adata(
     adata_filtered = adata_2um[squares_to_keep, :].copy()
 
     # Map each square to its corresponding cell ID
-    square_to_cell_map = dict(zip(
-        barcode_mappings[bin_col_name].to_pylist(),
-        barcode_mappings[aggregate_col_name].to_pylist(), strict=False
-
-    ))
+    square_to_cell_map = dict(
+        zip(barcode_mappings[bin_col_name].to_pylist(), barcode_mappings[aggregate_col_name].to_pylist(), strict=False)
+    )
     ordered_cell_ids = [square_to_cell_map[square] for square in adata_filtered.obs_names]
     unique_cells = list(dict.fromkeys(ordered_cell_ids).keys())
     cell_to_idx = {cell: i for i, cell in enumerate(unique_cells)}
@@ -702,10 +718,7 @@ def _make_filtered_nucleus_adata(
     row_indices = np.arange(len(ordered_cell_ids))
     data = np.ones_like(row_indices)
 
-    aggregation_matrix = csc_matrix(
-        (data, (row_indices, col_indices)),
-        shape=(adata_filtered.n_obs, len(unique_cells))
-    )
+    aggregation_matrix = csc_matrix((data, (row_indices, col_indices)), shape=(adata_filtered.n_obs, len(unique_cells)))
 
     # Make the final AnnData object where cell IDs are filtered
     # to the data under the segmented nuclei
@@ -715,6 +728,7 @@ def _make_filtered_nucleus_adata(
     adata_nucleus.var = adata_filtered.var
 
     return adata_nucleus
+
 
 def _extract_geometries_from_geojson(adata: anndata.AnnData, geojson_features_map: dict[str, Any]) -> GeoDataFrame:
     """Extract geometries and create a GeoDataFrame from a GeoJSON features map.
@@ -737,7 +751,7 @@ def _extract_geometries_from_geojson(adata: anndata.AnnData, geojson_features_ma
     for obs_index_str in adata.obs.index:
         feature = geojson_features_map.get(obs_index_str)
         if feature:
-            polygon_coords = np.array(feature['geometry']['coordinates'][0])
+            polygon_coords = np.array(feature["geometry"]["coordinates"][0])
             geometries.append(Polygon(polygon_coords))
             cell_ids_ordered.append(obs_index_str)
         else:
@@ -748,10 +762,8 @@ def _extract_geometries_from_geojson(adata: anndata.AnnData, geojson_features_ma
     geometries = [geometries[i] for i in valid_indices]
     cell_ids_ordered = [cell_ids_ordered[i] for i in valid_indices]
 
-    return GeoDataFrame({
-        'cell_id': cell_ids_ordered,
-        'geometry': geometries
-    }, index=cell_ids_ordered)
+    return GeoDataFrame({"cell_id": cell_ids_ordered, "geometry": geometries}, index=cell_ids_ordered)
+
 
 def _make_shapes_transformation(scale_factors_path: Path, dataset_id: str) -> dict[str, Scale]:
     """Load scale factors for lowres and hires images and create transformations.
@@ -770,18 +782,20 @@ def _make_shapes_transformation(scale_factors_path: Path, dataset_id: str) -> di
     """
     with open(scale_factors_path) as f:
         scale_data_hd = json.load(f)
-    lowres_scale_factor_hd = scale_data_hd['tissue_lowres_scalef']
-    hires_scale_factor_hd = scale_data_hd['tissue_hires_scalef']
+    lowres_scale_factor_hd = scale_data_hd["tissue_lowres_scalef"]
+    hires_scale_factor_hd = scale_data_hd["tissue_hires_scalef"]
 
     return {
-        f"{dataset_id}_downscaled_lowres": Scale(np.array([lowres_scale_factor_hd, lowres_scale_factor_hd]), axes=("x", "y")),
-        f"{dataset_id}_downscaled_hires": Scale(np.array([hires_scale_factor_hd, hires_scale_factor_hd]), axes=("x", "y"))
+        f"{dataset_id}_downscaled_lowres": Scale(
+            np.array([lowres_scale_factor_hd, lowres_scale_factor_hd]), axes=("x", "y")
+        ),
+        f"{dataset_id}_downscaled_hires": Scale(
+            np.array([hires_scale_factor_hd, hires_scale_factor_hd]), axes=("x", "y")
+        ),
     }
+
 
 def _make_geojson_features_map(geojson_path: Path) -> dict[str, Any]:
     with open(geojson_path) as f:
         geojson_data = json.load(f)
-    return {
-        f"cellid_{feature['properties']['cell_id']:09d}-1": feature
-        for feature in geojson_data['features']
-    }
+    return {f"cellid_{feature['properties']['cell_id']:09d}-1": feature for feature in geojson_data["features"]}

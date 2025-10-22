@@ -409,5 +409,5 @@ class VisiumHDKeys(ModeEnum):
     FILE_FORMAT = "file_format"
 
     # Cell Segmentation keys
-    CELL_SEG_KEY_HD = 'cell_segmentations'
-    NUCLEUS_SEG_KEY_HD = 'nucleus_segmentations'
+    CELL_SEG_KEY_HD = "cell_segmentations"
+    NUCLEUS_SEG_KEY_HD = "nucleus_segmentations"
