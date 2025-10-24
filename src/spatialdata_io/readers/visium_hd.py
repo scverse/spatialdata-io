@@ -35,7 +35,7 @@ from spatialdata_io._docs import inject_docs
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    import anndata
+    from anndata import AnnData
     from multiscale_spatial_image import MultiscaleSpatialImage
     from spatial_image import SpatialImage
     from spatialdata._types import ArrayLike
@@ -48,7 +48,7 @@ def visium_hd(
     path: str | Path,
     dataset_id: str | None = None,
     filtered_counts_file: bool = True,
-    load_segmentations_only: bool = True,
+    load_segmentations_only: bool = False,
     load_nucleus_segmentations: bool = False,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
@@ -75,6 +75,8 @@ def visium_hd(
     load_segmentations_only
         If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data
         will be skipped.
+    load_nucleus_segmentations
+        ...
     bin_size
         When specified, load the data of a specific bin size, or a list of bin sizes. By default, it loads all the
         available bin sizes.
@@ -158,6 +160,9 @@ def visium_hd(
         )
 
     # TODO: load scalefactor independenly of the parameter load_segmentations_only
+    with open(SCALE_FACTORS_PATH) as file:
+        scalefactors = json.load(file)
+
     transform_lowres = Scale(
         np.array(
             [
@@ -226,17 +231,19 @@ def visium_hd(
 
             path_bin_spatial = path_bin / VisiumHDKeys.SPATIAL
 
+            # the scale factors of binned data are consistent to the global ones
+            # (already loaded in "scalefactors", but contain extra keys)
             with open(path_bin_spatial / VisiumHDKeys.SCALEFACTORS_FILE) as file:
-                scalefactors = json.load(file)
+                scalefactors_bins = json.load(file)
 
             # consistency check
             found_bin_size = re.search(r"\d{3}", bin_size_str)
             assert found_bin_size is not None
-            assert float(found_bin_size.group()) == scalefactors[VisiumHDKeys.SCALEFACTORS_BIN_SIZE_UM]
+            assert float(found_bin_size.group()) == scalefactors_bins[VisiumHDKeys.SCALEFACTORS_BIN_SIZE_UM]
             assert np.isclose(
-                scalefactors[VisiumHDKeys.SCALEFACTORS_BIN_SIZE_UM]
-                / scalefactors[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES],
-                scalefactors[VisiumHDKeys.SCALEFACTORS_MICRONS_PER_PIXEL],
+                scalefactors_bins[VisiumHDKeys.SCALEFACTORS_BIN_SIZE_UM]
+                / scalefactors_bins[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES],
+                scalefactors_bins[VisiumHDKeys.SCALEFACTORS_MICRONS_PER_PIXEL],
             )
 
             tissue_positions_file = path_bin_spatial / VisiumHDKeys.TISSUE_POSITIONS_FILE
@@ -273,7 +280,7 @@ def visium_hd(
             transform_original = Identity()
             # parse shapes
             shapes_name = dataset_id + "_" + bin_size_str
-            radius = scalefactors[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
+            radius = scalefactors_bins[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
             transformations = {
                 dataset_id: transform_original,
                 f"{dataset_id}_downscaled_hires": transform_hires,
@@ -307,25 +314,6 @@ def visium_hd(
             if var_names_make_unique:
                 tables[bin_size_str].var_names_make_unique()
 
-        if annotate_table_by_labels:
-            for bin_size_str in bin_sizes:
-                shapes_name = dataset_id + "_" + bin_size_str
-                # add labels layer (rasterized bins).
-                labels_name = f"{dataset_id}_{bin_size_str}_labels"
-                labels_element = rasterize_bins(
-                    sdata,
-                    bins=shapes_name,
-                    table_name=bin_size_str,
-                    row_key=VisiumHDKeys.ARRAY_ROW,
-                    col_key=VisiumHDKeys.ARRAY_COL,
-                    value_key=None,
-                    return_region_as_labels=True,
-                )
-                sdata[labels_name] = labels_element
-                rasterize_bins_link_table_to_labels(
-                    sdata=sdata, table_name=bin_size_str, rasterized_labels_name=labels_name
-                )
-
     # Integrate the segmentation data (skipped if segmentation files are not found)
     if cell_segmentation_files_exist:
         print("Found segmentation data. Incorporating cell_segmentations.")
@@ -355,24 +343,29 @@ def visium_hd(
         if nucleus_segmentation_files_exist and load_nucleus_segmentations:
             print("Found nucleus segmentation data. Incorporating nucleus_segmentations.")
 
-            nucleus_adata_hd = _make_filtered_nucleus_adata(
-                filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH, barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH
-            )
-            geojson_features_map = _make_geojson_features_map(NUCLEUS_GEOJSON_PATH)
-            nucleus_shapes_gdf = _extract_geometries_from_geojson(
-                adata=nucleus_adata_hd, geojson_features_map=geojson_features_map
-            )
+            if BARCODE_MAPPINGS_PATH is None:
+                warnings.warn(
+                    "Cannot find the barcode mappings file, skipping nucleus segmentations.", UserWarning, stacklevel=2
+                )
+            else:
+                nucleus_adata_hd = _make_filtered_nucleus_adata(
+                    filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH, barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH
+                )
+                geojson_features_map = _make_geojson_features_map(NUCLEUS_GEOJSON_PATH)
+                nucleus_shapes_gdf = _extract_geometries_from_geojson(
+                    adata=nucleus_adata_hd, geojson_features_map=geojson_features_map
+                )
 
-            SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
-            nucleus_adata_hd.obs["cell_id"] = nucleus_adata_hd.obs.index
-            nucleus_adata_hd.obs["region"] = SHAPES_KEY_HD
-            nucleus_adata_hd.obs["region"] = nucleus_adata_hd.obs["region"].astype("category")
-            nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()
+                SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
+                nucleus_adata_hd.obs["cell_id"] = nucleus_adata_hd.obs.index
+                nucleus_adata_hd.obs["region"] = SHAPES_KEY_HD
+                nucleus_adata_hd.obs["region"] = nucleus_adata_hd.obs["region"].astype("category")
+                nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()
 
-            shapes[SHAPES_KEY_HD] = ShapesModel.parse(nucleus_shapes_gdf, transformations=shapes_transformations_hd)
-            tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD] = TableModel.parse(
-                nucleus_adata_hd, region=SHAPES_KEY_HD, region_key="region", instance_key="cell_id"
-            )
+                shapes[SHAPES_KEY_HD] = ShapesModel.parse(nucleus_shapes_gdf, transformations=shapes_transformations_hd)
+                tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD] = TableModel.parse(
+                    nucleus_adata_hd, region=SHAPES_KEY_HD, region_key="region", instance_key="cell_id"
+                )
 
     # Read all images and add transformations for both binning and segmentation
     fullres_image_file_paths = []
@@ -514,9 +507,7 @@ def visium_hd(
                 numpy_data, ProjectiveTransform(projective_shift).inverse, output_shape=transformed_shape, order=1
             )
             warped = np.round(warped * 255).astype(np.uint8)
-            warped = Image2DModel.parse(
-                warped, dims=("y", "x", "c"), transformations={dataset_id: affine}, rgb=True
-            )
+            warped = Image2DModel.parse(warped, dims=("y", "x", "c"), transformations={dataset_id: affine}, rgb=True)
             # we replace the cytassist image with the warped image
             images[dataset_id + "_cytassist_image"] = warped
     elif load_all_images:
@@ -528,7 +519,24 @@ def visium_hd(
 
     sdata = SpatialData(tables=tables, images=images, shapes=shapes, labels=labels)
 
-
+    if annotate_table_by_labels:
+        for bin_size_str in bin_sizes:
+            shapes_name = dataset_id + "_" + bin_size_str
+            # add labels layer (rasterized bins).
+            labels_name = f"{dataset_id}_{bin_size_str}_labels"
+            labels_element = rasterize_bins(
+                sdata,
+                bins=shapes_name,
+                table_name=bin_size_str,
+                row_key=VisiumHDKeys.ARRAY_ROW,
+                col_key=VisiumHDKeys.ARRAY_COL,
+                value_key=None,
+                return_region_as_labels=True,
+            )
+            sdata[labels_name] = labels_element
+            rasterize_bins_link_table_to_labels(
+                sdata=sdata, table_name=bin_size_str, rasterized_labels_name=labels_name
+            )
 
     return sdata
 
@@ -680,8 +688,8 @@ def _make_filtered_nucleus_adata(
     barcode_mappings_parquet_path: Path,
     bin_col_name: str = "square_002um",
     aggregate_col_name: str = "cell_id",
-) -> anndata.AnnData:
-    """Generate a filtered AnnData object by aggregating binned data (default 2um) based on nucleus segmentation.
+) -> AnnData:
+    """Generate a filtered AnnData object by aggregating 2um binned data based on nucleus segmentation.
 
     Uses filtered_feature_bc_matrix.h5 file and a barcode_mappings.parquet file containing
     barcode mappings, filters the data to include only valid nucleus mappings,
@@ -701,7 +709,7 @@ def _make_filtered_nucleus_adata(
 
     Returns:
     --------
-    anndata.AnnData
+    AnnData
         An AnnData object where the observations correspond to filtered cell IDs
         and the variables correspond to the original features from the input data.
     """
@@ -744,12 +752,12 @@ def _make_filtered_nucleus_adata(
     return adata_nucleus
 
 
-def _extract_geometries_from_geojson(adata: anndata.AnnData, geojson_features_map: dict[str, Any]) -> GeoDataFrame:
+def _extract_geometries_from_geojson(adata: AnnData, geojson_features_map: dict[str, Any]) -> GeoDataFrame:
     """Extract geometries and create a GeoDataFrame from a GeoJSON features map.
 
     Parameters
     ----------
-    cell_adata : anndata.AnnData
+    cell_adata : AnnData
         AnnData object containing cell data.
     geojson_features_map : dict[str, Any]
         Dictionary mapping cell IDs to GeoJSON features.
