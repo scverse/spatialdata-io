@@ -19,6 +19,7 @@ from tests._utils import skip_if_below_python_version
 
 # --- UNIT TESTS FOR HELPER FUNCTIONS ---
 
+
 def test_projective_matrix_is_affine() -> None:
     """Test the affine matrix check function."""
     # An affine matrix should have [0, 0, 1] as its last row
@@ -74,19 +75,61 @@ def test_visium_hd_data_extent() -> None:
     "params",
     [
         # Test case 1: Default binned data loading (squares)
-        {"load_segmentations_only": False, "load_nucleus_segmentations": False, "bins_as_squares": True, "annotate_table_by_labels": False, "load_all_images": False},
+        {
+            "load_segmentations_only": False,
+            "load_nucleus_segmentations": False,
+            "bins_as_squares": True,
+            "annotate_table_by_labels": False,
+            "load_all_images": False,
+        },
         # Test case 2: Binned data as circles
-        {"load_segmentations_only": False, "load_nucleus_segmentations": False, "bins_as_squares": False, "annotate_table_by_labels": False, "load_all_images": False},
+        {
+            "load_segmentations_only": False,
+            "load_nucleus_segmentations": False,
+            "bins_as_squares": False,
+            "annotate_table_by_labels": False,
+            "load_all_images": False,
+        },
         # Test case 3: Binned data with tables annotating labels instead of shapes
-        {"load_segmentations_only": False, "load_nucleus_segmentations": False, "bins_as_squares": True, "annotate_table_by_labels": True, "load_all_images": False},
+        {
+            "load_segmentations_only": False,
+            "load_nucleus_segmentations": False,
+            "bins_as_squares": True,
+            "annotate_table_by_labels": True,
+            "load_all_images": False,
+        },
         # Test case 4: Load binned data AND all segmentations (cell + nucleus)
-        {"load_segmentations_only": False, "load_nucleus_segmentations": True, "bins_as_squares": True, "annotate_table_by_labels": False, "load_all_images": False},
+        {
+            "load_segmentations_only": False,
+            "load_nucleus_segmentations": True,
+            "bins_as_squares": True,
+            "annotate_table_by_labels": False,
+            "load_all_images": False,
+        },
         # Test case 5: Load cell segmentations only
-        {"load_segmentations_only": True, "load_nucleus_segmentations": False, "bins_as_squares": True, "annotate_table_by_labels": False, "load_all_images": False},
+        {
+            "load_segmentations_only": True,
+            "load_nucleus_segmentations": False,
+            "bins_as_squares": True,
+            "annotate_table_by_labels": False,
+            "load_all_images": False,
+        },
         # Test case 6: Load all segmentations (cell + nucleus) only
-        {"load_segmentations_only": True, "load_nucleus_segmentations": True, "bins_as_squares": True, "annotate_table_by_labels": False, "load_all_images": False},
+        {
+            "load_segmentations_only": True,
+            "load_nucleus_segmentations": True,
+            "bins_as_squares": True,
+            "annotate_table_by_labels": False,
+            "load_all_images": False,
+        },
         # Test case 7: Load everything, including auxiliary images like CytAssist
-        {"load_segmentations_only": False, "load_nucleus_segmentations": True, "bins_as_squares": True, "annotate_table_by_labels": False, "load_all_images": True},
+        {
+            "load_segmentations_only": False,
+            "load_nucleus_segmentations": True,
+            "bins_as_squares": True,
+            "annotate_table_by_labels": False,
+            "load_all_images": True,
+        },
     ],
 )
 def test_visium_hd_data_integrity(params: dict[str, bool]) -> None:
@@ -146,7 +189,9 @@ def test_visium_hd_data_integrity(params: dict[str, bool]) -> None:
             else:
                 assert "radius" in sdata.shapes[shape_name]
 
+
 # --- CLI WRAPPER TEST ---
+
 
 @skip_if_below_python_version()
 def test_cli_visium_hd(runner: CliRunner) -> None:
@@ -173,5 +218,5 @@ def test_cli_visium_hd(runner: CliRunner) -> None:
         # A simple check to confirm data was loaded
         # The default dataset_id is inferred from the feature slice file name.
         # This assert may need adjustment based on your test data's file names.
-        inferred_dataset_id = DATASET_FOLDER.replace("_outs", "") # Example inference
+        inferred_dataset_id = DATASET_FOLDER.replace("_outs", "")  # Example inference
         assert f"{inferred_dataset_id}_full_image" in sdata.images
