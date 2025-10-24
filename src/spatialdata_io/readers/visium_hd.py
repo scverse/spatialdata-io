@@ -157,7 +157,27 @@ def visium_hd(
             stacklevel=2,
         )
 
-    # Load Binned Data (skipped if load_segmentations_only is True)
+    # TODO: load scalefactor independenly of the parameter load_segmentations_only
+    transform_lowres = Scale(
+        np.array(
+            [
+                scalefactors[VisiumHDKeys.SCALEFACTORS_LOWRES],
+                scalefactors[VisiumHDKeys.SCALEFACTORS_LOWRES],
+            ]
+        ),
+        axes=("x", "y"),
+    )
+    transform_hires = Scale(
+        np.array(
+            [
+                scalefactors[VisiumHDKeys.SCALEFACTORS_HIRES],
+                scalefactors[VisiumHDKeys.SCALEFACTORS_HIRES],
+            ]
+        ),
+        axes=("x", "y"),
+    )
+
+    # Load Binned Data
     if not load_segmentations_only:
 
         def _get_bins(path_bins: Path) -> list[str]:
@@ -171,7 +191,9 @@ def visium_hd(
 
         all_path_bins = [path_bin for path_bin in all_files if VisiumHDKeys.BINNED_OUTPUTS in str(path_bin)]
         if len(all_path_bins) != 0:
-            path_bins_parts = all_path_bins[-1].parts
+            path_bins_parts = all_path_bins[
+                -1
+            ].parts  # just choosing last one here as users might have tar file which would be first
             path_bins = Path(*path_bins_parts[: path_bins_parts.index(VisiumHDKeys.BINNED_OUTPUTS) + 1])
         else:
             path_bins = path
@@ -192,6 +214,7 @@ def visium_hd(
         if bin_size is None or bin_sizes == []:
             bin_sizes = all_bin_sizes
 
+        # iterate over the given bins and load the data
         for bin_size_str in bin_sizes:
             path_bin = path_bins / bin_size_str
             counts_file = VisiumHDKeys.FILTERED_COUNTS_FILE if filtered_counts_file else VisiumHDKeys.RAW_COUNTS_FILE
@@ -206,6 +229,7 @@ def visium_hd(
             with open(path_bin_spatial / VisiumHDKeys.SCALEFACTORS_FILE) as file:
                 scalefactors = json.load(file)
 
+            # consistency check
             found_bin_size = re.search(r"\d{3}", bin_size_str)
             assert found_bin_size is not None
             assert float(found_bin_size.group()) == scalefactors[VisiumHDKeys.SCALEFACTORS_BIN_SIZE_UM]
@@ -217,6 +241,7 @@ def visium_hd(
 
             tissue_positions_file = path_bin_spatial / VisiumHDKeys.TISSUE_POSITIONS_FILE
 
+            # read coordinates and set up adata.obs and adata.obsm
             coords = pd.read_parquet(tissue_positions_file)
             assert all(
                 coords.columns.values
@@ -232,7 +257,9 @@ def visium_hd(
             coords.set_index(VisiumHDKeys.BARCODE, inplace=True, drop=True)
             coords_filtered = coords.loc[adata.obs.index]
             adata.obs = pd.merge(adata.obs, coords_filtered, how="left", left_index=True, right_index=True)
+            # compatibility to legacy squidpy
             adata.obsm["spatial"] = adata.obs[[VisiumHDKeys.LOCATIONS_X, VisiumHDKeys.LOCATIONS_Y]].values
+            # dropping the spatial coordinates (will be stored in shapes)
             adata.obs.drop(
                 columns=[
                     VisiumHDKeys.LOCATIONS_X,
@@ -242,29 +269,13 @@ def visium_hd(
             )
             adata.obs[VisiumHDKeys.INSTANCE_KEY] = np.arange(len(adata))
 
-            transform_lowres = Scale(
-                np.array(
-                    [
-                        scalefactors[VisiumHDKeys.SCALEFACTORS_LOWRES],
-                        scalefactors[VisiumHDKeys.SCALEFACTORS_LOWRES],
-                    ]
-                ),
-                axes=("x", "y"),
-            )
-            transform_hires = Scale(
-                np.array(
-                    [
-                        scalefactors[VisiumHDKeys.SCALEFACTORS_HIRES],
-                        scalefactors[VisiumHDKeys.SCALEFACTORS_HIRES],
-                    ]
-                ),
-                axes=("x", "y"),
-            )
+            # scaling
+            transform_original = Identity()
+            # parse shapes
             shapes_name = dataset_id + "_" + bin_size_str
             radius = scalefactors[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
-
-            # Here we ensure that only the correct coordinate systems are created for the binned data
             transformations = {
+                dataset_id: transform_original,
                 f"{dataset_id}_downscaled_hires": transform_hires,
                 f"{dataset_id}_downscaled_lowres": transform_lowres,
             }
@@ -283,6 +294,7 @@ def visium_hd(
                     GeoDataFrame(geometry=squares_series), transformations=transformations
                 )
 
+            # parse table
             adata.obs[VisiumHDKeys.REGION_KEY] = shapes_name
             adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
 
@@ -294,6 +306,25 @@ def visium_hd(
             )
             if var_names_make_unique:
                 tables[bin_size_str].var_names_make_unique()
+
+        if annotate_table_by_labels:
+            for bin_size_str in bin_sizes:
+                shapes_name = dataset_id + "_" + bin_size_str
+                # add labels layer (rasterized bins).
+                labels_name = f"{dataset_id}_{bin_size_str}_labels"
+                labels_element = rasterize_bins(
+                    sdata,
+                    bins=shapes_name,
+                    table_name=bin_size_str,
+                    row_key=VisiumHDKeys.ARRAY_ROW,
+                    col_key=VisiumHDKeys.ARRAY_COL,
+                    value_key=None,
+                    return_region_as_labels=True,
+                )
+                sdata[labels_name] = labels_element
+                rasterize_bins_link_table_to_labels(
+                    sdata=sdata, table_name=bin_size_str, rasterized_labels_name=labels_name
+                )
 
     # Integrate the segmentation data (skipped if segmentation files are not found)
     if cell_segmentation_files_exist:
@@ -385,27 +416,21 @@ def visium_hd(
             stacklevel=2,
         )
 
+    # hires image
     hires_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_HIRES_FILE in str(path)]
     if len(hires_image_path) > 0:
         load_image(
             path=hires_image_path[0],
             suffix="_hires_image",
         )
-        if not load_segmentations_only and "transform_hires" in locals():
-            set_transformation(
-                images[dataset_id + "_hires_image"],
-                {
-                    f"{dataset_id}_downscaled_hires": Identity(),
-                    dataset_id: transform_hires.inverse(),
-                },
-                set_all=True,
-            )
-        if cell_segmentation_files_exist:
-            set_transformation(
-                images[dataset_id + "_hires_image"],
-                {f"{dataset_id}_downscaled_hires": Identity()},
-                set_all=True,
-            )
+        set_transformation(
+            images[dataset_id + "_hires_image"],
+            {
+                f"{dataset_id}_downscaled_hires": Identity(),
+                dataset_id: transform_hires.inverse(),
+            },
+            set_all=True,
+        )
     else:
         warnings.warn(
             f"No image path found containing the hires image: {VisiumHDKeys.IMAGE_HIRES_FILE}",
@@ -413,27 +438,21 @@ def visium_hd(
             stacklevel=2,
         )
 
+    # lowres image
     lowres_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_LOWRES_FILE in str(path)]
     if len(lowres_image_path) > 0:
         load_image(
             path=lowres_image_path[0],
             suffix="_lowres_image",
         )
-        if not load_segmentations_only and "transform_lowres" in locals():
-            set_transformation(
-                images[dataset_id + "_lowres_image"],
-                {
-                    f"{dataset_id}_downscaled_lowres": Identity(),
-                    dataset_id: transform_lowres.inverse(),
-                },
-                set_all=True,
-            )
-        if cell_segmentation_files_exist:
-            set_transformation(
-                images[dataset_id + "_lowres_image"],
-                {f"{dataset_id}_downscaled_lowres": Identity()},
-                set_all=True,
-            )
+        set_transformation(
+            images[dataset_id + "_lowres_image"],
+            {
+                f"{dataset_id}_downscaled_lowres": Identity(),
+                dataset_id: transform_lowres.inverse(),
+            },
+            set_all=True,
+        )
     else:
         warnings.warn(
             f"No image path found containing the lowres image: {VisiumHDKeys.IMAGE_LOWRES_FILE}",
@@ -441,6 +460,7 @@ def visium_hd(
             stacklevel=2,
         )
 
+    # cytassist image
     cytassist_path = [path for path in all_files if VisiumHDKeys.IMAGE_CYTASSIST in str(path)]
     if load_all_images and len(cytassist_path) > 0:
         load_image(
@@ -455,17 +475,21 @@ def visium_hd(
         projective /= projective[2, 2]
         if _projective_matrix_is_affine(projective):
             affine = Affine(projective, input_axes=("x", "y"), output_axes=("x", "y"))
-            if not load_segmentations_only:
-                set_transformation(image, affine, dataset_id)
+            set_transformation(image, affine, dataset_id)
         else:
+            # the projective matrix is not affine, we will separate the affine part and the projective shift, and apply
+            # the projective shift to the image
             affine_matrix, projective_shift = _decompose_projective_matrix(projective)
             affine = Affine(affine_matrix, input_axes=("x", "y"), output_axes=("x", "y"))
+
+            # determine the size of the transformed image
             bounding_box = get_extent(image, coordinate_system=dataset_id)
             x0, x1 = bounding_box["x"]
             y0, y1 = bounding_box["y"]
             x1 -= 1
             y1 -= 1
             corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
             transformed_corners = []
             for x, y in corners:
                 px, py = _projective_matrix_transform_point(projective_shift, x, y)
@@ -477,18 +501,24 @@ def visium_hd(
                 np.max(transformed_corners_array[:, 0]),
                 np.max(transformed_corners_array[:, 1]),
             )
+            # the first two components are <= 0, we just discard them since the cytassist image has a lot of padding
+            # and therefore we can safely discard pixels with negative coordinates
             transformed_shape = (np.ceil(transformed_bounds[2]), np.ceil(transformed_bounds[3]))
+
+            # flip xy
             transformed_shape = (transformed_shape[1], transformed_shape[0])
+
+            # the cytassist image is a small, single-scale image, so we can compute it in memory
             numpy_data = image.transpose("y", "x", "c").data.compute()
             warped = warp(
                 numpy_data, ProjectiveTransform(projective_shift).inverse, output_shape=transformed_shape, order=1
             )
             warped = np.round(warped * 255).astype(np.uint8)
-            if not load_segmentations_only:
-                warped = Image2DModel.parse(
-                    warped, dims=("y", "x", "c"), transformations={dataset_id: affine}, rgb=True
-                )
-                images[dataset_id + "_cytassist_image"] = warped
+            warped = Image2DModel.parse(
+                warped, dims=("y", "x", "c"), transformations={dataset_id: affine}, rgb=True
+            )
+            # we replace the cytassist image with the warped image
+            images[dataset_id + "_cytassist_image"] = warped
     elif load_all_images:
         warnings.warn(
             f"No image path found containing the cytassist image: {VisiumHDKeys.IMAGE_CYTASSIST}",
@@ -498,23 +528,7 @@ def visium_hd(
 
     sdata = SpatialData(tables=tables, images=images, shapes=shapes, labels=labels)
 
-    if annotate_table_by_labels and not load_segmentations_only:
-        for bin_size_str in bin_sizes:
-            shapes_name = dataset_id + "_" + bin_size_str
-            labels_name = f"{dataset_id}_{bin_size_str}_labels"
-            labels_element = rasterize_bins(
-                sdata,
-                bins=shapes_name,
-                table_name=bin_size_str,
-                row_key=VisiumHDKeys.ARRAY_ROW,
-                col_key=VisiumHDKeys.ARRAY_COL,
-                value_key=None,
-                return_region_as_labels=True,
-            )
-            sdata[labels_name] = labels_element
-            rasterize_bins_link_table_to_labels(
-                sdata=sdata, table_name=bin_size_str, rasterized_labels_name=labels_name
-            )
+
 
     return sdata
 
@@ -667,22 +681,22 @@ def _make_filtered_nucleus_adata(
     bin_col_name: str = "square_002um",
     aggregate_col_name: str = "cell_id",
 ) -> anndata.AnnData:
-    """Generate a filtered AnnData object by aggregating 2um binned data based on nucleus segmentation.
+    """Generate a filtered AnnData object by aggregating binned data (default 2um) based on nucleus segmentation.
 
-    Uses a 2um filtered_feature_bc_matrix.h5 file and a barcode_mappings.parquet file containing
+    Uses filtered_feature_bc_matrix.h5 file and a barcode_mappings.parquet file containing
     barcode mappings, filters the data to include only valid nucleus mappings,
     and aggregates the data based on specified bin into cell IDs which only contain
     the 2um square data under segmented nuclei.
 
     Parameters:
     -----------
-    filtered_matrix_h5_path : Path
+    filtered_matrix_h5_path
         Path to the 10x Genomics HDF5 matrix file.
-    barcode_mappings_parquet_path : Path
+    barcode_mappings_parquet_path
         Path to the Parquet file containing barcode mappings.
-    bin_col_name : str, optional
+    bin_col_name
         Column name in the barcode mappings that specifies the spatial bin (default is 'square_002um').
-    aggregate_col_name : str, optional
+    aggregate_col_name
         Column name in the barcode mappings that specifies the aggregate cell ID (default is 'cell_id').
 
     Returns:
