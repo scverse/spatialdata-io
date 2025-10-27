@@ -76,7 +76,10 @@ def visium_hd(
         If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data
         will be skipped.
     load_nucleus_segmentations
-        ...
+        If `True` and nucleus segmentation files are present, load nucleus segmentation polygons and the corresponding
+        nucleus-filtered count table. The counts are aggregated from the 2 µm binned matrix using the provided
+        barcode mappings so that only bins under segmented nuclei contribute to each cell’s counts. Requires all of:
+        nucleus segmentation GeoJSON, barcode_mappings.parquet, and the 2 µm filtered_feature_bc_matrix.h5.
     bin_size
         When specified, load the data of a specific bin size, or a list of bin sizes. By default, it loads all the
         available bin sizes.
