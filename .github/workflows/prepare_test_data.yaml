@@ -21,7 +21,8 @@ jobs:
                   mkdir -p ./data
                   cd ./data
 
-                  # the datasets are licensed as CC BY 4.0, as shown here
+                  # -------
+                  # the Xenium datasets are licensed as CC BY 4.0, as shown here
                   # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/resources/xenium-example-data
 
                   # 10x Genomics Xenium 2.0.0
@@ -44,6 +45,15 @@ jobs:
                   # 10x Genomics Xenium 4.0.0 (v1+Protein) Human kidney, multimodal cell segmentation
                   curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip
 
+                  # -------
+                  # the Visium HD dataset is licensed as CC BY 4.0, as shown here
+                  # https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-hd-example-data
+
+                  # 10x Genomics Visium HD 4.0.1 3' Mouse Brain
+                  curl -O https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Tiny_3prime_Dataset/Visium_HD_Tiny_3prime_Dataset_outs.zip
+
+                  # -------
+                  # we received written permission to make the following dataset public and integrate it in the CI system of spatialdata-io
                   # Spatial Genomics seqFISH v2
                   curl -O https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip
 
