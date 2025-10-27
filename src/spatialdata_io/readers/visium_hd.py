@@ -355,7 +355,7 @@ def visium_hd(
             print("Found nucleus segmentation data. Incorporating nucleus_segmentations.")
 
             # we already ensure this by having nucleus_segmentation_files_exist True, but
-            # mypy was not able to infer that
+            # mypy is not able to infer that
             assert BARCODE_MAPPINGS_PATH is not None
 
             nucleus_adata_hd = _make_filtered_nucleus_adata(
