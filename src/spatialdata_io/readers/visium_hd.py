@@ -793,9 +793,9 @@ def _extract_geometries_from_geojson(
 
     Parameters
     ----------
-    cell_adata : AnnData
+    cell_adata
         AnnData object containing cell data.
-    geojson_path : Path
+    geojson_path
         Path to the GeoJSON file containing cell segmentation geometries.
 
     Returns
