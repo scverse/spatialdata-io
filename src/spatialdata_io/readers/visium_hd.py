@@ -354,34 +354,31 @@ def visium_hd(
         if nucleus_segmentation_files_exist and load_nucleus_segmentations:
             print("Found nucleus segmentation data. Incorporating nucleus_segmentations.")
 
-            if BARCODE_MAPPINGS_PATH is None:
-                warnings.warn(
-                    "Cannot find the barcode mappings file, skipping nucleus segmentations.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            else:
-                nucleus_adata_hd = _make_filtered_nucleus_adata(
-                    filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH,
-                    barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH,
-                )
-                nucleus_shapes_gdf = _extract_geometries_from_geojson(
-                    adata=nucleus_adata_hd, geojson_path=NUCLEUS_GEOJSON_PATH
-                )
+            # we already ensure this by having nucleus_segmentation_files_exist True, but
+            # mypy was not able to infer that
+            assert BARCODE_MAPPINGS_PATH is not None
 
-                SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
-                nucleus_adata_hd.obs["cell_id"] = nucleus_adata_hd.obs.index
-                nucleus_adata_hd.obs["region"] = SHAPES_KEY_HD
-                nucleus_adata_hd.obs["region"] = nucleus_adata_hd.obs["region"].astype("category")
-                nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()
+            nucleus_adata_hd = _make_filtered_nucleus_adata(
+                filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH,
+                barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH,
+            )
+            nucleus_shapes_gdf = _extract_geometries_from_geojson(
+                adata=nucleus_adata_hd, geojson_path=NUCLEUS_GEOJSON_PATH
+            )
 
-                shapes[SHAPES_KEY_HD] = ShapesModel.parse(nucleus_shapes_gdf, transformations=transformations)
-                tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD] = TableModel.parse(
-                    nucleus_adata_hd,
-                    region=SHAPES_KEY_HD,
-                    region_key="region",
-                    instance_key="cell_id",
-                )
+            SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
+            nucleus_adata_hd.obs["cell_id"] = nucleus_adata_hd.obs.index
+            nucleus_adata_hd.obs["region"] = SHAPES_KEY_HD
+            nucleus_adata_hd.obs["region"] = nucleus_adata_hd.obs["region"].astype("category")
+            nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()
+
+            shapes[SHAPES_KEY_HD] = ShapesModel.parse(nucleus_shapes_gdf, transformations=transformations)
+            tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD] = TableModel.parse(
+                nucleus_adata_hd,
+                region=SHAPES_KEY_HD,
+                region_key="region",
+                instance_key="cell_id",
+            )
 
     # Read all images and add transformations
     fullres_image_file_paths = []
