@@ -46,10 +46,11 @@ def test_decompose_projective_matrix() -> None:
 
 # --- END-TO-END TESTS ON EXAMPLE DATA ---
 
-# TODO: Replace with the actual Visium HD test dataset folder name
 # This dataset name is used to locate the test data in the './data/' directory.
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml
 # for instructions on how to download and place the data on disk.
+# TODO: is this the correct dataset? Not that the extent and other tests fail with this one.
+# DATASET_FOLDER = "Visium_HD_Tiny_3prime_Dataset_outs"
 DATASET_FOLDER = "Visium_HD_Mouse_Brain_Chunk"
 DATASET_ID = "visium_hd_tiny"
 
