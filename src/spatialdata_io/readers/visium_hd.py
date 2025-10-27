@@ -128,10 +128,10 @@ def visium_hd(
     FILTERED_MATRIX_2U_PATH = (
         path / VisiumHDKeys.BINNED_OUTPUTS / f"{VisiumHDKeys.BIN_PREFIX}002um" / VisiumHDKeys.FILTERED_COUNTS_FILE
     )
-    cell_segmentation_files_exists = (
+    cell_segmentation_files_exist = (
         COUNT_MATRIX_PATH.exists() and CELL_GEOJSON_PATH.exists() and SCALE_FACTORS_PATH.exists()
     )
-    nucleus_segmentation_files_exists = (
+    nucleus_segmentation_files_exist = (
         NUCLEUS_GEOJSON_PATH.exists()
         and (BARCODE_MAPPINGS_PATH is not None and BARCODE_MAPPINGS_PATH.exists())
         and FILTERED_MATRIX_2U_PATH.exists()
@@ -326,7 +326,7 @@ def visium_hd(
                 tables[bin_size_str].var_names_make_unique()
 
     # Integrate the segmentation data (skipped if segmentation files are not found)
-    if cell_segmentation_files_exists:
+    if cell_segmentation_files_exist:
         print("Found segmentation data. Incorporating cell_segmentations.")
         cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH)
         cell_adata_hd.var_names_make_unique()
@@ -351,7 +351,7 @@ def visium_hd(
         )
 
         # load nucleus segmentations if available
-        if nucleus_segmentation_files_exists and load_nucleus_segmentations:
+        if nucleus_segmentation_files_exist and load_nucleus_segmentations:
             print("Found nucleus segmentation data. Incorporating nucleus_segmentations.")
 
             if BARCODE_MAPPINGS_PATH is None:
