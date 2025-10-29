@@ -60,12 +60,8 @@ def test_visium_hd_data_extent() -> None:
         pytest.skip(f"Test data not found at '{f}'. Skipping extent test.")
 
     sdata = visium_hd(f, dataset_id=DATASET_ID)
-    extent = get_extent(
-        sdata, exact=False, coordinate_system="visium_hd_tiny_downscaled_lowres"
-    )
-    extent = {
-        ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent
-    }
+    extent = get_extent(sdata, exact=False, coordinate_system="visium_hd_tiny_downscaled_lowres")
+    extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
 
     # TODO: Replace with the actual expected extent of your test data
     expected_extent = "{'y': (-31, 540), 'x': (0, 652)}"

@@ -22,11 +22,7 @@ for func in _readers_technologies + _readers_file_types + _converters:
     module = importlib.import_module("spatialdata_io")
     globals()[func] = getattr(module, func)
 
-for func in (
-    _experimental_readers_technologies
-    + _experimental_readers_file_types
-    + _experimental_converters
-):
+for func in _experimental_readers_technologies + _experimental_readers_file_types + _experimental_converters:
     module = importlib.import_module("spatialdata_io.experimental")
     globals()[func] = getattr(module, func)
 
@@ -80,18 +76,14 @@ def codex_wrapper(input: str, output: str, fcs: bool = True) -> None:
 
 @cli.command(name="cosmx")
 @_input_output_click_options
-@click.option(
-    "--dataset-id", type=str, default=None, help="Name of the dataset [default: None]"
-)
+@click.option("--dataset-id", type=str, default=None, help="Name of the dataset [default: None]")
 @click.option(
     "--transcripts",
     type=bool,
     default=True,
     help="Whether to load transcript information. [default: True]",
 )
-def cosmx_wrapper(
-    input: str, output: str, dataset_id: str | None = None, transcripts: bool = True
-) -> None:
+def cosmx_wrapper(input: str, output: str, dataset_id: str | None = None, transcripts: bool = True) -> None:
     """Cosmic conversion to SpatialData."""
     sdata = cosmx(input, dataset_id=dataset_id, transcripts=transcripts)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
@@ -125,9 +117,7 @@ def curio_wrapper(input: str, output: str) -> None:
     default=None,
     help="Path to the low resolution image file. [default: None]",
 )
-@click.option(
-    "--dataset-id", type=str, default=None, help="Dataset ID. [default: None]"
-)
+@click.option("--dataset-id", type=str, default=None, help="Dataset ID. [default: None]")
 @click.option(
     "--border",
     type=bool,
@@ -189,9 +179,7 @@ def dbit_wrapper(
     default=None,
     help="Which column of the AnnData table contains the CellID. [default: None]",
 )
-@click.option(
-    "--dataset-id", type=str, default="region", help="Dataset ID [default: region]"
-)
+@click.option("--dataset-id", type=str, default="region", help="Dataset ID [default: region]")
 @click.option(
     "--multiscale-image",
     type=bool,
@@ -264,12 +252,8 @@ def mcmicro_wrapper(input: str, output: str) -> None:
     default=3,
     help="Indices of the z-layers to consider. [default: 3]",
 )
-@click.option(
-    "--region-name", type=str, default=None, help="Name of the ROI. [default: None]"
-)
-@click.option(
-    "--slide-name", type=str, default=None, help="Name of the slide/run [default: None]"
-)
+@click.option("--region-name", type=str, default=None, help="Name of the ROI. [default: None]")
+@click.option("--slide-name", type=str, default=None, help="Name of the slide/run [default: None]")
 @click.option(
     "--backend",
     type=click.Choice(["dask_image", "rioxarray"]),
@@ -400,9 +384,7 @@ def seqfish_wrapper(
     default="deepcell",
     help="What kind of labels to use. [default: 'deepcell']",
 )
-def steinbock_wrapper(
-    input: str, output: str, labels_kind: Literal["deepcell", "ilastik"] = "deepcell"
-) -> None:
+def steinbock_wrapper(input: str, output: str, labels_kind: Literal["deepcell", "ilastik"] = "deepcell") -> None:
     """Steinbock conversion to SpatialData."""
     sdata = steinbock(input, labels_kind=labels_kind)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
@@ -410,9 +392,7 @@ def steinbock_wrapper(
 
 @cli.command(name="stereoseq")
 @_input_output_click_options
-@click.option(
-    "--dataset-id", type=str, default=None, help="Dataset ID. [default: None]"
-)
+@click.option("--dataset-id", type=str, default=None, help="Dataset ID. [default: None]")
 @click.option(
     "--read-square-bin",
     type=bool,
@@ -439,9 +419,7 @@ def stereoseq_wrapper(
 
 @cli.command(name="visium")
 @_input_output_click_options
-@click.option(
-    "--dataset-id", type=str, default=None, help="Dataset ID. [default: None]"
-)
+@click.option("--dataset-id", type=str, default=None, help="Dataset ID. [default: None]")
 @click.option(
     "--counts-file",
     type=str,
@@ -489,9 +467,7 @@ def visium_wrapper(
 
 @cli.command(name="visium-hd")
 @_input_output_click_options
-@click.option(
-    "--dataset-id", type=str, default=None, help="Dataset ID. [default: None]"
-)
+@click.option("--dataset-id", type=str, default=None, help="Dataset ID. [default: None]")
 @click.option(
     "--filtered-counts-file",
     type=bool,
