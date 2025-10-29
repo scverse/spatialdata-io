@@ -22,7 +22,11 @@ for func in _readers_technologies + _readers_file_types + _converters:
     module = importlib.import_module("spatialdata_io")
     globals()[func] = getattr(module, func)
 
-for func in _experimental_readers_technologies + _experimental_readers_file_types + _experimental_converters:
+for func in (
+    _experimental_readers_technologies
+    + _experimental_readers_file_types
+    + _experimental_converters
+):
     module = importlib.import_module("spatialdata_io.experimental")
     globals()[func] = getattr(module, func)
 
@@ -51,7 +55,11 @@ def _input_output_click_options(func: Callable[..., None]) -> Callable[..., None
         required=True,
     )(func)
     func = click.option(
-        "--output", "-o", type=click.Path(exists=False), help="Path to the output file.", required=True
+        "--output",
+        "-o",
+        type=click.Path(exists=False),
+        help="Path to the output file.",
+        required=True,
     )(func)
     return func
 
@@ -72,9 +80,18 @@ def codex_wrapper(input: str, output: str, fcs: bool = True) -> None:
 
 @cli.command(name="cosmx")
 @_input_output_click_options
-@click.option("--dataset-id", type=str, default=None, help="Name of the dataset [default: None]")
-@click.option("--transcripts", type=bool, default=True, help="Whether to load transcript information. [default: True]")
-def cosmx_wrapper(input: str, output: str, dataset_id: str | None = None, transcripts: bool = True) -> None:
+@click.option(
+    "--dataset-id", type=str, default=None, help="Name of the dataset [default: None]"
+)
+@click.option(
+    "--transcripts",
+    type=bool,
+    default=True,
+    help="Whether to load transcript information. [default: True]",
+)
+def cosmx_wrapper(
+    input: str, output: str, dataset_id: str | None = None, transcripts: bool = True
+) -> None:
     """Cosmic conversion to SpatialData."""
     sdata = cosmx(input, dataset_id=dataset_id, transcripts=transcripts)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
@@ -102,10 +119,27 @@ def curio_wrapper(input: str, output: str) -> None:
     default=None,
     help="Path to the barcode coordinates file. [default: None]",
 )
-@click.option("--image-path", type=str, default=None, help="Path to the low resolution image file. [default: None]")
-@click.option("--dataset-id", type=str, default=None, help="Dataset ID. [default: None]")
-@click.option("--border", type=bool, default=True, help="Value pass internally to _xy2edges. [default: True]")
-@click.option("--border-scale", type=float, default=1, help="The factor by which the border is scaled. [default: 1]")
+@click.option(
+    "--image-path",
+    type=str,
+    default=None,
+    help="Path to the low resolution image file. [default: None]",
+)
+@click.option(
+    "--dataset-id", type=str, default=None, help="Dataset ID. [default: None]"
+)
+@click.option(
+    "--border",
+    type=bool,
+    default=True,
+    help="Value pass internally to _xy2edges. [default: True]",
+)
+@click.option(
+    "--border-scale",
+    type=float,
+    default=1,
+    help="The factor by which the border is scaled. [default: 1]",
+)
 def dbit_wrapper(
     input: str,
     output: str,
@@ -132,10 +166,16 @@ def dbit_wrapper(
 @cli.command(name="iss")
 @_input_output_click_options
 @click.option(
-    "--raw-relative-path", type=click.Path(exists=True), required=True, help="Relative path to raw raster image file."
+    "--raw-relative-path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Relative path to raw raster image file.",
 )
 @click.option(
-    "--labels-relative-path", type=click.Path(exists=True), required=True, help="Relative path to label image file."
+    "--labels-relative-path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Relative path to label image file.",
 )
 @click.option(
     "--h5ad-relative-path",
@@ -149,7 +189,9 @@ def dbit_wrapper(
     default=None,
     help="Which column of the AnnData table contains the CellID. [default: None]",
 )
-@click.option("--dataset-id", type=str, default="region", help="Dataset ID [default: region]")
+@click.option(
+    "--dataset-id", type=str, default="region", help="Dataset ID [default: region]"
+)
 @click.option(
     "--multiscale-image",
     type=bool,
@@ -189,9 +231,19 @@ def iss_wrapper(
 
 @cli.command(name="mcmicro")
 @click.option(
-    "--input", "-i", type=click.Path(exists=True), help="Path to the mcmicro project directory.", required=True
+    "--input",
+    "-i",
+    type=click.Path(exists=True),
+    help="Path to the mcmicro project directory.",
+    required=True,
 )
-@click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Path to the output.zarr file.",
+    required=True,
+)
 def mcmicro_wrapper(input: str, output: str) -> None:
     """Conversion of MCMicro to SpatialData."""
     sdata = mcmicro(input)  # type: ignore[name-defined] # noqa: F821
@@ -206,19 +258,48 @@ def mcmicro_wrapper(input: str, output: str) -> None:
     default=None,
     help="Optional argument to specify the path to the Vizgen postprocessing tool. [default: None]",
 )
-@click.option("--z-layers", type=int, default=3, help="Indices of the z-layers to consider. [default: 3]")
-@click.option("--region-name", type=str, default=None, help="Name of the ROI. [default: None]")
-@click.option("--slide-name", type=str, default=None, help="Name of the slide/run [default: None]")
+@click.option(
+    "--z-layers",
+    type=int,
+    default=3,
+    help="Indices of the z-layers to consider. [default: 3]",
+)
+@click.option(
+    "--region-name", type=str, default=None, help="Name of the ROI. [default: None]"
+)
+@click.option(
+    "--slide-name", type=str, default=None, help="Name of the slide/run [default: None]"
+)
 @click.option(
     "--backend",
     type=click.Choice(["dask_image", "rioxarray"]),
     default=None,
     help="Either 'dask_image' or 'rioxarray'. [default: None]",
 )
-@click.option("--transcripts", type=bool, default=True, help="Whether to read transcripts.  [default: True]")
-@click.option("--cells-boundaries", type=bool, default=True, help="Whether to read cells boundaries. [default: True]")
-@click.option("--cells-table", type=bool, default=True, help="Whether to read cells table.  [default: True]")
-@click.option("--mosaic-images", type=bool, default=True, help="Whether to read the mosaic images.  [default: True]")
+@click.option(
+    "--transcripts",
+    type=bool,
+    default=True,
+    help="Whether to read transcripts.  [default: True]",
+)
+@click.option(
+    "--cells-boundaries",
+    type=bool,
+    default=True,
+    help="Whether to read cells boundaries. [default: True]",
+)
+@click.option(
+    "--cells-table",
+    type=bool,
+    default=True,
+    help="Whether to read cells table.  [default: True]",
+)
+@click.option(
+    "--mosaic-images",
+    type=bool,
+    default=True,
+    help="Whether to read the mosaic images.  [default: True]",
+)
 def merscope_wrapper(
     input: str,
     output: str,
@@ -250,11 +331,36 @@ def merscope_wrapper(
 
 @cli.command(name="seqfish")
 @_input_output_click_options
-@click.option("--load-images", type=bool, default=True, help="Whether to load images. [default: True]")
-@click.option("--load-labels", type=bool, default=True, help="Whether to load labels. [default: True]")
-@click.option("--load-points", type=bool, default=True, help="Whether to load points. [default: True]")
-@click.option("--load-shapes", type=bool, default=True, help="Whether to load shapes. [default: True]")
-@click.option("--cells-as-circles", type=bool, default=False, help="Whether to read cells as circles. [default: False]")
+@click.option(
+    "--load-images",
+    type=bool,
+    default=True,
+    help="Whether to load images. [default: True]",
+)
+@click.option(
+    "--load-labels",
+    type=bool,
+    default=True,
+    help="Whether to load labels. [default: True]",
+)
+@click.option(
+    "--load-points",
+    type=bool,
+    default=True,
+    help="Whether to load points. [default: True]",
+)
+@click.option(
+    "--load-shapes",
+    type=bool,
+    default=True,
+    help="Whether to load shapes. [default: True]",
+)
+@click.option(
+    "--cells-as-circles",
+    type=bool,
+    default=False,
+    help="Whether to read cells as circles. [default: False]",
+)
 @click.option(
     "--rois",
     type=click.IntRange(min=0),
@@ -294,7 +400,9 @@ def seqfish_wrapper(
     default="deepcell",
     help="What kind of labels to use. [default: 'deepcell']",
 )
-def steinbock_wrapper(input: str, output: str, labels_kind: Literal["deepcell", "ilastik"] = "deepcell") -> None:
+def steinbock_wrapper(
+    input: str, output: str, labels_kind: Literal["deepcell", "ilastik"] = "deepcell"
+) -> None:
     """Steinbock conversion to SpatialData."""
     sdata = steinbock(input, labels_kind=labels_kind)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
@@ -302,7 +410,9 @@ def steinbock_wrapper(input: str, output: str, labels_kind: Literal["deepcell", 
 
 @cli.command(name="stereoseq")
 @_input_output_click_options
-@click.option("--dataset-id", type=str, default=None, help="Dataset ID. [default: None]")
+@click.option(
+    "--dataset-id", type=str, default=None, help="Dataset ID. [default: None]"
+)
 @click.option(
     "--read-square-bin",
     type=bool,
@@ -310,7 +420,10 @@ def steinbock_wrapper(input: str, output: str, labels_kind: Literal["deepcell", 
     help="If True, will read the square bin ``{xx.GEF_FILE!r}`` file and build corresponding points element. [default: True]",
 )
 @click.option(
-    "--optional-tif", type=bool, default=False, help="If True, will read ``{xx.TISSUE_TIF!r}`` files. [default: False]"
+    "--optional-tif",
+    type=bool,
+    default=False,
+    help="If True, will read ``{xx.TISSUE_TIF!r}`` files. [default: False]",
 )
 def stereoseq_wrapper(
     input: str,
@@ -326,7 +439,9 @@ def stereoseq_wrapper(
 
 @cli.command(name="visium")
 @_input_output_click_options
-@click.option("--dataset-id", type=str, default=None, help="Dataset ID. [default: None]")
+@click.option(
+    "--dataset-id", type=str, default=None, help="Dataset ID. [default: None]"
+)
 @click.option(
     "--counts-file",
     type=str,
@@ -374,7 +489,9 @@ def visium_wrapper(
 
 @cli.command(name="visium-hd")
 @_input_output_click_options
-@click.option("--dataset-id", type=str, default=None, help="Dataset ID. [default: None]")
+@click.option(
+    "--dataset-id", type=str, default=None, help="Dataset ID. [default: None]"
+)
 @click.option(
     "--filtered-counts-file",
     type=bool,
@@ -417,7 +534,7 @@ def visium_hd_wrapper(
     output: str,
     dataset_id: str | None = None,
     filtered_counts_file: bool = True,
-    load_segmentations_only: bool = True,
+    load_segmentations_only: bool = False,
     load_nucleus_segmentations: bool = False,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
@@ -443,19 +560,53 @@ def visium_hd_wrapper(
 
 @cli.command(name="xenium")
 @_input_output_click_options
-@click.option("--cells-boundaries", type=bool, default=True, help="Whether to read cells boundaries. [default: True]")
 @click.option(
-    "--nucleus-boundaries", type=bool, default=True, help="Whether to read Nucleus boundaries. [default: True]"
+    "--cells-boundaries",
+    type=bool,
+    default=True,
+    help="Whether to read cells boundaries. [default: True]",
 )
-@click.option("--cells-as-circles", type=bool, default=None, help="Whether to read cells as circles. [default: None]")
-@click.option("--cells-labels", type=bool, default=True, help="Whether to read cells labels (raster). [default: True]")
 @click.option(
-    "--nucleus-labels", type=bool, default=True, help="Whether to read nucleus labels (raster). [default: True]"
+    "--nucleus-boundaries",
+    type=bool,
+    default=True,
+    help="Whether to read Nucleus boundaries. [default: True]",
 )
-@click.option("--transcripts", type=bool, default=True, help="Whether to read transcripts. [default: True]")
-@click.option("--morphology-mip", type=bool, default=True, help="Whether to read morphology mip image. [default: True]")
 @click.option(
-    "--morphology-focus", type=bool, default=True, help="Whether to read morphology focus image. [default: True]"
+    "--cells-as-circles",
+    type=bool,
+    default=None,
+    help="Whether to read cells as circles. [default: None]",
+)
+@click.option(
+    "--cells-labels",
+    type=bool,
+    default=True,
+    help="Whether to read cells labels (raster). [default: True]",
+)
+@click.option(
+    "--nucleus-labels",
+    type=bool,
+    default=True,
+    help="Whether to read nucleus labels (raster). [default: True]",
+)
+@click.option(
+    "--transcripts",
+    type=bool,
+    default=True,
+    help="Whether to read transcripts. [default: True]",
+)
+@click.option(
+    "--morphology-mip",
+    type=bool,
+    default=True,
+    help="Whether to read morphology mip image. [default: True]",
+)
+@click.option(
+    "--morphology-focus",
+    type=bool,
+    default=True,
+    help="Whether to read morphology focus image. [default: True]",
 )
 @click.option(
     "--aligned-images",
@@ -520,13 +671,29 @@ def xenium_wrapper(
     help="Subset the image to the first 'subset' pixels in x and y dimensions. [default: None]",
 )
 @click.option(
-    "--c-subset", type=int, default=None, help="Subset the image to the first 'c-subset' channels. [default: None]"
+    "--c-subset",
+    type=int,
+    default=None,
+    help="Subset the image to the first 'c-subset' channels. [default: None]",
 )
 @click.option(
-    "--max-chunk-size", type=int, default=1024, help="Maximum chunk size for x and y dimensions. [default: 1024]"
+    "--max-chunk-size",
+    type=int,
+    default=1024,
+    help="Maximum chunk size for x and y dimensions. [default: 1024]",
 )
-@click.option("--c-chunks-size", type=int, default=1, help="Chunk size for c dimension. [default: 1]")
-@click.option("--multiscale", type=bool, default=True, help="Whether to create a multiscale image. [default: True]")
+@click.option(
+    "--c-chunks-size",
+    type=int,
+    default=1,
+    help="Chunk size for c dimension. [default: 1]",
+)
+@click.option(
+    "--multiscale",
+    type=bool,
+    default=True,
+    help="Whether to create a multiscale image. [default: True]",
+)
 @click.option(
     "--transformations",
     type=bool,
@@ -541,7 +708,10 @@ def xenium_wrapper(
     help="Scale factors to use for downsampling. If None, scale factors are calculated based on image size. [default: None]",
 )
 @click.option(
-    "--default-scale-factor", type=int, default=2, help="Default scale factor to use for downsampling. [default: 2]"
+    "--default-scale-factor",
+    type=int,
+    default=2,
+    help="Default scale factor to use for downsampling. [default: 2]",
 )
 @click.option(
     "--nuclei-channel-name",
@@ -643,7 +813,13 @@ def read_generic_wrapper(
     """Read generic data to SpatialData."""
     if data_axes is not None and "".join(sorted(data_axes)) not in ["cxy", "cxyz"]:
         raise ValueError("data_axes must be a permutation of 'cyx' or 'czyx'.")
-    generic_to_zarr(input=input, output=output, name=name, data_axes=data_axes, coordinate_system=coordinate_system)
+    generic_to_zarr(
+        input=input,
+        output=output,
+        name=name,
+        data_axes=data_axes,
+        coordinate_system=coordinate_system,
+    )
 
 
 if __name__ == "__main__":
