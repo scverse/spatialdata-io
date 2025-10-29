@@ -45,7 +45,6 @@ def test_decompose_projective_matrix() -> None:
 
 
 # --- END-TO-END TESTS ON EXAMPLE DATA ---
-
 # This dataset name is used to locate the test data in the './data/' directory.
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml
 # for instructions on how to download and place the data on disk.
