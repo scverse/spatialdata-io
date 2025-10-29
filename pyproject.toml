@@ -10,7 +10,7 @@ dynamic= [
 ]
 description = "SpatialData IO for common techs"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 license = {file = "LICENSE"}
 authors = [
     {name = "scverse"},
