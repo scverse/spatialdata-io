@@ -23,8 +23,10 @@ I/O for the `spatialdata` project.
     curio
     dbit
     experimental.iss
+    macsima
     mcmicro
     merscope
+    molecular_cartography
     seqfish
     steinbock
     stereoseq

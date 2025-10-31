@@ -9,6 +9,7 @@ from spatialdata_io.readers.generic import generic, geojson, image
 from spatialdata_io.readers.macsima import macsima
 from spatialdata_io.readers.mcmicro import mcmicro
 from spatialdata_io.readers.merscope import merscope
+from spatialdata_io.readers.molecular_cartography import molecular_cartography
 from spatialdata_io.readers.seqfish import seqfish
 from spatialdata_io.readers.steinbock import steinbock
 from spatialdata_io.readers.stereoseq import stereoseq
