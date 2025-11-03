@@ -227,7 +227,7 @@ def visium_hd(
         all_bin_sizes = _get_bins(path_bins)
 
         bin_sizes = []
-        if bin_size is not None:
+        if bin_size is not None and (isinstance(bin_size, int) or len(bin_size) > 0):
             if not isinstance(bin_size, list):
                 bin_size = [bin_size]
             bin_sizes = [f"square_{bs:03}um" for bs in bin_size if f"square_{bs:03}um" in all_bin_sizes]
