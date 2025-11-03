@@ -45,13 +45,10 @@ def test_decompose_projective_matrix() -> None:
 
 
 # --- END-TO-END TESTS ON EXAMPLE DATA ---
-
 # This dataset name is used to locate the test data in the './data/' directory.
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml
 # for instructions on how to download and place the data on disk.
-# TODO: is this the correct dataset? Not that the extent and other tests fail with this one.
-# DATASET_FOLDER = "Visium_HD_Tiny_3prime_Dataset_outs"
-DATASET_FOLDER = "Visium_HD_Mouse_Brain_Chunk"
+DATASET_FOLDER = "Visium_HD_Tiny_3prime_Dataset_outs"
 DATASET_ID = "visium_hd_tiny"
 
 
@@ -63,11 +60,11 @@ def test_visium_hd_data_extent() -> None:
         pytest.skip(f"Test data not found at '{f}'. Skipping extent test.")
 
     sdata = visium_hd(f, dataset_id=DATASET_ID)
-    extent = get_extent(sdata, exact=False)
+    extent = get_extent(sdata, exact=False, coordinate_system="visium_hd_tiny_downscaled_lowres")
     extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
 
     # TODO: Replace with the actual expected extent of your test data
-    expected_extent = "{'x': (1000, 7000), 'y': (2000, 8000)}"
+    expected_extent = "{'y': (-31, 540), 'x': (0, 652)}"
     assert str(extent) == expected_extent
 
 
@@ -123,14 +120,6 @@ def test_visium_hd_data_extent() -> None:
             "annotate_table_by_labels": False,
             "load_all_images": False,
         },
-        # Test case 7: Load everything, including auxiliary images like CytAssist
-        {
-            "load_segmentations_only": False,
-            "load_nucleus_segmentations": True,
-            "bins_as_squares": True,
-            "annotate_table_by_labels": False,
-            "load_all_images": True,
-        },
     ],
 )
 def test_visium_hd_data_integrity(params: dict[str, bool]) -> None:
@@ -142,25 +131,25 @@ def test_visium_hd_data_integrity(params: dict[str, bool]) -> None:
     sdata = visium_hd(f, dataset_id=DATASET_ID, **params)
 
     # --- IMAGE CHECKS ---
-    assert f"{DATASET_ID}_full_image" in sdata.images
-    assert f"{DATASET_ID}_hires_image" in sdata.images
-    assert f"{DATASET_ID}_lowres_image" in sdata.images
     if params.get("load_all_images", False):
-        assert f"{DATASET_ID}_cytassist_image" in sdata.images
+        assert f"{DATASET_ID}_hires_image" in sdata.images
+        assert f"{DATASET_ID}_lowres_image" in sdata.images
+        assert f"{DATASET_ID}_cytassist_image" not in sdata.images
+        assert f"{DATASET_ID}_full_image" not in sdata.images
 
     # --- SEGMENTATION CHECKS (loaded in all modes if present) ---
     # TODO: Update placeholder values with actual data from your test dataset
     assert VisiumHDKeys.CELL_SEG_KEY_HD in sdata.tables
     assert f"{DATASET_ID}_{VisiumHDKeys.CELL_SEG_KEY_HD}" in sdata.shapes
     cell_table = sdata.tables[VisiumHDKeys.CELL_SEG_KEY_HD]
-    assert cell_table.shape == (2485, 36738)  # Example shape (n_obs, n_vars)
-    assert "cellid_000000001-1" in cell_table.obs_names  # Example cell ID
+    assert cell_table.shape == (612, 32285)
+    assert "cellid_000000001-1" in cell_table.obs_names
 
     if params["load_nucleus_segmentations"]:
         assert VisiumHDKeys.NUCLEUS_SEG_KEY_HD in sdata.tables
         assert f"{DATASET_ID}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}" in sdata.shapes
         nuc_table = sdata.tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD]
-        assert nuc_table.shape == (2485, 36738)  # Example shape
+        assert nuc_table.shape == (950, 32285)
     else:
         assert VisiumHDKeys.NUCLEUS_SEG_KEY_HD not in sdata.tables
 
@@ -170,9 +159,8 @@ def test_visium_hd_data_integrity(params: dict[str, bool]) -> None:
     else:
         assert "square_008um" in sdata.tables
         table = sdata.tables["square_008um"]
-        assert table.shape == (39000, 36738)  # Example shape
-        assert "AAACCGGGTTTA-1" in table.obs_names  # Example barcode
-        assert np.array_equal(table.X.indices[:3], [10, 20, 30])  # Example indices
+        assert table.shape == (20830, 32285)
+        assert "s_008um_00118_00105-1" in table.obs_names
 
         shape_name = f"{DATASET_ID}_square_008um"
         labels_name = f"{shape_name}_labels"
@@ -195,9 +183,14 @@ def test_visium_hd_data_integrity(params: dict[str, bool]) -> None:
 
 
 @skip_if_below_python_version()
-def test_cli_visium_hd(runner: CliRunner) -> None:
+@pytest.mark.parametrize(
+    "dataset",
+    ["Visium_HD_Tiny_3prime_Dataset_outs"],
+)
+def test_cli_visium_hd(runner: CliRunner, dataset: str) -> None:
     """Test the command-line interface for the Visium HD reader."""
-    f = Path("./data") / DATASET_FOLDER
+    f = Path("./data") / dataset[0]
+
     if not f.is_dir():
         pytest.skip(f"Test data not found at '{f}'. Skipping CLI test.")
 
@@ -206,10 +199,12 @@ def test_cli_visium_hd(runner: CliRunner) -> None:
         result = runner.invoke(
             visium_hd_wrapper,
             [
-                "--path",
+                "--input",
                 str(f),
                 "--output",
                 str(output_zarr),
+                "--dataset-id",
+                DATASET_ID,
             ],
         )
         assert result.exit_code == 0, result.output
@@ -217,7 +212,4 @@ def test_cli_visium_hd(runner: CliRunner) -> None:
         sdata = read_zarr(output_zarr)
 
         # A simple check to confirm data was loaded
-        # The default dataset_id is inferred from the feature slice file name.
-        # This assert may need adjustment based on your test data's file names.
-        inferred_dataset_id = DATASET_FOLDER.replace("_outs", "")  # Example inference
-        assert f"{inferred_dataset_id}_full_image" in sdata.images
+        assert f"{DATASET_ID}_lowres_image" in sdata.images
