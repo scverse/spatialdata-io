@@ -414,7 +414,6 @@ def visium_wrapper(
 )
 @click.option(
     "--load-segmentations-only",
-    type=bool | None,
     default=None,
     help="If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data will be skipped. [default: None, which will fall back to `False` with a deprecation warning]",
 )
