@@ -402,3 +402,37 @@ class VisiumHDKeys(ModeEnum):
     MICROSCOPE_COLROW_TO_SPOT_COLROW = ("microscope_colrow_to_spot_colrow",)
     SPOT_COLROW_TO_MICROSCOPE_COLROW = ("spot_colrow_to_microscope_colrow",)
     FILE_FORMAT = "file_format"
+
+
+class G4XKeys(ModeEnum):
+    """Keys for G4X formatted dataset."""
+
+    # H&E
+    HE_DIR = "h_and_e"
+    HE_PATTERN = "*.jp2"
+
+    # Nuclei
+    NUCLEI_BOUNDARIES_KEY = "nuclei"
+    CELL_BOUNDARIES_KEY = "nuclei_exp"
+    SEGMENTATION_DIR = "segmentation"
+    SEGMENTATION_PATTERN = "segmentation_mask.npz"
+    OFFSET = "-0.5"
+
+    # Protein
+    PROTEIN_KEY = "protein"
+    PROTEIN_DIR = "protein"
+    PROTEIN_PATTERN = "*.jp2"
+
+    # Transcripts
+    TRANSCRIPTS_KEY = "transcripts"
+    TRANSCRIPTS_DIR = "rna"
+    TRANSCRIPTS_PATTERN = "*transcript_table.csv.gz"
+    TRANSCRIPTS_COORD_X = "x_pixel_coordinate"
+    TRANSCRIPTS_COORD_Y = "y_pixel_coordinate"
+    TRANSCRIPTS_FEATURE_KEY = "gene_name"
+    TRANSCRIPTS_SWAP_XY = False
+
+    # Tables
+    TABLES_DIR = "single_cell_data"
+    TABLE_PATTERN = "feature_matrix.h5"
+    TABLE_KEY = "table"
