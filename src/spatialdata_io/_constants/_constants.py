@@ -402,3 +402,11 @@ class VisiumHDKeys(ModeEnum):
     MICROSCOPE_COLROW_TO_SPOT_COLROW = ("microscope_colrow_to_spot_colrow",)
     SPOT_COLROW_TO_MICROSCOPE_COLROW = ("spot_colrow_to_microscope_colrow",)
     FILE_FORMAT = "file_format"
+
+
+@unique
+class MolecularCartographyKeys(ModeEnum):
+    """Keys for *Molecular Cartography* formatted dataset."""
+
+    FEATURE_KEY = "target_name"
+    POINTS_SUFFIX = "_results.txt"
