@@ -48,7 +48,7 @@ def visium_hd(
     path: str | Path,
     dataset_id: str | None = None,
     filtered_counts_file: bool = True,
-    load_segmentations_only: bool = False,
+    load_segmentations_only: bool | None = None,
     load_nucleus_segmentations: bool = False,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
@@ -74,7 +74,10 @@ def visium_hd(
         ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
     load_segmentations_only
         If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data
-        will be skipped.
+        will be skipped. If `False`, only the binned data will be loaded (which is consistent with legacy behavior).
+        If `None` (default), it will be equivalent to `False`, but a deprecation warning will be raised to inform users that
+        in future releases the default value will be changed to `True`. To avoid the warning, explicitly set this parameter to
+        `False` or `True`.
     load_nucleus_segmentations
         If `True` and nucleus segmentation files are present, load nucleus segmentation polygons and the corresponding
         nucleus-filtered count table. The counts are aggregated from the 2 µm binned matrix using the provided
@@ -114,6 +117,15 @@ def visium_hd(
     shapes = {}
     images: dict[str, Any] = {}
     labels: dict[str, Any] = {}
+
+    # Deprecation warning for load_segmentations_only default value
+    if not load_segmentations_only:
+        warnings.warn(
+            "`load_segmentations_only` default value will change to `True` in future releases. Please set it "
+            "explicitly to `True` or `False` to avoid this warning.",
+            FutureWarning,
+            stacklevel=2,
+        )
 
     # Check for segmentation files
     SEGMENTED_OUTPUTS_PATH = path / VisiumHDKeys.SEGMENTATION_OUTPUTS
