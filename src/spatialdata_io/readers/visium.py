@@ -253,7 +253,7 @@ def visium(
             rgb=None,
         )
 
-    return SpatialData(images=images, shapes=shapes, tables={'table': table})
+    return SpatialData(images=images, shapes=shapes, tables={"table": table})
 
 
 def _read_image(image_file: Path, imread_kwargs: dict[str, Any]) -> Any:
