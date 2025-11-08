@@ -133,6 +133,14 @@ def visium_hd(
     CELL_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.CELL_SEGMENTATION_GEOJSON_PATH
     NUCLEUS_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.NUCLEUS_SEGMENTATION_GEOJSON_PATH
     SCALE_FACTORS_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.SPATIAL / VisiumHDKeys.SCALEFACTORS_FILE
+    if not SCALE_FACTORS_PATH.exists():
+        # Visium HD 3.0.0 does not have the SEGMENTATION_OUTPUTS folder
+        scale_factors_file = next(
+            (file for file in path.rglob("*") if file.name.endswith(VisiumHDKeys.SCALEFACTORS_FILE)),
+            None,
+        )
+        assert scale_factors_file is not None, "Scale factors file not found in any of the subdirectories."
+        SCALE_FACTORS_PATH = scale_factors_file
     BARCODE_MAPPINGS_PATH = next(
         (file for file in path.rglob("*") if file.name.endswith(VisiumHDKeys.BARCODE_MAPPINGS_FILE)),
         None,
