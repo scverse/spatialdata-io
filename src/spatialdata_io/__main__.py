@@ -412,11 +412,24 @@ def visium_wrapper(
     default=False,
     help="If true, annotates the table by labels. [default: False]",
 )
+@click.option(
+    "--load-segmentations-only",
+    default=None,
+    help="If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data will be skipped. [default: None, which will fall back to `False` with a deprecation warning]",
+)
+@click.option(
+    "--load-nucleus-segmentations",
+    type=bool,
+    default=False,
+    help="If `True` and nucleus segmentation files are present, load nucleus segmentation polygons and the corresponding nucleus-filtered count table. [default: False]",
+)
 def visium_hd_wrapper(
     input: str,
     output: str,
     dataset_id: str | None = None,
     filtered_counts_file: bool = True,
+    load_segmentations_only: bool | None = None,
+    load_nucleus_segmentations: bool = False,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
     fullres_image_file: str | Path | None = None,
@@ -428,6 +441,8 @@ def visium_hd_wrapper(
         path=input,
         dataset_id=dataset_id,
         filtered_counts_file=filtered_counts_file,
+        load_segmentations_only=load_segmentations_only,
+        load_nucleus_segmentations=load_nucleus_segmentations,
         bin_size=bin_size,
         bins_as_squares=bins_as_squares,
         fullres_image_file=fullres_image_file,

@@ -32,7 +32,7 @@ dependencies = [
     "joblib",
     "imagecodecs",
     "dask-image",
-    "pyarrow",
+    "pyarrow<22.0.0",  # https://github.com/scverse/spatialdata-io/issues/334
     "readfcs",
     "tifffile>=2023.8.12",
     "ome-types",

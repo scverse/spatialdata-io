@@ -356,11 +356,16 @@ class VisiumHDKeys(ModeEnum):
     BIN_PREFIX = "square_"
     MICROSCOPE_IMAGE = "microscope_image"
     BINNED_OUTPUTS = "binned_outputs"
+    SEGMENTATION_OUTPUTS = "segmented_outputs"
 
     # counts and locations files
     FILTERED_COUNTS_FILE = "filtered_feature_bc_matrix.h5"
     RAW_COUNTS_FILE = "raw_feature_bc_matrix.h5"
     TISSUE_POSITIONS_FILE = "tissue_positions.parquet"
+    BARCODE_MAPPINGS_FILE = "barcode_mappings.parquet"
+    FILTERED_CELL_COUNTS_FILE = "filtered_feature_cell_matrix.h5"
+    CELL_SEGMENTATION_GEOJSON_PATH = "cell_segmentations.geojson"
+    NUCLEUS_SEGMENTATION_GEOJSON_PATH = "nucleus_segmentations.geojson"
 
     # images
     IMAGE_HIRES_FILE = "tissue_hires_image.png"
@@ -402,3 +407,7 @@ class VisiumHDKeys(ModeEnum):
     MICROSCOPE_COLROW_TO_SPOT_COLROW = ("microscope_colrow_to_spot_colrow",)
     SPOT_COLROW_TO_MICROSCOPE_COLROW = ("spot_colrow_to_microscope_colrow",)
     FILE_FORMAT = "file_format"
+
+    # Cell Segmentation keys
+    CELL_SEG_KEY_HD = "cell_segmentations"
+    NUCLEUS_SEG_KEY_HD = "nucleus_segmentations"
