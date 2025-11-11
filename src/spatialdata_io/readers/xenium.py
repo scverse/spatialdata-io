@@ -458,7 +458,7 @@ def _get_labels_and_indices_mapping(
 
         with zarr_open(str(tmpdir), mode="r") as z:
             # get the labels
-            masks = z["masks"][f"{mask_index}"][...]
+            masks = da.from_array(z["masks"][f"{mask_index}"])
             labels = Labels2DModel.parse(
                 masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs
             )
