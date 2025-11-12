@@ -56,6 +56,8 @@ class CosmxKeys(ModeEnum):
     Y_LOCAL_CELL = "CenterY_local_px"
     X_LOCAL_TRANSCRIPT = "x_local_px"
     Y_LOCAL_TRANSCRIPT = "y_local_px"
+    X_GLOBAL_PX = "x_global_px"
+    Y_GLOBAL_PX = "y_global_px"
     TARGET_OF_TRANSCRIPT = "target"
 
 
