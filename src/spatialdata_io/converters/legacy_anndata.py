@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
@@ -13,6 +12,7 @@ from spatialdata import (
     to_circles,
 )
 from spatialdata._core.operations._utils import transform_to_data_extent
+from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel, TableModel, get_table_keys
 from spatialdata.transformations import Identity, Scale
 
@@ -240,7 +240,6 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
     -----
     The SpatialData object will have one hires and one lowres image for each dataset in the AnnData object.
     """
-    logger = logging.getLogger(__name__)
     # AnnData keys
     SPATIAL = "spatial"
 
