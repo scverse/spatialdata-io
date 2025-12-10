@@ -15,16 +15,20 @@ from spatialdata_io.readers.macsima import (
     ChannelMetadata,
     MultiChannelImage,
     macsima,
+    parse_cycle_from_tiff,
     parse_name_to_cycle,
 )
 from tests._utils import skip_if_below_python_version
 
 RNG = da.random.default_rng(seed=0)
 
-if not (Path("./data/Lung_adc_demo").exists() or Path("./data/MACSimaData_HCA").exists()):
+if not (
+    Path("./data/Lung_adc_demo").exists() or Path("./data/MACSimaData_HCA").exists() or Path("./data/OMAP23").exists()
+):
     pytest.skip(
-        "Requires the Lung_adc_demo or MACSimaData_HCA datasets, please check "
-        "https://github.com/giovp/spatialdata-sandbox/macsima/Readme.md for instructions on how to get the data.",
+        "Requires the Lung_adc_demo or MACSimaData_HCA or OMAP23 datasets, please check "
+        "https://github.com/giovp/spatialdata-sandbox/blob/main/macsima_io/Readme.md for instructions on how to get the data."
+        "The OMAP23 dataset can be downloaded from https://zenodo.org/records/14008816",
         allow_module_level=True,
     )
 
@@ -140,7 +144,7 @@ def test_cycle_metadata(dataset: str, expected: list[str]) -> None:
     sdata = macsima(f, c_subset=3)
     table = sdata[list(sdata.tables.keys())[0]]
 
-    # get the channel names
+    # get the channel cycles
     cycles = table.var["cycle"]
     assert list(cycles) == expected
 
@@ -148,6 +152,19 @@ def test_cycle_metadata(dataset: str, expected: list[str]) -> None:
 def test_parsing_style() -> None:
     with pytest.raises(ValueError):
         macsima(Path(), parsing_style="not_a_parsing_style")
+
+
+@pytest.mark.parametrize(
+    "dataset,image,expected",
+    [("OMAP23", "OMAP23_CD3E.ome.tif", 1), ("OMAP23", "OMAP23_CD4.ome.tif", 4)],
+)
+def test_parsing_of_tiff_metadata_to_cycle(dataset: str, image: str, expected: int) -> None:
+    f = Path("./data") / dataset / image
+    assert f.is_file()
+
+    cycles = parse_cycle_from_tiff(f)
+
+    assert cycles == expected
 
 
 @pytest.mark.parametrize(

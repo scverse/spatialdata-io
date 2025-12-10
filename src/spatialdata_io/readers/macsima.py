@@ -13,6 +13,7 @@ import dask.array as da
 import pandas as pd
 import spatialdata as sd
 from dask_image.imread import imread
+from ome_types import from_tiff
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 
@@ -64,7 +65,11 @@ class MultiChannelImage:
         cycles = []
         channels = []
         for p in path_files:
-            cycle = parse_name_to_cycle(p.stem)
+            try:
+                cycle = parse_cycle_from_tiff(p)
+            except ValueError:
+                logger.debug(f"Cannot parse cycle from OME metadata from {p}. Falling back to parsing from file name.")
+                cycle = parse_name_to_cycle(p.stem)
             cycles.append(cycle)
             try:
                 with warnings.catch_warnings():
@@ -298,6 +303,14 @@ def macsima(
     if parsing_style == MACSimaParsingStyle.RAW:
         # TODO: see https://github.com/scverse/spatialdata-io/issues/155
         raise NotImplementedError("Parsing raw MACSima data is not yet implemented.")
+
+
+def parse_cycle_from_tiff(path: Path) -> int:
+    """Parse the cycle number from image name stored in tiff metadata."""
+    # Parsing from the metadata is more robust, as files can be easily renamed by users
+    images = from_tiff(path).images
+    name = images[0].name
+    return parse_name_to_cycle(name)
 
 
 def parse_name_to_cycle(name: str) -> int:
