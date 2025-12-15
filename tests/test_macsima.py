@@ -14,9 +14,9 @@ from spatialdata_io.__main__ import macsima_wrapper
 from spatialdata_io.readers.macsima import (
     ChannelMetadata,
     MultiChannelImage,
+    _parse_name_to_cycle,
     macsima,
-    parse_cycle_from_tiff,
-    parse_name_to_cycle,
+    parse_cycle,
 )
 from tests._utils import skip_if_below_python_version
 
@@ -162,7 +162,7 @@ def test_parsing_of_tiff_metadata_to_cycle(dataset: str, image: str, expected: i
     f = Path("./data") / dataset / image
     assert f.is_file()
 
-    cycles = parse_cycle_from_tiff(f)
+    cycles = parse_cycle(f)
 
     assert cycles == expected
 
@@ -175,7 +175,7 @@ def test_parsing_of_tiff_metadata_to_cycle(dataset: str, image: str, expected: i
     ],
 )
 def test_parsing_of_name_to_cycle(name: str, expected: int) -> None:
-    result = parse_name_to_cycle(name)
+    result = _parse_name_to_cycle(name)
     assert result == expected
 
 
@@ -224,7 +224,7 @@ def test_mci_array_reference() -> None:
 
 @skip_if_below_python_version()
 @pytest.mark.parametrize("dataset", ["Lung_adc_demo", "MACSimaData_HCA/HumanLiverH35"])
-def test_cli_macimsa(runner: CliRunner, dataset: str) -> None:
+def test_cli_macsima(runner: CliRunner, dataset: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
     with TemporaryDirectory() as tmpdir:

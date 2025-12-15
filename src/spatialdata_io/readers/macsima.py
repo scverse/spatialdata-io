@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import warnings
 from collections import defaultdict
 from copy import deepcopy
@@ -45,6 +47,15 @@ class ChannelMetadata:
 
     name: str
     cycle: int
+    stainnumber: int | None = None
+    imagetype: str | None = None
+    region: int | None = None
+    well: str | None = None
+    roi: int | None = None
+    fluorophore: str | None = None
+    field: str | None = None
+    clone: str | None = None
+    exposure: float | None = None
 
 
 @dataclass
@@ -62,15 +73,9 @@ class MultiChannelImage:
         imread_kwargs: Mapping[str, Any],
         skip_rounds: list[int] | None = None,
     ) -> MultiChannelImage:
-        cycles = []
-        channels = []
+        channel_metadata: list[ChannelMetadata] = []
         for p in path_files:
-            try:
-                cycle = parse_cycle_from_tiff(p)
-            except ValueError:
-                logger.debug(f"Cannot parse cycle from OME metadata from {p}. Falling back to parsing from file name.")
-                cycle = parse_name_to_cycle(p.stem)
-            cycles.append(cycle)
+            cycle = parse_cycle(p)
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
@@ -81,24 +86,57 @@ class MultiChannelImage:
                         UserWarning,
                         stacklevel=2,
                     )
-                channels.append(channel_names[0])
+                channel = channel_names[0]
             except ValueError as e:
                 warnings.warn(
                     f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.", UserWarning, stacklevel=2
                 )
+                continue
 
-        if len(path_files) != len(cycles) or len(path_files) != len(channels):
-            raise ValueError("Length of path_files, cycles and channels must be the same.")
+            # Try to parse additional metadata
+            # If it succeeds, prefer the channelname from this additional metadata over the simple parsing.
+            try:
+                additional_metadata = parse_additional_metadata(p, convert_numerics=True)
+            except Exception as e:
+                warnings.warn(f"Cannot parse additional metadata from {p.stem}. Error: {e}.", stacklevel=2)
+                additional_metadata = None
+
+            if additional_metadata is not None:
+                # Rename markername for a background image, to prevent it from duplicating the stain image name
+                if additional_metadata["imagetype"] == "bleach":
+                    additional_metadata["marker"] = additional_metadata["marker"] + "_background"
+
+                channel_metadata.append(
+                    ChannelMetadata(
+                        name=additional_metadata["marker"],
+                        cycle=cycle,
+                        stainnumber=additional_metadata["stainnumber"],
+                        imagetype=additional_metadata["imagetype"],
+                        region=additional_metadata["region"],
+                        well=additional_metadata["well"],
+                        roi=additional_metadata["roi"],
+                        fluorophore=additional_metadata["channel"],
+                        field=additional_metadata["field"],
+                        clone=additional_metadata["clone"],
+                        exposure=additional_metadata["exposure"],
+                    )
+                )
+            else:
+                # Only the minimal required metadata
+                channel_metadata.append(ChannelMetadata(name=channel, cycle=cycle))
+
+        if len(path_files) != len(channel_metadata):
+            raise ValueError("Length of path_files and metadata must be the same.")
         # if any of round_channels is in skip_rounds, remove that round from the list and from path_files
         if skip_rounds:
             logger.info(f"Skipping cycles: {skip_rounds}")
-            path_files, cycles, channels = map(
+            path_files, channel_metadata = map(
                 list,
                 zip(
                     *[
-                        (p, c, ch)
-                        for p, c, ch in zip(path_files, cycles, channels, strict=True)
-                        if c not in skip_rounds
+                        (p, ch_meta)
+                        for p, ch_meta in zip(path_files, channel_metadata, strict=True)
+                        if ch_meta.cycle not in skip_rounds
                     ],
                     strict=True,
                 ),
@@ -113,7 +151,7 @@ class MultiChannelImage:
         # create MultiChannelImage object with imgs and metadata
         output = cls(
             data=imgs,
-            metadata=[ChannelMetadata(name=ch, cycle=c) for c, ch in zip(cycles, channels, strict=True)],
+            metadata=channel_metadata,
         )
         return output
 
@@ -154,6 +192,42 @@ class MultiChannelImage:
     def get_cycles(self) -> list[int]:
         """Get the cycle numbers."""
         return [c.cycle for c in self.metadata]
+
+    def get_stainnumbers(self) -> list[int | None]:
+        """Get the staining numbers."""
+        return [c.stainnumber for c in self.metadata]
+
+    def get_image_types(self) -> list[str | None]:
+        """Get the staining types (stain or bleach)."""
+        return [c.imagetype for c in self.metadata]
+
+    def get_regions(self) -> list[int | None]:
+        """Get the regions."""
+        return [c.region for c in self.metadata]
+
+    def get_wells(self) -> list[str | None]:
+        """Get the wells."""
+        return [c.well for c in self.metadata]
+
+    def get_rois(self) -> list[int | None]:
+        """Get the ROIs."""
+        return [c.roi for c in self.metadata]
+
+    def get_fluorophores(self) -> list[str | None]:
+        """Get the fluorophores."""
+        return [c.fluorophore for c in self.metadata]
+
+    def get_fields(self) -> list[str | None]:
+        """Get the fields."""
+        return [c.field for c in self.metadata]
+
+    def get_clones(self) -> list[str | None]:
+        """Get the clones."""
+        return [c.clone for c in self.metadata]
+
+    def get_exposures(self) -> list[float | None]:
+        """Get the exposures."""
+        return [c.exposure for c in self.metadata]
 
     def sort_by_channel(self) -> None:
         """Sort the channels by cycle number."""
@@ -305,20 +379,117 @@ def macsima(
         raise NotImplementedError("Parsing raw MACSima data is not yet implemented.")
 
 
-def parse_cycle_from_tiff(path: Path) -> int:
-    """Parse the cycle number from image name stored in tiff metadata."""
-    # Parsing from the metadata is more robust, as files can be easily renamed by users
-    images = from_tiff(path).images
+def _extract_filename_from_tif_metadata(path: Path) -> str | Any:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        images = from_tiff(path).images
+
     name = images[0].name
-    return parse_name_to_cycle(name)
+    return name
 
 
-def parse_name_to_cycle(name: str) -> int:
+def _parse_name_to_cycle(name: str) -> int:
     """Parse the cycle number from the name of the image."""
     cycle = name.split("_")[0]
     if "-" in cycle:
         cycle = cycle.split("-")[1]
     return int(cycle)
+
+
+def parse_cycle(path: Path) -> int:
+    """Parse the cycle number.
+
+    Ideally the image name stored in tiff metadata is used. If this is not available it falls back to the filename itself
+    """
+    # Parsing from the metadata is more robust, as files can be easily renamed by users
+    try:
+        name = _extract_filename_from_tif_metadata(path)
+    except Exception:
+        logger.debug(f"Cannot parse cycle from OME metadata from {path.stem}. Falling back to parsing from file name.")
+        name = path.stem
+    return _parse_name_to_cycle(name)
+
+
+def parse_additional_metadata(path: Path, convert_numerics: bool = True) -> dict[str, Any]:
+    """Parse metadata from filename stored in tiff metadata."""
+    try:
+        filename = _extract_filename_from_tif_metadata(path)
+    except Exception:
+        logger.debug(
+            f"Cannot parse complete metadata from OME metadata from {path.stem}. "
+            f"Falling back to parsing from file name."
+        )
+        filename = path.name
+
+    lower = filename.lower()
+    if lower.endswith(".ome.tiff"):
+        filename = filename[: -len(".ome.tiff")]
+    elif lower.endswith(".ome.tif"):
+        filename = filename[: -len(".ome.tif")]
+    else:
+        filename, _ = os.path.splitext(filename)
+
+    pattern = re.compile(
+        r"^"
+        r"(?:CYC-(?P<cycle>\d+)_)?"  # cycle is optional for the autofluorescence images
+        r"SCN-(?P<stainnumber>\d+)_"
+        r"ST-(?P<imagetype>[A-Z]+)_"
+        r"R-(?P<region>\d+)_"
+        r"W-(?P<well>[A-Z]\d+)_"
+        r"ROI-(?P<roi>\d+)_"
+        r"F-(?P<field>\d+)"
+        r"(?:_A-(?P<marker>.*?)(?=(?:_C-|_D-)))?"  # marker optional; capture until _C- or _D-
+        r"(?:_C-(?P<clone>.*?)(?=_D-))?"  # clone optional; capture until _D-
+        r"_D-(?P<channel>[A-Za-z0-9-]+)_"
+        r"EXP-(?P<exposure>\d+(?:\.\d+)?)"  # Allow integer or float exposures
+        r"$",
+        re.ASCII,
+    )
+
+    m = pattern.match(filename)
+    if m is None:
+        raise ValueError(f"Error when trying to extract metadata for {path.stem}")
+
+    metadata = m.groupdict()
+
+    # If cycle was not matched we assume these are autofluorescence images
+    # The true cycle number in this case will be extracted from parse_cycle
+    if metadata["cycle"] is None:
+        if metadata["imagetype"] != "AF":
+            raise ValueError("Expected a cycle for non-autofluorescence channels, but didnt find one")
+
+    # For DAPI stain images, the marker metadata is empty. In these cases replace it with the channel, which also says "DAPI"
+    if metadata["marker"] is None:
+        metadata["marker"] = metadata["channel"]
+
+    # Rename imagetype to something more easy to understand
+    if metadata["imagetype"]:
+        imagetype_rename_dict = {"S": "stain", "B": "bleach", "AF": "autofluorescence"}
+        metadata["imagetype"] = imagetype_rename_dict[metadata["imagetype"]]
+
+    if convert_numerics:
+
+        def to_int(field_name: str, s: str) -> int:
+            m = re.search(r"\d+", s)
+            if not m:
+                raise ValueError(f"Expected numeric part in {field_name!r}: '{s}'")
+            return int(m.group(0))
+
+        integers_to_convert = ["cycle", "stainnumber", "region", "roi", "field"]
+        for int_field in integers_to_convert:
+            if metadata[int_field] is not None:
+                metadata[int_field] = to_int(int_field, metadata[int_field])
+
+        def to_float(field_name: str, s: str) -> float:
+            m = re.search(r"\d+", s)
+            if not m:
+                raise ValueError(f"Expected numeric part in {field_name!r}: '{s}'")
+            return float(m.group(0))
+
+        if metadata["exposure"] is not None:
+            metadata["exposure"] = to_float("exposure", metadata["exposure"])
+
+    return metadata
 
 
 def parse_processed_folder(
@@ -453,12 +624,35 @@ def create_sdata(
 def create_table(mci: MultiChannelImage) -> ad.AnnData:
     cycles = mci.get_cycles()
     names = mci.get_channel_names()
+    stainnumbers = mci.get_stainnumbers()
+    imagetypes = mci.get_image_types()
+    regions = mci.get_regions()
+    wells = mci.get_wells()
+    rois = mci.get_rois()
+    fluorophores = mci.get_fluorophores()
+    fields = mci.get_fields()
+    clones = mci.get_clones()
+    exposures = mci.get_exposures()
+
     df = pd.DataFrame(
         {
             "name": names,
             "cycle": cycles,
+            "stainnumber": stainnumbers,
+            "imagetype": imagetypes,
+            "region": regions,
+            "well": wells,
+            "ROI": rois,
+            "fluorophore": fluorophores,
+            "field": fields,
+            "clone": clones,
+            "exposure": exposures,
         }
     )
+
+    # Replace missing data. This happens mostly in the clone column.
+    df = df.replace({None: pd.NA, "": pd.NA})
+
     table = ad.AnnData(var=df)
     table.var_names = names
     return sd.models.TableModel.parse(table)
