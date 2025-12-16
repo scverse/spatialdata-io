@@ -35,12 +35,10 @@ from tests._utils import skip_if_below_python_version
 
 RNG = da.random.default_rng(seed=0)
 
-if not (
-    Path("./data/Lung_adc_demo").exists() or Path("./data/MACSimaData_HCA").exists() or Path("./data/OMAP23").exists()
-):
+if not (Path("./data/OMAP10").exists() or Path("./data/OMAP23").exists()):
     pytest.skip(
-        "Requires the Lung_adc_demo or MACSimaData_HCA or OMAP23 datasets, please check "
-        "https://github.com/giovp/spatialdata-sandbox/blob/main/macsima_io/Readme.md for instructions on how to get the data."
+        "Requires the OMAP10 or OMAP23 datasets. "
+        "The OMAP10 dataset can be downloaded from https://zenodo.org/records/7875938 "
         "The OMAP23 dataset can be downloaded from https://zenodo.org/records/14008816",
         allow_module_level=True,
     )
@@ -72,8 +70,8 @@ def make_ChannelMetadata(
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("Lung_adc_demo", {"y": (0, 15460), "x": (0, 13864)}),
-        ("MACSimaData_HCA/HumanLiverH35", {"y": (0, 1154), "x": (0, 1396)}),
+        ("OMAP10", {"y": (0, 7797), "x": (0, 9407)}),
+        ("OMAP23", {"y": (0, 7703), "x": (0, 9329)}),
     ],
 )
 def test_image_size(dataset: str, expected: dict[str, Any]) -> None:
@@ -81,7 +79,7 @@ def test_image_size(dataset: str, expected: dict[str, Any]) -> None:
 
     f = Path("./data") / dataset
     assert f.is_dir()
-    sdata = macsima(f)
+    sdata = macsima(f, transformations=False)  # Do not transform to make it easier to compare against pixel dimensions
     el = sdata[list(sdata.images.keys())[0]]
     cs = sdata.coordinate_systems[0]
 
@@ -93,7 +91,7 @@ def test_image_size(dataset: str, expected: dict[str, Any]) -> None:
 @skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
-    [("Lung_adc_demo", 116), ("MACSimaData_HCA/HumanLiverH35", 102)],
+    [("OMAP10", 31), ("OMAP23", 29)],
 )
 def test_total_channels(dataset: str, expected: int) -> None:
     f = Path("./data") / dataset
@@ -106,12 +104,12 @@ def test_total_channels(dataset: str, expected: int) -> None:
     assert channels == expected
 
 
-@skip_if_below_python_version()
+# @skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("Lung_adc_demo", ["R0 DAPI", "R1 CD68", "R1 CD163"]),
-        ("MACSimaData_HCA/HumanLiverH35", ["R0 DAPI", "R1 PE", "R1 DAPI"]),
+        ("OMAP10", ["R1 DAPI", "R1 CD11c", "R1 Actin"]),
+        ("OMAP23", ["R1 CD3", "R1 DAPI", "R1 CD274"]),
     ],
 )
 def test_channel_names(dataset: str, expected: list[str]) -> None:
@@ -129,8 +127,8 @@ def test_channel_names(dataset: str, expected: list[str]) -> None:
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("Lung_adc_demo", 68),
-        ("MACSimaData_HCA/HumanLiverH35", 51),
+        ("OMAP10", 22),
+        ("OMAP23", 15),
     ],
 )
 def test_total_rounds(dataset: str, expected: list[int]) -> None:
@@ -146,11 +144,11 @@ def test_total_rounds(dataset: str, expected: list[int]) -> None:
 @pytest.mark.parametrize(
     "dataset,skip_rounds,expected",
     [
-        ("Lung_adc_demo", list(range(2, 68)), ["DAPI (1)", "CD68", "CD163", "DAPI (2)", "Control"]),
+        ("OMAP10", list(range(2, 23)), ["DAPI", "CD11c", "Actin", "CD15"]),
         (
-            "MACSimaData_HCA/HumanLiverH35",
-            list(range(2, 51)),
-            ["DAPI (1)", "PE", "CD14", "Vimentin", "DAPI (2)", "WT1"],
+            "OMAP23",
+            list(range(3, 16)),
+            ["CD3", "DAPI", "CD274", "CD279"],
         ),
     ],
 )
@@ -169,8 +167,8 @@ def test_skip_rounds(dataset: str, skip_rounds: list[int], expected: list[str]) 
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("Lung_adc_demo", [0, 1, 1]),
-        ("MACSimaData_HCA/HumanLiverH35", [0, 1, 1]),
+        ("OMAP10", [1, 1, 1]),
+        ("OMAP23", [1, 1, 1]),
     ],
 )
 def test_cycle_metadata(dataset: str, expected: list[str]) -> None:
@@ -235,7 +233,7 @@ def test_mci_array_reference() -> None:
 
 
 @skip_if_below_python_version()
-@pytest.mark.parametrize("dataset", ["Lung_adc_demo", "MACSimaData_HCA/HumanLiverH35"])
+@pytest.mark.parametrize("dataset", ["OMAP10", "OMAP23"])
 def test_cli_macsima(runner: CliRunner, dataset: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
@@ -283,7 +281,7 @@ def test_collect_map_annotation_values_handles_missing_sa_and_empty_list() -> No
     assert _collect_map_annotation_values(ome1) == {}
 
     # structured_annotations present but with empty map_annotation list
-    ome2 = OME(structured_annotations=StructuredAnnotations(map_annotation=[]))
+    ome2 = OME(structured_annotations=StructuredAnnotations(map_annotations=[]))
     assert _collect_map_annotation_values(ome2) == {}
 
 
