@@ -7,6 +7,15 @@ from typing import Any
 import dask.array as da
 import pytest
 from click.testing import CliRunner
+from ome_types import OME
+from ome_types.model import (
+    MapAnnotation,
+    Plate,
+    Reagent,
+    Screen,
+    StructuredAnnotations,
+    Well,
+)
 from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
 
@@ -14,9 +23,13 @@ from spatialdata_io.__main__ import macsima_wrapper
 from spatialdata_io.readers.macsima import (
     ChannelMetadata,
     MultiChannelImage,
-    _parse_name_to_cycle,
+    _collect_map_annotation_values,
+    _get_software_major_version,
+    _get_software_version,
+    _parse_ome_metadata,
+    _parse_v0_ome_metadata,
+    _parse_v1_ome_metadata,
     macsima,
-    parse_cycle,
 )
 from tests._utils import skip_if_below_python_version
 
@@ -30,6 +43,28 @@ if not (
         "https://github.com/giovp/spatialdata-sandbox/blob/main/macsima_io/Readme.md for instructions on how to get the data."
         "The OMAP23 dataset can be downloaded from https://zenodo.org/records/14008816",
         allow_module_level=True,
+    )
+
+
+# Helper to create ChannelMetadata with some defaults
+def make_ChannelMetadata(
+    name: str,
+    cycle: int,
+    fluorophore: str | None = None,
+    exposure: float | None = None,
+    imagetype: str | None = None,
+    well: str | None = None,
+    roi: int | None = None,
+) -> ChannelMetadata:
+    """Helper to construct ChannelMetadata with required defaults."""
+    return ChannelMetadata(
+        name=name,
+        cycle=cycle,
+        fluorophore=fluorophore or "",
+        exposure=exposure if exposure is not None else 0.0,
+        imagetype=imagetype or "StainCycle",
+        well=well or "A01",
+        roi=roi if roi is not None else 0,
     )
 
 
@@ -154,38 +189,15 @@ def test_parsing_style() -> None:
         macsima(Path(), parsing_style="not_a_parsing_style")
 
 
-@pytest.mark.parametrize(
-    "dataset,image,expected",
-    [("OMAP23", "OMAP23_CD3E.ome.tif", 1), ("OMAP23", "OMAP23_CD4.ome.tif", 4)],
-)
-def test_parsing_of_tiff_metadata_to_cycle(dataset: str, image: str, expected: int) -> None:
-    f = Path("./data") / dataset / image
-    assert f.is_file()
-
-    cycles = parse_cycle(f)
-
-    assert cycles == expected
-
-
-@pytest.mark.parametrize(
-    "name,expected",
-    [
-        ("C-002_S-000_S_FITC_R-01_W-C-1_ROI-01_A-CD147_C-REA282.tif", 2),
-        ("001_S_R-01_W-B-1_ROI-01_A-CD14REA599ROI1_C-REA599.ome.tif", 1),
-    ],
-)
-def test_parsing_of_name_to_cycle(name: str, expected: int) -> None:
-    result = _parse_name_to_cycle(name)
-    assert result == expected
-
-
 def test_mci_sort_by_channel() -> None:
     sizes = [100, 200, 300]
     c_names = ["test11", "test3", "test2"]
     cycles = [2, 0, 1]
     mci = MultiChannelImage(
         data=[RNG.random((size, size), chunks=(10, 10)) for size in sizes],
-        metadata=[ChannelMetadata(name=c_name, cycle=cycle) for c_name, cycle in zip(c_names, cycles, strict=False)],
+        metadata=[
+            make_ChannelMetadata(name=c_name, cycle=cycle) for c_name, cycle in zip(c_names, cycles, strict=False)
+        ],
     )
     assert mci.get_channel_names() == c_names
     assert [x.shape[0] for x in mci.data] == sizes
@@ -199,7 +211,7 @@ def test_mci_array_reference() -> None:
     arr2 = RNG.random((200, 200), chunks=(10, 10))
     mci = MultiChannelImage(
         data=[arr1, arr2],
-        metadata=[ChannelMetadata(name="test1", cycle=0), ChannelMetadata(name="test2", cycle=1)],
+        metadata=[make_ChannelMetadata(name="test1", cycle=0), make_ChannelMetadata(name="test2", cycle=1)],
     )
     orig_arr1 = arr1.copy()
 
@@ -246,3 +258,244 @@ def test_cli_macsima(runner: CliRunner, dataset: str) -> None:
         )
         assert result.exit_code == 0, result.output
         _ = read_zarr(output_zarr)
+
+
+def test_collect_map_annotation_values_merges_all_keys_first_wins() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(value={"a": "1", "b": "2"}),
+                MapAnnotation(value={"b": "99", "c": "3"}),
+            ]
+        )
+    )
+
+    result = _collect_map_annotation_values(ome)
+
+    assert result == {"a": "1", "b": "2", "c": "3"}
+    # ensure later duplicate "b" did not overwrite
+    assert result["b"] == "2"
+
+
+def test_collect_map_annotation_values_handles_missing_sa_and_empty_list() -> None:
+    # No structured_annotations at all
+    ome1 = OME()
+    assert _collect_map_annotation_values(ome1) == {}
+
+    # structured_annotations present but with empty map_annotation list
+    ome2 = OME(structured_annotations=StructuredAnnotations(map_annotation=[]))
+    assert _collect_map_annotation_values(ome2) == {}
+
+
+@pytest.mark.parametrize(
+    "ma_values, expected",
+    [
+        ({"SoftwareVersion": " 1.2.3 "}, "1.2.3"),
+        ({"Software version": " v0.9.0"}, "v0.9.0"),
+    ],
+)
+def test_get_software_version_success(ma_values: dict[str, str], expected: str) -> None:
+    assert _get_software_version(ma_values) == expected
+
+
+@pytest.mark.parametrize(
+    "ma_values",
+    [
+        ({}),
+        ({"SoftwareVersion": ""}),
+        ({"SoftwareVersion": "    "}),
+        ({"Software version": ""}),
+        ({"Software version": None}),
+    ],
+)
+def test_get_software_version_failure(ma_values: dict[str, str | None]) -> None:
+    with pytest.raises(ValueError, match="Could not extract Software Version"):
+        _get_software_version(ma_values)
+
+
+@pytest.mark.parametrize(
+    "version, expected",
+    [
+        ("1.2.3", 1),
+        ("  2.0.0 ", 2),
+        ("v3.4.5", 3),
+        ("V4.0.1", 4),
+        ("10", 10),
+    ],
+)
+def test_get_software_major_version_success(version: str, expected: int) -> None:
+    assert _get_software_major_version(version) == expected
+
+
+def test_get_software_major_version_empty_parts_raises() -> None:
+    with pytest.raises(ValueError):
+        _get_software_major_version("")
+
+
+def test_parse_v0_ome_metadata_basic_extraction_and_conversions() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(
+                    value={
+                        "Fluorochrome": "AF488",
+                        "Exposure time": "123.4",
+                        "Cycle": "5",
+                        "ROI ID": "7",
+                        "MICS cycle type": "StainCycle",
+                    }
+                )
+            ]
+        ),
+        screens=[Screen(reagents=[Reagent(name="CD3__OKT3")])],
+        plates=[Plate(wells=[Well(column=0, row=0, external_identifier="A01")])],
+    )
+
+    md = _parse_v0_ome_metadata(ome)
+
+    assert md["name"] == "CD3"
+    assert md["clone"] == "OKT3"
+    assert md["fluorophore"] == "AF488"
+    assert md["exposure"] == pytest.approx(123.4)
+    assert md["cycle"] == 5
+    assert md["roi"] == 7
+    assert md["imagetype"] == "StainCycle"
+    assert md["well"] == "A01"
+
+
+def test_parse_v0_ome_metadata_handles_missing_or_invalid_numeric_fields() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(
+                    value={
+                        "Exposure time": "not-a-number",
+                        "Cycle": "NaN",
+                        "ROI ID": "x",
+                    }
+                )
+            ]
+        ),
+        screens=[Screen(reagents=[Reagent(name="MarkerOnly")])],
+        plates=[Plate(wells=[Well(column=0, row=0, external_identifier=None)])],
+    )
+
+    md = _parse_v0_ome_metadata(ome)
+
+    # name from reagent without "__"
+    assert md["name"] == "MarkerOnly"
+    assert md["clone"] is None
+    assert md["exposure"] is None
+    assert md["cycle"] is None
+    assert md["roi"] is None
+    # well remains None
+    assert md["well"] is None
+
+
+def test_parse_v0_ome_metadata_bleach_cycle_appends_background() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(
+                    value={
+                        "MICS cycle type": "BleachCycle",
+                    }
+                )
+            ]
+        ),
+        screens=[Screen(reagents=[Reagent(name="CD4__RPA-T4")])],
+    )
+
+    md = _parse_v0_ome_metadata(ome)
+
+    assert md["imagetype"] == "BleachCycle"
+    assert md["name"] == "CD4_background"
+
+
+def test_parse_v1_ome_metadata_primary_keys_biomarker_and_clone() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(
+                    value={
+                        "Clone": "OKT3",
+                        "Biomarker": "CD3",
+                        "Fluorochrome": "AF488",
+                        "ExposureTime": "45.6",
+                        "Cycle": "3",
+                        "RoiId": "10",
+                        "ScanType": "S",
+                    }
+                )
+            ]
+        ),
+        plates=[Plate(wells=[Well(column=0, row=0, external_identifier="B02")])],
+    )
+
+    md = _parse_v1_ome_metadata(ome)
+
+    assert md["name"] == "CD3"
+    assert md["clone"] == "OKT3"
+    assert md["fluorophore"] == "AF488"
+    assert md["exposure"] == pytest.approx(45.6)
+    assert md["cycle"] == 3
+    assert md["roi"] == 10
+    assert md["imagetype"] == "S"
+    assert md["well"] == "B02"
+
+
+def test_parse_v1_ome_metadata_invalid_numerics_become_none() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(
+                    value={
+                        "ExposureTime": "x",
+                        "Cycle": "NaN",
+                        "RoiId": "ABC",
+                    }
+                )
+            ]
+        ),
+    )
+
+    md = _parse_v1_ome_metadata(ome)
+
+    assert md["exposure"] is None
+    assert md["cycle"] is None
+    assert md["roi"] is None
+
+
+def make_ome_with_version(version_value: str, extra_ma: dict[str, Any] | None = None) -> OME:
+    base = {"SoftwareVersion": version_value}
+    if extra_ma:
+        base.update(extra_ma)
+    return OME(structured_annotations=StructuredAnnotations(map_annotations=[MapAnnotation(value=base)]))
+
+
+def test_parse_ome_metadata_dispatches_to_v0() -> None:
+    ome = make_ome_with_version("0.9.0")
+    # enrich some so v0 parser has something to see
+    ome.screens = [Screen(reagents=[Reagent(name="Marker0")])]
+
+    md = _parse_ome_metadata(ome)
+
+    # Assert that the v0 parser was used by checking a field
+    # that can only come from v0 parsing logic (e.g. name from reagent)
+    assert "name" in md
+    assert md["name"] == "Marker0"
+
+
+def test_parse_ome_metadata_dispatches_to_v1() -> None:
+    ome = make_ome_with_version("1.0.0", extra_ma={"Biomarker": "CD3"})
+
+    md = _parse_ome_metadata(ome)
+
+    assert md["name"] == "CD3"
+
+
+def test_parse_ome_metadata_unknown_major_raises() -> None:
+    ome = make_ome_with_version("2.0.0")
+
+    with pytest.raises(ValueError, match="Unknown software version"):
+        _parse_ome_metadata(ome)
