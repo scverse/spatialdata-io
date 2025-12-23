@@ -157,10 +157,7 @@ def visium_hd(
         and FILTERED_MATRIX_2U_PATH.exists()
     )
 
-    if dataset_id is None:
-        dataset_id = _infer_dataset_id(path)
-
-    filename_prefix = _get_filename_prefix(path, dataset_id)
+    filename_prefix, dataset_id = _get_filename_prefix(path, dataset_id)
 
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
@@ -401,10 +398,7 @@ def visium_hd(
             )
 
     # Read all images and add transformations
-    fullres_image_file_paths = []
-    if fullres_image_file is not None:
-        fullres_image_file_paths.append(Path(fullres_image_file))
-    else:
+    if fullres_image_file is None:
         path_fullres = path / VisiumHDKeys.MICROSCOPE_IMAGE
         if path_fullres.exists():
             fullres_image_paths = [file for file in path_fullres.iterdir() if file.is_file()]
@@ -430,7 +424,7 @@ def visium_hd(
 
     if fullres_image_file is not None:
         load_image(
-            path=fullres_image_file_paths[0],
+            path=fullres_image_file,
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
@@ -677,14 +671,20 @@ def _decompose_projective_matrix(
     return affine_matrix, projective_shift
 
 
-def _get_filename_prefix(path: Path, dataset_id: str) -> str:
+def _get_filename_prefix(path: Path, dataset_id: str | None) -> tuple[str, str]:
+    if dataset_id is None:
+        if (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists():
+            return "", ""
+        dataset_id = _infer_dataset_id(path)
+
     if (path / f"{dataset_id}_{VisiumHDKeys.FEATURE_SLICE_FILE.value}").exists():
-        return f"{dataset_id}_"
+        return f"{dataset_id}_", dataset_id
+
     assert (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists(), (
         f"Cannot locate the feature slice file, please ensure the file is present in the {path} directory and/or adjust"
         "the `dataset_id` parameter"
     )
-    return ""
+    return "", ""
 
 
 def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
