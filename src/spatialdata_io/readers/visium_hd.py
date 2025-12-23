@@ -157,10 +157,7 @@ def visium_hd(
         and FILTERED_MATRIX_2U_PATH.exists()
     )
 
-    if dataset_id is None:
-        dataset_id = _infer_dataset_id(path)
-
-    filename_prefix = _get_filename_prefix(path, dataset_id)
+    filename_prefix, dataset_id = _get_filename_prefix(path, dataset_id)
 
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
@@ -401,10 +398,7 @@ def visium_hd(
             )
 
     # Read all images and add transformations
-    fullres_image_file_paths = []
-    if fullres_image_file is not None:
-        fullres_image_file_paths.append(Path(fullres_image_file))
-    else:
+    if fullres_image_file is None:
         path_fullres = path / VisiumHDKeys.MICROSCOPE_IMAGE
         if path_fullres.exists():
             fullres_image_paths = [file for file in path_fullres.iterdir() if file.is_file()]
@@ -430,7 +424,7 @@ def visium_hd(
 
     if fullres_image_file is not None:
         load_image(
-            path=fullres_image_file_paths[0],
+            path=Path(fullres_image_file),
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
@@ -677,14 +671,41 @@ def _decompose_projective_matrix(
     return affine_matrix, projective_shift
 
 
-def _get_filename_prefix(path: Path, dataset_id: str) -> str:
+def _get_filename_prefix(path: Path, dataset_id: str | None) -> tuple[str, str]:
+    """Determine the filename prefix and dataset ID for Visium HD files.
+
+    The returned ``filename_prefix`` is used to locate files on disk (e.g., ``{prefix}feature_slice.h5``),
+    while ``dataset_id`` is used to name elements in the ``SpatialData`` object.
+
+    Parameters
+    ----------
+    path
+        Path to the Visium HD output directory.
+    dataset_id
+        Optional identifier for naming elements. If ``None``, inferred from prefixed files.
+
+    Returns
+    -------
+    A tuple of ``(filename_prefix, dataset_id)``.
+
+    Raises
+    ------
+    RuntimeError
+        If the feature slice file cannot be located.
+    """
+    if (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists():
+        return "", dataset_id if dataset_id is not None else ""
+
+    if dataset_id is None:
+        dataset_id = _infer_dataset_id(path)
+
     if (path / f"{dataset_id}_{VisiumHDKeys.FEATURE_SLICE_FILE.value}").exists():
-        return f"{dataset_id}_"
-    assert (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists(), (
-        f"Cannot locate the feature slice file, please ensure the file is present in the {path} directory and/or adjust"
-        "the `dataset_id` parameter"
+        return f"{dataset_id}_", dataset_id
+
+    raise RuntimeError(
+        f"Cannot locate the feature slice file, please ensure the file is present in the {path} directory and/or "
+        "adjust the `dataset_id` parameter"
     )
-    return ""
 
 
 def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
