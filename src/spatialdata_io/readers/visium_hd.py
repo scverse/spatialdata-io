@@ -672,19 +672,40 @@ def _decompose_projective_matrix(
 
 
 def _get_filename_prefix(path: Path, dataset_id: str | None) -> tuple[str, str]:
+    """Determine the filename prefix and dataset ID for Visium HD files.
+
+    The returned ``filename_prefix`` is used to locate files on disk (e.g., ``{prefix}feature_slice.h5``),
+    while ``dataset_id`` is used to name elements in the ``SpatialData`` object.
+
+    Parameters
+    ----------
+    path
+        Path to the Visium HD output directory.
+    dataset_id
+        Optional identifier for naming elements. If ``None``, inferred from prefixed files.
+
+    Returns
+    -------
+    A tuple of ``(filename_prefix, dataset_id)``.
+
+    Raises
+    ------
+    RuntimeError
+        If the feature slice file cannot be located.
+    """
+    if (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists():
+        return "", dataset_id if dataset_id is not None else ""
+
     if dataset_id is None:
-        if (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists():
-            return "", ""
         dataset_id = _infer_dataset_id(path)
 
     if (path / f"{dataset_id}_{VisiumHDKeys.FEATURE_SLICE_FILE.value}").exists():
         return f"{dataset_id}_", dataset_id
 
-    assert (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists(), (
-        f"Cannot locate the feature slice file, please ensure the file is present in the {path} directory and/or adjust"
-        "the `dataset_id` parameter"
+    raise RuntimeError(
+        f"Cannot locate the feature slice file, please ensure the file is present in the {path} directory and/or "
+        "adjust the `dataset_id` parameter"
     )
-    return "", ""
 
 
 def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
