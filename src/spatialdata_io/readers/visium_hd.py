@@ -424,7 +424,7 @@ def visium_hd(
 
     if fullres_image_file is not None:
         load_image(
-            path=fullres_image_file,
+            path=Path(fullres_image_file),
             suffix="_full_image",
             scale_factors=[2, 2, 2, 2],
         )
