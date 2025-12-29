@@ -119,7 +119,7 @@ def visium_hd(
     labels: dict[str, Any] = {}
 
     # Deprecation warning for load_segmentations_only default value
-    if not load_segmentations_only:
+    if load_segmentations_only is None:
         warnings.warn(
             "`load_segmentations_only` default value will change to `True` in future releases. Please set it "
             "explicitly to `True` or `False` to avoid this warning.",
