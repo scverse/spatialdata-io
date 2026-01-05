@@ -258,7 +258,37 @@ def test_cli_macsima(runner: CliRunner, dataset: str) -> None:
         _ = read_zarr(output_zarr)
 
 
-def test_collect_map_annotation_values_merges_all_keys_first_wins() -> None:
+def test_collect_map_annotation_values_with_no_duplicate_keys() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(value={"a": "1", "b": "2"}),
+                MapAnnotation(value={"c": "3"}),
+            ]
+        )
+    )
+
+    result = _collect_map_annotation_values(ome)
+
+    assert result == {"a": "1", "b": "2", "c": "3"}
+
+
+def test_collect_map_annotations_values_with_duplicate_keys_identical_values() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(value={"a": "1", "b": "2"}),
+                MapAnnotation(value={"b": "2", "c": "3"}),
+            ]
+        )
+    )
+
+    result = _collect_map_annotation_values(ome)
+    # Key should only be returned once
+    assert result == {"a": "1", "b": "2", "c": "3"}
+
+
+def test_collect_map_annotations_values_with_duplicate_keys_different_values() -> None:
     ome = OME(
         structured_annotations=StructuredAnnotations(
             map_annotations=[
@@ -267,12 +297,17 @@ def test_collect_map_annotation_values_merges_all_keys_first_wins() -> None:
             ]
         )
     )
+    import re
 
-    result = _collect_map_annotation_values(ome)
+    # The parser should throw a warning when duplicate keys with different values are found
+    with pytest.warns(
+        UserWarning,
+        match=re.escape("Found different value for b: 99. The parser will only use the first found value, which is 2!"),
+    ):
+        result = _collect_map_annotation_values(ome)
 
+    # The parser should return only the first found value.
     assert result == {"a": "1", "b": "2", "c": "3"}
-    # ensure later duplicate "b" did not overwrite
-    assert result["b"] == "2"
 
 
 def test_collect_map_annotation_values_handles_missing_sa_and_empty_list() -> None:

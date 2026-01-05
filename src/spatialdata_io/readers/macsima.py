@@ -354,6 +354,14 @@ def _collect_map_annotation_values(ome: OME) -> dict[str, Any]:
         for k, v in value.items():
             if k not in merged:
                 merged[k] = v
+            else:
+                # For instances where we have different values for the same repeated key, raise a warning.
+                if v != merged[k]:
+                    warnings.warn(
+                        f"Found different value for {k}: {v}. The parser will only use the first found value, which is {merged[k]}!",
+                        UserWarning,
+                        stacklevel=2,
+                    )
 
     return merged
 
@@ -382,11 +390,16 @@ def _get_software_major_version(version: str) -> int:
     if not parts:
         raise ValueError("Could not extract major software version part from version string.")
 
-    return int(parts[0])
+    major = int(parts[0])
+    logger.debug(f"Found major software version {major}")
+
+    return major
 
 
 def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
-    """Parse ome."""
+    """Parse Legacy Format of OME Metadata (software version 0.x.x)."""
+    logger.debug("Parsing OME metadata expecting version 0 format")
+
     metadata: dict[str, Any] = {
         "name": None,
         "clone": None,
@@ -466,7 +479,9 @@ def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
 
 
 def _parse_v1_ome_metadata(ome: OME) -> dict[str, Any]:
-    """Your existing MACSima-style parser (1.x.x layout)."""
+    """Parse v1 format of OME metadata (software version 1.x.x)."""
+    logger.debug("Parsing OME metadata expecting version 1 format")
+
     metadata: dict[str, Any] = {
         "name": None,
         "clone": None,
