@@ -7,19 +7,18 @@ import re
 import tempfile
 import warnings
 import zipfile
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
+import ome_types
 import packaging.version
 import pandas as pd
 import pyarrow.parquet as pq
 import tifffile
 import zarr
-from anndata import AnnData
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
@@ -28,7 +27,6 @@ from pyarrow import Table
 from shapely import Polygon
 from spatialdata import SpatialData
 from spatialdata._core.query.relational_query import get_element_instances
-from spatialdata._types import ArrayLike
 from spatialdata.models import (
     Image2DModel,
     Labels2DModel,
@@ -41,9 +39,15 @@ from xarray import DataArray, DataTree
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io._utils import deprecation_alias
+from spatialdata_io._utils import deprecation_alias, zarr_open
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from anndata import AnnData
+    from spatialdata._types import ArrayLike
 
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
@@ -64,12 +68,12 @@ def xenium(
     aligned_images: bool = True,
     cells_table: bool = True,
     n_jobs: int = 1,
+    gex_only: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read a *10X Genomics Xenium* dataset into a SpatialData object.
+    """Read a *10x Genomics Xenium* dataset into a SpatialData object.
 
     This function reads the following files:
 
@@ -84,7 +88,8 @@ def xenium(
 
     .. seealso::
 
-        - `10X Genomics Xenium file format  <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
+        - `10x Genomics Xenium file format <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-at-a-glance>`_.
+        - `Release notes for the Xenium format <https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa>`_.
 
     Parameters
     ----------
@@ -117,6 +122,8 @@ def xenium(
         Whether to read the cell annotations in the `AnnData` table.
     n_jobs
         Number of jobs to use for parallel processing.
+    gex_only
+        Whether to load only the "Gene Expression" feature type.
     imread_kwargs
         Keyword arguments to pass to the image reader.
     image_models_kwargs
@@ -182,7 +189,7 @@ def xenium(
             cells_table = True
 
     if cells_table:
-        return_values = _get_tables_and_circles(path, cells_as_circles, specs)
+        return_values = _get_tables_and_circles(path, cells_as_circles, specs, gex_only)
         if cells_as_circles:
             table, circles = return_values
         else:
@@ -287,30 +294,62 @@ def xenium(
         if morphology_focus:
             morphology_focus_dir = path / XeniumKeys.MORPHOLOGY_FOCUS_DIR
             files = {f for f in os.listdir(morphology_focus_dir) if f.endswith(".ome.tif") and not f.startswith("._")}
-            if len(files) not in [1, 4]:
-                raise ValueError(
-                    "Expected 1 (no segmentation kit) or 4 (segmentation kit) files in the morphology focus directory, "
-                    f"found {len(files)}: {files}"
-                )
-            if files != {XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(i) for i in range(len(files))}:
-                raise ValueError(
-                    "Expected files in the morphology focus directory to be named as "
-                    f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)} to "
-                    f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(len(files) - 1)}, found {files}"
-                )
-            # the 'dummy' channel is a temporary workaround, see _get_images() for more details
-            if len(files) == 1:
-                channel_names = {
-                    0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
-                }
+
+            if XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0) in files:
+                # v2 or v3
+                first_tiff_path = morphology_focus_dir / XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)
+                if len(files) not in [1, 4]:
+                    raise ValueError(
+                        "Expected 1 (no segmentation kit) or 4 (segmentation kit) files in the morphology focus directory, "
+                        f"found {len(files)}: {files}"
+                    )
+                if files != {XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(i) for i in range(len(files))}:
+                    raise ValueError(
+                        "Expected files in the morphology focus directory to be named as "
+                        f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(0)} to "
+                        f"{XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.value.format(len(files) - 1)}, found {files}"
+                    )
+                if len(files) == 1:
+                    channel_names = {
+                        0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
+                    }
+                else:
+                    channel_names = {
+                        0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
+                        1: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_1.value,
+                        2: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_2.value,
+                        3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3.value,
+                    }
             else:
-                channel_names = {
-                    0: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_0.value,
-                    1: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_1.value,
-                    2: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_2.value,
-                    3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3.value,
-                    4: "dummy",
-                }
+                # v4
+                if XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value not in files:
+                    raise ValueError(
+                        "Expected files in the morphology focus directory to be named as "
+                        f"chNNNN_<name>.ome.tif starting with {XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value}"
+                    )
+                first_tiff_path = morphology_focus_dir / XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value
+                ome = ome_types.from_xml(tifffile.tiffcomment(first_tiff_path), validate=False)
+
+                # Get channel names from the OME XML
+                ome_channels = ome.images[0].pixels.channels
+                channels = []
+                for ome_ch in ome_channels:
+                    if ome_ch.name is None:
+                        raise ValueError(f"Found a channel without a name in {first_tiff_path}")
+                    # Parse the channel index from the channel id
+                    match = re.match(r"Channel:(\d+)", ome_ch.id)
+                    invalid_format_msg: str = (
+                        "Expected OME channel ID to be of the form 'Channel:<index>'. "
+                        + f"Found: {ome_ch.id} in file {first_tiff_path}"
+                    )
+                    if match is None:
+                        raise ValueError(invalid_format_msg)
+                    try:
+                        channel_idx = int(match.group(1))
+                    except ValueError as e:
+                        raise ValueError(invalid_format_msg) from e
+                    channels.append((channel_idx, ome_ch.name))
+                channel_names = dict(sorted(channels))
             # this reads the scale 0 for all the 1 or 4 channels (the other files are parsed automatically)
             # dask.image.imread will call tifffile.imread which will give a warning saying that reading multi-file
             # pyramids is not supported; since we are reading the full scale image and reconstructing the pyramid, we
@@ -326,13 +365,13 @@ def xenium(
             logger = tifffile.logger()
             logger.addFilter(IgnoreSpecificMessage())
             image_models_kwargs = dict(image_models_kwargs)
-            assert (
-                "c_coords" not in image_models_kwargs
-            ), "The channel names for the morphology focus images are handled internally"
+            assert "c_coords" not in image_models_kwargs, (
+                "The channel names for the morphology focus images are handled internally"
+            )
             image_models_kwargs["c_coords"] = list(channel_names.values())
             images["morphology_focus"] = _get_images(
                 morphology_focus_dir,
-                XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_IMAGE.format(0),
+                first_tiff_path.name,
                 imread_kwargs,
                 image_models_kwargs,
             )
@@ -373,6 +412,8 @@ def _get_polygons(
 
     group_by = df.groupby(XeniumKeys.CELL_ID)
     index = pd.Series(group_by.indices.keys())
+    # convert the index to str since we will compare it with an AnnData object, where the index is a str
+    index.index = index.index.astype(str)
     index = _decode_cell_id_column(index)
     out = Parallel(n_jobs=n_jobs)(
         delayed(_poly)(i.to_numpy())
@@ -415,7 +456,7 @@ def _get_labels_and_indices_mapping(
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             zip_ref.extractall(tmpdir)
 
-        with zarr.open(str(tmpdir), mode="r") as z:
+        with zarr_open(str(tmpdir), mode="r") as z:
             # get the labels
             masks = z["masks"][f"{mask_index}"][...]
             labels = Labels2DModel.parse(
@@ -453,7 +494,7 @@ def _get_labels_and_indices_mapping(
                         f"{expected_label_index}."
                     )
             else:
-                labels_positional_indices = z["polygon_sets"][mask_index]["cell_index"][...]
+                labels_positional_indices = z["polygon_sets"][f"{mask_index}"]["cell_index"][...]
                 if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
                     raise ValueError(
                         "The positional indices of the labels do not match the expected range. Please report this "
@@ -468,6 +509,8 @@ def _get_labels_and_indices_mapping(
                     "label_index": real_label_index.astype(np.int64),
                 }
             )
+            # because AnnData converts the indices to str
+            indices_mapping.index = indices_mapping.index.astype(str)
             return labels, indices_mapping
 
 
@@ -477,8 +520,7 @@ def _get_cells_metadata_table_from_zarr(
     file: str,
     specs: dict[str, Any],
 ) -> AnnData:
-    """
-    Read cells metadata from ``{xx.CELLS_ZARR}``.
+    """Read cells metadata from ``{xx.CELLS_ZARR}``.
 
     Read the cells summary table, which contains the z_level information for versions < 2.0.0, and also the
     nucleus_count for versions >= 2.0.0.
@@ -489,7 +531,7 @@ def _get_cells_metadata_table_from_zarr(
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             zip_ref.extractall(tmpdir)
 
-        with zarr.open(str(tmpdir), mode="r") as z:
+        with zarr_open(str(tmpdir), mode="r") as z:
             x = z["cell_summary"][...]
             column_names = z["cell_summary"].attrs["column_names"]
             df = pd.DataFrame(x, columns=column_names)
@@ -498,6 +540,8 @@ def _get_cells_metadata_table_from_zarr(
 
             cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
             df[XeniumKeys.CELL_ID] = cell_id_str
+            # because AnnData converts the indices to str
+            df.index = df.index.astype(str)
             return df
 
 
@@ -520,9 +564,9 @@ def _get_points(path: Path, specs: dict[str, Any]) -> Table:
 
 
 def _get_tables_and_circles(
-    path: Path, cells_as_circles: bool, specs: dict[str, Any]
+    path: Path, cells_as_circles: bool, specs: dict[str, Any], gex_only: bool
 ) -> AnnData | tuple[AnnData, AnnData]:
-    adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE)
+    adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     np.testing.assert_array_equal(metadata.cell_id.astype(str), adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
@@ -601,9 +645,10 @@ def xenium_aligned_image(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     dims: tuple[str, ...] | None = None,
+    rgba: bool = False,
+    c_coords: list[str] | None = None,
 ) -> DataTree:
-    """
-    Read an image aligned to a Xenium dataset, with an optional alignment file.
+    """Read an image aligned to a Xenium dataset, with an optional alignment file.
 
     Parameters
     ----------
@@ -619,6 +664,13 @@ def xenium_aligned_image(
         Example: for an image with shape (1, y, 1, x, 3), use dims=("anystring", "y", "dummy", "x", "c"). Values that
         are not "c", "x" or "y" are considered dummy dimensions and will be squeezed (the data must have len 1 for
         those axes).
+    rgba
+        Interprets the `c` channel as RGBA, by setting the channel names to `r`, `g`, `b` (`a`). When `c_coords` is not
+        `None`, this argument is ignored.
+    c_coords
+        Channel names for the image. By default, the function will try to infer the channel names from the image
+        shape and name (by detecting if the name suggests that the image is a H&E image). Example: for an RGB image with
+        shape (3, y, x), use c_coords=["r", "g", "b"].
 
     Returns
     -------
@@ -645,10 +697,6 @@ def xenium_aligned_image(
         else:
             assert len(image.shape) == 3
             assert image.shape[0] in [3, 4]
-            if image.shape[0] == 4:
-                # as explained before in _get_images(), we need to add a dummy channel until we support 4-channel images as
-                # non-RGBA images in napari
-                image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
             dims = ("c", "y", "x")
     else:
         logging.info(f"Image has shape {image.shape}, parsing with dims={dims}.")
@@ -667,10 +715,19 @@ def xenium_aligned_image(
         alignment = pd.read_csv(alignment_file, header=None).values
         transformation = Affine(alignment, input_axes=("x", "y"), output_axes=("x", "y"))
 
+    if c_coords is None and (rgba or image_path.name.endswith(XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX)):
+        c_index = dims.index("c")
+        n_channels = image.shape[c_index]
+        if n_channels == 3:
+            c_coords = ["r", "g", "b"]
+        elif n_channels == 4:
+            c_coords = ["r", "g", "b", "a"]
+
     return Image2DModel.parse(
         image,
         dims=dims,
         transformations={"global": transformation},
+        c_coords=c_coords,
         **image_models_kwargs,
     )
 
@@ -719,7 +776,16 @@ def _parse_version_of_xenium_analyzer(
     specs: dict[str, Any],
     hide_warning: bool = True,
 ) -> packaging.version.Version | None:
-    string = specs[XeniumKeys.ANALYSIS_SW_VERSION]
+    # After using xeniumranger (e.g. 3.0.1.1) to resegment data from previous versions (e.g. xenium-1.6.0.7), a new dict is added to
+    # `specs`, named 'xenium_ranger', which contains the key 'version' and whose value specifies the version of xeniumranger used to
+    # resegment the data (e.g. 'xenium-3.0.1.1').
+    # When parsing the outs/ folder from the resegmented data, this version (rather than the original 'analysis_sw_version') is used
+    # whenever a code branch is dependent on the data version
+    if specs.get(XeniumKeys.XENIUM_RANGER):
+        string = specs[XeniumKeys.XENIUM_RANGER]["version"]
+    else:
+        string = specs[XeniumKeys.ANALYSIS_SW_VERSION]
+
     pattern = r"^(?:x|X)enium-(\d+\.\d+\.\d+(\.\d+-\d+)?)"
 
     result = re.search(pattern, string)
@@ -760,14 +826,16 @@ def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suf
     cell_id_prefix_hex_shifted = ["".join([hex_shift[c] for c in x]) for x in cell_id_prefix_hex]
 
     # merge the prefix and the suffix
-    cell_id_str = [str(x[0]).rjust(8, "a") + f"-{x[1]}" for x in zip(cell_id_prefix_hex_shifted, dataset_suffix)]
+    cell_id_str = [
+        str(x[0]).rjust(8, "a") + f"-{x[1]}" for x in zip(cell_id_prefix_hex_shifted, dataset_suffix, strict=False)
+    ]
 
     return np.array(cell_id_str)
 
 
 def prefix_suffix_uint32_from_cell_id_str(cell_id_str: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
     # parse the string into the prefix and suffix
-    cell_id_prefix_str, dataset_suffix = zip(*[x.split("-") for x in cell_id_str])
+    cell_id_prefix_str, dataset_suffix = zip(*[x.split("-") for x in cell_id_str], strict=False)
     dataset_suffix_int = [int(x) for x in dataset_suffix]
 
     # reverse the shifted hex conversion
@@ -780,6 +848,3 @@ def prefix_suffix_uint32_from_cell_id_str(cell_id_str: ArrayLike) -> tuple[Array
     cell_id_prefix = [int(x, 16) for x in cell_id_prefix_hex]
 
     return np.array(cell_id_prefix, dtype=np.uint32), np.array(dataset_suffix_int)
-
-
-##

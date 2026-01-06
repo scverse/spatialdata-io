@@ -26,8 +26,8 @@ def blobs_annotating_element(name: BlobsTypes) -> SpatialData:
     n = len(instance_id)
     new_table = AnnData(shape=(n, 0), obs={"region": [name for _ in range(n)], "instance_id": instance_id})
     new_table = TableModel.parse(new_table, region=name, region_key="region", instance_key="instance_id")
-    del sdata.table
-    sdata.table = new_table
+    del sdata["table"]
+    sdata["table"] = new_table
     return sdata
 
 
@@ -67,7 +67,7 @@ def idempotency_check_from_anndata(adata0: SpatialData, include_images: bool) ->
 
 @pytest.mark.parametrize("name", ["blobs_labels", "blobs_circles", "blobs_polygons", "blobs_multipolygons"])
 @pytest.mark.parametrize("include_images", [False, True])
-def test_bidectional_convesion(name: BlobsTypes, include_images: bool) -> None:
+def test_bidirectional_conversion(name: BlobsTypes, include_images: bool) -> None:
     if include_images:
         pytest.skip(
             "include_images=True can't be tested because the bug "

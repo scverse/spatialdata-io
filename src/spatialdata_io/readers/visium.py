@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -22,6 +21,9 @@ from spatialdata_io._constants._constants import VisiumKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _read_counts
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 __all__ = ["visium"]
 
 
@@ -33,12 +35,12 @@ def visium(
     fullres_image_file: str | Path | None = None,
     tissue_positions_file: str | Path | None = None,
     scalefactors_file: str | Path | None = None,
+    var_names_make_unique: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     **kwargs: Any,
 ) -> SpatialData:
-    """
-    Read *10x Genomics* Visium formatted dataset.
+    """Read *10x Genomics* Visium formatted dataset.
 
     This function reads the following files:
 
@@ -72,6 +74,8 @@ def visium(
         Path to the tissue positions file.
     scalefactors_file
         Path to the scalefactors file.
+    var_names_make_unique
+        If `True`, call `.var_names_make_unique()` on each `AnnData` table.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`.
     image_models_kwargs
@@ -114,7 +118,10 @@ def visium(
     assert counts_file is not None
 
     if library_id is None and dataset_id is None:
-        raise ValueError("Cannot determine the `library_id`. Please provide `dataset_id`.")
+        raise ValueError(
+            "Cannot determine the `library_id`. Please provide `dataset_id`; the `dataset_id` value will be used to "
+            "name the elements in the `SpatialData` object."
+        )
 
     if dataset_id is not None:
         if dataset_id != library_id and library_id is not None:
@@ -202,14 +209,16 @@ def visium(
         radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
         transformations={
-            "global": transform_original,
-            "downscaled_hires": transform_hires,
-            "downscaled_lowres": transform_lowres,
+            dataset_id: transform_original,
+            f"{dataset_id}_downscaled_hires": transform_hires,
+            f"{dataset_id}_downscaled_lowres": transform_lowres,
         },
     )
     shapes[dataset_id] = circles
     adata.obs["region"] = dataset_id
     table = TableModel.parse(adata, region=dataset_id, region_key="region", instance_key="spot_id")
+    if var_names_make_unique:
+        table.var_names_make_unique()
 
     images = {}
     if fullres_image_file is not None:
@@ -220,7 +229,7 @@ def visium(
             images[dataset_id + "_full_image"] = Image2DModel.parse(
                 full_image,
                 scale_factors=[2, 2, 2, 2],
-                transformations={"global": transform_original},
+                transformations={dataset_id: transform_original},
                 rgb=None,
                 **image_models_kwargs,
             )
@@ -231,18 +240,20 @@ def visium(
         image_hires = imread(path / VisiumKeys.IMAGE_HIRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image_hires = DataArray(image_hires, dims=("c", "y", "x"))
         images[dataset_id + "_hires_image"] = Image2DModel.parse(
-            image_hires, transformations={"downscaled_hires": Identity(), "global": transform_hires.inverse()}, rgb=None
+            image_hires,
+            transformations={f"{dataset_id}_downscaled_hires": Identity(), dataset_id: transform_hires.inverse()},
+            rgb=None,
         )
     if (path / VisiumKeys.IMAGE_LOWRES_FILE).exists():
         image_lowres = imread(path / VisiumKeys.IMAGE_LOWRES_FILE, **imread_kwargs).squeeze().transpose(2, 0, 1)
         image_lowres = DataArray(image_lowres, dims=("c", "y", "x"))
         images[dataset_id + "_lowres_image"] = Image2DModel.parse(
             image_lowres,
-            transformations={"downscaled_lowres": Identity(), "global": transform_lowres.inverse()},
+            transformations={f"{dataset_id}_downscaled_lowres": Identity(), dataset_id: transform_lowres.inverse()},
             rgb=None,
         )
 
-    return SpatialData(images=images, shapes=shapes, table=table)
+    return SpatialData(images=images, shapes=shapes, tables={"table": table})
 
 
 def _read_image(image_file: Path, imread_kwargs: dict[str, Any]) -> Any:

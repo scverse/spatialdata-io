@@ -29,8 +29,7 @@ for func in _experimental_readers_technologies + _experimental_readers_file_type
 
 @click.group()
 def cli() -> None:
-    """
-    Convert standard technology data formats to SpatialData object.
+    """Convert standard technology data formats to SpatialData object.
 
     Usage:
 
@@ -66,7 +65,7 @@ def _input_output_click_options(func: Callable[..., None]) -> Callable[..., None
     help="Whether the .fcs file is provided if False a .csv file is expected. [default: True]",
 )
 def codex_wrapper(input: str, output: str, fcs: bool = True) -> None:
-    """Codex conversion to SpatialData"""
+    """Codex conversion to SpatialData."""
     sdata = codex(input, fcs=fcs)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
 
@@ -76,7 +75,7 @@ def codex_wrapper(input: str, output: str, fcs: bool = True) -> None:
 @click.option("--dataset-id", type=str, default=None, help="Name of the dataset [default: None]")
 @click.option("--transcripts", type=bool, default=True, help="Whether to load transcript information. [default: True]")
 def cosmx_wrapper(input: str, output: str, dataset_id: str | None = None, transcripts: bool = True) -> None:
-    """Cosmic conversion to SpatialData"""
+    """Cosmic conversion to SpatialData."""
     sdata = cosmx(input, dataset_id=dataset_id, transcripts=transcripts)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
 
@@ -84,7 +83,7 @@ def cosmx_wrapper(input: str, output: str, dataset_id: str | None = None, transc
 @cli.command(name="curio")
 @_input_output_click_options
 def curio_wrapper(input: str, output: str) -> None:
-    """Curio conversion to SpatialData"""
+    """Curio conversion to SpatialData."""
     sdata = curio(input)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
 
@@ -117,7 +116,7 @@ def dbit_wrapper(
     border: bool = True,
     border_scale: float = 1,
 ) -> None:
-    """Conversion of DBit-seq to SpatialData"""
+    """Conversion of DBit-seq to SpatialData."""
     sdata = dbit(  # type: ignore[name-defined] # noqa: F821
         input,
         anndata_path=anndata_path,
@@ -174,7 +173,7 @@ def iss_wrapper(
     multiscale_image: bool = True,
     multiscale_labels: bool = True,
 ) -> None:
-    """ISS conversion to SpatialData"""
+    """ISS conversion to SpatialData."""
     sdata = iss(  # type: ignore[name-defined] # noqa: F821
         input,
         raw_relative_path,
@@ -194,7 +193,7 @@ def iss_wrapper(
 )
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
 def mcmicro_wrapper(input: str, output: str) -> None:
-    """Conversion of MCMicro to SpatialData"""
+    """Conversion of MCMicro to SpatialData."""
     sdata = mcmicro(input)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
 
@@ -233,7 +232,7 @@ def merscope_wrapper(
     cells_table: bool = True,
     mosaic_images: bool = True,
 ) -> None:
-    """Merscope conversion to SpatialData"""
+    """Merscope conversion to SpatialData."""
     sdata = merscope(  # type: ignore[name-defined] # noqa: F821
         input,
         vpt_outputs=vpt_outputs,
@@ -273,7 +272,7 @@ def seqfish_wrapper(
     cells_as_circles: bool = False,
     rois: list[int] | None = None,
 ) -> None:
-    """Seqfish conversion to SpatialData"""
+    """Seqfish conversion to SpatialData."""
     rois = list(rois) if rois else None
     sdata = seqfish(  # type: ignore[name-defined] # noqa: F821
         input,
@@ -296,7 +295,7 @@ def seqfish_wrapper(
     help="What kind of labels to use. [default: 'deepcell']",
 )
 def steinbock_wrapper(input: str, output: str, labels_kind: Literal["deepcell", "ilastik"] = "deepcell") -> None:
-    """Steinbock conversion to SpatialData"""
+    """Steinbock conversion to SpatialData."""
     sdata = steinbock(input, labels_kind=labels_kind)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
 
@@ -320,7 +319,7 @@ def stereoseq_wrapper(
     read_square_bin: bool = True,
     optional_tif: bool = False,
 ) -> None:
-    """Stereoseq conversion to SpatialData"""
+    """Stereoseq conversion to SpatialData."""
     sdata = stereoseq(input, dataset_id=dataset_id, read_square_bin=read_square_bin, optional_tif=optional_tif)  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
 
@@ -361,7 +360,7 @@ def visium_wrapper(
     tissue_positions_file: str | Path | None = None,
     scalefactors_file: str | Path | None = None,
 ) -> None:
-    """Visium conversion to SpatialData"""
+    """Visium conversion to SpatialData."""
     sdata = visium(  # type: ignore[name-defined] # noqa: F821
         input,
         dataset_id=dataset_id,
@@ -413,22 +412,37 @@ def visium_wrapper(
     default=False,
     help="If true, annotates the table by labels. [default: False]",
 )
+@click.option(
+    "--load-segmentations-only",
+    default=None,
+    help="If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data will be skipped. [default: None, which will fall back to `False` with a deprecation warning]",
+)
+@click.option(
+    "--load-nucleus-segmentations",
+    type=bool,
+    default=False,
+    help="If `True` and nucleus segmentation files are present, load nucleus segmentation polygons and the corresponding nucleus-filtered count table. [default: False]",
+)
 def visium_hd_wrapper(
     input: str,
     output: str,
     dataset_id: str | None = None,
     filtered_counts_file: bool = True,
+    load_segmentations_only: bool | None = None,
+    load_nucleus_segmentations: bool = False,
     bin_size: int | list[int] | None = None,
     bins_as_squares: bool = True,
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
     annotate_table_by_labels: bool = False,
 ) -> None:
-    """Visium HD conversion to SpatialData"""
+    """Visium HD conversion to SpatialData."""
     sdata = visium_hd(  # type: ignore[name-defined] # noqa: F821
         path=input,
         dataset_id=dataset_id,
         filtered_counts_file=filtered_counts_file,
+        load_segmentations_only=load_segmentations_only,
+        load_nucleus_segmentations=load_nucleus_segmentations,
         bin_size=bin_size,
         bins_as_squares=bins_as_squares,
         fullres_image_file=fullres_image_file,
@@ -483,7 +497,7 @@ def xenium_wrapper(
     cells_table: bool = True,
     n_jobs: int = 1,
 ) -> None:
-    """Xenium conversion to SpatialData"""
+    """Xenium conversion to SpatialData."""
     sdata = xenium(  # type: ignore[name-defined] # noqa: F821
         input,
         cells_boundaries=cells_boundaries,
@@ -621,8 +635,8 @@ def macsima_wrapper(
 @click.option("--name", "-n", type=str, help="name of the element to be stored")
 @click.option(
     "--data-axes",
-    type=click.Choice(["cyx", "czyx"], case_sensitive=False),
-    help="Axes of the data for image files. Valid values are 'cyx' and 'czyx'.",
+    type=str,
+    help="Axes of the data for image files. Valid values are permutations of 'cyx' and 'czyx'.",
 )
 @click.option(
     "--coordinate-system",
@@ -637,7 +651,9 @@ def read_generic_wrapper(
     data_axes: str | None = None,
     coordinate_system: str | None = None,
 ) -> None:
-    """Read generic data to SpatialData"""
+    """Read generic data to SpatialData."""
+    if data_axes is not None and "".join(sorted(data_axes)) not in ["cxy", "cxyz"]:
+        raise ValueError("data_axes must be a permutation of 'cyx' or 'czyx'.")
     generic_to_zarr(input=input, output=output, name=name, data_axes=data_axes, coordinate_system=coordinate_system)
 
 

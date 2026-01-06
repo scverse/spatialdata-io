@@ -2,37 +2,32 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 from anndata import AnnData
-from dask.dataframe import DataFrame as DaskDataFrame
 from dask_image.imread import imread
 from scipy.sparse import csr_matrix
-
-# from spatialdata._core.core_utils import xy_cs
 from skimage.transform import estimate_transform
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, Labels2DModel, PointsModel, TableModel
-
-# from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
 from spatialdata.transformations.transformations import Affine, Identity
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
 
-__all__ = ["cosmx"]
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
-# x_axis = NgffAxis(name="x", type="space", unit="discrete")
-# y_axis = NgffAxis(name="y", type="space", unit="discrete")
-# c_axis = NgffAxis(name="c", type="channel", unit="index")
+    from dask.dataframe import DataFrame as DaskDataFrame
+
+__all__ = ["cosmx"]
 
 
 @inject_docs(cx=CosmxKeys)
@@ -43,8 +38,7 @@ def cosmx(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *Cosmx Nanostring* data.
+    """Read *Cosmx Nanostring* data.
 
     This function reads the following files:
 
@@ -177,7 +171,7 @@ def cosmx(
     fovs_images_and_labels = set(fovs_images).intersection(set(fovs_labels))
     fovs_diff = fovs_images_and_labels.difference(set(fovs_counts))
     if len(fovs_diff):
-        raise logger.warning(
+        logger.warning(
             f"Found images and labels for {len(fovs_images)} FOVs, but only {len(fovs_counts)} FOVs in the counts file.\n"
             + f"The following FOVs are missing: {fovs_diff} \n"
             + "... will use only fovs in Table."
@@ -295,4 +289,4 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
 
-    return SpatialData(images=images, labels=labels, points=points, table=table)
+    return SpatialData(images=images, labels=labels, points=points, tables={"table": table})

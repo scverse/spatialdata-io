@@ -3,10 +3,11 @@ from __future__ import annotations
 import os
 import re
 import warnings
+import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 import numpy as np
@@ -28,6 +29,9 @@ from spatialdata.transformations.transformations import Identity, Scale
 from spatialdata_io._constants._constants import SeqfishKeys as SK
 from spatialdata_io._docs import inject_docs
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 __all__ = ["seqfish"]
 
 LARGE_IMAGE_THRESHOLD = 100_000_000
@@ -45,8 +49,7 @@ def seqfish(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     raster_models_scale_factors: list[int] | None = None,
 ) -> SpatialData:
-    """
-    Read *seqfish* formatted dataset.
+    """Read *seqfish* formatted dataset.
 
     This function reads the following files:
 
@@ -224,7 +227,6 @@ def seqfish(
     points = {}
     if load_points:
         for x in rois_str:
-
             # prepare data
             name = f"{os.path.splitext(get_transcript_file(x))[0]}"
             p = pd.read_csv(path / get_transcript_file(x), delimiter=",")
@@ -248,7 +250,7 @@ def seqfish(
 
     shapes = {}
     if cells_as_circles:
-        for x, adata in zip(rois_str, tables.values()):
+        for x, adata in zip(rois_str, tables.values(), strict=False):
             shapes[f"{os.path.splitext(get_cell_file(x))[0]}"] = ShapesModel.parse(
                 adata.obsm[SK.SPATIAL_KEY],
                 geometry=0,
@@ -257,7 +259,7 @@ def seqfish(
                 transformations={x: Identity()},
             )
     if load_shapes:
-        for x, adata in zip(rois_str, tables.values()):
+        for x, adata in zip(rois_str, tables.values(), strict=False):
             # this assumes that the index matches the instance key of the table. A more robust approach could be
             # implemented, as described here https://github.com/scverse/spatialdata-io/issues/249
             shapes[f"{os.path.splitext(get_cell_segmentation_shapes_file(x))[0]}"] = ShapesModel.parse(
@@ -272,8 +274,7 @@ def seqfish(
 
 
 def _is_ome_tiff_multiscale(ome_tiff_file: Path) -> bool:
-    """
-    Check if the OME-TIFF file is multi-scale.
+    """Check if the OME-TIFF file is multi-scale.
 
     Parameters
     ----------

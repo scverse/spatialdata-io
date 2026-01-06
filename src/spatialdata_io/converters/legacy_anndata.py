@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-from anndata import AnnData
 from spatialdata import (
     SpatialData,
     get_centroids,
@@ -15,6 +15,9 @@ from spatialdata._core.operations._utils import transform_to_data_extent
 from spatialdata.models import Image2DModel, ShapesModel, TableModel, get_table_keys
 from spatialdata.transformations import Identity, Scale
 
+if TYPE_CHECKING:
+    from anndata import AnnData
+
 
 def to_legacy_anndata(
     sdata: SpatialData,
@@ -22,8 +25,7 @@ def to_legacy_anndata(
     table_name: str | None = None,
     include_images: bool = False,
 ) -> AnnData:
-    """
-    Convert a SpatialData object to a (legacy) spatial AnnData object.
+    """Convert a SpatialData object to a (legacy) spatial AnnData object.
 
     This is useful for using packages expecting spatial information in AnnData, for example Scanpy and older versions
     of Squidpy. Using this format for any new package is not recommended.
@@ -113,9 +115,9 @@ def to_legacy_anndata(
         assert len(css) == 1, "The SpatialData object has more than one coordinate system. Please specify one."
         coordinate_system = css[0]
     else:
-        assert (
-            coordinate_system in css
-        ), f"The SpatialData object does not have the coordinate system {coordinate_system}."
+        assert coordinate_system in css, (
+            f"The SpatialData object does not have the coordinate system {coordinate_system}."
+        )
     sdata = sdata.filter_by_coordinate_system(coordinate_system)
 
     if table_name is None:
@@ -219,8 +221,7 @@ def to_legacy_anndata(
 
 
 def from_legacy_anndata(adata: AnnData) -> SpatialData:
-    """
-    Convert (legacy) spatial AnnData object to SpatialData object.
+    """Convert (legacy) spatial AnnData object to SpatialData object.
 
     This is useful for parsing a (legacy) spatial AnnData object, for example the ones produced by Scanpy and older
     version of Squidpy.
@@ -288,9 +289,9 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
             # construct the spatialdata elements
             if hires is not None:
                 # prepare the hires image
-                assert (
-                    tissue_hires_scalef is not None
-                ), "tissue_hires_scalef is required when an the hires image is present"
+                assert tissue_hires_scalef is not None, (
+                    "tissue_hires_scalef is required when an the hires image is present"
+                )
                 hires_image = Image2DModel.parse(
                     hires, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_hires": Identity()}
                 )
@@ -301,9 +302,9 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
                 shapes_transformations[f"{dataset_id}_downscaled_hires"] = scale_hires
             if lowres is not None:
                 # prepare the lowres image
-                assert (
-                    tissue_lowres_scalef is not None
-                ), "tissue_lowres_scalef is required when an the lowres image is present"
+                assert tissue_lowres_scalef is not None, (
+                    "tissue_lowres_scalef is required when an the lowres image is present"
+                )
                 lowres_image = Image2DModel.parse(
                     lowres, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_lowres": Identity()}
                 )
@@ -349,4 +350,4 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
         new_table = TableModel.parse(new_table, region=REGION, region_key=REGION_KEY, instance_key=INSTANCE_KEY)
     else:
         new_table = adata.copy()
-    return SpatialData(table=new_table, images=images, shapes=shapes)
+    return SpatialData(tables={"table": new_table}, images=images, shapes=shapes)

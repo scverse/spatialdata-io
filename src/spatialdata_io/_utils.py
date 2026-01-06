@@ -2,17 +2,29 @@ from __future__ import annotations
 
 import functools
 import warnings
-from collections.abc import Callable
-from typing import Any, TypeVar
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, TypeVar
+
+import zarr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
+
+    from zarr import Array, Group
+    from zarr.core.common import (
+        AccessModeLiteral,
+    )
+    from zarr.storage import StoreLike
 
 RT = TypeVar("RT")
 
 
 # these two functions should be removed and imported from spatialdata._utils once the multi_table branch, which
 # introduces them, is merged
-def deprecation_alias(**aliases: str) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
-    """
-    Decorate a function to warn user of use of arguments set for deprecation.
+def deprecation_alias(
+    **aliases: str,
+) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
+    """Decorate a function to warn user of use of arguments set for deprecation.
 
     Parameters
     ----------
@@ -51,7 +63,12 @@ def deprecation_alias(**aliases: str) -> Callable[[Callable[..., RT]], Callable[
     return deprecation_decorator
 
 
-def rename_kwargs(func_name: str, kwargs: dict[str, Any], aliases: dict[str, str], class_name: None | str) -> None:
+def rename_kwargs(
+    func_name: str,
+    kwargs: dict[str, Any],
+    aliases: dict[str, str],
+    class_name: None | str,
+) -> None:
     """Rename function arguments set for deprecation and gives warning in case of usage of these arguments."""
     for alias, new in aliases.items():
         if alias in kwargs:
@@ -70,3 +87,17 @@ def rename_kwargs(func_name: str, kwargs: dict[str, Any], aliases: dict[str, str
                 stacklevel=3,
             )
             kwargs[new] = kwargs.pop(alias)
+
+
+# workaround until https://github.com/zarr-developers/zarr-python/issues/2619 is closed
+@contextmanager
+def zarr_open(
+    store: StoreLike | None = None,
+    *,
+    mode: AccessModeLiteral | None = None,
+) -> Generator[Array | Group, Any, None]:
+    f = zarr.open(store=store, mode=mode)
+    try:
+        yield f
+    finally:
+        f.store.close()

@@ -135,6 +135,9 @@ class XeniumKeys(ModeEnum):
     MORPHOLOGY_FOCUS_CHANNEL_1 = "ATP1A1/CD45/E-Cadherin"  # boundary
     MORPHOLOGY_FOCUS_CHANNEL_2 = "18S"  # interior - RNA
     MORPHOLOGY_FOCUS_CHANNEL_3 = "AlphaSMA/Vimentin"  # interior - protein
+    # from version 4
+    # The files in `morphology_focus` are named chNNNN_<name>.ome.tif
+    MORPHOLOGY_FOCUS_V4_DAPI_FILENAME = "ch0000_dapi.ome.tif"
 
     # post-xenium images
     ALIGNED_IF_IMAGE_SUFFIX = "if_image.ome.tif"
@@ -146,6 +149,9 @@ class XeniumKeys(ModeEnum):
 
     # specs keys
     ANALYSIS_SW_VERSION = "analysis_sw_version"
+    # spec which contains xeniumranger version whenever xeniumranger is used to resegment the data; the new, resegmented data
+    # needs to be parsed by considering the xeniumranger version
+    XENIUM_RANGER = "xenium_ranger"
 
     # zarr file with labels file and cell summary keys
     CELLS_ZARR = "cells.zarr.zip"
@@ -296,7 +302,7 @@ class McmicroKeys(ModeEnum):
 
 @unique
 class MerscopeKeys(ModeEnum):
-    """Keys for *MERSCOPE* data (Vizgen plateform)"""
+    """Keys for *MERSCOPE* data (Vizgen plateform)."""
 
     # files and directories
     IMAGES_DIR = "images"
@@ -348,11 +354,16 @@ class VisiumHDKeys(ModeEnum):
     BIN_PREFIX = "square_"
     MICROSCOPE_IMAGE = "microscope_image"
     BINNED_OUTPUTS = "binned_outputs"
+    SEGMENTATION_OUTPUTS = "segmented_outputs"
 
     # counts and locations files
     FILTERED_COUNTS_FILE = "filtered_feature_bc_matrix.h5"
     RAW_COUNTS_FILE = "raw_feature_bc_matrix.h5"
     TISSUE_POSITIONS_FILE = "tissue_positions.parquet"
+    BARCODE_MAPPINGS_FILE = "barcode_mappings.parquet"
+    FILTERED_CELL_COUNTS_FILE = "filtered_feature_cell_matrix.h5"
+    CELL_SEGMENTATION_GEOJSON_PATH = "cell_segmentations.geojson"
+    NUCLEUS_SEGMENTATION_GEOJSON_PATH = "nucleus_segmentations.geojson"
 
     # images
     IMAGE_HIRES_FILE = "tissue_hires_image.png"
@@ -394,3 +405,7 @@ class VisiumHDKeys(ModeEnum):
     MICROSCOPE_COLROW_TO_SPOT_COLROW = ("microscope_colrow_to_spot_colrow",)
     SPOT_COLROW_TO_MICROSCOPE_COLROW = ("spot_colrow_to_microscope_colrow",)
     FILE_FORMAT = "file_format"
+
+    # Cell Segmentation keys
+    CELL_SEG_KEY_HD = "cell_segmentations"
+    NUCLEUS_SEG_KEY_HD = "nucleus_segmentations"

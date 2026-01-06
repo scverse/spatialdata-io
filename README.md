@@ -5,10 +5,16 @@
 [![Tests][badge-tests]][link-tests]
 [![Documentation][badge-docs]][link-docs]
 [![DOI](https://zenodo.org/badge/544045123.svg)](https://zenodo.org/badge/latestdoi/544045123)
+[![Documentation][badge-pypi]][link-pypi]
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/spatialdata-io/badges/version.svg)](https://anaconda.org/conda-forge/spatialdata-io)
 
 [badge-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml/badge.svg
 [link-tests]: https://github.com/scverse/spatialdata-io/actions/workflows/test.yaml
 [badge-docs]: https://img.shields.io/readthedocs/spatialdata-io
+[badge-pypi]: https://badge.fury.io/py/spatialdata-io.svg
+[link-pypi]: https://pypi.org/project/spatialdata-io/
+
+_We encourage contributions from the community and from developers of spatial technologies. Please see the "How to Contribute" section below._
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
@@ -28,6 +34,8 @@ This package contains reader functions to load common spatial omics formats into
 
 Note: all mentioned technologies are registered trademarks of their respective companies.
 
+Please refer to the list of [open Pull Requests](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aopen) for readers that are currently being developed.
+
 ## Known limitations
 
 Contributions for addressing the below limitations are very welcomed.
@@ -38,9 +46,7 @@ Contributions for addressing the below limitations are very welcomed.
 
 1. **Open a GitHub Issue**: Start by opening a new issue or commenting on an existing one in the repository. Clearly describe the problem and your proposed changes to avoid overlapping efforts with others.
 
-2. **Submit a Pull Request (PR)**: Once the issue is discussed, submit a PR to the `spatialdata-io` repository. Ensure your PR includes information about a suitable dataset for testing the reader, ideally no larger than 10 GB. Include clear instructions for accessing the data, preferably with a `curl` or `wget` command for easy downloading.
-
-3. **Optional Enhancements**: To facilitate reproducibility and ease of data access, consider adding a folder in the [spatialdata-sandbox](https://github.com/giovp/spatialdata-sandbox) repository. Include a `download.py` and `to_zarr.py` script (refer to examples in the repository) to enable others to reproduce your reader by simply running these scripts sequentially.
+2. **Submit a Pull Request (PR)**: Once the issue is discussed, submit a PR to the `spatialdata-io` repository. If you are contributing a new reader, or extending the reader for a new versions of a technologies, please consult our [contribution guide](https://spatialdata.scverse.org/projects/io/en/latest/contributing.html), which describes the steps to ensure that the pull request can be tested on suitable example data and reviewed efficiently.
 
 ## Getting started
 
@@ -107,7 +113,20 @@ Marconato, L., Palla, G., Yamauchi, K.A. et al. SpatialData: an open and univers
 
 [scverse-discourse]: https://discourse.scverse.org/
 [issue-tracker]: https://github.com/scverse/spatialdata-io/issues
-[changelog]: https://spatialdata.scverse.org/projects/io/en/latest/changelog.html
-[link-docs]: https://spatialdata.scverse.org/projects/io/en/latest/
-[link-api]: https://spatialdata.scverse.org/projects/io/en/latest/api.html
-[link-cli]: https://spatialdata.scverse.org/projects/io/en/latest/cli.html
+[changelog]: https://spatialdata.scverse.org/projects/io/en/stable/changelog.html
+[link-docs]: https://spatialdata.scverse.org/projects/io/en/stable/
+[link-api]: https://spatialdata.scverse.org/projects/io/en/stable/api.html
+[link-cli]: https://spatialdata.scverse.org/projects/io/en/stable/cli.html
+[//]: # "numfocus-fiscal-sponsor-attribution"
+
+spatialdata-io is part of the scverse® project ([website](https://scverse.org), [governance](https://scverse.org/about/roles)) and is fiscally sponsored by [NumFOCUS](https://numfocus.org/).
+If you like scverse® and want to support our mission, please consider making a tax-deductible [donation](https://numfocus.org/donate-to-scverse) to help the project pay for developer time, professional services, travel, workshops, and a variety of other needs.
+
+<div align="center">
+<a href="https://numfocus.org/project/scverse">
+  <img
+    src="https://raw.githubusercontent.com/numfocus/templates/master/images/numfocus-logo.png"
+    width="200"
+  >
+</a>
+</div>
