@@ -250,7 +250,7 @@ def seqfish(
 
     shapes = {}
     if cells_as_circles:
-        for x, adata in zip(rois_str, tables.values(), strict=False):
+        for x, adata in zip(rois_str, tables.values(), strict=True):
             shapes[f"{os.path.splitext(get_cell_file(x))[0]}"] = ShapesModel.parse(
                 adata.obsm[SK.SPATIAL_KEY],
                 geometry=0,
@@ -259,7 +259,7 @@ def seqfish(
                 transformations={x: Identity()},
             )
     if load_shapes:
-        for x, adata in zip(rois_str, tables.values(), strict=False):
+        for x, adata in zip(rois_str, tables.values(), strict=True):
             # this assumes that the index matches the instance key of the table. A more robust approach could be
             # implemented, as described here https://github.com/scverse/spatialdata-io/issues/249
             shapes[f"{os.path.splitext(get_cell_segmentation_shapes_file(x))[0]}"] = ShapesModel.parse(
