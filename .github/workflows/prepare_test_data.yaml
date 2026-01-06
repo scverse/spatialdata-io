@@ -49,7 +49,7 @@ jobs:
                   # the Visium HD dataset is licensed as CC BY 4.0, as shown here
                   # https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-hd-example-data
 
-                  # 10x Genomics Visium HD 4.0.1 3' Mouse Brain
+                  # 10x Genomics Visium HD 4.0.1 3' Mouse Brain Chunk
                   curl -O https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Tiny_3prime_Dataset/Visium_HD_Tiny_3prime_Dataset_outs.zip
 
                   # -------

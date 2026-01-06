@@ -36,6 +36,7 @@ dependencies = [
     "readfcs",
     "tifffile>=2023.8.12",
     "ome-types",
+    "xmltodict",
 ]
 
 [project.optional-dependencies]
@@ -59,6 +60,8 @@ doc = [
 test = [
     "pytest",
     "pytest-cov",
+    # https://github.com/scverse/spatialdata-io/issues/334
+    "pyarrow!=22"
 ]
 # this will be used by readthedocs and will make pip also look for pre-releases, generally installing the latest available version
 # update: readthedocs doens't seem to try to install pre-releases even if when trying to install the pre optional-dependency. For

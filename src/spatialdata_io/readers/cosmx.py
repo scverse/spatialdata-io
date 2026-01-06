@@ -289,4 +289,4 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
 
-    return SpatialData(images=images, labels=labels, points=points, table=table)
+    return SpatialData(images=images, labels=labels, points=points, tables={"table": table})
