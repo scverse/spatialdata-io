@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING
 
 from spatialdata import SpatialData
 
-from spatialdata_io import xenium
+from spatialdata_io import xenium  # type: ignore[attr-defined]
 
 # =============================================================================
 # CONFIGURATION - Edit these paths to match your setup
