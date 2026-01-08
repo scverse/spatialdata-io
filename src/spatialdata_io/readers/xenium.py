@@ -52,7 +52,11 @@ if TYPE_CHECKING:
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
 
-@deprecation_alias(cells_as_shapes="cells_as_circles", cell_boundaries="cells_boundaries", cell_labels="cells_labels")
+@deprecation_alias(
+    cells_as_shapes="cells_as_circles",
+    cell_boundaries="cells_boundaries",
+    cell_labels="cells_labels",
+)
 @inject_docs(xx=XeniumKeys)
 def xenium(
     path: str | Path,
@@ -381,7 +385,13 @@ def xenium(
     if table is not None:
         tables["table"] = table
 
-    elements_dict = {"images": images, "labels": labels, "points": points, "tables": tables, "shapes": polygons}
+    elements_dict = {
+        "images": images,
+        "labels": labels,
+        "points": points,
+        "tables": tables,
+        "shapes": polygons,
+    }
     if cells_as_circles:
         elements_dict["shapes"][specs["region"]] = circles
     sdata = SpatialData(**elements_dict)
@@ -402,7 +412,11 @@ def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
 
 
 def _get_polygons(
-    path: Path, file: str, specs: dict[str, Any], n_jobs: int, idx: ArrayLike | None = None
+    path: Path,
+    file: str,
+    specs: dict[str, Any],
+    n_jobs: int,
+    idx: ArrayLike | None = None,
 ) -> GeoDataFrame:
     def _poly(arr: ArrayLike) -> Polygon:
         return Polygon(arr[:-1])
@@ -451,67 +465,61 @@ def _get_labels_and_indices_mapping(
     if mask_index not in [0, 1]:
         raise ValueError(f"mask_index must be 0 or 1, found {mask_index}.")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_file = path / XeniumKeys.CELLS_ZARR
-        with zipfile.ZipFile(zip_file, "r") as zip_ref:
-            zip_ref.extractall(tmpdir)
+    zip_file = path / XeniumKeys.CELLS_ZARR
+    store = zarr.storage.ZipStore(zip_file, read_only=True)
+    z = zarr.open(store, mode="r")
+    # get the labels
+    masks = da.from_array(z["masks"][f"{mask_index}"])
+    labels = Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
-        with zarr_open(str(tmpdir), mode="r") as z:
-            # get the labels
-            masks = z["masks"][f"{mask_index}"][...]
-            labels = Labels2DModel.parse(
-                masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs
+    # build the matching table
+    version = _parse_version_of_xenium_analyzer(specs)
+    if mask_index == 0:
+        # nuclei currently not supported
+        return labels, None
+    if version is None or version is not None and version < packaging.version.parse("1.3.0"):
+        # supported in version 1.3.0 and not supported in version 1.0.2; conservatively, let's assume it is not
+        # supported in versions < 1.3.0
+        return labels, None
+
+    cell_id, dataset_suffix = z["cell_id"][...].T
+    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
+
+    # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
+    # release notes mentioned above)
+    real_label_index = get_element_instances(labels).values
+
+    # background removal
+    if real_label_index[0] == 0:
+        real_label_index = real_label_index[1:]
+
+    if version < packaging.version.parse("2.0.0"):
+        expected_label_index = z["seg_mask_value"][...]
+
+        if not np.array_equal(expected_label_index, real_label_index):
+            raise ValueError(
+                "The label indices from the labels differ from the ones from the input data. Please report "
+                f"this issue. Real label indices: {real_label_index}, expected label indices: "
+                f"{expected_label_index}."
+            )
+    else:
+        labels_positional_indices = z["polygon_sets"][f"{mask_index}"]["cell_index"][...]
+        if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
+            raise ValueError(
+                "The positional indices of the labels do not match the expected range. Please report this issue."
             )
 
-            # build the matching table
-            version = _parse_version_of_xenium_analyzer(specs)
-            if mask_index == 0:
-                # nuclei currently not supported
-                return labels, None
-            if version is None or version is not None and version < packaging.version.parse("1.3.0"):
-                # supported in version 1.3.0 and not supported in version 1.0.2; conservatively, let's assume it is not
-                # supported in versions < 1.3.0
-                return labels, None
-
-            cell_id, dataset_suffix = z["cell_id"][...].T
-            cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
-
-            # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
-            # release notes mentioned above)
-            real_label_index = get_element_instances(labels).values
-
-            # background removal
-            if real_label_index[0] == 0:
-                real_label_index = real_label_index[1:]
-
-            if version < packaging.version.parse("2.0.0"):
-                expected_label_index = z["seg_mask_value"][...]
-
-                if not np.array_equal(expected_label_index, real_label_index):
-                    raise ValueError(
-                        "The label indices from the labels differ from the ones from the input data. Please report "
-                        f"this issue. Real label indices: {real_label_index}, expected label indices: "
-                        f"{expected_label_index}."
-                    )
-            else:
-                labels_positional_indices = z["polygon_sets"][f"{mask_index}"]["cell_index"][...]
-                if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
-                    raise ValueError(
-                        "The positional indices of the labels do not match the expected range. Please report this "
-                        "issue."
-                    )
-
-            # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
-            indices_mapping = pd.DataFrame(
-                {
-                    "region": labels_name,
-                    "cell_id": cell_id_str,
-                    "label_index": real_label_index.astype(np.int64),
-                }
-            )
-            # because AnnData converts the indices to str
-            indices_mapping.index = indices_mapping.index.astype(str)
-            return labels, indices_mapping
+    # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
+    indices_mapping = pd.DataFrame(
+        {
+            "region": labels_name,
+            "cell_id": cell_id_str,
+            "label_index": real_label_index.astype(np.int64),
+        }
+    )
+    # because AnnData converts the indices to str
+    indices_mapping.index = indices_mapping.index.astype(str)
+    return labels, indices_mapping
 
 
 @inject_docs(xx=XeniumKeys)
@@ -526,35 +534,39 @@ def _get_cells_metadata_table_from_zarr(
     nucleus_count for versions >= 2.0.0.
     """
     # for version >= 2.0.0, in this function we could also parse the segmentation method used to obtain the masks
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_file = path / XeniumKeys.CELLS_ZARR
-        with zipfile.ZipFile(zip_file, "r") as zip_ref:
-            zip_ref.extractall(tmpdir)
+    zip_file = path / XeniumKeys.CELLS_ZARR
+    store = zarr.storage.ZipStore(zip_file, read_only=True)
 
-        with zarr_open(str(tmpdir), mode="r") as z:
-            x = z["cell_summary"][...]
-            column_names = z["cell_summary"].attrs["column_names"]
-            df = pd.DataFrame(x, columns=column_names)
-            cell_id_prefix = z["cell_id"][:, 0]
-            dataset_suffix = z["cell_id"][:, 1]
+    z = zarr.open(store, mode="r")
+    x = z["cell_summary"][...]
+    column_names = z["cell_summary"].attrs["column_names"]
+    df = pd.DataFrame(x, columns=column_names)
+    cell_id_prefix = z["cell_id"][:, 0]
+    dataset_suffix = z["cell_id"][:, 1]
+    store.close()
 
-            cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
-            df[XeniumKeys.CELL_ID] = cell_id_str
-            # because AnnData converts the indices to str
-            df.index = df.index.astype(str)
-            return df
+    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+    df[XeniumKeys.CELL_ID] = cell_id_str
+    # because AnnData converts the indices to str
+    df.index = df.index.astype(str)
+    return df
 
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
     table["feature_name"] = table["feature_name"].apply(
-        lambda x: x.decode("utf-8") if isinstance(x, bytes) else str(x), meta=("feature_name", "object")
+        lambda x: x.decode("utf-8") if isinstance(x, bytes) else str(x),
+        meta=("feature_name", "object"),
     )
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     points = PointsModel.parse(
         table,
-        coordinates={"x": XeniumKeys.TRANSCRIPTS_X, "y": XeniumKeys.TRANSCRIPTS_Y, "z": XeniumKeys.TRANSCRIPTS_Z},
+        coordinates={
+            "x": XeniumKeys.TRANSCRIPTS_X,
+            "y": XeniumKeys.TRANSCRIPTS_Y,
+            "z": XeniumKeys.TRANSCRIPTS_Z,
+        },
         feature_key=XeniumKeys.FEATURE_NAME,
         instance_key=XeniumKeys.CELL_ID,
         transformations={"global": transform},
@@ -576,7 +588,12 @@ def _get_tables_and_circles(
     adata.obs["region"] = specs["region"]
     adata.obs["region"] = adata.obs["region"].astype("category")
     adata.obs[XeniumKeys.CELL_ID] = _decode_cell_id_column(adata.obs[XeniumKeys.CELL_ID])
-    table = TableModel.parse(adata, region=specs["region"], region_key="region", instance_key=str(XeniumKeys.CELL_ID))
+    table = TableModel.parse(
+        adata,
+        region=specs["region"],
+        region_key="region",
+        instance_key=str(XeniumKeys.CELL_ID),
+    )
     if cells_as_circles:
         transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
         radii = np.sqrt(adata.obs[XeniumKeys.CELL_AREA].to_numpy() / np.pi)
@@ -605,7 +622,11 @@ def _get_images(
         # let's add a dummy channel as a temporary workaround.
         image = da.concatenate([image, da.zeros_like(image[0:1])], axis=0)
     return Image2DModel.parse(
-        image, transformations={"global": Identity()}, dims=("c", "y", "x"), rgb=None, **image_models_kwargs
+        image,
+        transformations={"global": Identity()},
+        dims=("c", "y", "x"),
+        rgb=None,
+        **image_models_kwargs,
     )
 
 
@@ -620,14 +641,18 @@ def _add_aligned_images(
     csv_files = list(path.glob("*.csv"))
     for file in ome_tif_files:
         element_name = None
-        for suffix in [XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX, XeniumKeys.ALIGNED_IF_IMAGE_SUFFIX]:
+        for suffix in [
+            XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX,
+            XeniumKeys.ALIGNED_IF_IMAGE_SUFFIX,
+        ]:
             if file.name.endswith(suffix):
                 element_name = suffix.replace(XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_REMOVE, "")
                 break
         if element_name is not None:
             # check if an alignment file exists
             expected_filename = file.name.replace(
-                XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_REMOVE, XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_ADD
+                XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_REMOVE,
+                XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_ADD,
             )
             alignment_files = [f for f in csv_files if f.name == expected_filename]
             assert len(alignment_files) <= 1, f"Found more than one alignment file for {file.name}."
@@ -833,7 +858,9 @@ def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suf
     return np.array(cell_id_str)
 
 
-def prefix_suffix_uint32_from_cell_id_str(cell_id_str: ArrayLike) -> tuple[ArrayLike, ArrayLike]:
+def prefix_suffix_uint32_from_cell_id_str(
+    cell_id_str: ArrayLike,
+) -> tuple[ArrayLike, ArrayLike]:
     # parse the string into the prefix and suffix
     cell_id_prefix_str, dataset_suffix = zip(*[x.split("-") for x in cell_id_str], strict=False)
     dataset_suffix_int = [int(x) for x in dataset_suffix]
