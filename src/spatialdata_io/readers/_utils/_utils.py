@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Union
 
+from anndata import AnnData
 from anndata.io import read_text
 from h5py import File
 from ome_types import from_tiff
