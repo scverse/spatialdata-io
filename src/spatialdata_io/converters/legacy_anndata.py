@@ -285,8 +285,8 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
                         image_key,
                         dataset_id,
                     )
-                # prefer scalefactors keyed by the image name, fall back to legacy hires/lowres names,
-                # then to tissue_<image_key>_scalef, finally default to 1.0.
+                # prefer scalefactors keyed by the image name, fall back to tissue_<image_key>_scalef
+                # then to legacy hires/lowres names, finally default to 1.0.
                 scalefactor = None
                 scalefactor_source = None
                 if image_key in scalefactors:
@@ -311,7 +311,7 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
                         DEFAULT_SCALE_FACTOR,
                     )
                 else:
-                    logger.warning(
+                    logger.debug(
                         "Using scalefactor '%s' for image '%s' in dataset '%s'",
                         scalefactor_source,
                         image_key,
