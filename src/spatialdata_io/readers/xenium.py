@@ -73,7 +73,6 @@ def xenium(
     cells_table: bool = True,
     n_jobs: int = 1,
     gex_only: bool = True,
-    cleanup_labels_zarr_tmpdir: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -202,86 +201,62 @@ def xenium(
     else:
         table = None
 
-    tmpdir = tempfile.TemporaryDirectory()
-    if not cleanup_labels_zarr_tmpdir:
-        logging.info(
-            f"Extracting cells zarr in the temporary directory {tmpdir.name}. Since `cleanup_labels_zarr_tmpdir` "
-            f"is set to `False`, this directory cleanup will be deferred (up to the end of the process). "
-            f"If the process is interrupted aburptly cleanup may not occurr. Use with care to avoid uncleaned up "
-            f"temporary directories."
+    if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
+        cell_summary_table = _get_cells_metadata_table_from_zarr(path, XeniumKeys.CELLS_ZARR, specs)
+        if not cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID]):
+            warnings.warn(
+                'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
+                " table. This could be due to trying to read a new version that is not supported yet. Please "
+                "report this issue.",
+                UserWarning,
+                stacklevel=2,
+            )
+        table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL]
+        table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT]
+
+    polygons = {}
+    labels = {}
+    tables = {}
+    points = {}
+    images = {}
+
+    # From the public release notes here:
+    # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa
+    # we see that for distinguishing between the nuclei of polinucleated cells, the `label_id` column is used.
+    # This column is currently not found in the preview data, while I think it is needed in order to unambiguously match
+    # nuclei to cells. Therefore for the moment we only link the table to the cell labels, and not to the nucleus
+    # labels.
+    if nucleus_labels:
+        labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
+            path,
+            XeniumKeys.CELLS_ZARR,
+            specs,
+            mask_index=0,
+            labels_name="nucleus_labels",
+            labels_models_kwargs=labels_models_kwargs,
         )
-    zip_file = path / XeniumKeys.CELLS_ZARR
-    with zipfile.ZipFile(zip_file, "r") as zip_ref:
-        zip_ref.extractall(tmpdir.name)
-    try:
-        cells_zarr = zarr.open(str(tmpdir.name), mode="r")
-        if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
-            cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr=cells_zarr)
-            if not cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID]):
+    if cells_labels:
+        labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
+            path,
+            XeniumKeys.CELLS_ZARR,
+            specs,
+            mask_index=1,
+            labels_name="cell_labels",
+            labels_models_kwargs=labels_models_kwargs,
+        )
+        if cell_labels_indices_mapping is not None and table is not None:
+            if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
                 warnings.warn(
-                    'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
-                    " table. This could be due to trying to read a new version that is not supported yet. Please "
-                    "report this issue.",
+                    "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
+                    "cell labels data. This could be due to trying to read a new version that is not supported yet. "
+                    "Please report this issue.",
                     UserWarning,
                     stacklevel=2,
                 )
-            table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL]
-            table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT]
-
-        polygons = {}
-        labels = {}
-        tables = {}
-        points = {}
-        images = {}
-
-        # From the public release notes here:
-        # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa
-        # we see that for distinguishing between the nuclei of polinucleated cells, the `label_id` column is used.
-        # This column is currently not found in the preview data, while I think it is needed in order to unambiguously match
-        # nuclei to cells. Therefore for the moment we only link the table to the cell labels, and not to the nucleus
-        # labels.
-
-        if nucleus_labels:
-            labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
-                cells_zarr,
-                cleanup_labels_zarr_tmpdir,
-                specs,
-                mask_index=0,
-                labels_name="nucleus_labels",
-                labels_models_kwargs=labels_models_kwargs,
-            )
-        if cells_labels:
-            labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
-                cells_zarr,
-                cleanup_labels_zarr_tmpdir,
-                specs,
-                mask_index=1,
-                labels_name="cell_labels",
-                labels_models_kwargs=labels_models_kwargs,
-            )
-            if cell_labels_indices_mapping is not None and table is not None:
-                if not pd.DataFrame.equals(
-                    cell_labels_indices_mapping["cell_id"],
-                    table.obs[str(XeniumKeys.CELL_ID)],
-                ):
-                    warnings.warn(
-                        "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
-                        "cell labels data. This could be due to trying to read a new version that is not supported yet. "
-                        "Please report this issue.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                else:
-                    table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
-                    if not cells_as_circles:
-                        table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
-    except Exception as e:
-        tmpdir.cleanup()
-        raise e
-
-    # we cleanup now if we don't have lazy data
-    if not cells_labels and not nucleus_labels or cleanup_labels_zarr_tmpdir:
-        tmpdir.cleanup()
+            else:
+                table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
+                if not cells_as_circles:
+                    table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
     if nucleus_boundaries:
         polygons["nucleus_boundaries"] = _get_polygons(
@@ -480,8 +455,8 @@ def _get_polygons(
 
 
 def _get_labels_and_indices_mapping(
-    cells_zarr: zarr.Group,
-    cleanup_labels_zarr_tmpdir: bool,
+    path: Path,
+    file: str,
     specs: dict[str, Any],
     mask_index: int,
     labels_name: str,
@@ -490,17 +465,12 @@ def _get_labels_and_indices_mapping(
     if mask_index not in [0, 1]:
         raise ValueError(f"mask_index must be 0 or 1, found {mask_index}.")
 
+    zip_file = path / XeniumKeys.CELLS_ZARR
+    store = zarr.storage.ZipStore(zip_file, read_only=True)
+    z = zarr.open(store, mode="r")
     # get the labels
-    if cleanup_labels_zarr_tmpdir:
-        masks = cells_zarr["masks"][f"{mask_index}"][...]
-    else:
-        masks = da.from_array(cells_zarr["masks"][f"{mask_index}"])
-    labels = Labels2DModel.parse(
-        masks,
-        dims=("y", "x"),
-        transformations={"global": Identity()},
-        **labels_models_kwargs,
-    )
+    masks = da.from_array(z["masks"][f"{mask_index}"])
+    labels = Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
     # build the matching table
     version = _parse_version_of_xenium_analyzer(specs)
@@ -512,7 +482,7 @@ def _get_labels_and_indices_mapping(
         # supported in versions < 1.3.0
         return labels, None
 
-    cell_id, dataset_suffix = cells_zarr["cell_id"][...].T
+    cell_id, dataset_suffix = z["cell_id"][...].T
     cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
 
     # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
@@ -524,7 +494,7 @@ def _get_labels_and_indices_mapping(
         real_label_index = real_label_index[1:]
 
     if version < packaging.version.parse("2.0.0"):
-        expected_label_index = cells_zarr["seg_mask_value"][...]
+        expected_label_index = z["seg_mask_value"][...]
 
         if not np.array_equal(expected_label_index, real_label_index):
             raise ValueError(
@@ -533,7 +503,7 @@ def _get_labels_and_indices_mapping(
                 f"{expected_label_index}."
             )
     else:
-        labels_positional_indices = cells_zarr["polygon_sets"][f"{mask_index}"]["cell_index"][...]
+        labels_positional_indices = z["polygon_sets"][f"{mask_index}"]["cell_index"][...]
         if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
             raise ValueError(
                 "The positional indices of the labels do not match the expected range. Please report this issue."
@@ -554,7 +524,9 @@ def _get_labels_and_indices_mapping(
 
 @inject_docs(xx=XeniumKeys)
 def _get_cells_metadata_table_from_zarr(
-    cells_zarr: zarr.Group,
+    path: Path,
+    file: str,
+    specs: dict[str, Any],
 ) -> AnnData:
     """Read cells metadata from ``{xx.CELLS_ZARR}``.
 
@@ -562,11 +534,16 @@ def _get_cells_metadata_table_from_zarr(
     nucleus_count for versions >= 2.0.0.
     """
     # for version >= 2.0.0, in this function we could also parse the segmentation method used to obtain the masks
-    x = cells_zarr["cell_summary"][...]
-    column_names = cells_zarr["cell_summary"].attrs["column_names"]
+    zip_file = path / XeniumKeys.CELLS_ZARR
+    store = zarr.storage.ZipStore(zip_file, read_only=True)
+
+    z = zarr.open(store, mode="r")
+    x = z["cell_summary"][...]
+    column_names = z["cell_summary"].attrs["column_names"]
     df = pd.DataFrame(x, columns=column_names)
-    cell_id_prefix = cells_zarr["cell_id"][:, 0]
-    dataset_suffix = cells_zarr["cell_id"][:, 1]
+    cell_id_prefix = z["cell_id"][:, 0]
+    dataset_suffix = z["cell_id"][:, 1]
+    store.close()
 
     cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
     df[XeniumKeys.CELL_ID] = cell_id_str
