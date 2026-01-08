@@ -18,7 +18,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python: ["3.10", "3.12"]
+                python: ["3.11", "3.12", "3.13"]
                 os: [ubuntu-latest]
 
         env:
@@ -28,7 +28,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
             - name: Set up Python ${{ matrix.python }}
-              uses: actions/setup-python@v4
+              uses: actions/setup-python@v5
               with:
                   python-version: ${{ matrix.python }}
 
@@ -37,7 +37,7 @@ jobs:
               run: |
                   echo "::set-output name=dir::$(pip cache dir)"
             - name: Restore pip cache
-              uses: actions/cache@v2
+              uses: actions/cache@v4
               with:
                   path: ${{ steps.pip-cache-dir.outputs.dir }}
                   key: pip-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('**/pyproject.toml') }}
@@ -52,18 +52,12 @@ jobs:
                   pip install --pre -e ".[dev,test]"
 
             - name: Download artifact of test data
-              if: matrix.python == '3.12'
-              uses: dawidd6/action-download-artifact@v2
+              if: matrix.python == '3.13'
+              uses: dawidd6/action-download-artifact@v9
               with:
                   workflow: prepare_test_data.yaml
                   name: data
                   path: ./data
-
-            - name: List the data directory
-              if: matrix.python == '3.12'
-              run: |
-                  ls -l ./data
-                  pwd
 
             - name: Test
               env:

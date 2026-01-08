@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 
-from anndata import AnnData, read_text
+from anndata import AnnData
+from anndata.io import read_text
 from h5py import File
 from ome_types import from_tiff
 from ome_types.model import Pixels, UnitsLength
@@ -13,7 +13,12 @@ from spatialdata._logging import logger
 
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
-PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from anndata import AnnData
+
+PathLike = os.PathLike | str  # type:ignore[type-arg]
 
 
 def _read_counts(
@@ -53,7 +58,7 @@ def _read_counts(
         try:
             from scanpy.readwrite import read_10x_mtx
         except ImportError:
-            raise ImportError("Please install scanpy to read 10x mtx files, `pip install scanpy`.")
+            raise ImportError("Please install scanpy to read 10x mtx files, `pip install scanpy`.") from None
         prefix = counts_file.replace("matrix.mtx.gz", "")
         adata = read_10x_mtx(path, prefix=prefix, **kwargs)
     else:

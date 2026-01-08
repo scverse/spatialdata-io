@@ -36,5 +36,9 @@ node_modules/
 .code-workspace
 
 # test datasets (e.g. Xenium ones)
+# symlinks
+data
+# data folder
 data/
 tests/data
+uv.lock

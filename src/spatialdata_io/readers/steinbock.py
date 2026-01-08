@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import anndata as ad
 from dask_image.imread import imread
-from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, Labels2DModel, TableModel
 from spatialdata.transformations.transformations import Identity
 
 from spatialdata_io._constants._constants import SteinbockKeys
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
+    from spatial_image import SpatialImage
 
 __all__ = ["steinbock"]
 
@@ -26,8 +29,7 @@ def steinbock(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read a *Steinbock* output into a SpatialData object.
+    """Read a *Steinbock* output into a SpatialData object.
 
     .. seealso::
 
@@ -58,8 +60,7 @@ def steinbock(
     labels = {}
     if len(set(samples).difference(set(samples_labels))):
         logger.warning(
-            f"Samples {set(samples).difference(set(samples_labels))} have images but no labels. "
-            "They will be ignored."
+            f"Samples {set(samples).difference(set(samples_labels))} have images but no labels. They will be ignored."
         )
     for sample in samples:
         images[f"{sample}_image"] = _get_images(
@@ -76,7 +77,7 @@ def steinbock(
             image_models_kwargs,
         )
 
-    adata = ad.read(path / SteinbockKeys.CELLS_FILE)
+    adata = ad.read_h5ad(path / SteinbockKeys.CELLS_FILE)
     idx = adata.obs.index.str.split(" ").map(lambda x: int(x[1]))
     regions = adata.obs.image.str.replace(".tiff", "", regex=False)
     regions = regions.apply(lambda x: f"{x}_labels")
@@ -87,9 +88,11 @@ def steinbock(
     # duplicate of adata.obs['image']
     del adata.obs["Image"]
 
-    # / is an invalid character
-    adata.var["Final Concentration"] = adata.var["Final Concentration / Dilution"]
-    del adata.var["Final Concentration / Dilution"]
+    # for backwards compatibility with the demo dataset from spatialdata-io
+    if "Final Concentration / Dilution" in adata.var.columns:
+        # / is an invalid character
+        adata.var["Final Concentration"] = adata.var["Final Concentration / Dilution"]
+        del adata.var["Final Concentration / Dilution"]
 
     # replace all spaces with underscores
     adata.var.columns = adata.var.columns.str.replace(" ", "_")
@@ -98,7 +101,7 @@ def steinbock(
         raise ValueError("Samples in table and images are inconsistent, please check.")
     table = TableModel.parse(adata, region=regions.unique().tolist(), region_key="region", instance_key="cell_id")
 
-    return SpatialData(images=images, labels=labels, table=table)
+    return SpatialData(images=images, labels=labels, tables={"table": table})
 
 
 def _get_images(

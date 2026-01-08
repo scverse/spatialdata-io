@@ -147,7 +147,7 @@ def test_cycle_metadata(dataset: str, expected: list[str]) -> None:
 
 def test_parsing_style() -> None:
     with pytest.raises(ValueError):
-        macsima(Path("."), parsing_style="not_a_parsing_style")
+        macsima(Path(), parsing_style="not_a_parsing_style")
 
 
 @pytest.mark.parametrize(
@@ -168,7 +168,7 @@ def test_mci_sort_by_channel() -> None:
     cycles = [2, 0, 1]
     mci = MultiChannelImage(
         data=[RNG.random((size, size), chunks=(10, 10)) for size in sizes],
-        metadata=[ChannelMetadata(name=c_name, cycle=cycle) for c_name, cycle in zip(c_names, cycles)],
+        metadata=[ChannelMetadata(name=c_name, cycle=cycle) for c_name, cycle in zip(c_names, cycles, strict=False)],
     )
     assert mci.get_channel_names() == c_names
     assert [x.shape[0] for x in mci.data] == sizes
