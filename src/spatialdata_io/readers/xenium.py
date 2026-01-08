@@ -382,11 +382,11 @@ def xenium(
             del image_models_kwargs["c_coords"]
             logger.removeFilter(IgnoreSpecificMessage())
 
-    # if table is not None:
+    if table is not None:
+        tables["table"] = table
     #     valid_nucleus_mask = ~table.obs[XeniumKeys.CELL_ID].isin(invalid_nuc_ids)
     #     valid_cell_mask = ~table.obs[XeniumKeys.CELL_ID].isin(invalid_cell_ids)
     #     tables["table"] = table[valid_nucleus_mask & valid_cell_mask].copy()
-    tables["table"] = table
 
     elements_dict = {
         "images": images,
@@ -423,8 +423,8 @@ def _get_polygons(
 ) -> GeoDataFrame:
     # seems to be faster than pd.read_parquet
     df = pq.read_table(path / file).to_pandas()
-    df[XeniumKeys.CELL_ID] = _decode_cell_id_column(df[XeniumKeys.CELL_ID])
 
+    # df[XeniumKeys.CELL_ID] = _decode_cell_id_column(df[XeniumKeys.CELL_ID])
     # # filter out cell ids with too few vertices to form a valid polygon.
     # invalid_ids = df.groupby(XeniumKeys.CELL_ID).filter(lambda x: len(x) < 3)[
     #     XeniumKeys.CELL_ID].unique()
