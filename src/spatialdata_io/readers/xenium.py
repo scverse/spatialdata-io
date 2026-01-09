@@ -4,9 +4,7 @@ import json
 import logging
 import os
 import re
-import tempfile
 import warnings
-import zipfile
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -418,9 +416,6 @@ def _get_polygons(
     n_jobs: int,
     idx: ArrayLike | None = None,
 ) -> GeoDataFrame:
-    def _poly(arr: ArrayLike) -> Polygon:
-        return Polygon(arr[:-1])
-
     # seems to be faster than pd.read_parquet
     df = pq.read_table(path / file).to_pandas()
 
@@ -429,8 +424,9 @@ def _get_polygons(
     # convert the index to str since we will compare it with an AnnData object, where the index is a str
     index.index = index.index.astype(str)
     index = _decode_cell_id_column(index)
+
     out = Parallel(n_jobs=n_jobs)(
-        delayed(_poly)(i.to_numpy())
+        delayed(Polygon)(i.to_numpy())
         for _, i in group_by[[XeniumKeys.BOUNDARIES_VERTEX_X, XeniumKeys.BOUNDARIES_VERTEX_Y]]
     )
     geo_df = GeoDataFrame({"geometry": out})
