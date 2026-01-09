@@ -60,10 +60,10 @@ jobs:
                   # -------
                   # MACSima OMAP datasets are licensed as CC BY 4.0
                   # OMAP23 for format v1.x.x
-                  #   curl TBD -o OMAP23_small.zip
+                  curl -o OMAP23_small.zip "https://zenodo.org/api/records/18196452/files-archive"
 
                   # OMAP10 for format v0.x.x
-                  #   curl TBD -o OMAP10_small.zip
+                  curl -o OMAP10_small.zip "https://zenodo.org/api/records/18196366/files-archive"
 
             - name: Unzip files
               run: |
