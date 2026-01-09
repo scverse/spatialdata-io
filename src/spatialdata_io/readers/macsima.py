@@ -31,6 +31,14 @@ if TYPE_CHECKING:
 
 __all__ = ["macsima"]
 
+# Dictionary to harmonize imagetype across metadata versions
+IMAGETYPE_DICT = {
+    "BleachCycle": "bleach",  # v0
+    "B": "bleach",  # v1
+    "AntigenCycle": "stain",  # v0
+    "S": "stain",  # v1
+}
+
 
 class MACSimaParsingStyle(ModeEnum):
     """Different parsing styles for MACSima data."""
@@ -224,8 +232,7 @@ def macsima(
 ) -> SpatialData:
     """Read *MACSima* formatted dataset.
 
-    This function reads images from a MACSima cyclic imaging experiment. Metadata of the cycle rounds is parsed from
-    the image names. The channel names are parsed from the OME metadata.
+    This function reads images from a MACSima cyclic imaging experiment. Metadata is parsed from the OME metadata.
 
     .. seealso::
 
@@ -355,12 +362,12 @@ def _collect_map_annotation_values(ome: OME) -> dict[str, Any]:
             if k not in merged:
                 merged[k] = v
             else:
-                # For instances where we have different values for the same repeated key, raise a warning.
+                # We do expect repeated keys with different values, because the same key is reused for different annotations.
+                # But the order is fixed and fine for what we need.
+                # Therefore log this for debugging, if it becomes a problem, but don't throw warnings to the user.
                 if v != merged[k]:
-                    warnings.warn(
-                        f"Found different value for {k}: {v}. The parser will only use the first found value, which is {merged[k]}!",
-                        UserWarning,
-                        stacklevel=2,
+                    logger.debug(
+                        f"Found different value for {k}: {v}. The parser will only use the first found value, which is {merged[k]}!"
                     )
 
     return merged
@@ -471,9 +478,13 @@ def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
 
     metadata["well"] = well
 
-    # Add _background suffix to marker name of bleach images, to distinguis them from stain image
+    # Add _background suffix to marker name of bleach images, to distinguish them from stain image
     if metadata["imagetype"] == "BleachCycle":
         metadata["name"] = metadata["name"] + "_background"
+
+    # Harmonize imagetype across versions
+    if metadata["imagetype"]:
+        metadata["imagetype"] = IMAGETYPE_DICT[metadata["imagetype"]]
 
     return metadata
 
@@ -551,6 +562,10 @@ def _parse_v1_ome_metadata(ome: OME) -> dict[str, Any]:
     if metadata["imagetype"] == "B":
         metadata["name"] = metadata["name"] + "_background"
 
+    # Harmonize imagetype across versions
+    if metadata["imagetype"]:
+        metadata["imagetype"] = IMAGETYPE_DICT[metadata["imagetype"]]
+
     return metadata
 
 
@@ -598,8 +613,7 @@ def parse_processed_folder(
     include_cycle_in_channel_name: bool = False,
 ) -> SpatialData:
     """Parse a single folder containing images from a cyclical imaging platform."""
-    # get list of image paths, get channel name from OME data and cycle round number from filename
-    # look for OME-TIFF files
+    # get list of image paths, look for OME-TIFF files
     # TODO: replace this pattern and the p.suffix in [".tif", ".tiff"] with a single function based on a regexp, like
     # this one re.compile(r".*\.tif{1,2}$", re.IGNORECASE)
     path_files = list(path.glob(file_pattern))

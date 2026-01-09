@@ -35,11 +35,11 @@ from tests._utils import skip_if_below_python_version
 
 RNG = da.random.default_rng(seed=0)
 
-if not (Path("./data/OMAP10").exists() or Path("./data/OMAP23").exists()):
+if not (Path("./data/OMAP10_small").exists() or Path("./data/OMAP23_small").exists()):
     pytest.skip(
         "Requires the OMAP10 or OMAP23 datasets. "
-        "The OMAP10 dataset can be downloaded from https://zenodo.org/records/7875938 "
-        "The OMAP23 dataset can be downloaded from https://zenodo.org/records/14008816",
+        "The small OMAP10 dataset can be downloaded from TBD, for the full data see https://zenodo.org/records/7875938 "
+        "The small OMAP23 dataset can be downloaded from TBD, for the full data set see https://zenodo.org/records/14008816",
         allow_module_level=True,
     )
 
@@ -70,8 +70,8 @@ def make_ChannelMetadata(
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("OMAP10", {"y": (0, 7797), "x": (0, 9407)}),
-        ("OMAP23", {"y": (0, 7703), "x": (0, 9329)}),
+        ("OMAP10_small", {"y": (0, 77), "x": (0, 94)}),
+        ("OMAP23_small", {"y": (0, 77), "x": (0, 93)}),
     ],
 )
 def test_image_size(dataset: str, expected: dict[str, Any]) -> None:
@@ -91,7 +91,7 @@ def test_image_size(dataset: str, expected: dict[str, Any]) -> None:
 @skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
-    [("OMAP10", 31), ("OMAP23", 29)],
+    [("OMAP10_small", 4), ("OMAP23_small", 5)],
 )
 def test_total_channels(dataset: str, expected: int) -> None:
     f = Path("./data") / dataset
@@ -104,18 +104,18 @@ def test_total_channels(dataset: str, expected: int) -> None:
     assert channels == expected
 
 
-# @skip_if_below_python_version()
+@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("OMAP10", ["R1 DAPI", "R1 CD11c", "R1 Actin"]),
-        ("OMAP23", ["R1 CD3", "R1 DAPI", "R1 CD274"]),
+        ("OMAP10_small", ["R1 DAPI", "R1 CD15", "R2 Bcl 2", "R2 CD1c"]),
+        ("OMAP23_small", ["R1 DAPI", "R1 CD3", "R2 CD279", "R4 CD66b", "R15 DAPI_background"]),
     ],
 )
 def test_channel_names(dataset: str, expected: list[str]) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
-    sdata = macsima(f, c_subset=3, include_cycle_in_channel_name=True)
+    sdata = macsima(f, include_cycle_in_channel_name=True)
     el = sdata[list(sdata.images.keys())[0]]
 
     # get the channel names
@@ -127,8 +127,8 @@ def test_channel_names(dataset: str, expected: list[str]) -> None:
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("OMAP10", 22),
-        ("OMAP23", 15),
+        ("OMAP10_small", 2),
+        ("OMAP23_small", 15),
     ],
 )
 def test_total_rounds(dataset: str, expected: list[int]) -> None:
@@ -144,11 +144,11 @@ def test_total_rounds(dataset: str, expected: list[int]) -> None:
 @pytest.mark.parametrize(
     "dataset,skip_rounds,expected",
     [
-        ("OMAP10", list(range(2, 23)), ["DAPI", "CD11c", "Actin", "CD15"]),
+        ("OMAP10_small", list(range(2, 4)), ["DAPI", "CD15"]),
         (
-            "OMAP23",
-            list(range(3, 16)),
-            ["CD3", "DAPI", "CD274", "CD279"],
+            "OMAP23_small",
+            list(range(2, 16)),
+            ["DAPI", "CD3"],
         ),
     ],
 )
@@ -167,14 +167,14 @@ def test_skip_rounds(dataset: str, skip_rounds: list[int], expected: list[str]) 
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("OMAP10", [1, 1, 1]),
-        ("OMAP23", [1, 1, 1]),
+        ("OMAP10_small", [1, 1, 2, 2]),
+        ("OMAP23_small", [1, 1, 2, 4, 15]),
     ],
 )
 def test_cycle_metadata(dataset: str, expected: list[str]) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
-    sdata = macsima(f, c_subset=3)
+    sdata = macsima(f)
     table = sdata[list(sdata.tables.keys())[0]]
 
     # get the channel cycles
@@ -233,7 +233,7 @@ def test_mci_array_reference() -> None:
 
 
 @skip_if_below_python_version()
-@pytest.mark.parametrize("dataset", ["OMAP10", "OMAP23"])
+@pytest.mark.parametrize("dataset", ["OMAP10_small", "OMAP23_small"])
 def test_cli_macsima(runner: CliRunner, dataset: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
@@ -299,12 +299,7 @@ def test_collect_map_annotations_values_with_duplicate_keys_different_values() -
     )
     import re
 
-    # The parser should throw a warning when duplicate keys with different values are found
-    with pytest.warns(
-        UserWarning,
-        match=re.escape("Found different value for b: 99. The parser will only use the first found value, which is 2!"),
-    ):
-        result = _collect_map_annotation_values(ome)
+    result = _collect_map_annotation_values(ome)
 
     # The parser should return only the first found value.
     assert result == {"a": "1", "b": "2", "c": "3"}
@@ -360,7 +355,7 @@ def test_get_software_major_version_success(version: str, expected: int) -> None
     assert _get_software_major_version(version) == expected
 
 
-def test_get_software_major_version_empty_parts_raises() -> None:
+def test_get_software_major_version_failure() -> None:
     with pytest.raises(ValueError):
         _get_software_major_version("")
 
@@ -375,7 +370,7 @@ def test_parse_v0_ome_metadata_basic_extraction_and_conversions() -> None:
                         "Exposure time": "123.4",
                         "Cycle": "5",
                         "ROI ID": "7",
-                        "MICS cycle type": "StainCycle",
+                        "MICS cycle type": "AntigenCycle",
                     }
                 )
             ]
@@ -392,7 +387,7 @@ def test_parse_v0_ome_metadata_basic_extraction_and_conversions() -> None:
     assert md["exposure"] == pytest.approx(123.4)
     assert md["cycle"] == 5
     assert md["roi"] == 7
-    assert md["imagetype"] == "StainCycle"
+    assert md["imagetype"] == "stain"  # harmonized!
     assert md["well"] == "A01"
 
 
@@ -441,11 +436,11 @@ def test_parse_v0_ome_metadata_bleach_cycle_appends_background() -> None:
 
     md = _parse_v0_ome_metadata(ome)
 
-    assert md["imagetype"] == "BleachCycle"
+    assert md["imagetype"] == "bleach"  # harmonized!
     assert md["name"] == "CD4_background"
 
 
-def test_parse_v1_ome_metadata_primary_keys_biomarker_and_clone() -> None:
+def test_parse_v1_ome_metadata_basic_extraction_and_conversions() -> None:
     ome = OME(
         structured_annotations=StructuredAnnotations(
             map_annotations=[
@@ -473,7 +468,7 @@ def test_parse_v1_ome_metadata_primary_keys_biomarker_and_clone() -> None:
     assert md["exposure"] == pytest.approx(45.6)
     assert md["cycle"] == 3
     assert md["roi"] == 10
-    assert md["imagetype"] == "S"
+    assert md["imagetype"] == "stain"  # harmonized!
     assert md["well"] == "B02"
 
 
