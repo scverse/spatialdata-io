@@ -4,9 +4,7 @@ import json
 import logging
 import os
 import re
-import tempfile
 import warnings
-import zipfile
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -245,7 +243,10 @@ def xenium(
             labels_models_kwargs=labels_models_kwargs,
         )
         if cell_labels_indices_mapping is not None and table is not None:
-            if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
+            if not pd.DataFrame.equals(
+                cell_labels_indices_mapping["cell_id"],
+                table.obs[str(XeniumKeys.CELL_ID)],
+            ):
                 warnings.warn(
                     "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
                     "cell labels data. This could be due to trying to read a new version that is not supported yet. "
@@ -384,9 +385,6 @@ def xenium(
 
     if table is not None:
         tables["table"] = table
-    #     valid_nucleus_mask = ~table.obs[XeniumKeys.CELL_ID].isin(invalid_nuc_ids)
-    #     valid_cell_mask = ~table.obs[XeniumKeys.CELL_ID].isin(invalid_cell_ids)
-    #     tables["table"] = table[valid_nucleus_mask & valid_cell_mask].copy()
 
     elements_dict = {
         "images": images,
@@ -423,27 +421,6 @@ def _get_polygons(
 ) -> GeoDataFrame:
     # seems to be faster than pd.read_parquet
     df = pq.read_table(path / file).to_pandas()
-
-    # df[XeniumKeys.CELL_ID] = _decode_cell_id_column(df[XeniumKeys.CELL_ID])
-    # # filter out cell ids with too few vertices to form a valid polygon.
-    # invalid_ids = df.groupby(XeniumKeys.CELL_ID).filter(lambda x: len(x) < 3)[
-    #     XeniumKeys.CELL_ID].unique()
-    # invalid_ids = [] if len(invalid_ids) == 0 else invalid_ids
-    #
-    # if len(invalid_ids) > 0:
-    #     logging.warning(
-    #         f"Found {len(invalid_ids)} invalid polygons for {file}, removing the masks corresponding to the IDs: {invalid_ids}"
-    #     )
-    #
-    # # Filter based on valid cell IDs if idx is provided
-    # if idx is not None:
-    #     idx = idx[~idx.isin(invalid_ids)]
-    #     if len(invalid_ids) > 0:
-    #         idx = idx.reset_index(drop=True)
-    #     df = df[df[XeniumKeys.CELL_ID].isin(idx)]
-    # else:
-    #     # If no idx provided, just (potentially) filter out invalid IDs
-    #     df = df[~df[XeniumKeys.CELL_ID].isin(invalid_ids)]
 
     group_by = df.groupby(XeniumKeys.CELL_ID)
     index = pd.Series(group_by.indices.keys())
@@ -492,7 +469,12 @@ def _get_labels_and_indices_mapping(
     z = zarr.open(store, mode="r")
     # get the labels
     masks = da.from_array(z["masks"][f"{mask_index}"])
-    labels = Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
+    labels = Labels2DModel.parse(
+        masks,
+        dims=("y", "x"),
+        transformations={"global": Identity()},
+        **labels_models_kwargs,
+    )
 
     # build the matching table
     version = _parse_version_of_xenium_analyzer(specs)
