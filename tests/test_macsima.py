@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import dask.array as da
+import pandas as pd
 import pytest
 from click.testing import CliRunner
 from ome_types import OME
@@ -112,7 +113,7 @@ def test_total_channels(dataset: str, expected: int) -> None:
         ("OMAP23_small", ["R1 DAPI", "R1 CD3", "R2 CD279", "R4 CD66b", "R15 DAPI_background"]),
     ],
 )
-def test_channel_names(dataset: str, expected: list[str]) -> None:
+def test_channel_names_with_cycle_in_name(dataset: str, expected: list[str]) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
     sdata = macsima(f, include_cycle_in_channel_name=True)
@@ -163,23 +164,66 @@ def test_skip_rounds(dataset: str, skip_rounds: list[int], expected: list[str]) 
     assert list(channels) == expected, f"Expected {expected}, got {list(channels)}"
 
 
+METADATA_COLUMN_ORDER = [
+    "cycle",
+    "imagetype",
+    "well",
+    "ROI",
+    "fluorophore",
+    "clone",
+    "exposure",
+]
+
+EXPECTED_METADATA_OMAP10 = pd.DataFrame(
+    {
+        "name": ["DAPI", "CD15", "Bcl 2", "CD1c"],
+        "cycle": [1, 1, 2, 2],
+        "imagetype": ["stain", "stain", "stain", "stain"],
+        "well": ["C-1", "C-1", "C-1", "C-1"],
+        "ROI": [1, 1, 1, 1],
+        "fluorophore": ["DAPI", "APC", "FITC", "PE"],
+        "clone": [pd.NA, "VIMC6", "REA872", "REA694"],
+        "exposure": [40.0, 2304.0, 96.0, 144.0],
+    },
+    index=["DAPI", "CD15", "Bcl 2", "CD1c"],
+    columns=METADATA_COLUMN_ORDER,
+)
+
+
+EXPECTED_METADATA_OMAP23 = pd.DataFrame(
+    {
+        "name": ["DAPI", "CD3", "CD279", "CD66b", "DAPI_background"],
+        "cycle": [1, 1, 2, 4, 15],
+        "imagetype": ["stain", "stain", "stain", "stain", "bleach"],
+        "well": ["D01", "D01", "D01", "D01", "D01"],
+        "ROI": [1, 1, 1, 1, 1],
+        "fluorophore": ["DAPI", "APC", "PE", "FITC", "DAPI"],
+        "clone": [pd.NA, "REA1151", "REA1165", "REA306", pd.NA],
+        "exposure": [51.0, 1212.52, 322.12, 856.68, 51.0],
+    },
+    index=["DAPI", "CD3", "CD279", "CD66b", "DAPI_background"],
+    columns=METADATA_COLUMN_ORDER,
+)
+
+
 @skip_if_below_python_version()
 @pytest.mark.parametrize(
-    "dataset,expected",
+    "dataset,expected_df",
     [
-        ("OMAP10_small", [1, 1, 2, 2]),
-        ("OMAP23_small", [1, 1, 2, 4, 15]),
+        ("OMAP10_small", EXPECTED_METADATA_OMAP10),
+        ("OMAP23_small", EXPECTED_METADATA_OMAP23),
     ],
 )
-def test_cycle_metadata(dataset: str, expected: list[str]) -> None:
+def test_metadata_table(dataset: str, expected_df: pd.DataFrame) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
     sdata = macsima(f)
     table = sdata[list(sdata.tables.keys())[0]]
 
-    # get the channel cycles
-    cycles = table.var["cycle"]
-    assert list(cycles) == expected
+    # Convert table.var to a DataFrame and align to expected columns
+    actual = table.var[METADATA_COLUMN_ORDER]
+
+    pd.testing.assert_frame_equal(actual, expected_df)
 
 
 def test_parsing_style() -> None:
