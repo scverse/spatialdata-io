@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import warnings
 from collections import defaultdict
 from copy import deepcopy
@@ -13,6 +15,7 @@ import dask.array as da
 import pandas as pd
 import spatialdata as sd
 from dask_image.imread import imread
+from ome_types import OME, from_tiff
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 
@@ -27,6 +30,14 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 __all__ = ["macsima"]
+
+# Dictionary to harmonize imagetype across metadata versions
+IMAGETYPE_DICT = {
+    "BleachCycle": "bleach",  # v0
+    "B": "bleach",  # v1
+    "AntigenCycle": "stain",  # v0
+    "S": "stain",  # v1
+}
 
 
 class MACSimaParsingStyle(ModeEnum):
@@ -44,6 +55,12 @@ class ChannelMetadata:
 
     name: str
     cycle: int
+    imagetype: str
+    well: str
+    roi: int
+    fluorophore: str
+    exposure: float
+    clone: str | None = None  # For example DAPI doesnt have a clone
 
 
 @dataclass
@@ -61,39 +78,41 @@ class MultiChannelImage:
         imread_kwargs: Mapping[str, Any],
         skip_rounds: list[int] | None = None,
     ) -> MultiChannelImage:
-        cycles = []
-        channels = []
+        channel_metadata: list[ChannelMetadata] = []
         for p in path_files:
-            cycle = parse_name_to_cycle(p.stem)
-            cycles.append(cycle)
             try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    channel_names = parse_channels(p)
-                if len(channel_names) > 1:
-                    warnings.warn(
-                        f"Found multiple channels in OME-TIFF file {p}. Only the first one will be used.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                channels.append(channel_names[0])
+                metadata = parse_metadata(p)
             except ValueError as e:
                 warnings.warn(
                     f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.", UserWarning, stacklevel=2
                 )
+                continue
 
-        if len(path_files) != len(cycles) or len(path_files) != len(channels):
-            raise ValueError("Length of path_files, cycles and channels must be the same.")
+            channel_metadata.append(
+                ChannelMetadata(
+                    name=metadata["name"],
+                    cycle=metadata["cycle"],
+                    imagetype=metadata["imagetype"],
+                    well=metadata["well"],
+                    roi=metadata["roi"],
+                    fluorophore=metadata["fluorophore"],
+                    clone=metadata["clone"],
+                    exposure=metadata["exposure"],
+                )
+            )
+
+        if len(path_files) != len(channel_metadata):
+            raise ValueError("Length of path_files and metadata must be the same.")
         # if any of round_channels is in skip_rounds, remove that round from the list and from path_files
         if skip_rounds:
             logger.info(f"Skipping cycles: {skip_rounds}")
-            path_files, cycles, channels = map(
+            path_files, channel_metadata = map(
                 list,
                 zip(
                     *[
-                        (p, c, ch)
-                        for p, c, ch in zip(path_files, cycles, channels, strict=True)
-                        if c not in skip_rounds
+                        (p, ch_meta)
+                        for p, ch_meta in zip(path_files, channel_metadata, strict=True)
+                        if ch_meta.cycle not in skip_rounds
                     ],
                     strict=True,
                 ),
@@ -108,7 +127,7 @@ class MultiChannelImage:
         # create MultiChannelImage object with imgs and metadata
         output = cls(
             data=imgs,
-            metadata=[ChannelMetadata(name=ch, cycle=c) for c, ch in zip(cycles, channels, strict=True)],
+            metadata=channel_metadata,
         )
         return output
 
@@ -150,6 +169,30 @@ class MultiChannelImage:
         """Get the cycle numbers."""
         return [c.cycle for c in self.metadata]
 
+    def get_image_types(self) -> list[str | None]:
+        """Get the staining types (stain or bleach)."""
+        return [c.imagetype for c in self.metadata]
+
+    def get_wells(self) -> list[str | None]:
+        """Get the wells."""
+        return [c.well for c in self.metadata]
+
+    def get_rois(self) -> list[int | None]:
+        """Get the ROIs."""
+        return [c.roi for c in self.metadata]
+
+    def get_fluorophores(self) -> list[str | None]:
+        """Get the fluorophores."""
+        return [c.fluorophore for c in self.metadata]
+
+    def get_clones(self) -> list[str | None]:
+        """Get the clones."""
+        return [c.clone for c in self.metadata]
+
+    def get_exposures(self) -> list[float | None]:
+        """Get the exposures."""
+        return [c.exposure for c in self.metadata]
+
     def sort_by_channel(self) -> None:
         """Sort the channels by cycle number."""
         self.data = [d for _, d in sorted(zip(self.metadata, self.data, strict=True), key=lambda x: x[0].cycle)]
@@ -189,8 +232,7 @@ def macsima(
 ) -> SpatialData:
     """Read *MACSima* formatted dataset.
 
-    This function reads images from a MACSima cyclic imaging experiment. Metadata of the cycle rounds is parsed from
-    the image names. The channel names are parsed from the OME metadata.
+    This function reads images from a MACSima cyclic imaging experiment. Metadata is parsed from the OME metadata.
 
     .. seealso::
 
@@ -300,12 +342,257 @@ def macsima(
         raise NotImplementedError("Parsing raw MACSima data is not yet implemented.")
 
 
-def parse_name_to_cycle(name: str) -> int:
-    """Parse the cycle number from the name of the image."""
-    cycle = name.split("_")[0]
-    if "-" in cycle:
-        cycle = cycle.split("-")[1]
-    return int(cycle)
+def _collect_map_annotation_values(ome: OME) -> dict[str, Any]:
+    """Collapse structured_annotations from OME into dictionary.
+
+    Collects all key/value pairs from all map_annotations ins structured_annotations into a single flat dictionary.
+    If a key appears multiple times across annotations, the *first*
+    occurrence wins and later occurrences are ignored.
+    """
+    merged: dict[str, Any] = {}
+
+    sa = getattr(ome, "structured_annotations", None)
+    map_annotations = getattr(sa, "map_annotations", []) if sa else []
+
+    for ma in map_annotations:
+        raw_value = ma.value
+        value = raw_value.dict()
+
+        for k, v in value.items():
+            if k not in merged:
+                merged[k] = v
+            else:
+                # We do expect repeated keys with different values, because the same key is reused for different annotations.
+                # But the order is fixed and fine for what we need.
+                # Therefore log this for debugging, if it becomes a problem, but don't throw warnings to the user.
+                if v != merged[k]:
+                    logger.debug(
+                        f"Found different value for {k}: {v}. The parser will only use the first found value, which is {merged[k]}!"
+                    )
+
+    return merged
+
+
+def _get_software_version(ma_values: dict[str, Any]) -> str:
+    """Extract the software version string from the flattened map-annotation values.
+
+    Supports both:
+      - 'Software version'  (v0)
+      - 'SoftwareVersion'   (v1)
+    """
+    for key in ("SoftwareVersion", "Software version"):
+        v = ma_values.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    raise ValueError("Could not extract Software Version from OME metadata.")
+
+
+def _get_software_major_version(version: str) -> int:
+    """Parse the major component of a semantic version string."""
+    s = version.strip()
+    if s.startswith(("v", "V")):
+        s = s[1:]
+    parts = s.split(".")
+    if not parts:
+        raise ValueError("Could not extract major software version part from version string.")
+
+    major = int(parts[0])
+    logger.debug(f"Found major software version {major}")
+
+    return major
+
+
+def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
+    """Parse Legacy Format of OME Metadata (software version 0.x.x)."""
+    logger.debug("Parsing OME metadata expecting version 0 format")
+
+    metadata: dict[str, Any] = {
+        "name": None,
+        "clone": None,
+        "fluorophore": None,
+        "cycle": None,
+        "imagetype": None,
+        "well": None,
+        "roi": None,
+        "exposure": None,
+    }
+
+    antigen = None
+    clone = None
+
+    if ome.screens:
+        screen0 = ome.screens[0]
+        reagents = getattr(screen0, "reagents", [])
+        if reagents:
+            r0 = reagents[0]
+            name = getattr(r0, "name", None)
+            if isinstance(name, str) and name:
+                if "__" in name:
+                    antigen, clone = name.split("__", 1)
+                else:
+                    antigen = name
+                    clone = None
+
+    metadata["name"] = antigen
+    metadata["clone"] = clone
+
+    ma_values = _collect_map_annotation_values(ome)
+
+    if "Fluorochrome" in ma_values:
+        metadata["fluorophore"] = ma_values["Fluorochrome"]
+
+    if "Exposure time" in ma_values:
+        exp_time = ma_values["Exposure time"]
+        try:
+            metadata["exposure"] = float(exp_time)
+        except (TypeError, ValueError):
+            metadata["exposure"] = None
+
+    if "Cycle" in ma_values:
+        cyc = ma_values["Cycle"]
+        try:
+            metadata["cycle"] = int(cyc)
+        except (TypeError, ValueError):
+            metadata["cycle"] = None
+
+    if "ROI ID" in ma_values:
+        roi = ma_values["ROI ID"]
+        try:
+            metadata["roi"] = int(roi)
+        except (TypeError, ValueError):
+            metadata["roi"] = None
+
+    if "MICS cycle type" in ma_values:
+        metadata["imagetype"] = ma_values["MICS cycle type"]
+
+    well = None
+    if ome.plates:
+        plate0 = ome.plates[0]
+        wells = getattr(plate0, "wells", [])
+        if wells:
+            w0 = wells[0]
+            ext_id = getattr(w0, "external_identifier", None)
+            if isinstance(ext_id, str) and ext_id:
+                well = ext_id
+
+    metadata["well"] = well
+
+    # Add _background suffix to marker name of bleach images, to distinguish them from stain image
+    if metadata["imagetype"] == "BleachCycle":
+        metadata["name"] = metadata["name"] + "_background"
+
+    # Harmonize imagetype across versions
+    if metadata["imagetype"]:
+        metadata["imagetype"] = IMAGETYPE_DICT[metadata["imagetype"]]
+
+    return metadata
+
+
+def _parse_v1_ome_metadata(ome: OME) -> dict[str, Any]:
+    """Parse v1 format of OME metadata (software version 1.x.x)."""
+    logger.debug("Parsing OME metadata expecting version 1 format")
+
+    metadata: dict[str, Any] = {
+        "name": None,
+        "clone": None,
+        "fluorophore": None,
+        "cycle": None,
+        "imagetype": None,
+        "well": None,
+        "roi": None,
+        "exposure": None,
+    }
+
+    ma_values = _collect_map_annotation_values(ome)
+
+    if "Clone" in ma_values:
+        metadata["clone"] = ma_values["Clone"]
+
+    antigen_name = None
+    if "Biomarker" in ma_values and ma_values["Biomarker"]:
+        antigen_name = ma_values["Biomarker"]
+    elif "Dye" in ma_values and ma_values["Dye"]:
+        antigen_name = ma_values["Dye"]
+
+    metadata["name"] = antigen_name
+
+    if "Fluorochrome" in ma_values and ma_values["Fluorochrome"]:
+        metadata["fluorophore"] = ma_values["Fluorochrome"]
+    elif "Dye" in ma_values and ma_values["Dye"]:
+        metadata["fluorophore"] = ma_values["Dye"]
+
+    if "ExposureTime" in ma_values:
+        exp_time = ma_values["ExposureTime"]
+        try:
+            metadata["exposure"] = float(exp_time)
+        except (TypeError, ValueError):
+            metadata["exposure"] = None
+
+    if "Cycle" in ma_values:
+        cyc = ma_values["Cycle"]
+        try:
+            metadata["cycle"] = int(cyc)
+        except (TypeError, ValueError):
+            metadata["cycle"] = None
+
+    if "RoiId" in ma_values:
+        roi = ma_values["RoiId"]
+        try:
+            metadata["roi"] = int(roi)
+        except (TypeError, ValueError):
+            metadata["roi"] = None
+
+    if "ScanType" in ma_values:
+        metadata["imagetype"] = ma_values["ScanType"]
+
+    well = None
+    if ome.plates:
+        plate0 = ome.plates[0]
+        wells = getattr(plate0, "wells", [])
+        if wells:
+            w0 = wells[0]
+            ext_id = getattr(w0, "external_identifier", None)
+            if isinstance(ext_id, str) and ext_id:
+                well = ext_id
+
+    metadata["well"] = well
+
+    # Add _background suffix to marker name of bleach images, to distinguis them from stain image
+    if metadata["imagetype"] == "B":
+        metadata["name"] = metadata["name"] + "_background"
+
+    # Harmonize imagetype across versions
+    if metadata["imagetype"]:
+        metadata["imagetype"] = IMAGETYPE_DICT[metadata["imagetype"]]
+
+    return metadata
+
+
+def _parse_ome_metadata(ome: OME) -> dict[str, Any]:
+    """Extract the software version from OME metadata and parse with appropriate parser."""
+    ma_values = _collect_map_annotation_values(ome)
+    version_str = _get_software_version(ma_values)
+    major = _get_software_major_version(version_str)
+
+    if major == 0:
+        return _parse_v0_ome_metadata(ome)
+    elif major == 1:
+        return _parse_v1_ome_metadata(ome)
+    else:
+        raise ValueError("Unknown software version, cannot determine parser")
+
+
+def parse_metadata(path: Path) -> dict[str, Any]:
+    """Parse metadata for a file.
+
+    All metadata is extracted from the OME metadata.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ome = from_tiff(path)
+
+    return _parse_ome_metadata(ome)
 
 
 def parse_processed_folder(
@@ -326,8 +613,7 @@ def parse_processed_folder(
     include_cycle_in_channel_name: bool = False,
 ) -> SpatialData:
     """Parse a single folder containing images from a cyclical imaging platform."""
-    # get list of image paths, get channel name from OME data and cycle round number from filename
-    # look for OME-TIFF files
+    # get list of image paths, look for OME-TIFF files
     # TODO: replace this pattern and the p.suffix in [".tif", ".tiff"] with a single function based on a regexp, like
     # this one re.compile(r".*\.tif{1,2}$", re.IGNORECASE)
     path_files = list(path.glob(file_pattern))
@@ -396,7 +682,9 @@ def create_sdata(
             [i for i in range(len(mci.metadata)) if i not in nuclei_idx_without_first_and_last],
         )
 
-    pixels_to_microns = parse_physical_size(path_files[0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pixels_to_microns = parse_physical_size(path_files[0])
 
     image_element = create_image_element(
         mci,
@@ -440,12 +728,30 @@ def create_sdata(
 def create_table(mci: MultiChannelImage) -> ad.AnnData:
     cycles = mci.get_cycles()
     names = mci.get_channel_names()
+    imagetypes = mci.get_image_types()
+    wells = mci.get_wells()
+    rois = mci.get_rois()
+    fluorophores = mci.get_fluorophores()
+    clones = mci.get_clones()
+    exposures = mci.get_exposures()
+
     df = pd.DataFrame(
         {
             "name": names,
             "cycle": cycles,
+            "imagetype": imagetypes,
+            "well": wells,
+            "ROI": rois,
+            "fluorophore": fluorophores,
+            "clone": clones,
+            "exposure": exposures,
         }
     )
+
+    # Replace missing data. This happens mostly in the clone column.
+    df = df.replace({None: pd.NA, "": pd.NA})
+    df.index = df.index.astype(str)
+
     table = ad.AnnData(var=df)
     table.var_names = names
     return sd.models.TableModel.parse(table)
