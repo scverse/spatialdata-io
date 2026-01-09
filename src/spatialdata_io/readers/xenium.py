@@ -243,10 +243,7 @@ def xenium(
             labels_models_kwargs=labels_models_kwargs,
         )
         if cell_labels_indices_mapping is not None and table is not None:
-            if not pd.DataFrame.equals(
-                cell_labels_indices_mapping["cell_id"],
-                table.obs[str(XeniumKeys.CELL_ID)],
-            ):
+            if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
                 warnings.warn(
                     "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
                     "cell labels data. This could be due to trying to read a new version that is not supported yet. "
@@ -469,12 +466,7 @@ def _get_labels_and_indices_mapping(
     z = zarr.open(store, mode="r")
     # get the labels
     masks = da.from_array(z["masks"][f"{mask_index}"])
-    labels = Labels2DModel.parse(
-        masks,
-        dims=("y", "x"),
-        transformations={"global": Identity()},
-        **labels_models_kwargs,
-    )
+    labels = Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
     # build the matching table
     version = _parse_version_of_xenium_analyzer(specs)
