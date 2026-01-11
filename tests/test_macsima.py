@@ -39,8 +39,8 @@ RNG = da.random.default_rng(seed=0)
 if not (Path("./data/OMAP10_small").exists() or Path("./data/OMAP23_small").exists()):
     pytest.skip(
         "Requires the OMAP10 or OMAP23 datasets. "
-        "The small OMAP10 dataset can be downloaded from TBD, for the full data see https://zenodo.org/records/7875938 "
-        "The small OMAP23 dataset can be downloaded from TBD, for the full data set see https://zenodo.org/records/14008816",
+        "The small OMAP10 dataset can be downloaded from https://zenodo.org/api/records/18196366/files-archive, for the full data see https://zenodo.org/records/7875938"
+        "The small OMAP23 dataset can be downloaded from https://zenodo.org/api/records/18196452/files-archive, for the full data set see https://zenodo.org/records/14008816",
         allow_module_level=True,
     )
 
@@ -110,7 +110,10 @@ def test_total_channels(dataset: str, expected: int) -> None:
     "dataset,expected",
     [
         ("OMAP10_small", ["R1 DAPI", "R1 CD15", "R2 Bcl 2", "R2 CD1c"]),
-        ("OMAP23_small", ["R1 DAPI", "R1 CD3", "R2 CD279", "R4 CD66b", "R15 DAPI_background"]),
+        (
+            "OMAP23_small",
+            ["R1 DAPI", "R1 CD3", "R2 CD279", "R4 CD66b", "R15 DAPI_background"],
+        ),
     ],
 )
 def test_channel_names_with_cycle_in_name(dataset: str, expected: list[str]) -> None:
@@ -189,7 +192,6 @@ EXPECTED_METADATA_OMAP10 = pd.DataFrame(
     columns=METADATA_COLUMN_ORDER,
 )
 
-
 EXPECTED_METADATA_OMAP23 = pd.DataFrame(
     {
         "name": ["DAPI", "CD3", "CD279", "CD66b", "DAPI_background"],
@@ -253,7 +255,10 @@ def test_mci_array_reference() -> None:
     arr2 = RNG.random((200, 200), chunks=(10, 10))
     mci = MultiChannelImage(
         data=[arr1, arr2],
-        metadata=[make_ChannelMetadata(name="test1", cycle=0), make_ChannelMetadata(name="test2", cycle=1)],
+        metadata=[
+            make_ChannelMetadata(name="test1", cycle=0),
+            make_ChannelMetadata(name="test2", cycle=1),
+        ],
     )
     orig_arr1 = arr1.copy()
 

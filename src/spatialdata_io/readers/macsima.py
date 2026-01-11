@@ -84,7 +84,9 @@ class MultiChannelImage:
                 metadata = parse_metadata(p)
             except ValueError as e:
                 warnings.warn(
-                    f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.", UserWarning, stacklevel=2
+                    f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.",
+                    UserWarning,
+                    stacklevel=2,
                 )
                 continue
 
@@ -345,7 +347,7 @@ def macsima(
 def _collect_map_annotation_values(ome: OME) -> dict[str, Any]:
     """Collapse structured_annotations from OME into dictionary.
 
-    Collects all key/value pairs from all map_annotations ins structured_annotations into a single flat dictionary.
+    Collects all key/value pairs from all map_annotations in structured_annotations into a single flat dictionary.
     If a key appears multiple times across annotations, the *first*
     occurrence wins and later occurrences are ignored.
     """
