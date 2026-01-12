@@ -77,7 +77,7 @@ def steinbock(
             image_models_kwargs,
         )
 
-    adata = ad.read(path / SteinbockKeys.CELLS_FILE)
+    adata = ad.read_h5ad(path / SteinbockKeys.CELLS_FILE)
     idx = adata.obs.index.str.split(" ").map(lambda x: int(x[1]))
     regions = adata.obs.image.str.replace(".tiff", "", regex=False)
     regions = regions.apply(lambda x: f"{x}_labels")
@@ -101,7 +101,7 @@ def steinbock(
         raise ValueError("Samples in table and images are inconsistent, please check.")
     table = TableModel.parse(adata, region=regions.unique().tolist(), region_key="region", instance_key="cell_id")
 
-    return SpatialData(images=images, labels=labels, table=table)
+    return SpatialData(images=images, labels=labels, tables={"table": table})
 
 
 def _get_images(

@@ -302,7 +302,7 @@ def _get_points(transcript_path: Path, transformations: dict[str, BaseTransforma
     transcript_df = dd.read_csv(transcript_path)
     transcripts = PointsModel.parse(
         transcript_df,
-        coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
+        coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y, "z": MerscopeKeys.GLOBAL_Z},
         transformations=transformations,
         feature_key=MerscopeKeys.GENE_KEY,
     )
