@@ -4,7 +4,6 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-import dask.array
 import dask.array as da
 import numpy as np
 import tifffile
@@ -123,7 +122,7 @@ def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[
     return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
 
 
-def _dask_image_imread(input: Path, data_axes: Sequence[str]) -> DaskArray[int | float]:
+def _dask_image_imread(input: Path, data_axes: Sequence[str]) -> da.Array:
     image = imread(input)
     if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
         image = np.squeeze(image, axis=0)

@@ -61,9 +61,9 @@ def _read_chunks(
     slide: Any,
     coords: NDArray[np.int_],
     n_channel: int,
-    dtype: np.number,
+    dtype: np.dtype[Any],
     **func_kwargs: Any,
-) -> list[list[da.array]]:
+) -> list[list[da.Array]]:
     """Abstract method to tile a large microscopy image.
 
     Parameters
