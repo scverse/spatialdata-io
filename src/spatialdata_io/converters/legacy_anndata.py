@@ -232,7 +232,7 @@ def from_legacy_anndata(adata: AnnData, rgb: bool | None = None) -> SpatialData:
     adata
         (legacy) spatial AnnData object
     rgb
-        Argument passed to :func:`spatialdata.models.Image2DModel.parse`. If `None`,
+        Argument passed to `spatialdata.models.Image2DModel.parse()`. If `None`,
         3-(4) channels images will be interpreted as RGB(A).
 
     Returns
