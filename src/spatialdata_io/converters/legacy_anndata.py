@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import warnings
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
-from anndata import AnnData
 from spatialdata import (
     SpatialData,
     get_centroids,
@@ -12,8 +12,12 @@ from spatialdata import (
     to_circles,
 )
 from spatialdata._core.operations._utils import transform_to_data_extent
+from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel, TableModel, get_table_keys
 from spatialdata.transformations import Identity, Scale
+
+if TYPE_CHECKING:
+    from anndata import AnnData
 
 
 def to_legacy_anndata(
@@ -22,8 +26,7 @@ def to_legacy_anndata(
     table_name: str | None = None,
     include_images: bool = False,
 ) -> AnnData:
-    """
-    Convert a SpatialData object to a (legacy) spatial AnnData object.
+    """Convert a SpatialData object to a (legacy) spatial AnnData object.
 
     This is useful for using packages expecting spatial information in AnnData, for example Scanpy and older versions
     of Squidpy. Using this format for any new package is not recommended.
@@ -113,9 +116,9 @@ def to_legacy_anndata(
         assert len(css) == 1, "The SpatialData object has more than one coordinate system. Please specify one."
         coordinate_system = css[0]
     else:
-        assert (
-            coordinate_system in css
-        ), f"The SpatialData object does not have the coordinate system {coordinate_system}."
+        assert coordinate_system in css, (
+            f"The SpatialData object does not have the coordinate system {coordinate_system}."
+        )
     sdata = sdata.filter_by_coordinate_system(coordinate_system)
 
     if table_name is None:
@@ -218,9 +221,8 @@ def to_legacy_anndata(
     return adata
 
 
-def from_legacy_anndata(adata: AnnData) -> SpatialData:
-    """
-    Convert (legacy) spatial AnnData object to SpatialData object.
+def from_legacy_anndata(adata: AnnData, rgb: bool | None = None) -> SpatialData:
+    """Convert (legacy) spatial AnnData object to SpatialData object.
 
     This is useful for parsing a (legacy) spatial AnnData object, for example the ones produced by Scanpy and older
     version of Squidpy.
@@ -229,6 +231,9 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
     ----------
     adata
         (legacy) spatial AnnData object
+    rgb
+        Argument passed to `spatialdata.models.Image2DModel.parse()`. If `None`,
+        3-(4) channels images will be interpreted as RGB(A).
 
     Returns
     -------
@@ -249,6 +254,7 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
     IMAGES = "images"
     HIRES = "hires"
     LOWRES = "lowres"
+    DEFAULT_SCALE_FACTOR = 1.0
 
     # SpatialData keys
     REGION = "locations"
@@ -264,72 +270,80 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
     if SPATIAL in adata.uns:
         dataset_ids = list(adata.uns[SPATIAL].keys())
         for dataset_id in dataset_ids:
-            # read the image data and the scale factors for the shapes
-            keys = set(adata.uns[SPATIAL][dataset_id].keys())
-            tissue_hires_scalef = None
-            tissue_lowres_scalef = None
-            hires = None
-            lowres = None
-            if SCALEFACTORS in keys:
-                scalefactors = adata.uns[SPATIAL][dataset_id][SCALEFACTORS]
-                if TISSUE_HIRES_SCALEF in scalefactors:
-                    tissue_hires_scalef = scalefactors[TISSUE_HIRES_SCALEF]
-                if TISSUE_LOWRES_SCALEF in scalefactors:
-                    tissue_lowres_scalef = scalefactors[TISSUE_LOWRES_SCALEF]
-                if SPOT_DIAMETER_FULLRES in scalefactors:
-                    spot_diameter_fullres_list.append(scalefactors[SPOT_DIAMETER_FULLRES])
-            if IMAGES in keys:
-                image_data = adata.uns[SPATIAL][dataset_id][IMAGES]
-                if HIRES in image_data:
-                    hires = image_data[HIRES]
-                if LOWRES in image_data:
-                    lowres = image_data[LOWRES]
+            dataset_data = adata.uns[SPATIAL][dataset_id]
+            keys = set(dataset_data.keys())
+            scalefactors_raw = dataset_data.get(SCALEFACTORS, {}) if isinstance(dataset_data, Mapping) else {}
+            scalefactors = scalefactors_raw if isinstance(scalefactors_raw, Mapping) else {}
 
-            # construct the spatialdata elements
-            if hires is not None:
-                # prepare the hires image
-                assert (
-                    tissue_hires_scalef is not None
-                ), "tissue_hires_scalef is required when an the hires image is present"
-                hires_image = Image2DModel.parse(
-                    hires, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_hires": Identity()}
+            if SPOT_DIAMETER_FULLRES in scalefactors:
+                spot_diameter_fullres_list.append(scalefactors[SPOT_DIAMETER_FULLRES])
+
+            image_data = dataset_data.get(IMAGES, {}) if IMAGES in keys and isinstance(dataset_data, Mapping) else {}
+            if not isinstance(image_data, Mapping):
+                image_data = {}
+            for image_key, image_value in image_data.items():
+                if image_key not in (HIRES, LOWRES):
+                    logger.warning(
+                        "Found non-standard image key '%s' in dataset '%s' - attempting to parse.",
+                        image_key,
+                        dataset_id,
+                    )
+                # prefer scalefactors keyed by the image name, fall back to tissue_<image_key>_scalef
+                # then to legacy hires/lowres names, finally default to 1.0.
+                scalefactor = None
+                scalefactor_source = None
+                if image_key in scalefactors:
+                    scalefactor = scalefactors[image_key]
+                    scalefactor_source = image_key
+                elif f"tissue_{image_key}_scalef" in scalefactors:
+                    scalefactor = scalefactors[f"tissue_{image_key}_scalef"]
+                    scalefactor_source = f"tissue_{image_key}_scalef"
+                elif image_key == HIRES and TISSUE_HIRES_SCALEF in scalefactors:
+                    scalefactor = scalefactors[TISSUE_HIRES_SCALEF]
+                    scalefactor_source = TISSUE_HIRES_SCALEF
+                elif image_key == LOWRES and TISSUE_LOWRES_SCALEF in scalefactors:
+                    scalefactor = scalefactors[TISSUE_LOWRES_SCALEF]
+                    scalefactor_source = TISSUE_LOWRES_SCALEF
+
+                if scalefactor is None:
+                    scalefactor = DEFAULT_SCALE_FACTOR
+                    logger.warning(
+                        "Scale factor missing for image '%s' in dataset '%s'; defaulting to %s",
+                        image_key,
+                        dataset_id,
+                        DEFAULT_SCALE_FACTOR,
+                    )
+                else:
+                    logger.debug(
+                        "Using scalefactor '%s' for image '%s' in dataset '%s'",
+                        scalefactor_source,
+                        image_key,
+                        dataset_id,
+                    )
+
+                transform_name = f"{dataset_id}_{image_key}"
+                image_name = f"{dataset_id}_{image_key}"
+                images[image_name] = Image2DModel.parse(
+                    image_value,
+                    dims=("y", "x", "c"),
+                    transformations={transform_name: Identity()},
+                    rgb=rgb,
                 )
-                images[f"{dataset_id}_hires_image"] = hires_image
-
-                # prepare the transformation to the hires image for the shapes
-                scale_hires = Scale([tissue_hires_scalef, tissue_hires_scalef], axes=("x", "y"))
-                shapes_transformations[f"{dataset_id}_downscaled_hires"] = scale_hires
-            if lowres is not None:
-                # prepare the lowres image
-                assert (
-                    tissue_lowres_scalef is not None
-                ), "tissue_lowres_scalef is required when an the lowres image is present"
-                lowres_image = Image2DModel.parse(
-                    lowres, dims=("y", "x", "c"), transformations={f"{dataset_id}_downscaled_lowres": Identity()}
-                )
-                images[f"{dataset_id}_lowres_image"] = lowres_image
-
-                # prepare the transformation to the lowres image for the shapes
-                scale_lowres = Scale([tissue_lowres_scalef, tissue_lowres_scalef], axes=("x", "y"))
-                shapes_transformations[f"{dataset_id}_downscaled_lowres"] = scale_lowres
+                shapes_transformations[transform_name] = Scale([scalefactor, scalefactor], axes=("x", "y"))
 
     # validate the spot_diameter_fullres value
     if len(spot_diameter_fullres_list) > 0:
         d = np.array(spot_diameter_fullres_list)
         if not np.allclose(d, d[0]):
-            warnings.warn(
+            logger.warning(
                 "spot_diameter_fullres is not constant across datasets. Using the average value.",
-                UserWarning,
-                stacklevel=2,
             )
             spot_diameter_fullres = d.mean()
         else:
             spot_diameter_fullres = d[0]
     else:
-        warnings.warn(
+        logger.warning(
             f"spot_diameter_fullres is not present. Using {SPOT_DIAMETER_FULLRES_DEFAULT} as default value.",
-            UserWarning,
-            stacklevel=2,
         )
         spot_diameter_fullres = SPOT_DIAMETER_FULLRES_DEFAULT
 
@@ -349,4 +363,4 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
         new_table = TableModel.parse(new_table, region=REGION, region_key=REGION_KEY, instance_key=INSTANCE_KEY)
     else:
         new_table = adata.copy()
-    return SpatialData(table=new_table, images=images, shapes=shapes)
+    return SpatialData(tables={"table": new_table}, images=images, shapes=shapes)

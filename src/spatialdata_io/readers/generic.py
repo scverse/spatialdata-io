@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
+import dask.array
 import dask.array as da
 import numpy as np
 import tifffile
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
-from numpy.typing import NDArray
 from spatialdata._docs import docstring_parameter
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.models._utils import DEFAULT_COORDINATE_SYSTEM
 from spatialdata.transformations import Identity
-from xarray import DataArray
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from geopandas import GeoDataFrame
+    from numpy.typing import NDArray
+    from xarray import DataArray
 
 from ._utils._image import _compute_chunks, _read_chunks
 
@@ -42,8 +47,7 @@ def generic(
     data_axes: Sequence[str] | None = None,
     coordinate_system: str | None = None,
 ) -> DataArray | GeoDataFrame:
-    """
-    Read a generic shapes or image file and save it as SpatialData zarr.
+    """Read a generic shapes or image file and save it as SpatialData zarr.
 
     Supported image types: {valid_image_types}.
     Supported shape types: {valid_shape_types} (only Polygons and MultiPolygons are supported).
@@ -62,6 +66,8 @@ def generic(
     -------
     Parsed spatial element.
     """
+    if isinstance(input, str):
+        input = Path(input)
     if coordinate_system is None:
         coordinate_system = DEFAULT_COORDINATE_SYSTEM
     if input.suffix in VALID_SHAPE_TYPES:
@@ -77,7 +83,7 @@ def generic(
 
 
 def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
-    """Reads a GeoJSON file and returns a parsed GeoDataFrame spatial element"""
+    """Reads a GeoJSON file and returns a parsed GeoDataFrame spatial element."""
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
@@ -117,8 +123,15 @@ def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[
     return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
 
 
+def _dask_image_imread(input: Path, data_axes: Sequence[str]) -> DaskArray[int | float]:
+    image = imread(input)
+    if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
+        image = np.squeeze(image, axis=0)
+    return image
+
+
 def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> DataArray:
-    """Reads an image file and returns a parsed Image2DModel"""
+    """Reads an image file and returns a parsed Image2D spatial element."""
     # Map passed data axes to position of dimension
     axes_dim_mapping = {axes: ndim for ndim, axes in enumerate(data_axes)}
 
@@ -128,21 +141,15 @@ def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> Data
             image = da.block(chunks, allow_unknown_chunksizes=True)
 
         # Edge case: Compressed images are not memory-mappable
-        except ValueError:
+        except ValueError as e:
             warnings.warn(
-                "Image data are not memory-mappable, potentially due to compression. Trying to load the image into memory at once",
+                f"Exception occurred: {str(e)}\nPossible troubleshooting: image data are not memory-mappable, potentially due to compression. Trying to load the image into memory at once",
                 stacklevel=2,
             )
-            image = imread(input)
-            if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
-                image = np.squeeze(image, axis=0)
-            image = image.transpose(axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"])
+            image = _dask_image_imread(input=input, data_axes=data_axes)
 
     elif input.suffix in [".png", ".jpg", ".jpeg"]:
-        image = imread(input)
-        if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
-            image = np.squeeze(image, axis=0)
-
+        image = _dask_image_imread(input=input, data_axes=data_axes)
     else:
         raise NotImplementedError(f"File format {input.suffix} not implemented")
 

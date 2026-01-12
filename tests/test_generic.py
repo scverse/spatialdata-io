@@ -126,7 +126,7 @@ def test_cli_read_generic_image_invalid_data_axes(runner: CliRunner) -> None:
             ],
         )
         assert result.exit_code != 0, result.output
-        assert "'invalid_axes' is not one of 'cyx', 'czyx'." in result.output
+        assert "data_axes must be a permutation of 'cyx' or 'czyx'." in result.exc_info[1].args[0]
 
 
 @pytest.mark.parametrize("cli", [True, False])

@@ -21,8 +21,7 @@ def generic_to_zarr(
     data_axes: str | None = None,
     coordinate_system: str | None = None,
 ) -> None:
-    """
-    Read generic data from an input file and save it as a SpatialData zarr store.
+    """Read generic data from an input file and save it as a SpatialData zarr store.
 
     Parameters
     ----------
@@ -69,14 +68,14 @@ def generic_to_zarr(
     )
 
     if output.exists():
-        sdata = SpatialData.read_zarr(output)
+        sdata = SpatialData.read(output)
         if name in sdata:
             raise ValueError(
                 f"Name {name} already exists in {output}; please provide a different name or delete the "
                 f"existing element."
             )
         sdata[name] = element
-        sdata.write_element(name, element_name=name)
+        sdata.write_element(element_name=name)
         print(f"Element {name} written to {output}")
     else:
         sdata = SpatialData.init_from_elements(elements={name: element})

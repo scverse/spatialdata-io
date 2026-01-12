@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 import pandas as pd
@@ -18,6 +17,9 @@ from spatialdata.models import Image2DModel, ShapesModel, TableModel
 from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 __all__ = ["codex"]
 
 
@@ -27,8 +29,7 @@ def codex(
     fcs: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *CODEX* formatted dataset.
+    """Read *CODEX* formatted dataset.
 
     This function reads the following files:
 

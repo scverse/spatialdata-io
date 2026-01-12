@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 
 
 def _compute_chunk_sizes_positions(size: int, chunk: int, min_coord: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
-    """Calculate chunk sizes and positions for a given dimension and chunk size"""
+    """Calculate chunk sizes and positions for a given dimension and chunk size."""
     # All chunks have the same size except for the last one
     positions = np.arange(min_coord, min_coord + size, chunk)
     lengths = np.minimum(chunk, min_coord + size - positions)

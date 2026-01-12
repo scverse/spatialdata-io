@@ -1,0 +1,23 @@
+{
+    "version": 1,
+    "project": "spatialdata-io",
+    "project_url": "https://github.com/scverse/spatialdata-io",
+    "repo": ".",
+    "branches": ["main", "xenium-labels-dask", "xenium-labels-dask-zipstore"],
+    "dvcs": "git",
+    "environment_type": "virtualenv",
+    "pythons": ["3.12"],
+    "build_command": [],
+    "install_command": ["python -m pip install {build_dir}[test]"],
+    "uninstall_command": ["python -m pip uninstall -y {project}"],
+    "env_dir": ".asv/env",
+    "results_dir": ".asv/results",
+    "html_dir": ".asv/html",
+    "benchmark_dir": "benchmarks",
+    "hash_length": 8,
+    "build_cache_size": 2,
+    "install_timeout": 600,
+    "repeat": 3,
+    "processes": 1,
+    "attribute_selection": ["time_*", "peakmem_*"]
+}
