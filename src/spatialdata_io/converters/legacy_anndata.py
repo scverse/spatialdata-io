@@ -221,7 +221,7 @@ def to_legacy_anndata(
     return adata
 
 
-def from_legacy_anndata(adata: AnnData) -> SpatialData:
+def from_legacy_anndata(adata: AnnData, rgb: bool | None = None) -> SpatialData:
     """Convert (legacy) spatial AnnData object to SpatialData object.
 
     This is useful for parsing a (legacy) spatial AnnData object, for example the ones produced by Scanpy and older
@@ -231,6 +231,9 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
     ----------
     adata
         (legacy) spatial AnnData object
+    rgb
+        Argument passed to `spatialdata.models.Image2DModel.parse()`. If `None`,
+        3-(4) channels images will be interpreted as RGB(A).
 
     Returns
     -------
@@ -321,7 +324,10 @@ def from_legacy_anndata(adata: AnnData) -> SpatialData:
                 transform_name = f"{dataset_id}_{image_key}"
                 image_name = f"{dataset_id}_{image_key}"
                 images[image_name] = Image2DModel.parse(
-                    image_value, dims=("y", "x", "c"), transformations={transform_name: Identity()}
+                    image_value,
+                    dims=("y", "x", "c"),
+                    transformations={transform_name: Identity()},
+                    rgb=rgb,
                 )
                 shapes_transformations[transform_name] = Scale([scalefactor, scalefactor], axes=("x", "y"))
 
