@@ -55,8 +55,7 @@ def _compute_chunks(
 
 def _read_chunks(
     # TODO: expand type hints for ...
-    # TODO: really only np.int_? Not float? Consider using np.number
-    func: Callable[..., NDArray[np.int_]],
+    func: Callable[..., NDArray[np.number]],
     slide: Any,
     coords: NDArray[np.int_],
     n_channel: int,

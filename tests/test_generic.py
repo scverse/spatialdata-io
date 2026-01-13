@@ -57,10 +57,9 @@ def save_tiff_files(
         sdata = blobs()
         # save the image as tiff
         x = sdata["blobs_image"].transpose(*axes).data.compute()
-        img = np.clip(x * 255, 0, 255).astype(np.uint8)
 
         tiff_path = Path(tmpdir) / "blobs_image.tiff"
-        tiffwrite(tiff_path, img, compression=compression)
+        tiffwrite(tiff_path, x, compression=compression)
 
         yield tiff_path, axes, compression
 

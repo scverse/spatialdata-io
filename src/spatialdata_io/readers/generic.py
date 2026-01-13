@@ -86,7 +86,7 @@ def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
-def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[DaskArray[np.int_]]]:
+def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[DaskArray[np.number]]]:
     """Chunkwise reader for tiff files.
 
     Parameters
@@ -116,7 +116,7 @@ def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[
     chunk_coords = _compute_chunks(slide_dimensions, chunk_size=DEFAULT_CHUNKSIZE)
 
     # Define reader func
-    def _reader_func(slide: NDArray[np.int_], x0: int, y0: int, width: int, height: int) -> NDArray[np.int_]:
+    def _reader_func(slide: NDArray[np.number], x0: int, y0: int, width: int, height: int) -> NDArray[np.number]:
         return np.array(slide[:, y0 : y0 + height, x0 : x0 + width])
 
     return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
