@@ -104,9 +104,12 @@ def _read_chunks(
     )`, we use the more common `(y, x)` ordering: the inner list (dim = -1) iterates
     over `x` values, and the outer list (dim = -2) iterates over `y` values.
 
-    This mismatch can be confusing. A straightforward fix is to standardize `coords`
-    to `(y, x, height, width)` instead of `(x, y, width, height)`.
+    This mismatch can be confusing. A straightforward fix that one could perform would
+    be to standardize `coords` to `(y, x, height, width)` instead of
+    `(x, y, width, height)`.
     """
+    # TODO: standardize `coords` as explained in the docstring above, then remove that
+    # part from the docstring
     func_kwargs = func_kwargs if func_kwargs else {}
 
     # Collect each delayed chunk as item in list of list
