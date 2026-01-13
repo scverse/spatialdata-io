@@ -54,7 +54,6 @@ def _compute_chunks(
 
 
 def _read_chunks(
-    # TODO: expand type hints for ...
     func: Callable[..., NDArray[np.number]],
     slide: Any,
     coords: NDArray[np.int_],
@@ -94,13 +93,23 @@ def _read_chunks(
     Returns
     -------
     list[list[da.array]]
-        List (length: n_row_x) of lists (length: n_row_y) of chunks.
-        Represents all chunks of the full image.
+        (Outer) list (length: n_row_y) of (inner) lists (length: n_row_x) of chunks with axes
+        (c, y, x). Represents all chunks of the full image.
+
+    Notes
+    -------
+    As seen in _compute_chunks(), since coords are in format (x, y, width, height), the
+    inner list there (dim=-1) runs over the y values and the outer list (dim=-2) runs
+    over the x values. In _read_chunks() we have the more common (y, x) format, where
+    the inner list (dim=-1) runs over the x values and the outer list (dim=-2) runs over
+    the y values.
+
+    The above can be confusing, and a way to address this is to define coords to be
+    in format (y, x, height, width) instead of (x, y, width, height).
     """
     func_kwargs = func_kwargs if func_kwargs else {}
 
     # Collect each delayed chunk as item in list of list
-    # TODO: check, wasn't it x, y and not y, x?
     # Inner list becomes dim=-1 (cols/x)
     # Outer list becomes dim=-2 (rows/y)
     # see dask.array.block
@@ -109,21 +118,18 @@ def _read_chunks(
             da.from_delayed(
                 delayed(func)(
                     slide,
-                    x0=coords[y, x, 0],
-                    y0=coords[y, x, 1],
-                    width=coords[y, x, 2],
-                    height=coords[y, x, 3],
+                    x0=coords[x, y, 0],
+                    y0=coords[x, y, 1],
+                    width=coords[x, y, 2],
+                    height=coords[x, y, 3],
                     **func_kwargs,
                 ),
                 dtype=dtype,
-                # TODO: double check the [3, 2] with debugger
                 shape=(n_channel, *coords[y, x, [3, 2]]),
             )
-            # TODO: seems inconsistent with coords docstring
-            for x in range(coords.shape[1])
+            for x in range(coords.shape[0])
         ]
-        # TODO: seems inconsistent with coords docstring
-        for y in range(coords.shape[0])
+        for y in range(coords.shape[1])
     ]
     return chunks
 

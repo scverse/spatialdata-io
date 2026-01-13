@@ -116,7 +116,7 @@ def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[
     chunk_coords = _compute_chunks(slide_dimensions, chunk_size=DEFAULT_CHUNKSIZE)
 
     # Define reader func
-    def _reader_func(slide: NDArray[np.number], x0: int, y0: int, width: int, height: int) -> NDArray[np.number]:
+    def _reader_func(slide: np.memmap, x0: int, y0: int, width: int, height: int) -> NDArray[np.number]:
         return np.array(slide[:, y0 : y0 + height, x0 : x0 + width])
 
     return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
@@ -142,7 +142,6 @@ def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> Data
 
         # Edge case: Compressed images are not memory-mappable
         except ValueError as e:
-            # TODO: change to logger warning
             logger.warning(
                 f"Exception occurred: {str(e)}\nPossible troubleshooting: image data "
                 "is not memory-mappable, potentially due to compression. Trying to "
