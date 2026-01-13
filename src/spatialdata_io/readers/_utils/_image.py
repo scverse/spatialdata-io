@@ -39,15 +39,14 @@ def _compute_chunks(
         Array of shape (n_tiles_x, n_tiles_y, 4). Each entry defines a tile
         as (x, y, width, height).
     """
-    # TODO: check x -> 1 and y -> 0?
-    x_positions, widths = _compute_chunk_sizes_positions(shape[1], chunk_size[1])
-    y_positions, heights = _compute_chunk_sizes_positions(shape[0], chunk_size[0])
+    x_positions, widths = _compute_chunk_sizes_positions(shape[0], chunk_size[0])
+    y_positions, heights = _compute_chunk_sizes_positions(shape[1], chunk_size[1])
 
     # Generate the tiles
     tiles = np.array(
         [
-            [[x, y, w, h] for x, w in zip(x_positions, widths, strict=True)]
-            for y, h in zip(y_positions, heights, strict=True)
+            [[x, y, w, h] for y, h in zip(y_positions, heights, strict=True)]
+            for x, w in zip(x_positions, widths, strict=True)
         ],
         dtype=int,
     )

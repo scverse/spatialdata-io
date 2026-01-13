@@ -9,7 +9,7 @@ from spatialdata_io.readers._utils._image import (
 
 
 @pytest.mark.parametrize(
-    ("size", "chunk", "positions", "lengths"),
+    ("size", "chunk", "expected_positions", "expected_lengths"),
     [
         (300, 100, np.array([0, 100, 200]), np.array([100, 100, 100])),
         (300, 200, np.array([0, 200]), np.array([200, 100])),
@@ -18,12 +18,12 @@ from spatialdata_io.readers._utils._image import (
 def test_compute_chunk_sizes_positions(
     size: int,
     chunk: int,
-    positions: NDArray[np.number],
-    lengths: NDArray[np.number],
+    expected_positions: NDArray[np.number],
+    expected_lengths: NDArray[np.number],
 ) -> None:
     computed_positions, computed_lengths = _compute_chunk_sizes_positions(size, chunk)
-    assert (positions == computed_positions).all()
-    assert (lengths == computed_lengths).all()
+    assert (expected_positions == computed_positions).all()
+    assert (expected_lengths == computed_lengths).all()
 
 
 @pytest.mark.parametrize(
@@ -33,13 +33,24 @@ def test_compute_chunk_sizes_positions(
         (
             (2, 2),
             (1, 1),
-            np.array([[[0, 0, 1, 1], [1, 0, 1, 1]], [[0, 1, 1, 1], [1, 1, 1, 1]]]),
+            np.array(
+                [
+                    [[0, 0, 1, 1], [0, 1, 1, 1]],
+                    [[1, 0, 1, 1], [1, 1, 1, 1]],
+                ]
+            ),
         ),
         # Different tile sizes
         (
-            (3, 3),
-            (2, 2),
-            np.array([[[0, 0, 2, 2], [2, 0, 1, 2]], [[0, 2, 2, 1], [2, 2, 1, 1]]]),
+            (300, 300),
+            (100, 200),
+            np.array(
+                [
+                    [[0, 0, 100, 200], [0, 200, 100, 100]],
+                    [[100, 0, 100, 200], [100, 200, 100, 100]],
+                    [[200, 0, 100, 200], [200, 200, 100, 100]],
+                ]
+            ),
         ),
     ],
 )
