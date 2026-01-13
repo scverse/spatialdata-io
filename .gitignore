@@ -42,3 +42,4 @@ data
 data/
 tests/data
 uv.lock
+.asv/

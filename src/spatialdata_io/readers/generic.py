@@ -25,7 +25,7 @@ from ._utils._image import _compute_chunks, _read_chunks
 
 VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
-DEFAULT_CHUNKSIZE = (1000, 1000)
+DEFAULT_CHUNK_SIZE = (1000, 1000)
 
 __all__ = ["generic", "geojson", "image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
 
@@ -86,7 +86,11 @@ def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
     return ShapesModel.parse(input, transformations={coordinate_system: Identity()})
 
 
-def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[DaskArray[np.number]]]:
+def _tiff_to_chunks(
+    input: Path,
+    axes_dim_mapping: dict[str, int],
+    chunk_size: tuple[int, int] | None = None,
+) -> list[list[DaskArray[np.number]]]:
     """Chunkwise reader for tiff files.
 
     Parameters
@@ -95,11 +99,16 @@ def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[
         Path to image
     axes_dim_mapping
         Mapping between dimension name (x, y, c) and index
+    chunk_size
+        Chunk size in (x, y) order. If None, defaults to DEFAULT_CHUNK_SIZE.
 
     Returns
     -------
     list[list[DaskArray]]
     """
+    if chunk_size is None:
+        chunk_size = DEFAULT_CHUNK_SIZE
+
     # Lazy file reader
     slide = tifffile.memmap(input)
 
@@ -113,7 +122,7 @@ def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[
     n_channel = slide.shape[0]
 
     # Compute chunk coords
-    chunk_coords = _compute_chunks(slide_dimensions, chunk_size=DEFAULT_CHUNKSIZE)
+    chunk_coords = _compute_chunks(slide_dimensions, chunk_size=chunk_size)
 
     # Define reader func
     def _reader_func(slide: np.memmap, x0: int, y0: int, width: int, height: int) -> NDArray[np.number]:
@@ -129,15 +138,43 @@ def _dask_image_imread(input: Path, data_axes: Sequence[str]) -> da.Array:
     return image
 
 
-def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> DataArray:
-    """Reads an image file and returns a parsed Image2D spatial element."""
+def image(
+    input: Path,
+    data_axes: Sequence[str],
+    coordinate_system: str,
+    use_tiff_memmap: bool = True,
+    chunks: tuple[int, int] | None = None,
+    scale_factors: Sequence[int] | None = None,
+) -> DataArray:
+    """Reads an image file and returns a parsed Image2D spatial element.
+
+    Parameters
+    ----------
+    input
+        Path to the image file.
+    data_axes
+        Axes of the data.
+    coordinate_system
+        Coordinate system of the spatial element.
+    use_tiff_memmap
+        Whether to use memory-mapped reading for TIFF files.
+    chunks
+        Chunk size in (x, y) order for TIFF files. If None, defaults to (1000, 1000).
+    scale_factors
+        Scale factors for building a multiscale image pyramid. Passed to Image2DModel.parse().
+
+    Returns
+    -------
+    Parsed Image2D spatial element.
+    """
     # Map passed data axes to position of dimension
     axes_dim_mapping = {axes: ndim for ndim, axes in enumerate(data_axes)}
 
-    if input.suffix in [".tiff", ".tif"]:
+    im = None
+    if input.suffix in [".tiff", ".tif"] and use_tiff_memmap:
         try:
-            chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping)
-            image = da.block(chunks, allow_unknown_chunksizes=True)
+            im_chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping, chunk_size=chunks)
+            im = da.block(im_chunks, allow_unknown_chunksizes=True)
             data_axes = ["c", "y", "x"]
 
         # Edge case: Compressed images are not memory-mappable
@@ -147,11 +184,14 @@ def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> Data
                 "is not memory-mappable, potentially due to compression. Trying to "
                 "load the image into memory at once",
             )
-            image = _dask_image_imread(input=input, data_axes=data_axes)
+            use_tiff_memmap = False
 
-    elif input.suffix in [".png", ".jpg", ".jpeg"]:
-        image = _dask_image_imread(input=input, data_axes=data_axes)
-    else:
+    if input.suffix in [".tiff", ".tif"] and not use_tiff_memmap or input.suffix in [".png", ".jpg", ".jpeg"]:
+        im = _dask_image_imread(input=input, data_axes=data_axes)
+
+    if im is None:
         raise NotImplementedError(f"File format {input.suffix} not implemented")
 
-    return Image2DModel.parse(image, dims=data_axes, transformations={coordinate_system: Identity()})
+    return Image2DModel.parse(
+        im, dims=data_axes, transformations={coordinate_system: Identity()}, scale_factors=scale_factors
+    )

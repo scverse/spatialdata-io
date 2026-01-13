@@ -11,18 +11,18 @@ Running:
     cd /path/to/spatialdata-io
 
     # Quick benchmark (single run, for testing):
-    asv run --python=same -b IOBenchmark --quick --show-stderr -v
+    asv run --python=same -b IOBenchmarkXenium --quick --show-stderr -v
 
     # Full benchmark (multiple runs, for accurate results):
-    asv run --python=same -b IOBenchmark --show-stderr -v
+    asv run --python=same -b IOBenchmarkXenium --show-stderr -v
 
 Comparing branches:
     # Run on specific commits:
-    asv run main^! -b IOBenchmark --show-stderr -v
-    asv run xenium-labels-dask^! -b IOBenchmark --show-stderr -v
+    asv run main^! -b IOBenchmarkXenium --show-stderr -v
+    asv run xenium-labels-dask^! -b IOBenchmarkXenium --show-stderr -v
 
     # Or compare two branches directly:
-    asv continuous main xenium-labels-dask -b IOBenchmark --show-stderr -v
+    asv continuous main xenium-labels-dask -b IOBenchmarkXenium --show-stderr -v
 
     # View comparison:
     asv compare main xenium-labels-dask
@@ -36,7 +36,6 @@ Results:
 import inspect
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from spatialdata import SpatialData
 
@@ -62,9 +61,7 @@ def get_paths() -> tuple[Path, Path]:
     return path_read, path_write
 
 
-class IOBenchmark:
-    """Benchmark IO read operations."""
-
+class IOBenchmarkXenium:
     timeout = 3600
     repeat = 3
     number = 1
@@ -106,4 +103,4 @@ class IOBenchmark:
 
 
 if __name__ == "__main__":
-    IOBenchmark().time_io()
+    IOBenchmarkXenium().time_io()
