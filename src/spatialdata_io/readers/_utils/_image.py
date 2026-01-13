@@ -7,11 +7,11 @@ from dask import delayed
 from numpy.typing import NDArray
 
 
-def _compute_chunk_sizes_positions(size: int, chunk: int, min_coord: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
+def _compute_chunk_sizes_positions(size: int, chunk: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
     """Calculate chunk sizes and positions for a given dimension and chunk size."""
     # All chunks have the same size except for the last one
-    positions = np.arange(min_coord, min_coord + size, chunk)
-    lengths = np.minimum(chunk, min_coord + size - positions)
+    positions = np.arange(0, size, chunk)
+    lengths = np.minimum(chunk, size - positions)
 
     return positions, lengths
 
@@ -19,7 +19,6 @@ def _compute_chunk_sizes_positions(size: int, chunk: int, min_coord: int) -> tup
 def _compute_chunks(
     shape: tuple[int, int],
     chunk_size: tuple[int, int],
-    min_coordinates: tuple[int, int] = (0, 0),
 ) -> NDArray[np.int_]:
     """Create all chunk specs for a given image and chunk size.
 
@@ -33,8 +32,6 @@ def _compute_chunks(
         Size of the image in (width, height).
     chunk_size : tuple[int, int]
         Size of individual tiles in (width, height).
-    min_coordinates : tuple[int, int], optional
-        Minimum coordinates (x, y) in the image, defaults to (0, 0).
 
     Returns
     -------
@@ -43,8 +40,8 @@ def _compute_chunks(
         as (x, y, width, height).
     """
     # TODO: check x -> 1 and y -> 0?
-    x_positions, widths = _compute_chunk_sizes_positions(shape[1], chunk_size[1], min_coord=min_coordinates[1])
-    y_positions, heights = _compute_chunk_sizes_positions(shape[0], chunk_size[0], min_coord=min_coordinates[0])
+    x_positions, widths = _compute_chunk_sizes_positions(shape[1], chunk_size[1])
+    y_positions, heights = _compute_chunk_sizes_positions(shape[0], chunk_size[0])
 
     # Generate the tiles
     tiles = np.array(

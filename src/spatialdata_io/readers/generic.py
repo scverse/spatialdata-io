@@ -113,7 +113,7 @@ def _tiff_to_chunks(input: Path, axes_dim_mapping: dict[str, int]) -> list[list[
     n_channel = slide.shape[0]
 
     # Compute chunk coords
-    chunk_coords = _compute_chunks(slide_dimensions, chunk_size=DEFAULT_CHUNKSIZE, min_coordinates=(0, 0))
+    chunk_coords = _compute_chunks(slide_dimensions, chunk_size=DEFAULT_CHUNKSIZE)
 
     # Define reader func
     def _reader_func(slide: NDArray[np.int_], x0: int, y0: int, width: int, height: int) -> NDArray[np.int_]:
