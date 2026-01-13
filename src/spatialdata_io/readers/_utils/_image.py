@@ -98,14 +98,14 @@ def _read_chunks(
 
     Notes
     -------
-    As seen in _compute_chunks(), since coords are in format (x, y, width, height), the
-    inner list there (dim=-1) runs over the y values and the outer list (dim=-2) runs
-    over the x values. In _read_chunks() we have the more common (y, x) format, where
-    the inner list (dim=-1) runs over the x values and the outer list (dim=-2) runs over
-    the y values.
+    As shown in `_compute_chunks()`, `coords` are in the form `(x, y,
+    width, height)`. In that function, the inner list (dim = -1) iterates over `y`
+    values, and the outer list (dim = -2) iterates over `x` values. In `_read_chunks(
+    )`, we use the more common `(y, x)` ordering: the inner list (dim = -1) iterates
+    over `x` values, and the outer list (dim = -2) iterates over `y` values.
 
-    The above can be confusing, and a way to address this is to define coords to be
-    in format (y, x, height, width) instead of (x, y, width, height).
+    This mismatch can be confusing. A straightforward fix is to standardize `coords`
+    to `(y, x, height, width)` instead of `(x, y, width, height)`.
     """
     func_kwargs = func_kwargs if func_kwargs else {}
 
