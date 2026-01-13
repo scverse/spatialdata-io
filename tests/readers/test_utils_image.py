@@ -13,6 +13,7 @@ from spatialdata_io.readers._utils._image import (
     [
         (300, 100, 0, np.array([0, 100, 200]), np.array([100, 100, 100])),
         (300, 200, 0, np.array([0, 200]), np.array([200, 100])),
+        # TODO: why negative coordinates if used only for 0, 0?
         (300, 100, -100, np.array([-100, 0, 100]), np.array([100, 100, 100])),
         (300, 200, -100, np.array([-100, 100]), np.array([200, 100])),
     ],

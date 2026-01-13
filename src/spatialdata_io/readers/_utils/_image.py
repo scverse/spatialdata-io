@@ -42,6 +42,7 @@ def _compute_chunks(
         Array of shape (n_tiles_x, n_tiles_y, 4). Each entry defines a tile
         as (x, y, width, height).
     """
+    # TODO: check x -> 1 and y -> 0?
     x_positions, widths = _compute_chunk_sizes_positions(shape[1], chunk_size[1], min_coord=min_coordinates[1])
     y_positions, heights = _compute_chunk_sizes_positions(shape[0], chunk_size[0], min_coord=min_coordinates[0])
 
@@ -57,6 +58,8 @@ def _compute_chunks(
 
 
 def _read_chunks(
+    # TODO: expand type hints for ...
+    # TODO: really only np.int_? Not float? Consider using np.number
     func: Callable[..., NDArray[np.int_]],
     slide: Any,
     coords: NDArray[np.int_],
@@ -80,7 +83,7 @@ def _read_chunks(
 
         and should return the chunk as numpy array of shape (c, y, x)
     slide
-        Slide image in lazyly loaded format compatible with func
+        Slide image in lazily loaded format compatible with func
     coords
         Coordinates of the upper left corner of the image in format (n_row_x, n_row_y, 4)
         where the last dimension defines the rectangular tile in format (x, y, width, height).
@@ -102,6 +105,7 @@ def _read_chunks(
     func_kwargs = func_kwargs if func_kwargs else {}
 
     # Collect each delayed chunk as item in list of list
+    # TODO: check, wasn't it x, y and not y, x?
     # Inner list becomes dim=-1 (cols/x)
     # Outer list becomes dim=-2 (rows/y)
     # see dask.array.block
@@ -117,10 +121,16 @@ def _read_chunks(
                     **func_kwargs,
                 ),
                 dtype=dtype,
+                # TODO: double check the [3, 2] with debugger
                 shape=(n_channel, *coords[y, x, [3, 2]]),
             )
+            # TODO: seems inconsistent with coords docstring
             for x in range(coords.shape[1])
         ]
+        # TODO: seems inconsistent with coords docstring
         for y in range(coords.shape[0])
     ]
     return chunks
+
+
+# TODO: do a asv debugging for peak mem

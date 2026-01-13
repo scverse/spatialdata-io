@@ -68,8 +68,9 @@ def test_read_tiff(save_tiff_files: tuple[Path, tuple[str], Path]) -> None:
     img = image(tiff_path, data_axes=axes, coordinate_system="global")
 
     reference = tiffread(tiff_path)
+    reference_cyx = reference.transpose(*[axes.index(ax) for ax in ["c", "y", "x"]])
 
-    assert (img.compute() == reference).all()
+    assert (img.compute() == reference_cyx).all()
 
 
 @pytest.mark.parametrize("cli", [True, False])

@@ -138,9 +138,11 @@ def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> Data
         try:
             chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping)
             image = da.block(chunks, allow_unknown_chunksizes=True)
+            data_axes = ["c", "y", "x"]
 
         # Edge case: Compressed images are not memory-mappable
         except ValueError as e:
+            # TODO: change to logger warning
             warnings.warn(
                 f"Exception occurred: {str(e)}\nPossible troubleshooting: image data are not memory-mappable, potentially due to compression. Trying to load the image into memory at once",
                 stacklevel=2,
