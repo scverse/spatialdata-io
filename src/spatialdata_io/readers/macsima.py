@@ -196,9 +196,14 @@ class MultiChannelImage:
         return [c.exposure for c in self.metadata]
 
     def sort_by_channel(self) -> None:
-        """Sort the channels by cycle number."""
-        self.data = [d for _, d in sorted(zip(self.metadata, self.data, strict=True), key=lambda x: x[0].cycle)]
-        self.metadata = sorted(self.metadata, key=lambda x: x.cycle)
+        """Sort the channels by cycle number.
+
+        Use channel name as tie breaker.
+        """
+        pairs = sorted(zip(self.metadata, self.data, strict=True), key=lambda x: (x[0].cycle, x[0].name))
+
+        self.metadata = [m for m, _ in pairs]
+        self.data = [d for _, d in pairs]
 
     def subset(self, subset: int | None = None) -> MultiChannelImage:
         """Subsets the images to keep only the first `subset` x `subset` pixels."""

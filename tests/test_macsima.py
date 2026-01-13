@@ -109,10 +109,10 @@ def test_total_channels(dataset: str, expected: int) -> None:
 @pytest.mark.parametrize(
     "dataset,expected",
     [
-        ("OMAP10_small", ["R1 DAPI", "R1 CD15", "R2 Bcl 2", "R2 CD1c"]),
+        ("OMAP10_small", ["R1 CD15", "R1 DAPI", "R2 Bcl 2", "R2 CD1c"]),
         (
             "OMAP23_small",
-            ["R1 DAPI", "R1 CD3", "R2 CD279", "R4 CD66b", "R15 DAPI_background"],
+            ["R1 CD3", "R1 DAPI", "R2 CD279", "R4 CD66b", "R15 DAPI_background"],
         ),
     ],
 )
@@ -148,11 +148,11 @@ def test_total_rounds(dataset: str, expected: list[int]) -> None:
 @pytest.mark.parametrize(
     "dataset,skip_rounds,expected",
     [
-        ("OMAP10_small", list(range(2, 4)), ["DAPI", "CD15"]),
+        ("OMAP10_small", list(range(2, 4)), ["CD15", "DAPI"]),
         (
             "OMAP23_small",
             list(range(2, 16)),
-            ["DAPI", "CD3"],
+            ["CD3", "DAPI"],
         ),
     ],
 )
@@ -179,31 +179,31 @@ METADATA_COLUMN_ORDER = [
 
 EXPECTED_METADATA_OMAP10 = pd.DataFrame(
     {
-        "name": ["DAPI", "CD15", "Bcl 2", "CD1c"],
+        "name": ["CD15", "DAPI", "Bcl 2", "CD1c"],
         "cycle": [1, 1, 2, 2],
         "imagetype": ["stain", "stain", "stain", "stain"],
         "well": ["C-1", "C-1", "C-1", "C-1"],
         "ROI": [1, 1, 1, 1],
-        "fluorophore": ["DAPI", "APC", "FITC", "PE"],
-        "clone": [pd.NA, "VIMC6", "REA872", "REA694"],
-        "exposure": [40.0, 2304.0, 96.0, 144.0],
+        "fluorophore": ["APC", "DAPI", "FITC", "PE"],
+        "clone": ["VIMC6", pd.NA, "REA872", "REA694"],
+        "exposure": [2304.0, 40.0, 96.0, 144.0],
     },
-    index=["DAPI", "CD15", "Bcl 2", "CD1c"],
+    index=["CD15", "DAPI", "Bcl 2", "CD1c"],
     columns=METADATA_COLUMN_ORDER,
 )
 
 EXPECTED_METADATA_OMAP23 = pd.DataFrame(
     {
-        "name": ["DAPI", "CD3", "CD279", "CD66b", "DAPI_background"],
+        "name": ["CD3", "DAPI", "CD279", "CD66b", "DAPI_background"],
         "cycle": [1, 1, 2, 4, 15],
         "imagetype": ["stain", "stain", "stain", "stain", "bleach"],
         "well": ["D01", "D01", "D01", "D01", "D01"],
         "ROI": [1, 1, 1, 1, 1],
-        "fluorophore": ["DAPI", "APC", "PE", "FITC", "DAPI"],
-        "clone": [pd.NA, "REA1151", "REA1165", "REA306", pd.NA],
-        "exposure": [51.0, 1212.52, 322.12, 856.68, 51.0],
+        "fluorophore": ["APC", "DAPI", "PE", "FITC", "DAPI"],
+        "clone": ["REA1151", pd.NA, "REA1165", "REA306", pd.NA],
+        "exposure": [1212.52, 51.0, 322.12, 856.68, 51.0],
     },
-    index=["DAPI", "CD3", "CD279", "CD66b", "DAPI_background"],
+    index=["CD3", "DAPI", "CD279", "CD66b", "DAPI_background"],
     columns=METADATA_COLUMN_ORDER,
 )
 
