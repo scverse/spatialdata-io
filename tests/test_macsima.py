@@ -469,6 +469,34 @@ def test_parse_v0_ome_metadata_handles_missing_or_invalid_numeric_fields() -> No
     assert md["well"] is None
 
 
+def test_parse_v0_ome_metadata_falls_back_to_MICScycleID_if_no_cycle_keyword() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(
+                    value={
+                        "MICS cycle ID": "5",
+                    }
+                )
+            ]
+        ),
+    )
+
+    md = _parse_v0_ome_metadata(ome)
+    assert md["cycle"] == 5
+
+
+def test_parse_v0_ome_metadata_prefers_Cycle_over_MICScycleID_keyword() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[MapAnnotation(value={"MICS cycle ID": "5", "Cycle": "1"})]
+        ),
+    )
+
+    md = _parse_v0_ome_metadata(ome)
+    assert md["cycle"] == 1
+
+
 def test_parse_v0_ome_metadata_bleach_cycle_appends_background() -> None:
     ome = OME(
         structured_annotations=StructuredAnnotations(

@@ -456,8 +456,12 @@ def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
         except (TypeError, ValueError):
             metadata["exposure"] = None
 
+    cyc = None
     if "Cycle" in ma_values:
         cyc = ma_values["Cycle"]
+    elif "MICS cycle ID" in ma_values:  # Very old formats do not have "Cycle", then use "MICS cycle ID"
+        cyc = ma_values["MICS cycle ID"]
+    if cyc:
         try:
             metadata["cycle"] = int(cyc)
         except (TypeError, ValueError):
