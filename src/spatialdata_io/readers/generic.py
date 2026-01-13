@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
@@ -10,6 +9,7 @@ import tifffile
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from spatialdata._docs import docstring_parameter
+from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.models._utils import DEFAULT_COORDINATE_SYSTEM
 from spatialdata.transformations import Identity
@@ -71,7 +71,7 @@ def generic(
         coordinate_system = DEFAULT_COORDINATE_SYSTEM
     if input.suffix in VALID_SHAPE_TYPES:
         if data_axes is not None:
-            warnings.warn("data_axes is not used for geojson files", UserWarning, stacklevel=2)
+            logger.warning("data_axes is not used for geojson files")
         return geojson(input, coordinate_system=coordinate_system)
     elif input.suffix in VALID_IMAGE_TYPES:
         if data_axes is None:
@@ -143,9 +143,10 @@ def image(input: Path, data_axes: Sequence[str], coordinate_system: str) -> Data
         # Edge case: Compressed images are not memory-mappable
         except ValueError as e:
             # TODO: change to logger warning
-            warnings.warn(
-                f"Exception occurred: {str(e)}\nPossible troubleshooting: image data are not memory-mappable, potentially due to compression. Trying to load the image into memory at once",
-                stacklevel=2,
+            logger.warning(
+                f"Exception occurred: {str(e)}\nPossible troubleshooting: image data "
+                "is not memory-mappable, potentially due to compression. Trying to "
+                "load the image into memory at once",
             )
             image = _dask_image_imread(input=input, data_axes=data_axes)
 

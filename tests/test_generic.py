@@ -1,3 +1,4 @@
+import logging
 import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -8,6 +9,7 @@ import pytest
 from click.testing import CliRunner
 from PIL import Image
 from spatialdata import SpatialData
+from spatialdata._logging import logger
 from spatialdata.datasets import blobs
 from tifffile import imread as tiffread
 from tifffile import imwrite as tiffwrite
@@ -60,12 +62,19 @@ def save_tiff_files(
         tiff_path = Path(tmpdir) / "blobs_image.tiff"
         tiffwrite(tiff_path, img, compression=compression)
 
-        yield tiff_path, axes, Path(tmpdir)
+        yield tiff_path, axes, compression
 
 
-def test_read_tiff(save_tiff_files: tuple[Path, tuple[str], Path]) -> None:
-    tiff_path, axes, _ = save_tiff_files
-    img = image(tiff_path, data_axes=axes, coordinate_system="global")
+def test_read_tiff(save_tiff_files: tuple[Path, tuple[str], str | None], caplog: pytest.LogCaptureFixture) -> None:
+    tiff_path, axes, compression = save_tiff_files
+
+    logger.propagate = True
+    with caplog.at_level(logging.WARNING):
+        img = image(tiff_path, data_axes=axes, coordinate_system="global")
+        if compression is not None:
+            assert "image data is not memory-mappable, potentially due to compression" in caplog.text
+
+    logger.propagate = False
 
     reference = tiffread(tiff_path)
     reference_cyx = reference.transpose(*[axes.index(ax) for ax in ["c", "y", "x"]])
