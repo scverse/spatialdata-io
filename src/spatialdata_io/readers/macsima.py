@@ -78,6 +78,7 @@ class MultiChannelImage:
         imread_kwargs: Mapping[str, Any],
         skip_rounds: list[int] | None = None,
     ) -> MultiChannelImage:
+        valid_files: list[Path] = []
         channel_metadata: list[ChannelMetadata] = []
         for p in path_files:
             try:
@@ -90,6 +91,7 @@ class MultiChannelImage:
                 )
                 continue
 
+            valid_files.append(p)
             channel_metadata.append(
                 ChannelMetadata(
                     name=metadata["name"],
@@ -103,34 +105,33 @@ class MultiChannelImage:
                 )
             )
 
-        if len(path_files) != len(channel_metadata):
-            raise ValueError("Length of path_files and metadata must be the same.")
-        # if any of round_channels is in skip_rounds, remove that round from the list and from path_files
+        if not valid_files:
+            raise ValueError("No valid files were found.")
+        if len(valid_files) != len(channel_metadata):
+            raise ValueError("Length of valid files and metadata must be the same.")
+        # if any of round_channels is in skip_rounds, remove that round from the list and from valid_files
         if skip_rounds:
             logger.info(f"Skipping cycles: {skip_rounds}")
-            path_files, channel_metadata = map(
+            valid_files, channel_metadata = map(
                 list,
                 zip(
                     *[
                         (p, ch_meta)
-                        for p, ch_meta in zip(path_files, channel_metadata, strict=True)
+                        for p, ch_meta in zip(valid_files, channel_metadata, strict=True)
                         if ch_meta.cycle not in skip_rounds
                     ],
                     strict=True,
                 ),
             )
-        imgs = [imread(img, **imread_kwargs) for img in path_files]
-        for img, path in zip(imgs, path_files, strict=True):
+        imgs = [imread(img, **imread_kwargs) for img in valid_files]
+        for img, path in zip(imgs, valid_files, strict=True):
             if img.shape[1:] != imgs[0].shape[1:]:
                 raise ValueError(
                     f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image "
-                    f"{path_files[0]} has shape {imgs[0].shape[1:]}"
+                    f"{valid_files[0]} has shape {imgs[0].shape[1:]}"
                 )
         # create MultiChannelImage object with imgs and metadata
-        output = cls(
-            data=imgs,
-            metadata=channel_metadata,
-        )
+        output = cls(data=imgs, metadata=channel_metadata)
         return output
 
     @classmethod
@@ -695,7 +696,16 @@ def create_sdata(
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        pixels_to_microns = parse_physical_size(path_files[0])
+        # Iterate over path files, as it may still contain invalid files
+        pixels_to_microns = None
+        for p in path_files:
+            try:
+                pixels_to_microns = parse_physical_size(p)
+            except Exception:
+                logger.debug(f"Could not parse physical size from {p}. Trying next file.")
+                continue
+        if pixels_to_microns is None:
+            raise ValueError("Could not parse physical size from any file")
 
     image_element = create_image_element(
         mci,

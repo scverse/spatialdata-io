@@ -1,10 +1,12 @@
 import math
+import shutil
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
 import dask.array as da
+import numpy as np
 import pandas as pd
 import pytest
 from click.testing import CliRunner
@@ -19,6 +21,7 @@ from ome_types.model import (
 )
 from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
+from tifffile import imwrite
 
 from spatialdata_io.__main__ import macsima_wrapper
 from spatialdata_io.readers.macsima import (
@@ -65,6 +68,37 @@ def make_ChannelMetadata(
         well=well or "A01",
         roi=roi if roi is not None else 0,
     )
+
+
+def test_images_with_invalid_ome_metadata_are_excluded(tmp_path: Path) -> None:
+    # Write a tiff file without metadata
+    # Use same dimensions as OMAP10_small, which we will use as a positive example
+    height = 77
+    width = 94
+    arr = np.zeros((height, width, 1), dtype=np.uint16)
+    path_no_metadata = Path(tmp_path) / "tiff_no_metadata.tiff"
+    imwrite(path_no_metadata, arr, metadata=None, description=None, software=None, datetime=None)
+
+    # Copy 1 image from OMAP10 small
+    omap_10_image_path = Path("./data") / "OMAP10_small" / "C-001_S-000_S_APC_R-01_W-C-1_ROI-01_A-CD15_C-VIMC6.tif"
+    shutil.copy(omap_10_image_path, Path(tmp_path))
+
+    sdata = macsima(tmp_path)
+    el = sdata[list(sdata.images.keys())[0]]
+    channels = get_channel_names(el)
+    assert channels == ["CD15"]
+
+
+def test_exception_on_no_valid_files(tmp_path: Path) -> None:
+    # Write a tiff file without metadata
+    height = 10
+    width = 10
+    arr = np.zeros((height, width, 1), dtype=np.uint16)
+    path_no_metadata = Path(tmp_path) / "tiff_no_metadata.tiff"
+    imwrite(path_no_metadata, arr, metadata=None, description=None, software=None, datetime=None)
+
+    with pytest.raises(ValueError, match="No valid files were found"):
+        macsima(tmp_path)
 
 
 @skip_if_below_python_version()
