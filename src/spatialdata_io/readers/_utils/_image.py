@@ -7,9 +7,16 @@ from dask import delayed
 from numpy.typing import NDArray
 
 _Y_IDX = 0
+"""Index of y coordinate in in chunk coordinate array format: (y, x, height, width)"""
+
 _X_IDX = 1
+"""Index of x coordinate in chunk coordinate array format: (y, x, height, width)"""
+
 _HEIGHT_IDX = 2
+"""Index of height specification in chunk coordinate array format: (y, x, height, width)"""
+
 _WIDTH_IDX = 3
+"""Index of width specification in chunk coordinate array format: (y, x, height, width)"""
 
 
 def _compute_chunk_sizes_positions(size: int, chunk: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
@@ -27,10 +34,11 @@ def _compute_chunks(
 ) -> NDArray[np.int_]:
     """Create all chunk specs for a given image and chunk size.
 
-    For each chunk in the final image with the chunk coords (block row=chunk_y_position, block col=chunk_x_position), this function
-    creates specifications (y, x, height, width) with (y, x) being the upper left corner
-    of chunks of size chunk_size. Chunks at the edges correspond to the remainder of
-    chunk size and dimensions
+    Creates chunk specifications for tiling an image. Returns an array where position [i, j]
+    contains the spec for the chunk at block row i, block column j.
+    Each chunk specification consists of (y, x, height, width) with (y, x) being the upper left
+    corner of chunks of size chunk_size.
+    Chunks at the edges correspond to the remainder of chunk size and dimensions
 
     Parameters
     ----------
@@ -77,7 +85,7 @@ def _read_chunks(
         Function to retrieve a single rectangular tile from the slide image. Must take the
         arguments:
 
-            - slide Full slide image
+            - slide: Full slide image
             - y0: y (row) coordinate of upper left corner of chunk
             - x0: x (col) coordinate of upper left corner of chunk
             - height: Height of chunk
@@ -87,8 +95,9 @@ def _read_chunks(
     slide
         Slide image in lazily loaded format compatible with `func`
     coords
-        Coordinates of the upper left corner of the image in format (n_row_y, n_row_x, 4)
-        where the last dimension defines the rectangular tile in format (y, x, height, width).
+        Coordinates of the upper left corner of each chunk image in format (n_row_y, n_row_x, 4)
+        where the last dimension defines the rectangular tile in format (y, x, height, width), as returned
+        by :func:`_compute_chunks`.
         n_row_y represents the number of chunks in y dimension (block rows) and n_row_x the number of chunks
         in x dimension (block columns).
     n_channel
