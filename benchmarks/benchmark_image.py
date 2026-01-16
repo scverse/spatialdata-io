@@ -6,11 +6,12 @@ Instructions:
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 from spatialdata import SpatialData
 from xarray import DataArray
 
-from spatialdata_io import image  # type: ignore[attr-defined]
+from spatialdata_io import image
 
 # =============================================================================
 # CONFIGURATION - Edit these paths to match your setup
@@ -50,13 +51,15 @@ class IOBenchmarkImage:
     ]
     param_names = ["scale_factors", "use_tiff_memmap", "chunks"]
 
-    def setup(self, *_) -> None:
+    def setup(self, *_: Any) -> None:
         """Set up paths for benchmarking."""
         self.path_read, self.path_write = get_paths()
         if self.path_write.exists():
             shutil.rmtree(self.path_write)
 
-    def _convert_image(self, scale_factors, use_tiff_memmap, chunks) -> SpatialData:
+    def _convert_image(
+        self, scale_factors: list[int] | None, use_tiff_memmap: bool, chunks: tuple[int, int]
+    ) -> SpatialData:
         """Read image data with specified parameters."""
         im = image(
             input=self.path_read,
@@ -79,12 +82,12 @@ class IOBenchmarkImage:
             assert sdata["image"].chunksizes["y"] == chunks[1]
         return sdata
 
-    def time_io(self, scale_factors, use_tiff_memmap, chunks) -> None:
+    def time_io(self, scale_factors: list[int] | None, use_tiff_memmap: bool, chunks: tuple[int, int]) -> None:
         """Walltime for data parsing."""
         sdata = self._convert_image(scale_factors, use_tiff_memmap, chunks)
         sdata.write(self.path_write)
 
-    def peakmem_io(self, scale_factors, use_tiff_memmap, chunks) -> None:
+    def peakmem_io(self, scale_factors: list[int] | None, use_tiff_memmap: bool, chunks: tuple[int, int]) -> None:
         """Peak memory for data parsing."""
         sdata = self._convert_image(scale_factors, use_tiff_memmap, chunks)
         sdata.write(self.path_write)
