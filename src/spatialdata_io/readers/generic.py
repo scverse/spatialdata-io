@@ -98,9 +98,9 @@ def _tiff_to_chunks(
     input
         Path to image
     axes_dim_mapping
-        Mapping between dimension name (x, y, c) and index
+        Mapping between dimension name (c, y, x) and index
     chunk_size
-        Chunk size in (x, y) order. If None, defaults to DEFAULT_CHUNK_SIZE.
+        Chunk size in (y, x) order. If None, defaults to DEFAULT_CHUNK_SIZE.
 
     Returns
     -------
@@ -115,8 +115,8 @@ def _tiff_to_chunks(
     # Transpose to cyx order
     slide = np.transpose(slide, (axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"]))
 
-    # Get dimensions in (x, y)
-    slide_dimensions = slide.shape[2], slide.shape[1]
+    # Get dimensions in (y, x)
+    slide_dimensions = slide.shape[1], slide.shape[2]
 
     # Get number of channels (c)
     n_channel = slide.shape[0]
@@ -125,7 +125,7 @@ def _tiff_to_chunks(
     chunk_coords = _compute_chunks(slide_dimensions, chunk_size=chunk_size)
 
     # Define reader func
-    def _reader_func(slide: np.memmap, x0: int, y0: int, width: int, height: int) -> NDArray[np.number]:
+    def _reader_func(slide: np.memmap, y0: int, x0: int, height: int, width: int) -> NDArray[np.number]:
         return np.array(slide[:, y0 : y0 + height, x0 : x0 + width])
 
     return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
@@ -159,7 +159,7 @@ def image(
     use_tiff_memmap
         Whether to use memory-mapped reading for TIFF files.
     chunks
-        Chunk size in (x, y) order for TIFF files. If None, defaults to (1000, 1000).
+        Chunk size in (y, x) order for TIFF files. If None, defaults to (1000, 1000).
     scale_factors
         Scale factors for building a multiscale image pyramid. Passed to Image2DModel.parse().
 
