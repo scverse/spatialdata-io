@@ -103,21 +103,7 @@ def _read_chunks(
     list[list[da.array]]
         (Outer) list (length: n_row_y) of (inner) lists (length: n_row_x) of chunks with axes
         (c, y, x). Represents all chunks of the full image.
-
-    Notes
-    -------
-    As shown in `_compute_chunks()`, `coords` are in the form `(x, y,
-    width, height)`. In that function, the inner list (dim = -1) iterates over `y`
-    values, and the outer list (dim = -2) iterates over `x` values. In `_read_chunks(
-    )`, we use the more common `(y, x)` ordering: the inner list (dim = -1) iterates
-    over `x` values, and the outer list (dim = -2) iterates over `y` values.
-
-    This mismatch can be confusing. A straightforward fix that one could perform would
-    be to standardize `coords` to `(y, x, height, width)` instead of
-    `(x, y, width, height)`.
     """
-    # TODO: standardize `coords` as explained in the docstring above, then remove that
-    # part from the docstring
     func_kwargs = func_kwargs if func_kwargs else {}
 
     # Collect each delayed chunk (c, y, x) as item in list of list
