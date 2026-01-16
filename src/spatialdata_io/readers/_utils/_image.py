@@ -6,6 +6,11 @@ import numpy as np
 from dask import delayed
 from numpy.typing import NDArray
 
+_Y_IDX = 0
+_X_IDX = 1
+_HEIGHT_IDX = 2
+_WIDTH_IDX = 3
+
 
 def _compute_chunk_sizes_positions(size: int, chunk: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
     """Calculate chunk sizes and positions for a given dimension and chunk size."""
@@ -124,14 +129,14 @@ def _read_chunks(
             da.from_delayed(
                 delayed(func)(
                     slide,
-                    x0=coords[chunk_y, chunk_x, 1],
-                    y0=coords[chunk_y, chunk_x, 0],
-                    width=coords[chunk_y, chunk_x, 3],
-                    height=coords[chunk_y, chunk_x, 2],
+                    y0=coords[chunk_y, chunk_x, _Y_IDX],
+                    x0=coords[chunk_y, chunk_x, _X_IDX],
+                    height=coords[chunk_y, chunk_x, _HEIGHT_IDX],
+                    width=coords[chunk_y, chunk_x, _WIDTH_IDX],
                     **func_kwargs,
                 ),
                 dtype=dtype,
-                shape=(n_channel, *coords[chunk_y, chunk_x, [3, 2]]),
+                shape=(n_channel, coords[chunk_y, chunk_x, _HEIGHT_IDX], coords[chunk_y, chunk_x, _WIDTH_IDX]),
             )
             for chunk_x in range(coords.shape[1])
         ]
