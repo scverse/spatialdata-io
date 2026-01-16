@@ -69,6 +69,7 @@ def test_read_tiff(save_tiff_files: tuple[Path, tuple[str], str | None], caplog:
 
     logger.propagate = True
     with caplog.at_level(logging.WARNING):
+        # Use asymmetric chunk sizes to catch errors with the ordering of chunk dimensions and the assembly of the individual chunks
         img = image(tiff_path, data_axes=axes, chunks=(29, 71), coordinate_system="global")
         if compression is not None:
             assert "image data is not memory-mappable, potentially due to compression" in caplog.text
