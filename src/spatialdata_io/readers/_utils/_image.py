@@ -22,31 +22,34 @@ def _compute_chunks(
 ) -> NDArray[np.int_]:
     """Create all chunk specs for a given image and chunk size.
 
-    Creates specifications (x, y, width, height) with (x, y) being the upper left corner
+    For each chunk in the final image with the chunk coords (block row=chunk_y_position, block col=chunk_x_position), this function
+    creates specifications (y, x, height, width) with (y, x) being the upper left corner
     of chunks of size chunk_size. Chunks at the edges correspond to the remainder of
     chunk size and dimensions
 
     Parameters
     ----------
     shape : tuple[int, int]
-        Size of the image in (width, height).
+        Size of the image in (image height, image width).
     chunk_size : tuple[int, int]
-        Size of individual tiles in (width, height).
+        Size of individual tiles in (height, width).
 
     Returns
     -------
     np.ndarray
-        Array of shape (n_tiles_x, n_tiles_y, 4). Each entry defines a tile
-        as (x, y, width, height).
+        Array of shape (n_tiles_y, n_tiles_x, 4). Each entry defines a tile
+        as (y, x, height, width).
     """
-    x_positions, widths = _compute_chunk_sizes_positions(shape[0], chunk_size[0])
-    y_positions, heights = _compute_chunk_sizes_positions(shape[1], chunk_size[1])
+    y_positions, heights = _compute_chunk_sizes_positions(shape[0], chunk_size[0])
+    x_positions, widths = _compute_chunk_sizes_positions(shape[1], chunk_size[1])
 
     # Generate the tiles
+    # Each entry defines the chunk dimensions for a tile
+    # The order of the chunk definitions (chunk_index_y=outer, chunk_index_x=inner) follows the dask.block convention
     tiles = np.array(
         [
-            [[x, y, w, h] for y, h in zip(y_positions, heights, strict=True)]
-            for x, w in zip(x_positions, widths, strict=True)
+            [[y, x, h, w] for x, w in zip(x_positions, widths, strict=True)]
+            for y, h in zip(y_positions, heights, strict=True)
         ],
         dtype=int,
     )
@@ -66,23 +69,23 @@ def _read_chunks(
     Parameters
     ----------
     func
-        Function to retrieve a rectangular tile from the slide image. Must take the
+        Function to retrieve a single rectangular tile from the slide image. Must take the
         arguments:
 
             - slide Full slide image
-            - x0: x (col) coordinate of upper left corner of chunk
             - y0: y (row) coordinate of upper left corner of chunk
-            - width: Width of chunk
+            - x0: x (col) coordinate of upper left corner of chunk
             - height: Height of chunk
+            - width: Width of chunk
 
         and should return the chunk as numpy array of shape (c, y, x)
     slide
-        Slide image in lazily loaded format compatible with func
+        Slide image in lazily loaded format compatible with `func`
     coords
-        Coordinates of the upper left corner of the image in format (n_row_x, n_row_y, 4)
-        where the last dimension defines the rectangular tile in format (x, y, width, height).
-        n_row_x represents the number of chunks in x dimension and n_row_y the number of chunks
-        in y dimension.
+        Coordinates of the upper left corner of the image in format (n_row_y, n_row_x, 4)
+        where the last dimension defines the rectangular tile in format (y, x, height, width).
+        n_row_y represents the number of chunks in y dimension (block rows) and n_row_x the number of chunks
+        in x dimension (block columns).
     n_channel
         Number of channels in array
     dtype
@@ -112,27 +115,27 @@ def _read_chunks(
     # part from the docstring
     func_kwargs = func_kwargs if func_kwargs else {}
 
-    # Collect each delayed chunk as item in list of list
-    # Inner list becomes dim=-1 (cols/x)
-    # Outer list becomes dim=-2 (rows/y)
+    # Collect each delayed chunk (c, y, x) as item in list of list
+    # Inner list becomes dim=-1 (chunk columns/x)
+    # Outer list becomes dim=-2 (chunk rows/y)
     # see dask.array.block
     chunks = [
         [
             da.from_delayed(
                 delayed(func)(
                     slide,
-                    x0=coords[x, y, 0],
-                    y0=coords[x, y, 1],
-                    width=coords[x, y, 2],
-                    height=coords[x, y, 3],
+                    x0=coords[chunk_y, chunk_x, 1],
+                    y0=coords[chunk_y, chunk_x, 0],
+                    width=coords[chunk_y, chunk_x, 3],
+                    height=coords[chunk_y, chunk_x, 2],
                     **func_kwargs,
                 ),
                 dtype=dtype,
-                shape=(n_channel, *coords[y, x, [3, 2]]),
+                shape=(n_channel, *coords[chunk_y, chunk_x, [3, 2]]),
             )
-            for x in range(coords.shape[0])
+            for chunk_x in range(coords.shape[1])
         ]
-        for y in range(coords.shape[1])
+        for chunk_y in range(coords.shape[0])
     ]
     return chunks
 
