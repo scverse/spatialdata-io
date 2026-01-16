@@ -35,13 +35,14 @@ class IOBenchmarkImage:
     warmup_time = 0
     processes = 1
 
-    # Parameter combinations: scale_factors, use_tiff_memmap, chunks
+    # Parameter combinations: scale_factors, (use_tiff_memmap, compressed), chunks
+    # Combinations: (memmap=False, compressed=True), (memmap=False, compressed=False), (memmap=True, compressed=False)
     params = [
         [None, [2, 2]],  # scale_factors
-        [True, False],  # use_tiff_memmap
+        [(False, True), (False, False), (True, False)],  # (use_tiff_memmap, compressed)
         [(1, 5000, 5000), (1, 1000, 1000)],  # chunks
     ]
-    param_names = ["scale_factors", "use_tiff_memmap", "chunks"]
+    param_names = ["scale_factors", "memmap_compressed", "chunks"]
 
     # Class-level temp directory for image files (persists across all benchmarks)
     _images_temp_dir: tempfile.TemporaryDirectory[str] | None = None
@@ -85,11 +86,13 @@ class IOBenchmarkImage:
             self._output_temp_dir.cleanup()
 
     def _convert_image(
-        self, scale_factors: list[int] | None, use_tiff_memmap: bool, chunks: tuple[int, ...]
+        self, scale_factors: list[int] | None, memmap_compressed: tuple[bool, bool], chunks: tuple[int, ...]
     ) -> SpatialData:
         """Read image data with specified parameters."""
-        # Use uncompressed (memmappable) for use_tiff_memmap=True, compressed otherwise
-        path_read = self.path_read_uncompressed if use_tiff_memmap else self.path_read_compressed
+        use_tiff_memmap, compressed = memmap_compressed
+        # Select file based on compression setting
+        path_read = self.path_read_compressed if compressed else self.path_read_uncompressed
+        assert path_read is not None
 
         # Capture log messages to verify memmappable warning behavior
         log_capture = logging.handlers.MemoryHandler(capacity=100)
@@ -111,11 +114,13 @@ class IOBenchmarkImage:
             logger.removeHandler(log_capture)
             logger.propagate = original_propagate
 
-        # Check warning behavior: when use_tiff_memmap=True, no compression warning should be raised
+        # Check warning behavior: when use_tiff_memmap=True with uncompressed file, no warning should be raised
         log_messages = [record.getMessage() for record in log_capture.buffer]
         has_memmap_warning = any("image data is not memory-mappable" in msg for msg in log_messages)
-        if use_tiff_memmap:
-            assert not has_memmap_warning, "Uncompressed TIFF should not trigger memory-mappable warning"
+        if use_tiff_memmap and not compressed:
+            assert not has_memmap_warning, (
+                "Uncompressed TIFF with memmap=True should not trigger memory-mappable warning"
+            )
 
         sdata = SpatialData.init_from_elements({"image": im})
         # sanity check: chunks is (c, y, x)
@@ -146,14 +151,18 @@ class IOBenchmarkImage:
 
         return sdata
 
-    def time_io(self, scale_factors: list[int] | None, use_tiff_memmap: bool, chunks: tuple[int, ...]) -> None:
+    def time_io(
+        self, scale_factors: list[int] | None, memmap_compressed: tuple[bool, bool], chunks: tuple[int, ...]
+    ) -> None:
         """Walltime for data parsing."""
-        sdata = self._convert_image(scale_factors, use_tiff_memmap, chunks)
+        sdata = self._convert_image(scale_factors, memmap_compressed, chunks)
         sdata.write(self.path_write)
 
-    def peakmem_io(self, scale_factors: list[int] | None, use_tiff_memmap: bool, chunks: tuple[int, ...]) -> None:
+    def peakmem_io(
+        self, scale_factors: list[int] | None, memmap_compressed: tuple[bool, bool], chunks: tuple[int, ...]
+    ) -> None:
         """Peak memory for data parsing."""
-        sdata = self._convert_image(scale_factors, use_tiff_memmap, chunks)
+        sdata = self._convert_image(scale_factors, memmap_compressed, chunks)
         sdata.write(self.path_write)
 
 
@@ -162,35 +171,7 @@ class IOBenchmarkImage:
 #     bench = IOBenchmarkImage()
 #
 #     bench.setup()
-#     bench.time_io(None, True, (1, 5000, 5000))
-#     bench.teardown()
-#
-#     bench.setup()
-#     bench.time_io(None, True, (1, 1000, 1000))
-#     bench.teardown()
-#
-#     bench.setup()
-#     bench.time_io(None, False, (1, 5000, 5000))
-#     bench.teardown()
-#
-#     bench.setup()
-#     bench.time_io(None, False, (1, 1000, 1000))
-#     bench.teardown()
-#
-#     bench.setup()
-#     bench.time_io([2, 2, 2], True, (1, 5000, 5000))
-#     bench.teardown()
-#
-#     bench.setup()
-#     bench.time_io([2, 2, 2], True, (1, 1000, 1000))
-#     bench.teardown()
-#
-#     bench.setup()
-#     bench.time_io([2, 2, 2], False, (1, 5000, 5000))
-#     bench.teardown()
-#
-#     bench.setup()
-#     bench.time_io([2, 2, 2], False, (1, 1000, 1000))
+#     bench.time_io(None, (True, False), (1, 5000, 5000))
 #     bench.teardown()
 #
 #     # Clean up the shared images temp directory at the end
