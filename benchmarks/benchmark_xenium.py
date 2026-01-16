@@ -103,4 +103,6 @@ class IOBenchmarkXenium:
 
 
 if __name__ == "__main__":
-    IOBenchmarkXenium().time_io()
+    benchmark = IOBenchmarkXenium()
+    benchmark.setup()
+    benchmark.time_io()

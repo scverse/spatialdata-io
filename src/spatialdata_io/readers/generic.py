@@ -131,11 +131,15 @@ def _tiff_to_chunks(
     return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
 
 
-def _dask_image_imread(input: Path, data_axes: Sequence[str]) -> da.Array:
+def _dask_image_imread(input: Path, data_axes: Sequence[str], chunks: tuple[int, int] | None = None) -> da.Array:
+    if set(data_axes) != {"c", "y", "x"}:
+        raise NotImplementedError(f"Only 'c', 'y', 'x' axes are supported, got {data_axes}")
     image = imread(input)
-    if len(image.shape) == len(data_axes) + 1 and image.shape[0] == 1:
-        image = np.squeeze(image, axis=0)
-    return image
+    if image.ndim != len(data_axes):
+        raise ValueError(f"Expected image with {len(data_axes)} dimensions, got {image.ndim}")
+    image = image.transpose(*[data_axes.index(ax) for ax in ["c", "y", "x"]])
+    chunks = (1,) + chunks
+    return image.rechunk(chunks)
 
 
 def image(
@@ -187,11 +191,11 @@ def image(
             use_tiff_memmap = False
 
     if input.suffix in [".tiff", ".tif"] and not use_tiff_memmap or input.suffix in [".png", ".jpg", ".jpeg"]:
-        im = _dask_image_imread(input=input, data_axes=data_axes)
+        im = _dask_image_imread(input=input, data_axes=data_axes, chunks=chunks)
 
     if im is None:
         raise NotImplementedError(f"File format {input.suffix} not implemented")
 
     return Image2DModel.parse(
-        im, dims=data_axes, transformations={coordinate_system: Identity()}, scale_factors=scale_factors
+        im, dims=data_axes, transformations={coordinate_system: Identity()}, scale_factors=scale_factors, chunks=chunks
     )

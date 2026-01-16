@@ -11,7 +11,7 @@ from typing import Any
 from spatialdata import SpatialData
 from xarray import DataArray
 
-from spatialdata_io import image
+from spatialdata_io import image  # type: ignore[attr-defined]
 
 # =============================================================================
 # CONFIGURATION - Edit these paths to match your setup
@@ -73,13 +73,29 @@ class IOBenchmarkImage:
         # sanity check
         if scale_factors is None:
             assert isinstance(sdata["image"], DataArray)
+            if chunks is not None:
+                assert (
+                    sdata["image"].chunksizes["x"][0] == chunks[0]
+                    or sdata["image"].chunksizes["x"][0] == sdata["image"].shape[2]
+                )
+                assert (
+                    sdata["image"].chunksizes["y"][0] == chunks[1]
+                    or sdata["image"].chunksizes["y"][0] == sdata["image"].shape[1]
+                )
         else:
-            assert len(sdata["image"].keys()) == len(scale_factors)
+            assert len(sdata["image"].keys()) == len(scale_factors) + 1
+            if chunks is not None:
+                assert (
+                    sdata["image"]["scale0"]["image"].chunksizes["x"][0] == chunks[0]
+                    or sdata["image"]["scale0"]["image"].chunksizes["x"][0]
+                    == sdata["image"]["scale0"]["image"].shape[2]
+                )
+                assert (
+                    sdata["image"]["scale0"]["image"].chunksizes["y"][0] == chunks[1]
+                    or sdata["image"]["scale0"]["image"].chunksizes["y"][0]
+                    == sdata["image"]["scale0"]["image"].shape[1]
+                )
 
-        if chunks is not None:
-            # TODO: bug here!
-            assert sdata["image"].chunksizes["x"] == chunks[0]
-            assert sdata["image"].chunksizes["y"] == chunks[1]
         return sdata
 
     def time_io(self, scale_factors: list[int] | None, use_tiff_memmap: bool, chunks: tuple[int, int]) -> None:
@@ -96,5 +112,27 @@ class IOBenchmarkImage:
 if __name__ == "__main__":
     # Run a single test case for quick verification
     bench = IOBenchmarkImage()
-    bench.setup(None, True, (1000, 1000))
-    bench.time_io(None, True, (1000, 1000))
+
+    # bench.setup()
+    # bench.time_io(None, True, (5000, 5000))
+
+    # bench.setup()
+    # bench.time_io(None, True, (1000, 1000))
+
+    # bench.setup()
+    # bench.time_io(None, False, (5000, 5000))
+
+    # bench.setup()
+    # bench.time_io(None, False, (1000, 1000))
+
+    # bench.setup()
+    # bench.time_io([2, 2, 2], True, (5000, 5000))
+
+    # bench.setup()
+    # bench.time_io([2, 2, 2], True, (1000, 1000))
+
+    bench.setup()
+    bench.time_io([2, 2, 2], False, (5000, 5000))
+
+    # bench.setup()
+    # bench.time_io([2, 2, 2], False, (1000, 1000))
