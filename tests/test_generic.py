@@ -64,22 +64,42 @@ def save_tiff_files(
         yield tiff_path, axes, compression
 
 
-def test_read_tiff(save_tiff_files: tuple[Path, tuple[str], str | None], caplog: pytest.LogCaptureFixture) -> None:
+@pytest.mark.parametrize("scale_factors", [None, [2]])
+def test_read_tiff(
+    save_tiff_files: tuple[Path, tuple[str, ...], str | None],
+    caplog: pytest.LogCaptureFixture,
+    scale_factors: list[int] | None,
+) -> None:
     tiff_path, axes, compression = save_tiff_files
+    # Use asymmetric chunk sizes to catch errors with the ordering of chunk dimensions and the assembly of the individual chunks
+    CHUNKS = {"c": 2, "y": 29, "x": 71}
 
     logger.propagate = True
     with caplog.at_level(logging.WARNING):
-        # Use asymmetric chunk sizes to catch errors with the ordering of chunk dimensions and the assembly of the individual chunks
-        img = image(tiff_path, data_axes=axes, chunks=(29, 71), coordinate_system="global")
-        if compression is not None:
-            assert "image data is not memory-mappable, potentially due to compression" in caplog.text
-
+        obj = image(
+            tiff_path,
+            data_axes=axes,
+            coordinate_system="global",
+            chunks=CHUNKS,
+            scale_factors=scale_factors,
+            use_tiff_memmap=True,
+        )
     logger.propagate = False
+    assert ("image data is not memory-mappable" in caplog.text) == (compression is not None)
 
-    reference = tiffread(tiff_path)
-    reference_cyx = reference.transpose(*[axes.index(ax) for ax in ["c", "y", "x"]])
+    target = obj if scale_factors is None else obj["scale0"]["image"]
 
-    assert (img.compute() == reference_cyx).all()
+    # check chunks are correct
+    for i, ax in enumerate(("c", "y", "x")):
+        assert target.chunksizes[ax][0] in (CHUNKS[ax], target.shape[i])
+
+    # check multiscale is correct
+    if scale_factors is not None:
+        assert "scale0" in obj and len(obj.keys()) == len(scale_factors) + 1
+
+    # check pixel data
+    ref = tiffread(tiff_path).transpose(*[axes.index(ax) for ax in ("c", "y", "x")])
+    assert (target.compute() == ref).all()
 
 
 @pytest.mark.parametrize("cli", [True, False])

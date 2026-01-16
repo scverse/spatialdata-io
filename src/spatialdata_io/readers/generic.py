@@ -19,13 +19,18 @@ if TYPE_CHECKING:
 
     from geopandas import GeoDataFrame
     from numpy.typing import NDArray
+    from spatialdata.models.models import Chunks_t
     from xarray import DataArray
 
-from ._utils._image import _compute_chunks, _read_chunks
+
+from spatialdata_io.readers._utils._image import (
+    _compute_chunks,
+    _read_chunks,
+    normalize_chunks,
+)
 
 VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
-DEFAULT_CHUNK_SIZE = (1000, 1000)
 
 __all__ = ["generic", "geojson", "image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
 
@@ -89,9 +94,12 @@ def geojson(input: Path, coordinate_system: str) -> GeoDataFrame:
 def _tiff_to_chunks(
     input: Path,
     axes_dim_mapping: dict[str, int],
-    chunk_size: tuple[int, int] | None = None,
+    chunks_cyx: dict[str, int],
 ) -> list[list[DaskArray[np.number]]]:
     """Chunkwise reader for tiff files.
+
+    Creates spatial tiles from a TIFF file. Each tile contains all channels.
+    Channel chunking is handled downstream by Image2DModel.parse().
 
     Parameters
     ----------
@@ -99,16 +107,16 @@ def _tiff_to_chunks(
         Path to image
     axes_dim_mapping
         Mapping between dimension name (c, y, x) and index
-    chunk_size
-        Chunk size in (y, x) order. If None, defaults to DEFAULT_CHUNK_SIZE.
+    chunks_cyx
+        Chunk size dict with 'c', 'y', and 'x' keys. The 'y' and 'x' values
+        are used for spatial tiling. The 'c' value is passed through for
+        downstream rechunking.
 
     Returns
     -------
     list[list[DaskArray]]
+        2D list of dask arrays representing spatial tiles, each with shape (n_channels, height, width).
     """
-    if chunk_size is None:
-        chunk_size = DEFAULT_CHUNK_SIZE
-
     # Lazy file reader
     slide = tifffile.memmap(input)
 
@@ -118,28 +126,49 @@ def _tiff_to_chunks(
     # Get dimensions in (y, x)
     slide_dimensions = slide.shape[1], slide.shape[2]
 
-    # Get number of channels (c)
+    # Get number of channels (all channels are included in each spatial tile)
     n_channel = slide.shape[0]
 
-    # Compute chunk coords
-    chunk_coords = _compute_chunks(slide_dimensions, chunk_size=chunk_size)
+    # Compute chunk coords using (y, x) tuple
+    chunk_coords = _compute_chunks(slide_dimensions, chunk_size=(chunks_cyx["y"], chunks_cyx["x"]))
 
-    # Define reader func
+    # Define reader func - reads all channels for each spatial tile
     def _reader_func(slide: np.memmap, y0: int, x0: int, height: int, width: int) -> NDArray[np.number]:
         return np.array(slide[:, y0 : y0 + height, x0 : x0 + width])
 
     return _read_chunks(_reader_func, slide, coords=chunk_coords, n_channel=n_channel, dtype=slide.dtype)
 
 
-def _dask_image_imread(input: Path, data_axes: Sequence[str], chunks: tuple[int, int] | None = None) -> da.Array:
+def _dask_image_imread(input: Path, data_axes: Sequence[str], chunks_cyx: dict[str, int]) -> da.Array:
+    """Read image using dask-image and rechunk.
+
+    Parameters
+    ----------
+    input
+        Path to image file.
+    data_axes
+        Axes of the input data.
+    chunks_cyx
+        Chunk size dict with 'c', 'y', 'x' keys.
+
+    Returns
+    -------
+    Dask array with (c, y, x) axes order.
+    """
     if set(data_axes) != {"c", "y", "x"}:
         raise NotImplementedError(f"Only 'c', 'y', 'x' axes are supported, got {data_axes}")
-    image = imread(input)
-    if image.ndim != len(data_axes):
-        raise ValueError(f"Expected image with {len(data_axes)} dimensions, got {image.ndim}")
-    image = image.transpose(*[data_axes.index(ax) for ax in ["c", "y", "x"]])
-    chunks = (1,) + chunks
-    return image.rechunk(chunks)
+    im = imread(input)
+
+    # dask_image.imread may add an extra leading dimension for frames/pages
+    # If image has one extra dimension with size 1, squeeze it out
+    if im.ndim == len(data_axes) + 1 and im.shape[0] == 1:
+        im = im[0]
+
+    if im.ndim != len(data_axes):
+        raise ValueError(f"Expected image with {len(data_axes)} dimensions, got {im.ndim}")
+
+    im = im.transpose(*[data_axes.index(ax) for ax in ["c", "y", "x"]])
+    return im.rechunk((chunks_cyx["c"], chunks_cyx["y"], chunks_cyx["x"]))
 
 
 def image(
@@ -147,7 +176,7 @@ def image(
     data_axes: Sequence[str],
     coordinate_system: str,
     use_tiff_memmap: bool = True,
-    chunks: tuple[int, int] | None = None,
+    chunks: Chunks_t | None = None,
     scale_factors: Sequence[int] | None = None,
 ) -> DataArray:
     """Reads an image file and returns a parsed Image2D spatial element.
@@ -157,13 +186,17 @@ def image(
     input
         Path to the image file.
     data_axes
-        Axes of the data.
+        Axes of the data (e.g., ('c', 'y', 'x') or ('y', 'x', 'c')).
     coordinate_system
         Coordinate system of the spatial element.
     use_tiff_memmap
         Whether to use memory-mapped reading for TIFF files.
     chunks
-        Chunk size in (y, x) order for TIFF files. If None, defaults to (1000, 1000).
+        Chunk size specification. Can be:
+        - int: Applied to all dimensions
+        - tuple: Chunk sizes matching the order of output axes (c, y, x)
+        - dict: Mapping of axis names to chunk sizes (e.g., {'c': 1, 'y': 1000, 'x': 1000})
+        If None, uses a default (DEFAULT_CHUNK_SIZE) for all axes.
     scale_factors
         Scale factors for building a multiscale image pyramid. Passed to Image2DModel.parse().
 
@@ -174,12 +207,13 @@ def image(
     # Map passed data axes to position of dimension
     axes_dim_mapping = {axes: ndim for ndim, axes in enumerate(data_axes)}
 
+    chunks_dict = normalize_chunks(chunks, axes=data_axes)
+
     im = None
     if input.suffix in [".tiff", ".tif"] and use_tiff_memmap:
         try:
-            im_chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping, chunk_size=chunks)
+            im_chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping, chunks_cyx=chunks_dict)
             im = da.block(im_chunks, allow_unknown_chunksizes=True)
-            data_axes = ["c", "y", "x"]
 
         # Edge case: Compressed images are not memory-mappable
         except ValueError as e:
@@ -191,11 +225,16 @@ def image(
             use_tiff_memmap = False
 
     if input.suffix in [".tiff", ".tif"] and not use_tiff_memmap or input.suffix in [".png", ".jpg", ".jpeg"]:
-        im = _dask_image_imread(input=input, data_axes=data_axes, chunks=chunks)
+        im = _dask_image_imread(input=input, data_axes=data_axes, chunks_cyx=chunks_dict)
 
     if im is None:
         raise NotImplementedError(f"File format {input.suffix} not implemented")
 
+    # the output axes are always cyx
     return Image2DModel.parse(
-        im, dims=data_axes, transformations={coordinate_system: Identity()}, scale_factors=scale_factors, chunks=chunks
+        im,
+        dims=("c", "y", "x"),
+        transformations={coordinate_system: Identity()},
+        scale_factors=scale_factors,
+        chunks=chunks_dict,
     )

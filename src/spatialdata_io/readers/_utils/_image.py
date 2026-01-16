@@ -1,10 +1,13 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import dask.array as da
 import numpy as np
 from dask import delayed
 from numpy.typing import NDArray
+from spatialdata.models.models import Chunks_t
+
+__all__ = ["Chunks_t", "_compute_chunks", "_read_chunks", "normalize_chunks"]
 
 _Y_IDX = 0
 """Index of y coordinate in in chunk coordinate array format: (y, x, height, width)"""
@@ -17,6 +20,8 @@ _HEIGHT_IDX = 2
 
 _WIDTH_IDX = 3
 """Index of width specification in chunk coordinate array format: (y, x, height, width)"""
+
+DEFAULT_CHUNK_SIZE = 1000
 
 
 def _compute_chunk_sizes_positions(size: int, chunk: int) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
@@ -140,4 +145,58 @@ def _read_chunks(
     return chunks
 
 
-# TODO: do a asv debugging for peak mem
+def normalize_chunks(
+    chunks: Chunks_t | None,
+    axes: Sequence[str],
+) -> dict[str, int]:
+    """Normalize chunk specification to dict format.
+
+    This function converts various chunk formats to a dict mapping dimension names
+    to chunk sizes. The dict format is preferred because it's explicit about which
+    dimension gets which chunk size and is compatible with spatialdata.
+
+    Parameters
+    ----------
+    chunks
+        Chunk specification. Can be:
+        - None: Uses DEFAULT_CHUNK_SIZE for all axes
+        - int: Applied to all axes
+        - tuple[int, ...]: Chunk sizes in order corresponding to axes
+        - dict: Mapping of axis names to chunk sizes (validated against axes)
+    axes
+        Tuple of axis names that defines the expected dimensions (e.g., ('c', 'y', 'x')).
+
+    Returns
+    -------
+    dict[str, int]
+        Dict mapping axis names to chunk sizes.
+
+    Raises
+    ------
+    ValueError
+        If chunks format is not supported or incompatible with axes.
+    """
+    if chunks is None:
+        return dict.fromkeys(axes, DEFAULT_CHUNK_SIZE)
+
+    if isinstance(chunks, int):
+        return dict.fromkeys(axes, chunks)
+
+    if isinstance(chunks, Mapping):
+        chunks_dict = dict(chunks)
+        missing = set(axes) - set(chunks_dict.keys())
+        if missing:
+            raise ValueError(f"chunks dict missing keys for axes {missing}, got: {list(chunks_dict.keys())}")
+        return {ax: chunks_dict[ax] for ax in axes}
+
+    if isinstance(chunks, tuple):
+        if len(chunks) != len(axes):
+            raise ValueError(f"chunks tuple length {len(chunks)} doesn't match axes {axes} (length {len(axes)})")
+        if not all(isinstance(c, int) for c in chunks):
+            raise ValueError(f"All elements in chunks tuple must be int, got: {chunks}")
+        return dict(zip(axes, chunks, strict=True))
+
+    raise ValueError(f"Unsupported chunks type: {type(chunks)}. Expected int, tuple, dict, or None.")
+
+
+##
