@@ -240,7 +240,9 @@ def macsima(
 ) -> SpatialData:
     """Read *MACSima* formatted dataset.
 
-    This function reads images from a MACSima cyclic imaging experiment. Metadata is parsed from the OME metadata.
+    This function reads images from a MACSima cyclic imaging experiment. MACSima data follows the OME-TIFF specificiation.
+    All metadata is parsed from the OME metadata. The exact metadata schema can change between software versions of MACSiQView.
+    As there is no public specification of the metadata fields used, please consider the provided test data sets as ground truth to guide development.
 
     .. seealso::
 
