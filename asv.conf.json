@@ -3,7 +3,7 @@
     "project": "spatialdata-io",
     "project_url": "https://github.com/scverse/spatialdata-io",
     "repo": ".",
-    "branches": ["main", "xenium-labels-dask", "xenium-labels-dask-zipstore"],
+    "branches": ["image-reader-chunkwise"],
     "dvcs": "git",
     "environment_type": "virtualenv",
     "pythons": ["3.12"],

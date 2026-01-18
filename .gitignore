@@ -6,6 +6,7 @@ temp/
 
 # Compiled files
 __pycache__/
+.ipynb_checkpoints/
 
 # Distribution / packaging
 /build/
@@ -42,3 +43,4 @@ data
 data/
 tests/data
 uv.lock
+.asv/
