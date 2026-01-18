@@ -40,7 +40,7 @@ class IOBenchmarkImage:
     params = [
         [None, [2, 2]],  # scale_factors
         [(False, True), (False, False), (True, False)],  # (use_tiff_memmap, compressed)
-        [(1, 5000, 5000), (1, 1000, 1000)],  # chunks
+        [(1, 250, 250), (3, 250, 250)],  # chunks
     ]
     param_names = ["scale_factors", "memmap_compressed", "chunks"]
 
