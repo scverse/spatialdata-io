@@ -22,6 +22,7 @@ from spatialdata.transformations import Affine, BaseTransformation
 
 from spatialdata_io._constants._constants import MerscopeKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -227,7 +228,8 @@ def merscope(
                 f"At least one of the following files does not exist: {count_path}, {obs_path}. The table is not loaded."
             )
 
-    return SpatialData(shapes=shapes, points=points, images=images, tables=tables)
+    sdata = SpatialData(shapes=shapes, points=points, images=images, tables=tables)
+    return _set_reader_metadata(sdata, "merscope")
 
 
 def _get_reader(backend: str | None) -> Callable:  # type: ignore[type-arg]
