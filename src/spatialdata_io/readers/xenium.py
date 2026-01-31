@@ -39,7 +39,7 @@ from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io._utils import deprecation_alias, zarr_open
 from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
-from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
+from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -400,7 +400,7 @@ def xenium(
         for key, value in extra_images.items():
             sdata.images[key] = value
 
-    return sdata
+    return _set_reader_metadata(sdata, "xenium")
 
 
 def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:

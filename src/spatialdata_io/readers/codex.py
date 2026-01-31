@@ -16,6 +16,7 @@ from spatialdata.models import Image2DModel, ShapesModel, TableModel
 
 from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -89,7 +90,7 @@ def codex(
         logger.warning("Cannot find .tif file. Will build spatialdata with shapes and table only.")
         sdata = SpatialData(shapes={str(region): shapes}, table=table)
 
-    return sdata
+    return _set_reader_metadata(sdata, "codex")
 
 
 def _codex_df_to_anndata(df: pd.DataFrame) -> ad.AnnData:

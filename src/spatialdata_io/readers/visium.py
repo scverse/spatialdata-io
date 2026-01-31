@@ -19,7 +19,7 @@ from xarray import DataArray
 
 from spatialdata_io._constants._constants import VisiumKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io.readers._utils._utils import _read_counts
+from spatialdata_io.readers._utils._utils import _read_counts, _set_reader_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -253,7 +253,8 @@ def visium(
             rgb=None,
         )
 
-    return SpatialData(images=images, shapes=shapes, tables={"table": table})
+    sdata = SpatialData(images=images, shapes=shapes, tables={"table": table})
+    return _set_reader_metadata(sdata, "visium")
 
 
 def _read_image(image_file: Path, imread_kwargs: dict[str, Any]) -> Any:
