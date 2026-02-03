@@ -444,9 +444,6 @@ def _get_polygons(
     index = _decode_cell_id_column(pd.Series(unique_ids))
     geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
 
-    import time
-
-    start = time.time()
     version = _parse_version_of_xenium_analyzer(specs)
     if version is not None and version < packaging.version.parse("2.0.0"):
         assert idx is not None
@@ -460,7 +457,6 @@ def _get_polygons(
                 UserWarning,
                 stacklevel=2,
             )
-    print(f"sanity check idx vs index: {time.time() - start}")
 
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
