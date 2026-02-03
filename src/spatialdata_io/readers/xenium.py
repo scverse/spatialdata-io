@@ -352,6 +352,7 @@ def xenium(
                         raise ValueError(invalid_format_msg) from e
                     channels.append((channel_idx, ome_ch.name))
                 channel_names = dict(sorted(channels))
+
             # this reads the scale 0 for all the 1 or 4 channels (the other files are parsed automatically)
             # dask.image.imread will call tifffile.imread which will give a warning saying that reading multi-file
             # pyramids is not supported; since we are reading the full scale image and reconstructing the pyramid, we
@@ -550,10 +551,24 @@ def _get_cells_metadata_table_from_zarr(
 
 def _get_points(path: Path, specs: dict[str, Any]) -> Table:
     table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
-    table["feature_name"] = table["feature_name"].apply(
-        lambda x: x.decode("utf-8") if isinstance(x, bytes) else str(x),
-        meta=("feature_name", "object"),
-    )
+
+    # check if we need to decode bytes
+    sample = table[XeniumKeys.FEATURE_NAME].head(1)
+    needs_decode = isinstance(sample.iloc[0], bytes)
+
+    # get unique categories (fast)
+    categories = table[XeniumKeys.FEATURE_NAME].drop_duplicates().compute()
+    if needs_decode:
+        categories = categories.str.decode("utf-8")
+    cat_dtype = pd.CategoricalDtype(categories=categories)
+
+    # decode column if needed, then convert to categorical
+    if needs_decode:
+        table[XeniumKeys.FEATURE_NAME] = table[XeniumKeys.FEATURE_NAME].map_partitions(
+            lambda s: s.str.decode("utf-8").astype(cat_dtype), meta=pd.Series(dtype=cat_dtype)
+        )
+    else:
+        table[XeniumKeys.FEATURE_NAME] = table[XeniumKeys.FEATURE_NAME].astype(cat_dtype)
 
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     points = PointsModel.parse(
