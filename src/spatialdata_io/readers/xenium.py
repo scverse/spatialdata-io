@@ -22,7 +22,7 @@ from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from pyarrow import Table
-from shapely import Polygon
+from shapely import GeometryType, Polygon, from_ragged_array
 from spatialdata import SpatialData
 from spatialdata._core.query.relational_query import get_element_instances
 from spatialdata.models import (
@@ -69,7 +69,6 @@ def xenium(
     morphology_focus: bool = True,
     aligned_images: bool = True,
     cells_table: bool = True,
-    n_jobs: int = 1,
     gex_only: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -122,8 +121,6 @@ def xenium(
         `False` and use the `xenium_aligned_image` function directly.
     cells_table
         Whether to read the cell annotations in the `AnnData` table.
-    n_jobs
-        Number of jobs to use for parallel processing.
     gex_only
         Whether to load only the "Gene Expression" feature type.
     imread_kwargs
@@ -261,7 +258,6 @@ def xenium(
             path,
             XeniumKeys.NUCLEUS_BOUNDARIES_FILE,
             specs,
-            n_jobs,
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
 
@@ -270,7 +266,6 @@ def xenium(
             path,
             XeniumKeys.CELL_BOUNDARIES_FILE,
             specs,
-            n_jobs,
             idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
         )
 
@@ -406,7 +401,7 @@ def xenium(
 
 def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     if isinstance(cell_id_column.iloc[0], bytes):
-        return cell_id_column.apply(lambda x: x.decode("utf-8"))
+        return cell_id_column.str.decode("utf-8")
     return cell_id_column
 
 
@@ -414,39 +409,59 @@ def _get_polygons(
     path: Path,
     file: str,
     specs: dict[str, Any],
-    n_jobs: int,
     idx: ArrayLike | None = None,
 ) -> GeoDataFrame:
     # seems to be faster than pd.read_parquet
     df = pq.read_table(path / file).to_pandas()
+    cell_ids = df[XeniumKeys.CELL_ID].to_numpy()
+    x = df[XeniumKeys.BOUNDARIES_VERTEX_X].to_numpy()
+    y = df[XeniumKeys.BOUNDARIES_VERTEX_Y].to_numpy()
+    coords = np.column_stack([x, y])
 
-    group_by = df.groupby(XeniumKeys.CELL_ID)
-    index = pd.Series(group_by.indices.keys())
-    # convert the index to str since we will compare it with an AnnData object, where the index is a str
-    index.index = index.index.astype(str)
-    index = _decode_cell_id_column(index)
+    change_mask = np.concatenate([[True], cell_ids[1:] != cell_ids[:-1]])
+    group_starts = np.where(change_mask)[0]
+    group_ends = np.concatenate([group_starts[1:], [len(cell_ids)]])
 
-    out = Parallel(n_jobs=n_jobs)(
-        delayed(Polygon)(i.to_numpy())
-        for _, i in group_by[[XeniumKeys.BOUNDARIES_VERTEX_X, XeniumKeys.BOUNDARIES_VERTEX_Y]]
-    )
-    geo_df = GeoDataFrame({"geometry": out})
+    # sanity check
+    n_unique_ids = len(df[XeniumKeys.CELL_ID].drop_duplicates())
+    if len(group_starts) != n_unique_ids:
+        raise ValueError(
+            f"In {file}, rows belonging to the same polygon must be contiguous. "
+            f"Expected {n_unique_ids} group starts, but found {len(group_starts)}. "
+            f"This indicates non-consecutive polygon rows."
+        )
+
+    unique_ids = cell_ids[group_starts]
+
+    # offsets for ragged array:
+    # offsets[0] (ring_offsets): describing to which rings the vertex positions belong to
+    # offsets[1] (geom_offsets): describing to which polygons the rings belong to
+    ring_offsets = np.concatenate([[0], group_ends])  # vertex positions
+    geom_offsets = np.arange(len(group_starts) + 1)  # [0, 1, 2, ..., n_polygons]
+
+    geoms = from_ragged_array(GeometryType.POLYGON, coords, offsets=(ring_offsets, geom_offsets))
+
+    index = _decode_cell_id_column(pd.Series(unique_ids))
+    geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
+
+    import time
+
+    start = time.time()
     version = _parse_version_of_xenium_analyzer(specs)
     if version is not None and version < packaging.version.parse("2.0.0"):
         assert idx is not None
         assert len(idx) == len(geo_df)
-        assert np.unique(geo_df.index).size == len(geo_df)
         assert index.equals(idx)
-        geo_df.index = idx
     else:
-        geo_df.index = index
-        if not np.unique(geo_df.index).size == len(geo_df):
+        if np.unique(geo_df.index).size != len(geo_df):
             warnings.warn(
                 "Found non-unique polygon indices, this will be addressed in a future version of the reader. For the "
                 "time being please consider merging polygons with non-unique indices into single multi-polygons.",
                 UserWarning,
                 stacklevel=2,
             )
+    print(f"sanity check idx vs index: {time.time() - start}")
+
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
 
