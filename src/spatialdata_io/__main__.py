@@ -480,7 +480,6 @@ def visium_hd_wrapper(
     default=True,
     help="Whether to read cells annotations in the AnnData table. [default: True]",
 )
-@click.option("--n-jobs", type=int, default=1, help="Number of jobs. [default: 1]")
 def xenium_wrapper(
     input: str,
     output: str,
@@ -495,7 +494,6 @@ def xenium_wrapper(
     morphology_focus: bool = True,
     aligned_images: bool = True,
     cells_table: bool = True,
-    n_jobs: int = 1,
 ) -> None:
     """Xenium conversion to SpatialData."""
     sdata = xenium(  # type: ignore[name-defined] # noqa: F821
@@ -510,7 +508,6 @@ def xenium_wrapper(
         morphology_focus=morphology_focus,
         aligned_images=aligned_images,
         cells_table=cells_table,
-        n_jobs=n_jobs,
     )
     sdata.write(output)
 
