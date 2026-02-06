@@ -20,7 +20,6 @@ import zarr
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
-from joblib import Parallel, delayed
 from pyarrow import Table
 from shapely import GeometryType, Polygon, from_ragged_array
 from spatialdata import SpatialData
@@ -223,18 +222,16 @@ def xenium(
     # labels.
     if nucleus_labels:
         labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
-            path,
-            XeniumKeys.CELLS_ZARR,
-            specs,
+            path=path,
+            specs=specs,
             mask_index=0,
             labels_name="nucleus_labels",
             labels_models_kwargs=labels_models_kwargs,
         )
     if cells_labels:
         labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
-            path,
-            XeniumKeys.CELLS_ZARR,
-            specs,
+            path=path,
+            specs=specs,
             mask_index=1,
             labels_name="cell_labels",
             labels_models_kwargs=labels_models_kwargs,
@@ -411,7 +408,7 @@ def _get_polygons(
     path: Path,
     file: str,
     specs: dict[str, Any],
-    idx: ArrayLike | None = None,
+    idx: pd.Series | None = None,
 ) -> GeoDataFrame:
     # seems to be faster than pd.read_parquet
     df = pq.read_table(path / file).to_pandas()
@@ -466,7 +463,6 @@ def _get_polygons(
 
 def _get_labels_and_indices_mapping(
     path: Path,
-    file: str,
     specs: dict[str, Any],
     mask_index: int,
     labels_name: str,
