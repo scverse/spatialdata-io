@@ -402,6 +402,8 @@ def xenium(
 def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     if isinstance(cell_id_column.iloc[0], bytes):
         return cell_id_column.str.decode("utf-8")
+    if not isinstance(cell_id_column.iloc[0], str):
+        cell_id_column.index = cell_id_column.index.astype(str)
     return cell_id_column
 
 
@@ -448,7 +450,7 @@ def _get_polygons(
     if version is not None and version < packaging.version.parse("2.0.0"):
         assert idx is not None
         assert len(idx) == len(geo_df)
-        assert index.equals(idx)
+        assert np.array_equal(index.values, idx.values)
     else:
         if np.unique(geo_df.index).size != len(geo_df):
             warnings.warn(
