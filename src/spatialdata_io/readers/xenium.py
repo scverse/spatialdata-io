@@ -24,6 +24,7 @@ from pyarrow import Table
 from shapely import GeometryType, Polygon, from_ragged_array
 from spatialdata import SpatialData
 from spatialdata._core.query.relational_query import get_element_instances
+from spatialdata._logging import logger
 from spatialdata.models import (
     Image2DModel,
     Labels2DModel,
@@ -60,7 +61,7 @@ def xenium(
     *,
     cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cells_as_circles: bool | None = None,
+    cells_as_circles: bool = False,
     cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
@@ -135,7 +136,7 @@ def xenium(
 
     Notes
     -----
-    Old versions. Until spatialdata-io v0.1.3post0: previously, `cells_as_circles` was `True` by default; the table was associated to the
+    Old versions. Until spatialdata-io v0.6.0: `cells_as_circles` was `True` by default; the table was associated to the
     circles when `cells_as_circles` was `True`, and the table was associated to the polygons when `cells_as_circles`
     was `False`; the radii of the circles were computed form the nuclei instead of the cells.
 
@@ -152,14 +153,6 @@ def xenium(
     ... )
     >>> sdata.write("path/to/data.zarr")
     """
-    if cells_as_circles is None:
-        cells_as_circles = True
-        warnings.warn(
-            "The default value of `cells_as_circles` will change to `False` in the next release. "
-            "Please pass `True` explicitly to maintain the current behavior.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
     image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
         image_models_kwargs, labels_models_kwargs
     )
@@ -357,8 +350,8 @@ def xenium(
                         return False
                     return True
 
-            logger = tifffile.logger()
-            logger.addFilter(IgnoreSpecificMessage())
+            tf_logger = tifffile.logger()
+            tf_logger.addFilter(IgnoreSpecificMessage())
             image_models_kwargs = dict(image_models_kwargs)
             assert "c_coords" not in image_models_kwargs, (
                 "The channel names for the morphology focus images are handled internally"
@@ -371,7 +364,7 @@ def xenium(
                 image_models_kwargs,
             )
             del image_models_kwargs["c_coords"]
-            logger.removeFilter(IgnoreSpecificMessage())
+            tf_logger.removeFilter(IgnoreSpecificMessage())
 
     if table is not None:
         tables["table"] = table
@@ -491,36 +484,46 @@ def _get_labels_and_indices_mapping(
     cell_id, dataset_suffix = z["cell_id"][...].T
     cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
 
-    # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
-    # release notes mentioned above)
-    real_label_index = get_element_instances(labels).values
-
-    # background removal
-    if real_label_index[0] == 0:
-        real_label_index = real_label_index[1:]
-
     if version < packaging.version.parse("2.0.0"):
-        expected_label_index = z["seg_mask_value"][...]
-
-        if not np.array_equal(expected_label_index, real_label_index):
-            raise ValueError(
-                "The label indices from the labels differ from the ones from the input data. Please report "
-                f"this issue. Real label indices: {real_label_index}, expected label indices: "
-                f"{expected_label_index}."
-            )
+        label_index = z["seg_mask_value"][...]
     else:
-        labels_positional_indices = z["polygon_sets"][f"{mask_index}"]["cell_index"][...]
-        if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
-            raise ValueError(
-                "The positional indices of the labels do not match the expected range. Please report this issue."
+        import time
+        import tracemalloc
+
+        tracemalloc.start()
+
+        start = time.time()
+        # For v >= 2.0.0, seg_mask_value is no longer available in the zarr;
+        # read label_id from the corresponding parquet boundary file instead
+        boundaries_file = XeniumKeys.NUCLEUS_BOUNDARIES_FILE if mask_index == 0 else XeniumKeys.CELL_BOUNDARIES_FILE
+        boundary_columns = pq.read_schema(path / boundaries_file).names
+        if "label_id" in boundary_columns:
+            boundary_df = pq.read_table(path / boundaries_file, columns=[XeniumKeys.CELL_ID, "label_id"]).to_pandas()
+            boundary_df[XeniumKeys.CELL_ID] = _decode_cell_id_column(boundary_df[XeniumKeys.CELL_ID])
+            # each vertex row repeats the cell_id and label_id; get unique pairs
+            unique_pairs = boundary_df.drop_duplicates(subset=[XeniumKeys.CELL_ID, "label_id"])
+            cell_id_to_label_id = unique_pairs.set_index(XeniumKeys.CELL_ID)["label_id"]
+            label_index = cell_id_to_label_id.loc[cell_id_str].values
+        else:
+            # fallback for dev versions around 2.0.0 that lack both seg_mask_value and label_id
+            logger.warn(
+                f"Could not find the labels ids from the metadata for version {version}. Using a fallback (slower) implementation."
             )
+            label_index = get_element_instances(labels).values
+            if label_index[0] == 0:
+                label_index = label_index[1:]
+
+        print(f"reading the indices: {time.time() - start}")
+        current, peak = tracemalloc.get_traced_memory()
+        print(f"Current memory usage is {current / 1024**2}MB; Peak was {peak / 1024**2}MB.")
+        tracemalloc.stop()
 
     # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
     indices_mapping = pd.DataFrame(
         {
             "region": labels_name,
             "cell_id": cell_id_str,
-            "label_index": real_label_index.astype(np.int64),
+            "label_index": label_index.astype(np.int64),
         }
     )
     # because AnnData converts the indices to str
