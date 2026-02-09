@@ -487,21 +487,14 @@ def _get_labels_and_indices_mapping(
     if version < packaging.version.parse("2.0.0"):
         label_index = z["seg_mask_value"][...]
     else:
-        import time
-        import tracemalloc
-
-        tracemalloc.start()
-
-        start = time.time()
         # For v >= 2.0.0, seg_mask_value is no longer available in the zarr;
         # read label_id from the corresponding parquet boundary file instead
         boundaries_file = XeniumKeys.NUCLEUS_BOUNDARIES_FILE if mask_index == 0 else XeniumKeys.CELL_BOUNDARIES_FILE
         boundary_columns = pq.read_schema(path / boundaries_file).names
         if "label_id" in boundary_columns:
             boundary_df = pq.read_table(path / boundaries_file, columns=[XeniumKeys.CELL_ID, "label_id"]).to_pandas()
-            boundary_df[XeniumKeys.CELL_ID] = _decode_cell_id_column(boundary_df[XeniumKeys.CELL_ID])
-            # each vertex row repeats the cell_id and label_id; get unique pairs
-            unique_pairs = boundary_df.drop_duplicates(subset=[XeniumKeys.CELL_ID, "label_id"])
+            unique_pairs = boundary_df.drop_duplicates(subset=[XeniumKeys.CELL_ID, "label_id"]).copy()
+            unique_pairs[XeniumKeys.CELL_ID] = _decode_cell_id_column(unique_pairs[XeniumKeys.CELL_ID])
             cell_id_to_label_id = unique_pairs.set_index(XeniumKeys.CELL_ID)["label_id"]
             label_index = cell_id_to_label_id.loc[cell_id_str].values
         else:
@@ -509,14 +502,13 @@ def _get_labels_and_indices_mapping(
             logger.warn(
                 f"Could not find the labels ids from the metadata for version {version}. Using a fallback (slower) implementation."
             )
-            label_index = get_element_instances(labels).values
+            import dask.config
+
+            with dask.config.set(num_workers=1):
+                label_index = get_element_instances(labels).values
+
             if label_index[0] == 0:
                 label_index = label_index[1:]
-
-        print(f"reading the indices: {time.time() - start}")
-        current, peak = tracemalloc.get_traced_memory()
-        print(f"Current memory usage is {current / 1024**2}MB; Peak was {peak / 1024**2}MB.")
-        tracemalloc.stop()
 
     # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
     indices_mapping = pd.DataFrame(
