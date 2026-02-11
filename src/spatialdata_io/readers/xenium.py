@@ -199,9 +199,17 @@ def xenium(
         cells_zarr_store = zarr.storage.ZipStore(path / XeniumKeys.CELLS_ZARR, read_only=True)
         cells_zarr = zarr.open(cells_zarr_store, mode="r")
 
+    # pre-compute cell_id strings from the zarr once, to avoid redundant conversion
+    # in both _get_cells_metadata_table_from_zarr and _get_labels_and_indices_mapping.
+    cells_zarr_cell_id_str: np.ndarray | None = None
+    if cells_zarr is not None:
+        cell_id_raw = cells_zarr["cell_id"][...]
+        cell_id_prefix, dataset_suffix = cell_id_raw[:, 0], cell_id_raw[:, 1]
+        cells_zarr_cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+
     if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
         assert cells_zarr is not None
-        cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr, specs)
+        cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr, specs, cells_zarr_cell_id_str)
         if not np.array_equal(cell_summary_table[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values):
             warnings.warn(
                 'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
@@ -226,7 +234,6 @@ def xenium(
     # nuclei to cells. Therefore for the moment we only link the table to the cell labels, and not to the nucleus
     # labels.
     if nucleus_labels:
-        assert cells_zarr is not None
         labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
             path=path,
             specs=specs,
@@ -234,9 +241,9 @@ def xenium(
             labels_name="nucleus_labels",
             labels_models_kwargs=labels_models_kwargs,
             cells_zarr=cells_zarr,
+            cell_id_str=cells_zarr_cell_id_str,
         )
     if cells_labels:
-        assert cells_zarr is not None
         labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
             path=path,
             specs=specs,
@@ -244,6 +251,7 @@ def xenium(
             labels_name="cell_labels",
             labels_models_kwargs=labels_models_kwargs,
             cells_zarr=cells_zarr,
+            cell_id_str=cells_zarr_cell_id_str,
         )
         if cell_labels_indices_mapping is not None and table is not None:
             if not np.array_equal(
@@ -478,6 +486,7 @@ def _get_labels_and_indices_mapping(
     mask_index: int,
     labels_name: str,
     cells_zarr: zarr.Group,
+    cell_id_str: ArrayLike,
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> tuple[GeoDataFrame, pd.DataFrame | None]:
     if mask_index not in [0, 1]:
@@ -496,9 +505,6 @@ def _get_labels_and_indices_mapping(
         # supported in version 1.3.0 and not supported in version 1.0.2; conservatively, let's assume it is not
         # supported in versions < 1.3.0
         return labels, None
-
-    cell_id, dataset_suffix = cells_zarr["cell_id"][...].T
-    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
 
     if version < packaging.version.parse("2.0.0"):
         label_index = cells_zarr["seg_mask_value"][...]
@@ -538,6 +544,7 @@ def _get_labels_and_indices_mapping(
 def _get_cells_metadata_table_from_zarr(
     cells_zarr: zarr.Group,
     specs: dict[str, Any],
+    cell_id_str: ArrayLike,
 ) -> AnnData:
     """Read cells metadata from ``{xx.CELLS_ZARR}``.
 
@@ -547,10 +554,7 @@ def _get_cells_metadata_table_from_zarr(
     x = cells_zarr["cell_summary"][...]
     column_names = cells_zarr["cell_summary"].attrs["column_names"]
     df = pd.DataFrame(x, columns=column_names)
-    cell_id_prefix = cells_zarr["cell_id"][:, 0]
-    dataset_suffix = cells_zarr["cell_id"][:, 1]
 
-    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
     df[XeniumKeys.CELL_ID] = cell_id_str
     return df
 
@@ -601,6 +605,8 @@ def _get_tables_and_circles(
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     adata.obsm["spatial"] = circ
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
+    # avoids anndata's ImplicitModificationWarning
+    metadata.index = adata.obs_names
     adata.obs = metadata
     adata.obs["region"] = specs["region"]
     adata.obs["region"] = adata.obs["region"].astype("category")
