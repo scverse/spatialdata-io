@@ -5,18 +5,18 @@ requires = ["hatchling", "hatch-vcs"]
 
 [project]
 name = "spatialdata-io"
-dynamic= [
-  "version" # allow version to be set by git tags
+dynamic = [
+    "version" # allow version to be set by git tags
 ]
 description = "SpatialData IO for common techs"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
 authors = [
-    {name = "scverse"},
+    { name = "scverse" },
 ]
 maintainers = [
-    {name = "scverse", email = "scverse@scverse.scverse"},
+    { name = "scverse", email = "scverse@scverse.scverse" },
 ]
 urls.Documentation = "https://spatialdata-io.readthedocs.io/"
 urls.Source = "https://github.com/scverse/spatialdata-io"
@@ -26,7 +26,7 @@ dependencies = [
     "click",
     "numpy",
     "scanpy",
-    "spatialdata>=0.2.6",
+    "spatialdata>=0.7.3a0",
     "scikit-image",
     "h5py",
     "joblib",
@@ -67,7 +67,7 @@ test = [
 # update: readthedocs doens't seem to try to install pre-releases even if when trying to install the pre optional-dependency. For
 # the moment, if needed, let's add the latest pre-release explicitly here.
 pre = [
-    "spatialdata>=0.4.0rc0"
+    "spatialdata>=0.7.3a0"
 ]
 
 [tool.coverage.run]
@@ -80,7 +80,7 @@ omit = [
 testpaths = ["tests"]
 xfail_strict = true
 addopts = [
-    "--import-mode=importlib",  # allow using test files with same name
+    "--import-mode=importlib", # allow using test files with same name
 ]
 
 [tool.ruff]
@@ -95,19 +95,19 @@ exclude = [
     "setup.py",
 ]
 lint.select = [
-    "F",  # Errors detected by Pyflakes
-    "E",  # Error detected by Pycodestyle
-    "W",  # Warning detected by Pycodestyle
-    "I",  # isort
-    "D",  # pydocstyle
-    "B",  # flake8-bugbear
-    "TID",  # flake8-tidy-imports
-    "C4",  # flake8-comprehensions
-    "BLE",  # flake8-blind-except
-    "UP",  # pyupgrade
-    "RUF100",  # Report unused noqa directives
-    "TCH",  # Typing imports
-    "NPY",  # Numpy specific rules
+    "F", # Errors detected by Pyflakes
+    "E", # Error detected by Pycodestyle
+    "W", # Warning detected by Pycodestyle
+    "I", # isort
+    "D", # pydocstyle
+    "B", # flake8-bugbear
+    "TID", # flake8-tidy-imports
+    "C4", # flake8-comprehensions
+    "BLE", # flake8-blind-except
+    "UP", # pyupgrade
+    "RUF100", # Report unused noqa directives
+    "TCH", # Typing imports
+    "NPY", # Numpy specific rules
     # "PTH",  # Use pathlib
     # "S"  # Security
 ]
