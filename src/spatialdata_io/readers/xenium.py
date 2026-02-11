@@ -469,11 +469,7 @@ def _get_labels_and_indices_mapping(
     z = zarr.open(store, mode="r")
     # get the labels
     masks = da.from_array(z["masks"][f"{mask_index}"])
-    import time
-
-    start = time.time()
     labels = Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
-    print(f"Labels2DModel.parse(): {time.time() - start}")
 
     # build the matching table
     version = _parse_version_of_xenium_analyzer(specs)
