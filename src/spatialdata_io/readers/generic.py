@@ -7,7 +7,6 @@ import dask.array as da
 import numpy as np
 import tifffile
 from dask_image.imread import imread
-from geopandas import GeoDataFrame
 from spatialdata._docs import docstring_parameter
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel
@@ -23,10 +22,12 @@ if TYPE_CHECKING:
     from xarray import DataArray
 
 
+from spatialdata.models.chunks_utils import normalize_chunks
+
 from spatialdata_io.readers._utils._image import (
+    DEFAULT_CHUNK_SIZE,
     _compute_chunks,
     _read_chunks,
-    normalize_chunks,
 )
 
 VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
@@ -179,7 +180,7 @@ def image(
     chunks: Chunks_t | None = None,
     scale_factors: Sequence[int] | None = None,
 ) -> DataArray:
-    """Reads an image file and returns a parsed Image2D spatial element.
+    """Read an image file and returns a parsed Image2D spatial element.
 
     Parameters
     ----------
@@ -207,6 +208,8 @@ def image(
     # Map passed data axes to position of dimension
     axes_dim_mapping = {axes: ndim for ndim, axes in enumerate(data_axes)}
 
+    if chunks is None:
+        chunks = DEFAULT_CHUNK_SIZE
     chunks_dict = normalize_chunks(chunks, axes=data_axes)
 
     im = None

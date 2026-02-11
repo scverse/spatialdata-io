@@ -469,7 +469,11 @@ def _get_labels_and_indices_mapping(
     z = zarr.open(store, mode="r")
     # get the labels
     masks = da.from_array(z["masks"][f"{mask_index}"])
+    import time
+
+    start = time.time()
     labels = Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
+    print(f"Labels2DModel.parse(): {time.time() - start}")
 
     # build the matching table
     version = _parse_version_of_xenium_analyzer(specs)
@@ -502,10 +506,7 @@ def _get_labels_and_indices_mapping(
             logger.warn(
                 f"Could not find the labels ids from the metadata for version {version}. Using a fallback (slower) implementation."
             )
-            import dask.config
-
-            with dask.config.set(num_workers=1):
-                label_index = get_element_instances(labels).values
+            label_index = get_element_instances(labels).values
 
             if label_index[0] == 0:
                 label_index = label_index[1:]
