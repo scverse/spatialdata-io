@@ -202,7 +202,7 @@ def xenium(
     if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
         assert cells_zarr is not None
         cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr, specs)
-        if not cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID]):
+        if not np.array_equal(cell_summary_table[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values):
             warnings.warn(
                 'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
                 " table. This could be due to trying to read a new version that is not supported yet. Please "
@@ -210,8 +210,8 @@ def xenium(
                 UserWarning,
                 stacklevel=2,
             )
-        table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL]
-        table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT]
+        table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL].values
+        table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT].values
 
     polygons = {}
     labels = {}
@@ -246,7 +246,9 @@ def xenium(
             cells_zarr=cells_zarr,
         )
         if cell_labels_indices_mapping is not None and table is not None:
-            if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
+            if not np.array_equal(
+                cell_labels_indices_mapping["cell_id"].values, table.obs[str(XeniumKeys.CELL_ID)].values
+            ):
                 warnings.warn(
                     "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
                     "cell labels data. This could be due to trying to read a new version that is not supported yet. "
@@ -255,7 +257,7 @@ def xenium(
                     stacklevel=2,
                 )
             else:
-                table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
+                table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"].values
                 if not cells_as_circles:
                     table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
@@ -529,8 +531,6 @@ def _get_labels_and_indices_mapping(
             "label_index": label_index.astype(np.int64),
         }
     )
-    # because AnnData converts the indices to str
-    indices_mapping.index = indices_mapping.index.astype(str)
     return labels, indices_mapping
 
 
@@ -552,8 +552,6 @@ def _get_cells_metadata_table_from_zarr(
 
     cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
     df[XeniumKeys.CELL_ID] = cell_id_str
-    # because AnnData converts the indices to str
-    df.index = df.index.astype(str)
     return df
 
 
