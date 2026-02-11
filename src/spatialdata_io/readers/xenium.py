@@ -188,8 +188,20 @@ def xenium(
     else:
         table = None
 
+    # open cells.zarr.zip once and reuse across all functions that need it
+    cells_zarr: zarr.Group | None = None
+    need_cells_zarr = (
+        nucleus_labels
+        or cells_labels
+        or (version is not None and version >= packaging.version.parse("2.0.0") and table is not None)
+    )
+    if need_cells_zarr:
+        cells_zarr_store = zarr.storage.ZipStore(path / XeniumKeys.CELLS_ZARR, read_only=True)
+        cells_zarr = zarr.open(cells_zarr_store, mode="r")
+
     if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
-        cell_summary_table = _get_cells_metadata_table_from_zarr(path, XeniumKeys.CELLS_ZARR, specs)
+        assert cells_zarr is not None
+        cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr, specs)
         if not cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID]):
             warnings.warn(
                 'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
@@ -214,20 +226,24 @@ def xenium(
     # nuclei to cells. Therefore for the moment we only link the table to the cell labels, and not to the nucleus
     # labels.
     if nucleus_labels:
+        assert cells_zarr is not None
         labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
             path=path,
             specs=specs,
             mask_index=0,
             labels_name="nucleus_labels",
             labels_models_kwargs=labels_models_kwargs,
+            cells_zarr=cells_zarr,
         )
     if cells_labels:
+        assert cells_zarr is not None
         labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
             path=path,
             specs=specs,
             mask_index=1,
             labels_name="cell_labels",
             labels_models_kwargs=labels_models_kwargs,
+            cells_zarr=cells_zarr,
         )
         if cell_labels_indices_mapping is not None and table is not None:
             if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
@@ -459,16 +475,14 @@ def _get_labels_and_indices_mapping(
     specs: dict[str, Any],
     mask_index: int,
     labels_name: str,
+    cells_zarr: zarr.Group,
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> tuple[GeoDataFrame, pd.DataFrame | None]:
     if mask_index not in [0, 1]:
         raise ValueError(f"mask_index must be 0 or 1, found {mask_index}.")
 
-    zip_file = path / XeniumKeys.CELLS_ZARR
-    store = zarr.storage.ZipStore(zip_file, read_only=True)
-    z = zarr.open(store, mode="r")
     # get the labels
-    masks = da.from_array(z["masks"][f"{mask_index}"])
+    masks = da.from_array(cells_zarr["masks"][f"{mask_index}"])
     labels = Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
     # build the matching table
@@ -481,11 +495,11 @@ def _get_labels_and_indices_mapping(
         # supported in versions < 1.3.0
         return labels, None
 
-    cell_id, dataset_suffix = z["cell_id"][...].T
+    cell_id, dataset_suffix = cells_zarr["cell_id"][...].T
     cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
 
     if version < packaging.version.parse("2.0.0"):
-        label_index = z["seg_mask_value"][...]
+        label_index = cells_zarr["seg_mask_value"][...]
     else:
         # For v >= 2.0.0, seg_mask_value is no longer available in the zarr;
         # read label_id from the corresponding parquet boundary file instead
@@ -522,8 +536,7 @@ def _get_labels_and_indices_mapping(
 
 @inject_docs(xx=XeniumKeys)
 def _get_cells_metadata_table_from_zarr(
-    path: Path,
-    file: str,
+    cells_zarr: zarr.Group,
     specs: dict[str, Any],
 ) -> AnnData:
     """Read cells metadata from ``{xx.CELLS_ZARR}``.
@@ -531,17 +544,11 @@ def _get_cells_metadata_table_from_zarr(
     Read the cells summary table, which contains the z_level information for versions < 2.0.0, and also the
     nucleus_count for versions >= 2.0.0.
     """
-    # for version >= 2.0.0, in this function we could also parse the segmentation method used to obtain the masks
-    zip_file = path / XeniumKeys.CELLS_ZARR
-    store = zarr.storage.ZipStore(zip_file, read_only=True)
-
-    z = zarr.open(store, mode="r")
-    x = z["cell_summary"][...]
-    column_names = z["cell_summary"].attrs["column_names"]
+    x = cells_zarr["cell_summary"][...]
+    column_names = cells_zarr["cell_summary"].attrs["column_names"]
     df = pd.DataFrame(x, columns=column_names)
-    cell_id_prefix = z["cell_id"][:, 0]
-    dataset_suffix = z["cell_id"][:, 1]
-    store.close()
+    cell_id_prefix = cells_zarr["cell_id"][:, 0]
+    dataset_suffix = cells_zarr["cell_id"][:, 1]
 
     cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
     df[XeniumKeys.CELL_ID] = cell_id_str
@@ -850,13 +857,18 @@ def _parse_version_of_xenium_analyzer(
         return None
 
 
-def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
-    # explained here:
-    # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
+def _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
+    """Reference implementation of cell_id_str_from_prefix_suffix_uint32.
+
+    Readable but slow for large arrays due to Python-level string operations.
+    Kept as ground truth for testing the optimized version.
+
+    See https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
+    """
     # convert to hex, remove the 0x prefix
     cell_id_prefix_hex = [hex(x)[2:] for x in cell_id_prefix]
 
-    # shift the hex values
+    # shift the hex values: '0'->'a', ..., '9'->'j', 'a'->'k', ..., 'f'->'p'
     hex_shift = {str(i): chr(ord("a") + i) for i in range(10)} | {
         chr(ord("a") + i): chr(ord("a") + 10 + i) for i in range(6)
     }
@@ -868,6 +880,31 @@ def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suf
     ]
 
     return np.array(cell_id_str)
+
+
+def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
+    """Convert cell ID prefix/suffix uint32 pairs to the Xenium string representation.
+
+    Each uint32 prefix is converted to 8 hex nibbles, each mapped to a character
+    (0->'a', 1->'b', ..., 15->'p'), then joined with "-{suffix}".
+
+    See https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
+    """
+    cell_id_prefix = np.asarray(cell_id_prefix, dtype=np.uint32)
+    dataset_suffix = np.asarray(dataset_suffix)
+
+    # Extract 8 hex nibbles (4 bits each) from each uint32, most significant first.
+    # Each nibble maps to a character: 0->'a', 1->'b', ..., 9->'j', 10->'k', ..., 15->'p'.
+    # Leading zero nibbles become 'a', equivalent to rjust(8, 'a') padding.
+    shifts = np.array([28, 24, 20, 16, 12, 8, 4, 0], dtype=np.uint32)
+    nibbles = (cell_id_prefix[:, np.newaxis] >> shifts) & 0xF
+    char_codes = (nibbles + ord("a")).astype(np.uint8)
+
+    # View the (n, 8) uint8 array as n byte-strings of length 8
+    prefix_strs = char_codes.view("S8").ravel().astype("U8")
+
+    suffix_strs = np.char.add("-", dataset_suffix.astype("U"))
+    return np.char.add(prefix_strs, suffix_strs)
 
 
 def prefix_suffix_uint32_from_cell_id_str(
