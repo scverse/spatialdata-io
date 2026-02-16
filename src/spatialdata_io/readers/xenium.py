@@ -202,7 +202,7 @@ def xenium(
     # pre-compute cell_id strings from the zarr once, to avoid redundant conversion
     # in both _get_cells_metadata_table_from_zarr and _get_labels_and_indices_mapping.
     cells_zarr_cell_id_str: np.ndarray | None = None
-    if cells_zarr is not None:
+    if cells_zarr is not None and version is not None and version >= packaging.version.parse("1.3.0"):
         cell_id_raw = cells_zarr["cell_id"][...]
         cell_id_prefix, dataset_suffix = cell_id_raw[:, 0], cell_id_raw[:, 1]
         cells_zarr_cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
