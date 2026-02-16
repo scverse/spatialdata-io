@@ -14,13 +14,13 @@ import numpy as np
 import ome_types
 import packaging.version
 import pandas as pd
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import tifffile
 import zarr
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
-from pyarrow import Table
 from shapely import GeometryType, Polygon, from_ragged_array
 from spatialdata import SpatialData
 from spatialdata._core.query.relational_query import get_element_instances
@@ -44,6 +44,7 @@ from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwarg
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    import pyarrow as pa
     from anndata import AnnData
     from spatialdata._types import ArrayLike
 
@@ -210,7 +211,11 @@ def xenium(
     if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
         assert cells_zarr is not None
         cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr, specs, cells_zarr_cell_id_str)
-        if not np.array_equal(cell_summary_table[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values):
+        try:
+            _assert_arrays_equal_sampled(
+                cell_summary_table[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values
+            )
+        except AssertionError:
             warnings.warn(
                 'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
                 " table. This could be due to trying to read a new version that is not supported yet. Please "
@@ -254,9 +259,11 @@ def xenium(
             cell_id_str=cells_zarr_cell_id_str,
         )
         if cell_labels_indices_mapping is not None and table is not None:
-            if not np.array_equal(
-                cell_labels_indices_mapping["cell_id"].values, table.obs[str(XeniumKeys.CELL_ID)].values
-            ):
+            try:
+                _assert_arrays_equal_sampled(
+                    cell_labels_indices_mapping["cell_id"].values, table.obs[str(XeniumKeys.CELL_ID)].values
+                )
+            except AssertionError:
                 warnings.warn(
                     "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
                     "cell labels data. This could be due to trying to read a new version that is not supported yet. "
@@ -274,7 +281,7 @@ def xenium(
             path,
             XeniumKeys.NUCLEUS_BOUNDARIES_FILE,
             specs,
-            idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
+            idx=None,
         )
 
     if cells_boundaries:
@@ -415,6 +422,13 @@ def xenium(
     return _set_reader_metadata(sdata, "xenium")
 
 
+def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 100) -> None:
+    """Assert two arrays are equal by checking a random sample of entries."""
+    assert len(a) == len(b), f"Array lengths differ: {len(a)} != {len(b)}"
+    idx = np.random.default_rng(0).choice(len(a), size=min(n, len(a)), replace=False)
+    np.testing.assert_array_equal(np.asarray(a[idx]), np.asarray(b[idx]))
+
+
 def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     if isinstance(cell_id_column.iloc[0], bytes):
         return cell_id_column.str.decode("utf-8")
@@ -429,27 +443,34 @@ def _get_polygons(
     specs: dict[str, Any],
     idx: pd.Series | None = None,
 ) -> GeoDataFrame:
-    # seems to be faster than pd.read_parquet
-    df = pq.read_table(path / file).to_pandas()
-    cell_ids = df[XeniumKeys.CELL_ID].to_numpy()
-    x = df[XeniumKeys.BOUNDARIES_VERTEX_X].to_numpy()
-    y = df[XeniumKeys.BOUNDARIES_VERTEX_Y].to_numpy()
+    # Use PyArrow compute to avoid slow .to_numpy() on Arrow-backed strings in pandas >= 3.0
+    # The original approach was:
+    #   df = pq.read_table(path / file).to_pandas()
+    #   cell_ids = df[XeniumKeys.CELL_ID].to_numpy()
+    # which got slow with pandas >= 3.0 (Arrow-backed string .to_numpy() is ~100x slower).
+    # By doing change detection in Arrow, we avoid allocating Python string objects for all rows.
+    table = pq.read_table(path / file)
+    cell_id_col = table.column(str(XeniumKeys.CELL_ID))
+
+    x = table.column(str(XeniumKeys.BOUNDARIES_VERTEX_X)).to_numpy()
+    y = table.column(str(XeniumKeys.BOUNDARIES_VERTEX_Y)).to_numpy()
     coords = np.column_stack([x, y])
 
-    change_mask = np.concatenate([[True], cell_ids[1:] != cell_ids[:-1]])
+    n = len(cell_id_col)
+    change_mask = np.empty(n, dtype=bool)
+    change_mask[0] = True
+    change_mask[1:] = pc.not_equal(cell_id_col.slice(0, n - 1), cell_id_col.slice(1)).to_numpy(zero_copy_only=False)
     group_starts = np.where(change_mask)[0]
-    group_ends = np.concatenate([group_starts[1:], [len(cell_ids)]])
+    group_ends = np.concatenate([group_starts[1:], [n]])
 
     # sanity check
-    n_unique_ids = len(df[XeniumKeys.CELL_ID].drop_duplicates())
+    n_unique_ids = pc.count_distinct(cell_id_col).as_py()
     if len(group_starts) != n_unique_ids:
         raise ValueError(
             f"In {file}, rows belonging to the same polygon must be contiguous. "
             f"Expected {n_unique_ids} group starts, but found {len(group_starts)}. "
             f"This indicates non-consecutive polygon rows."
         )
-
-    unique_ids = cell_ids[group_starts]
 
     # offsets for ragged array:
     # offsets[0] (ring_offsets): describing to which rings the vertex positions belong to
@@ -459,22 +480,16 @@ def _get_polygons(
 
     geoms = from_ragged_array(GeometryType.POLYGON, coords, offsets=(ring_offsets, geom_offsets))
 
-    index = _decode_cell_id_column(pd.Series(unique_ids))
-    geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
-
-    version = _parse_version_of_xenium_analyzer(specs)
-    if version is not None and version < packaging.version.parse("2.0.0"):
-        assert idx is not None
-        assert len(idx) == len(geo_df)
-        assert np.array_equal(index.values, idx.values)
+    # idx is not None for the cells and None for the nuclei (for xenium(cells_table=False) is None for both
+    if idx is not None:
+        # Cell IDs already available from the annotation table
+        assert len(idx) == len(group_starts), f"Expected {len(group_starts)} cell IDs, got {len(idx)}"
+        geo_df = GeoDataFrame({"geometry": geoms}, index=idx.values)
     else:
-        if np.unique(geo_df.index).size != len(geo_df):
-            warnings.warn(
-                "Found non-unique polygon indices, this will be addressed in a future version of the reader. For the "
-                "time being please consider merging polygons with non-unique indices into single multi-polygons.",
-                UserWarning,
-                stacklevel=2,
-            )
+        # Fall back to extracting unique cell IDs from parquet (slow for large_string columns).
+        unique_ids = cell_id_col.filter(change_mask).to_pylist()
+        index = _decode_cell_id_column(pd.Series(unique_ids))
+        geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
 
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
@@ -559,7 +574,7 @@ def _get_cells_metadata_table_from_zarr(
     return df
 
 
-def _get_points(path: Path, specs: dict[str, Any]) -> Table:
+def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
 
     # check if we need to decode bytes
@@ -601,7 +616,7 @@ def _get_tables_and_circles(
 ) -> AnnData | tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
-    np.testing.assert_array_equal(metadata.cell_id.astype(str), adata.obs_names.values)
+    _assert_arrays_equal_sampled(metadata.cell_id.astype(str), adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     adata.obsm["spatial"] = circ
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
