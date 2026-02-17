@@ -8,15 +8,18 @@ Running (with the current environment, no virtualenv rebuild):
     asv run --python=same --quick --show-stderr -v -b ImportBenchmark
 
     # Full benchmark on current commit:
-    asv run --python=same --show-stderr -v -b ImportBenchmark HEAD^!
+    asv run --python=same --show-stderr -v -b ImportBenchmark
 
-    # Compare two branches (tip commits):
-    asv continuous --python=same --show-stderr -v -b ImportBenchmark main faster-imports
+    # Compare two branches (using --python=same, one-liner):
+    git stash && git checkout main && pip install -e . -q \
+        && asv run --python=same -v -b ImportBenchmark \
+        && git checkout faster-imports && git stash pop && pip install -e . -q \
+        && asv run --python=same -v -b ImportBenchmark
+    # Then view the comparison:
+    asv compare $(git rev-parse main) $(git rev-parse faster-imports)
 
-    # Run on specific commits and then compare:
-    asv run --python=same -b ImportBenchmark <commit_main>^!
-    asv run --python=same -b ImportBenchmark <commit_pr>^!
-    asv compare <commit_main> <commit_pr>
+    # Compare two branches (let ASV build virtualenvs, slower first run):
+    asv continuous --show-stderr -v -b ImportBenchmark main faster-imports
 
     # Generate an HTML report:
     asv publish && asv preview

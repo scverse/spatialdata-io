@@ -1,30 +1,11 @@
-import importlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
 import click
 
-# dynamically import all readers and converters (also the experimental ones)
-from spatialdata_io import _converters, _readers_file_types, _readers_technologies
 from spatialdata_io._constants._constants import VisiumKeys
-from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
-from spatialdata_io.experimental import _converters as _experimental_converters
-from spatialdata_io.experimental import (
-    _readers_file_types as _experimental_readers_file_types,
-)
-from spatialdata_io.experimental import (
-    _readers_technologies as _experimental_readers_technologies,
-)
 from spatialdata_io.readers.generic import VALID_IMAGE_TYPES, VALID_SHAPE_TYPES
-
-for func in _readers_technologies + _readers_file_types + _converters:
-    module = importlib.import_module("spatialdata_io")
-    globals()[func] = getattr(module, func)
-
-for func in _experimental_readers_technologies + _experimental_readers_file_types + _experimental_converters:
-    module = importlib.import_module("spatialdata_io.experimental")
-    globals()[func] = getattr(module, func)
 
 
 @click.group()
@@ -66,7 +47,9 @@ def _input_output_click_options(func: Callable[..., None]) -> Callable[..., None
 )
 def codex_wrapper(input: str, output: str, fcs: bool = True) -> None:
     """Codex conversion to SpatialData."""
-    sdata = codex(input, fcs=fcs)  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.codex import codex
+
+    sdata = codex(input, fcs=fcs)
     sdata.write(output)
 
 
@@ -76,7 +59,9 @@ def codex_wrapper(input: str, output: str, fcs: bool = True) -> None:
 @click.option("--transcripts", type=bool, default=True, help="Whether to load transcript information. [default: True]")
 def cosmx_wrapper(input: str, output: str, dataset_id: str | None = None, transcripts: bool = True) -> None:
     """Cosmic conversion to SpatialData."""
-    sdata = cosmx(input, dataset_id=dataset_id, transcripts=transcripts)  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.cosmx import cosmx
+
+    sdata = cosmx(input, dataset_id=dataset_id, transcripts=transcripts)
     sdata.write(output)
 
 
@@ -84,7 +69,9 @@ def cosmx_wrapper(input: str, output: str, dataset_id: str | None = None, transc
 @_input_output_click_options
 def curio_wrapper(input: str, output: str) -> None:
     """Curio conversion to SpatialData."""
-    sdata = curio(input)  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.curio import curio
+
+    sdata = curio(input)
     sdata.write(output)
 
 
@@ -117,7 +104,9 @@ def dbit_wrapper(
     border_scale: float = 1,
 ) -> None:
     """Conversion of DBit-seq to SpatialData."""
-    sdata = dbit(  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.dbit import dbit
+
+    sdata = dbit(
         input,
         anndata_path=anndata_path,
         barcode_position=barcode_position,
@@ -174,7 +163,9 @@ def iss_wrapper(
     multiscale_labels: bool = True,
 ) -> None:
     """ISS conversion to SpatialData."""
-    sdata = iss(  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.iss import iss
+
+    sdata = iss(
         input,
         raw_relative_path,
         labels_relative_path,
@@ -194,7 +185,9 @@ def iss_wrapper(
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
 def mcmicro_wrapper(input: str, output: str) -> None:
     """Conversion of MCMicro to SpatialData."""
-    sdata = mcmicro(input)  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.mcmicro import mcmicro
+
+    sdata = mcmicro(input)
     sdata.write(output)
 
 
@@ -233,7 +226,9 @@ def merscope_wrapper(
     mosaic_images: bool = True,
 ) -> None:
     """Merscope conversion to SpatialData."""
-    sdata = merscope(  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.merscope import merscope
+
+    sdata = merscope(
         input,
         vpt_outputs=vpt_outputs,
         z_layers=z_layers,
@@ -273,8 +268,10 @@ def seqfish_wrapper(
     rois: list[int] | None = None,
 ) -> None:
     """Seqfish conversion to SpatialData."""
+    from spatialdata_io.readers.seqfish import seqfish
+
     rois = list(rois) if rois else None
-    sdata = seqfish(  # type: ignore[name-defined] # noqa: F821
+    sdata = seqfish(
         input,
         load_images=load_images,
         load_labels=load_labels,
@@ -296,7 +293,9 @@ def seqfish_wrapper(
 )
 def steinbock_wrapper(input: str, output: str, labels_kind: Literal["deepcell", "ilastik"] = "deepcell") -> None:
     """Steinbock conversion to SpatialData."""
-    sdata = steinbock(input, labels_kind=labels_kind)  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.steinbock import steinbock
+
+    sdata = steinbock(input, labels_kind=labels_kind)
     sdata.write(output)
 
 
@@ -320,7 +319,9 @@ def stereoseq_wrapper(
     optional_tif: bool = False,
 ) -> None:
     """Stereoseq conversion to SpatialData."""
-    sdata = stereoseq(input, dataset_id=dataset_id, read_square_bin=read_square_bin, optional_tif=optional_tif)  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.stereoseq import stereoseq
+
+    sdata = stereoseq(input, dataset_id=dataset_id, read_square_bin=read_square_bin, optional_tif=optional_tif)
     sdata.write(output)
 
 
@@ -361,7 +362,9 @@ def visium_wrapper(
     scalefactors_file: str | Path | None = None,
 ) -> None:
     """Visium conversion to SpatialData."""
-    sdata = visium(  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.visium import visium
+
+    sdata = visium(
         input,
         dataset_id=dataset_id,
         counts_file=counts_file,
@@ -437,7 +440,9 @@ def visium_hd_wrapper(
     annotate_table_by_labels: bool = False,
 ) -> None:
     """Visium HD conversion to SpatialData."""
-    sdata = visium_hd(  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.visium_hd import visium_hd
+
+    sdata = visium_hd(
         path=input,
         dataset_id=dataset_id,
         filtered_counts_file=filtered_counts_file,
@@ -496,7 +501,9 @@ def xenium_wrapper(
     cells_table: bool = True,
 ) -> None:
     """Xenium conversion to SpatialData."""
-    sdata = xenium(  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.xenium import xenium
+
+    sdata = xenium(
         input,
         cells_boundaries=cells_boundaries,
         nucleus_boundaries=nucleus_boundaries,
@@ -595,7 +602,9 @@ def macsima_wrapper(
     include_cycle_in_channel_name: bool = False,
 ) -> None:
     """Read MACSima formatted dataset and convert to SpatialData."""
-    sdata = macsima(  # type: ignore[name-defined] # noqa: F821
+    from spatialdata_io.readers.macsima import macsima
+
+    sdata = macsima(
         path=input,
         filter_folder_names=filter_folder_names,
         subset=subset,
@@ -649,6 +658,8 @@ def read_generic_wrapper(
     coordinate_system: str | None = None,
 ) -> None:
     """Read generic data to SpatialData."""
+    from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
+
     if data_axes is not None and "".join(sorted(data_axes)) not in ["cxy", "cxyz"]:
         raise ValueError("data_axes must be a permutation of 'cyx' or 'czyx'.")
     generic_to_zarr(input=input, output=output, name=name, data_axes=data_axes, coordinate_system=coordinate_system)

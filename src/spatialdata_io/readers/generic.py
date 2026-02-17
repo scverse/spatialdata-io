@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import dask.array as da
 import numpy as np
 import tifffile
 from dask_image.imread import imread
@@ -15,7 +16,6 @@ from spatialdata.transformations import Identity
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import dask.array as da
     from geopandas import GeoDataFrame
     from numpy.typing import NDArray
     from spatialdata.models.models import Chunks_t
@@ -206,13 +206,11 @@ def image(
         chunks = DEFAULT_CHUNK_SIZE
     chunks_dict = normalize_chunks(chunks, axes=data_axes)
 
-    from dask.array import block
-
     im = None
     if input.suffix in [".tiff", ".tif"] and use_tiff_memmap:
         try:
             im_chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping, chunks_cyx=chunks_dict)
-            im = block(im_chunks, allow_unknown_chunksizes=True)
+            im = da.block(im_chunks, allow_unknown_chunksizes=True)
 
         # Edge case: Compressed images are not memory-mappable
         except ValueError as e:
