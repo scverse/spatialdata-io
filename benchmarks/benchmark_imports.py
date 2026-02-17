@@ -50,7 +50,7 @@ class ImportBenchmark:
     # ASV settings tuned for subprocess-based import timing:
     timeout = 120  # seconds before ASV kills a benchmark; generous since each
     # call spawns a subprocess (~2s each × 10 repeats = ~20s worst case)
-    repeat = 10  # number of timing samples ASV collects; high because import
+    repeat = 5  # number of timing samples ASV collects; high because import
     # times have variance from OS caching / disk I/O / background load;
     # ASV reports the median and IQR from these samples
     number = 1  # calls per sample; must be 1 because each call spawns a fresh
