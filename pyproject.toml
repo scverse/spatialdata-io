@@ -185,6 +185,8 @@ lint.ignore = [
     # Unused imports
     "F401",
 ]
+[tool.ruff.lint.per-file-ignores]
+"src/spatialdata_io/__init__.py" = ["I001"]
 
 [tool.jupytext]
 formats = "ipynb,md"

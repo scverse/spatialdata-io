@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING
 
-import dask.array as da
 import numpy as np
 import tifffile
 from dask_image.imread import imread
@@ -16,6 +15,7 @@ from spatialdata.transformations import Identity
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    import dask.array as da
     from geopandas import GeoDataFrame
     from numpy.typing import NDArray
     from spatialdata.models.models import Chunks_t
@@ -34,12 +34,6 @@ VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
 
 __all__ = ["generic", "geojson", "image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
-
-T = TypeVar("T", bound=np.generic)  # Restrict to NumPy scalar types
-
-
-class DaskArray(Protocol[T]):
-    dtype: np.dtype[T]
 
 
 @docstring_parameter(
@@ -96,7 +90,7 @@ def _tiff_to_chunks(
     input: Path,
     axes_dim_mapping: dict[str, int],
     chunks_cyx: dict[str, int],
-) -> list[list[DaskArray[np.number]]]:
+) -> list[list[da.Array]]:
     """Chunkwise reader for tiff files.
 
     Creates spatial tiles from a TIFF file. Each tile contains all channels.
@@ -115,7 +109,7 @@ def _tiff_to_chunks(
 
     Returns
     -------
-    list[list[DaskArray]]
+    list[list[dask.array.Array]]
         2D list of dask arrays representing spatial tiles, each with shape (n_channels, height, width).
     """
     # Lazy file reader
@@ -212,11 +206,13 @@ def image(
         chunks = DEFAULT_CHUNK_SIZE
     chunks_dict = normalize_chunks(chunks, axes=data_axes)
 
+    from dask.array import block
+
     im = None
     if input.suffix in [".tiff", ".tif"] and use_tiff_memmap:
         try:
             im_chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping, chunks_cyx=chunks_dict)
-            im = da.block(im_chunks, allow_unknown_chunksizes=True)
+            im = block(im_chunks, allow_unknown_chunksizes=True)
 
         # Edge case: Compressed images are not memory-mappable
         except ValueError as e:
