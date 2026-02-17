@@ -44,3 +44,4 @@ data/
 tests/data
 uv.lock
 .asv/
+.venv/
