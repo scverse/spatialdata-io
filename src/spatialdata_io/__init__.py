@@ -29,7 +29,30 @@ _LAZY_IMPORTS: dict[str, str] = {
     "generic_to_zarr": "spatialdata_io.converters.generic_to_zarr",
 }
 
-__all__ = list(_LAZY_IMPORTS.keys())
+__all__ = [
+    # readers
+    "codex",
+    "cosmx",
+    "curio",
+    "dbit",
+    "macsima",
+    "mcmicro",
+    "merscope",
+    "seqfish",
+    "steinbock",
+    "stereoseq",
+    "visium",
+    "visium_hd",
+    "xenium",
+    "xenium_aligned_image",
+    "xenium_explorer_selection",
+    # readers file types
+    "generic",
+    "geojson",
+    "image",
+    # converters
+    "generic_to_zarr",
+]
 
 
 def __getattr__(name: str) -> Any:
