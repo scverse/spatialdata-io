@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING
 
 import dask.array as da
 import numpy as np
@@ -34,12 +34,6 @@ VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
 
 __all__ = ["generic", "geojson", "image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
-
-T = TypeVar("T", bound=np.generic)  # Restrict to NumPy scalar types
-
-
-class DaskArray(Protocol[T]):
-    dtype: np.dtype[T]
 
 
 @docstring_parameter(
@@ -96,7 +90,7 @@ def _tiff_to_chunks(
     input: Path,
     axes_dim_mapping: dict[str, int],
     chunks_cyx: dict[str, int],
-) -> list[list[DaskArray[np.number]]]:
+) -> list[list[da.Array]]:
     """Chunkwise reader for tiff files.
 
     Creates spatial tiles from a TIFF file. Each tile contains all channels.
@@ -115,7 +109,7 @@ def _tiff_to_chunks(
 
     Returns
     -------
-    list[list[DaskArray]]
+    list[list[dask.array.Array]]
         2D list of dask arrays representing spatial tiles, each with shape (n_channels, height, width).
     """
     # Lazy file reader
