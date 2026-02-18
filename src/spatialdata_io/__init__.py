@@ -2,6 +2,8 @@ from importlib import import_module
 from importlib.metadata import version
 from typing import Any, TYPE_CHECKING
 
+__version__ = version("spatialdata-io")
+
 _LAZY_IMPORTS: dict[str, str] = {
     # readers
     "codex": "spatialdata_io.readers.codex",
@@ -45,7 +47,7 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    return sorted(__all__)
+    return __all__ + ["__version__"]
 
 
 if TYPE_CHECKING:
@@ -73,5 +75,3 @@ if TYPE_CHECKING:
 
     # converters
     from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
-
-__version__ = version("spatialdata-io")
