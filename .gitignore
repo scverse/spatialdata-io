@@ -36,6 +36,9 @@ _version.py
 node_modules/
 .code-workspace
 
+# memray report
+*.bin
+
 # test datasets (e.g. Xenium ones)
 # symlinks
 data
