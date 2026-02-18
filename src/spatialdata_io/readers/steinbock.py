@@ -36,6 +36,24 @@ def steinbock(
 
         - `Steinbock pipeline  <https://bodenmillergroup.github.io/steinbock/latest/>`_.
 
+    Current mandatory outputs of the Steinbock toolkit
+    ----------
+    - one comprehensive anndata object labeled as 'cells.h5ad' in the main working directory
+    - an 'ome' folder containing the steinbock ome.tiff exported tiff images
+    - masks directory labeled as either 'masks_deepcell' or 'masks_ilastik'
+
+    Users have to carefully construct the andata object with steinbock using the images.csv table.
+    Constructing the anndata object without the images.csv table will leave the anndata without
+    'adata.obs.images' which will subsequently result in an error (see line 99)
+    Therefore, currently users are adviced to start their steinbock analyses from .mcd files.
+    A possible workaround for this would be to handcraft the images.csv table according to steinbock format
+    if users want to start from tiff images in steinbock
+    (https://bodenmillergroup.github.io/steinbock/latest/cli/preprocessing/)
+
+    The andata tables, masks and ome.tiffs have to be named accordingly so the
+    spatialdata.io steinbock reader correctly assigns all instances.
+
+
     Parameters
     ----------
     path
