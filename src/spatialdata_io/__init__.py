@@ -35,6 +35,7 @@ def __getattr__(name: str) -> Any:
         module_path = _LAZY_IMPORTS[name]
         mod = import_module(module_path)
         val = getattr(mod, name)
+        globals()[name] = val
         return val
     else:
         try:
