@@ -42,5 +42,5 @@ data
 # data folder
 data/
 tests/data
-uv.lock
-.asv/
+.venv
+.uv.lock
