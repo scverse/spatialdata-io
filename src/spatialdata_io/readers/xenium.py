@@ -258,7 +258,7 @@ def xenium(
             labels_name="nucleus_labels",
             labels_models_kwargs=labels_models_kwargs,
             cells_zarr=cells_zarr,
-            cell_id_str=cells_zarr_cell_id_str,
+            cell_id_str=None,
         )
     if cells_labels:
         labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
