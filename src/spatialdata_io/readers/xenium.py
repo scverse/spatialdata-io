@@ -221,7 +221,7 @@ def xenium(
 
     if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
         assert cells_zarr is not None
-        cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr, specs, cells_zarr_cell_id_str)
+        cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr, cells_zarr_cell_id_str)
         try:
             _assert_arrays_equal_sampled(
                 cell_summary_table[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values
@@ -515,7 +515,7 @@ def _get_labels_and_indices_mapping(
     mask_index: int,
     labels_name: str,
     cells_zarr: zarr.Group,
-    cell_id_str: ArrayLike,
+    cell_id_str: ArrayLike | None,
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> tuple[GeoDataFrame, pd.DataFrame | None]:
     if mask_index not in [0, 1]:
@@ -572,7 +572,6 @@ def _get_labels_and_indices_mapping(
 @inject_docs(xx=XeniumKeys)
 def _get_cells_metadata_table_from_zarr(
     cells_zarr: zarr.Group,
-    specs: dict[str, Any],
     cell_id_str: ArrayLike,
 ) -> AnnData:
     """Read cells metadata from ``{xx.CELLS_ZARR}``.
