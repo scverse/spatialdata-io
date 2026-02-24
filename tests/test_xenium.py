@@ -10,6 +10,7 @@ from spatialdata.models import TableModel, get_table_keys
 
 from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
+    _cell_id_str_from_prefix_suffix_uint32_reference,
     cell_id_str_from_prefix_suffix_uint32,
     prefix_suffix_uint32_from_cell_id_str,
     xenium,
@@ -20,9 +21,22 @@ from tests._utils import skip_if_below_python_version
 def test_cell_id_str_from_prefix_suffix_uint32() -> None:
     cell_id_prefix = np.array([1, 1437536272, 1437536273], dtype=np.uint32)
     dataset_suffix = np.array([1, 1, 2])
+    expected = np.array(["aaaaaaab-1", "ffkpbaba-1", "ffkpbabb-2"])
 
-    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
-    assert np.array_equal(cell_id_str, np.array(["aaaaaaab-1", "ffkpbaba-1", "ffkpbabb-2"]))
+    result = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+    reference = _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix, dataset_suffix)
+    assert np.array_equal(result, expected)
+    assert np.array_equal(reference, expected)
+
+
+def test_cell_id_str_optimized_matches_reference() -> None:
+    rng = np.random.default_rng(42)
+    cell_id_prefix = rng.integers(0, 2**32, size=10_000, dtype=np.uint32)
+    dataset_suffix = rng.integers(0, 10, size=10_000)
+
+    result = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+    reference = _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix, dataset_suffix)
+    assert np.array_equal(result, reference)
 
 
 def test_prefix_suffix_uint32_from_cell_id_str() -> None:
