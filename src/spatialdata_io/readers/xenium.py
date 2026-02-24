@@ -69,6 +69,7 @@ def xenium(
     morphology_focus: bool = True,
     aligned_images: bool = True,
     cells_table: bool = True,
+    n_jobs: int | None = None,
     gex_only: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -121,6 +122,10 @@ def xenium(
         `False` and use the `xenium_aligned_image` function directly.
     cells_table
         Whether to read the cell annotations in the `AnnData` table.
+    n_jobs
+        .. deprecated::
+            ``n_jobs`` is not used anymore and will be removed in a future release. The reading time of shapes is now
+            greatly improved and does not require parallelization.
     gex_only
         Whether to load only the "Gene Expression" feature type.
     imread_kwargs
@@ -153,6 +158,13 @@ def xenium(
     ... )
     >>> sdata.write("path/to/data.zarr")
     """
+    if n_jobs is not None:
+        warnings.warn(
+            "The `n_jobs` parameter is deprecated and will be removed in a future release. "
+            "The reading time of shapes is now greatly improved and does not require parallelization.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
         image_models_kwargs, labels_models_kwargs
     )
@@ -245,7 +257,7 @@ def xenium(
             labels_name="nucleus_labels",
             labels_models_kwargs=labels_models_kwargs,
             cells_zarr=cells_zarr,
-            cell_id_str=cells_zarr_cell_id_str,
+            cell_id_str=None,
         )
     if cells_labels:
         labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
