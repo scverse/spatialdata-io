@@ -39,7 +39,7 @@ from pathlib import Path
 
 from spatialdata import SpatialData
 
-from spatialdata_io import xenium  # type: ignore[attr-defined]
+from spatialdata_io import xenium
 
 # =============================================================================
 # CONFIGURATION - Edit these paths to match your setup

@@ -1,11 +1,17 @@
-from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
 from dask import delayed
-from numpy.typing import NDArray
 from spatialdata.models.models import Chunks_t
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from numpy.typing import NDArray
 
 __all__ = ["Chunks_t", "_compute_chunks", "_read_chunks"]
 
