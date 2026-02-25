@@ -39,6 +39,9 @@ node_modules/
 # memray report
 *.bin
 
+# speedscope report
+profile.speedscope.json
+
 # test datasets (e.g. Xenium ones)
 # symlinks
 data
