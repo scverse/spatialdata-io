@@ -113,7 +113,8 @@ def test_example_data_index_integrity(dataset: str) -> None:
         assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=3515.5, x=4618.5).data.compute() == 6392
         assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 1113949]]['x'], [2.608911, 194.917831, 1227.499268])
         assert np.isclose(sdata['cell_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4864931162789)
-        assert np.isclose(sdata['nucleus_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4931256878282)
+        index = sdata['nucleus_boundaries']['cell_id'].index[sdata['nucleus_boundaries']['cell_id'].eq('oipggjko-1')][0]
+        assert np.isclose(sdata['nucleus_boundaries'].loc[index].geometry.centroid.x,736.4931256878282)
         assert np.array_equal(sdata['table'].X.indices[:3], [1, 3, 34])
         # fmt: on
 
@@ -138,7 +139,8 @@ def test_example_data_index_integrity(dataset: str) -> None:
         assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=18.5, x=3015.5).data.compute() == 2764
         assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 20000]]['x'], [174.258392, 12.210024, 214.759186])
         assert np.isclose(sdata['cell_boundaries'].loc['aaanbaof-1'].geometry.centroid.x, 43.96894317275074)
-        assert np.isclose(sdata['nucleus_boundaries'].loc['aaanbaof-1'].geometry.centroid.x,43.31874577809517)
+        index = sdata['nucleus_boundaries']['cell_id'].index[sdata['nucleus_boundaries']['cell_id'].eq('aaanbaof-1')][0]
+        assert np.isclose(sdata['nucleus_boundaries'].loc[index].geometry.centroid.x,43.31874577809517)
         assert np.array_equal(sdata['table'].X.indices[:3], [1, 8, 19])
         # fmt: on
 
@@ -164,7 +166,8 @@ def test_example_data_index_integrity(dataset: str) -> None:
         assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=4039.5, x=93.5).data.compute() == 274
         assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 20000]]['x'], [43.296875, 62.484375, 93.125])
         assert np.isclose(sdata['cell_boundaries'].loc['aadmbfof-1'].geometry.centroid.x, 64.54541104696033)
-        assert np.isclose(sdata['nucleus_boundaries'].loc['aadmbfof-1'].geometry.centroid.x, 65.43305896114295)
+        index = sdata['nucleus_boundaries']['cell_id'].index[sdata['nucleus_boundaries']['cell_id'].eq('aadmbfof-1')][0]
+        assert np.isclose(sdata['nucleus_boundaries'].loc[index].geometry.centroid.x, 65.43305896114295)
         assert np.array_equal(sdata['table'].X.indices[:3], [3, 49, 53])
         # fmt: on
 
