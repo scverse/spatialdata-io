@@ -468,11 +468,13 @@ def _get_polygons(
         labels, correctly handling multinucleate cells.
         When False (cell boundaries), use ``cell_id`` as the GeoDataFrame index.
     """
+    # Check whether the parquet has a label_id column (v2.0+). When present, use it for
+    # fast integer-based change detection. Otherwise fall back to cell_id strings.
+    parquet_schema = pq.read_schema(path / file)
+    has_label_id = "label_id" in parquet_schema.names
+
     columns_to_read = [str(XeniumKeys.BOUNDARIES_VERTEX_X), str(XeniumKeys.BOUNDARIES_VERTEX_Y)]
-    if indices_mapping is not None:
-        columns_to_read.append("label_id")
-    else:
-        columns_to_read.append(str(XeniumKeys.CELL_ID))
+    columns_to_read.append("label_id" if has_label_id else str(XeniumKeys.CELL_ID))
     table = pq.read_table(path / file, columns=columns_to_read)
 
     x = table.column(str(XeniumKeys.BOUNDARIES_VERTEX_X)).to_numpy()
@@ -481,7 +483,7 @@ def _get_polygons(
 
     n = len(x)
 
-    if indices_mapping is not None:
+    if has_label_id:
         id_col = table.column("label_id")
         id_arr = id_col.to_numpy()
         change_mask = id_arr[1:] != id_arr[:-1]
