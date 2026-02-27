@@ -38,6 +38,7 @@ IMAGETYPE_DICT = {
     "B": "bleach",  # v1
     "AntigenCycle": "stain",  # v0
     "S": "stain",  # v1
+    "AF": "autofluorescence",
 }
 
 
@@ -125,12 +126,11 @@ class MultiChannelImage:
                 ),
             )
         imgs = [imread(img, **imread_kwargs) for img in valid_files]
-        for img, path in zip(imgs, valid_files, strict=True):
-            if img.shape[1:] != imgs[0].shape[1:]:
-                raise ValueError(
-                    f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image "
-                    f"{valid_files[0]} has shape {imgs[0].shape[1:]}"
-                )
+
+        # Pad images to same dimensions if necessary
+        if cls._check_for_differing_xy_dimensions(imgs):
+            imgs = cls._pad_images(imgs)
+
         # create MultiChannelImage object with imgs and metadata
         output = cls(data=imgs, metadata=channel_metadata)
         return output
@@ -219,6 +219,56 @@ class MultiChannelImage:
 
     def get_stack(self) -> da.Array:
         return da.stack(self.data, axis=0).squeeze(axis=1)
+
+    @staticmethod
+    def _check_for_differing_xy_dimensions(imgs: list[da.Array]) -> bool:
+        """Checks whether any of the images have differing extent in dimensions X and Y."""
+        # Shape has order CYX
+        dims_x = [x.shape[2] for x in imgs]
+        dims_y = [x.shape[1] for x in imgs]
+
+        dims_x_different = False if len(set(dims_x)) == 1 else True
+        dims_y_different = False if len(set(dims_y)) == 1 else True
+
+        different_dimensions = any([dims_x_different, dims_y_different])
+
+        warnings.warn(
+            "Supplied images have different dimensions!",
+            UserWarning,
+            stacklevel=2,
+        )
+
+        return different_dimensions
+
+    @staticmethod
+    def _pad_images(imgs: list[da.Array]) -> list[da.Array]:
+        """Pad all images to the same dimensions in X and Y with 0s."""
+        dims_x_max = max([x.shape[2] for x in imgs])
+        dims_y_max = max([x.shape[1] for x in imgs])
+
+        warnings.warn(
+            f"Padding images with 0s to same size of ({dims_y_max}, {dims_x_max})",
+            UserWarning,
+            stacklevel=2,
+        )
+
+        padded_imgs = []
+        for img in imgs:
+            pad_y = dims_y_max - img.shape[1]
+            pad_x = dims_x_max - img.shape[2]
+            # Only pad if necessary
+            if (pad_y, pad_y) != (0, 0):
+                # Always pad to the right/bottom
+                pad_width = (
+                    (0, 0),
+                    (0, pad_y),
+                    (0, pad_x),
+                )
+
+                img = da.pad(img, pad_width, mode="constant", constant_values=0)
+            padded_imgs.append(img)
+
+        return padded_imgs
 
 
 def macsima(
@@ -331,6 +381,9 @@ def macsima(
             for p in path.iterdir()
             if p.is_dir() and (not filter_folder_names or not any(f in p.name for f in filter_folder_names))
         ]:
+            if not len(list(p.glob("*.tif*"))):
+                warnings.warn(f"No tif files found in {p}, skipping it!", UserWarning, stacklevel=2)
+                continue
             sdatas[p.stem] = parse_processed_folder(
                 path=p,
                 imread_kwargs=imread_kwargs,
