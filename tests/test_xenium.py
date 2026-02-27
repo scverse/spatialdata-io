@@ -10,6 +10,7 @@ from spatialdata.models import TableModel, get_table_keys
 
 from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
+    _cell_id_str_from_prefix_suffix_uint32_reference,
     cell_id_str_from_prefix_suffix_uint32,
     prefix_suffix_uint32_from_cell_id_str,
     xenium,
@@ -20,9 +21,22 @@ from tests._utils import skip_if_below_python_version
 def test_cell_id_str_from_prefix_suffix_uint32() -> None:
     cell_id_prefix = np.array([1, 1437536272, 1437536273], dtype=np.uint32)
     dataset_suffix = np.array([1, 1, 2])
+    expected = np.array(["aaaaaaab-1", "ffkpbaba-1", "ffkpbabb-2"])
 
-    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
-    assert np.array_equal(cell_id_str, np.array(["aaaaaaab-1", "ffkpbaba-1", "ffkpbabb-2"]))
+    result = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+    reference = _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix, dataset_suffix)
+    assert np.array_equal(result, expected)
+    assert np.array_equal(reference, expected)
+
+
+def test_cell_id_str_optimized_matches_reference() -> None:
+    rng = np.random.default_rng(42)
+    cell_id_prefix = rng.integers(0, 2**32, size=10_000, dtype=np.uint32)
+    dataset_suffix = rng.integers(0, 10, size=10_000)
+
+    result = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+    reference = _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix, dataset_suffix)
+    assert np.array_equal(result, reference)
 
 
 def test_prefix_suffix_uint32_from_cell_id_str() -> None:
@@ -99,7 +113,8 @@ def test_example_data_index_integrity(dataset: str) -> None:
         assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=3515.5, x=4618.5).data.compute() == 6392
         assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 1113949]]['x'], [2.608911, 194.917831, 1227.499268])
         assert np.isclose(sdata['cell_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4864931162789)
-        assert np.isclose(sdata['nucleus_boundaries'].loc['oipggjko-1'].geometry.centroid.x,736.4931256878282)
+        index = sdata['nucleus_boundaries']['cell_id'].index[sdata['nucleus_boundaries']['cell_id'].eq('oipggjko-1')][0]
+        assert np.isclose(sdata['nucleus_boundaries'].loc[index].geometry.centroid.x,736.4931256878282)
         assert np.array_equal(sdata['table'].X.indices[:3], [1, 3, 34])
         # fmt: on
 
@@ -124,7 +139,8 @@ def test_example_data_index_integrity(dataset: str) -> None:
         assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=18.5, x=3015.5).data.compute() == 2764
         assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 20000]]['x'], [174.258392, 12.210024, 214.759186])
         assert np.isclose(sdata['cell_boundaries'].loc['aaanbaof-1'].geometry.centroid.x, 43.96894317275074)
-        assert np.isclose(sdata['nucleus_boundaries'].loc['aaanbaof-1'].geometry.centroid.x,43.31874577809517)
+        index = sdata['nucleus_boundaries']['cell_id'].index[sdata['nucleus_boundaries']['cell_id'].eq('aaanbaof-1')][0]
+        assert np.isclose(sdata['nucleus_boundaries'].loc[index].geometry.centroid.x,43.31874577809517)
         assert np.array_equal(sdata['table'].X.indices[:3], [1, 8, 19])
         # fmt: on
 
@@ -150,7 +166,8 @@ def test_example_data_index_integrity(dataset: str) -> None:
         assert sdata["nucleus_labels"]["scale0"]["image"].sel(y=4039.5, x=93.5).data.compute() == 274
         assert np.allclose(sdata['transcripts'].compute().loc[[0, 10000, 20000]]['x'], [43.296875, 62.484375, 93.125])
         assert np.isclose(sdata['cell_boundaries'].loc['aadmbfof-1'].geometry.centroid.x, 64.54541104696033)
-        assert np.isclose(sdata['nucleus_boundaries'].loc['aadmbfof-1'].geometry.centroid.x, 65.43305896114295)
+        index = sdata['nucleus_boundaries']['cell_id'].index[sdata['nucleus_boundaries']['cell_id'].eq('aadmbfof-1')][0]
+        assert np.isclose(sdata['nucleus_boundaries'].loc[index].geometry.centroid.x, 65.43305896114295)
         assert np.array_equal(sdata['table'].X.indices[:3], [3, 49, 53])
         # fmt: on
 

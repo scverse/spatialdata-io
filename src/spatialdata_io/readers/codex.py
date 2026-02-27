@@ -85,10 +85,10 @@ def codex(
                 rgb=None,
             )
         }
-        sdata = SpatialData(images=images, shapes={str(region): shapes}, table=table)
+        sdata = SpatialData(images=images, shapes={str(region): shapes}, tables={"table": table})
     else:
         logger.warning("Cannot find .tif file. Will build spatialdata with shapes and table only.")
-        sdata = SpatialData(shapes={str(region): shapes}, table=table)
+        sdata = SpatialData(shapes={str(region): shapes}, tables={"table": table})
 
     return _set_reader_metadata(sdata, "codex")
 

@@ -16,7 +16,7 @@ from spatialdata import SpatialData
 from spatialdata._logging import logger
 from xarray import DataArray
 
-from spatialdata_io import image  # type: ignore[attr-defined]
+from spatialdata_io import image
 
 # =============================================================================
 # CONFIGURATION - Edit these values to match your setup

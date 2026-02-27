@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING
 
 import dask.array as da
 import numpy as np
 import tifffile
 from dask_image.imread import imread
-from geopandas import GeoDataFrame
 from spatialdata._docs import docstring_parameter
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel
@@ -23,22 +22,18 @@ if TYPE_CHECKING:
     from xarray import DataArray
 
 
+from spatialdata.models.chunks_utils import normalize_chunks
+
 from spatialdata_io.readers._utils._image import (
+    DEFAULT_CHUNK_SIZE,
     _compute_chunks,
     _read_chunks,
-    normalize_chunks,
 )
 
 VALID_IMAGE_TYPES = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 VALID_SHAPE_TYPES = [".geojson"]
 
 __all__ = ["generic", "geojson", "image", "VALID_IMAGE_TYPES", "VALID_SHAPE_TYPES"]
-
-T = TypeVar("T", bound=np.generic)  # Restrict to NumPy scalar types
-
-
-class DaskArray(Protocol[T]):
-    dtype: np.dtype[T]
 
 
 @docstring_parameter(
@@ -95,7 +90,7 @@ def _tiff_to_chunks(
     input: Path,
     axes_dim_mapping: dict[str, int],
     chunks_cyx: dict[str, int],
-) -> list[list[DaskArray[np.number]]]:
+) -> list[list[da.Array]]:
     """Chunkwise reader for tiff files.
 
     Creates spatial tiles from a TIFF file. Each tile contains all channels.
@@ -114,7 +109,7 @@ def _tiff_to_chunks(
 
     Returns
     -------
-    list[list[DaskArray]]
+    list[list[dask.array.Array]]
         2D list of dask arrays representing spatial tiles, each with shape (n_channels, height, width).
     """
     # Lazy file reader
@@ -179,7 +174,7 @@ def image(
     chunks: Chunks_t | None = None,
     scale_factors: Sequence[int] | None = None,
 ) -> DataArray:
-    """Reads an image file and returns a parsed Image2D spatial element.
+    """Read an image file and returns a parsed Image2D spatial element.
 
     Parameters
     ----------
@@ -207,6 +202,8 @@ def image(
     # Map passed data axes to position of dimension
     axes_dim_mapping = {axes: ndim for ndim, axes in enumerate(data_axes)}
 
+    if chunks is None:
+        chunks = DEFAULT_CHUNK_SIZE
     chunks_dict = normalize_chunks(chunks, axes=data_axes)
 
     im = None
