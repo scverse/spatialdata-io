@@ -47,7 +47,6 @@ class MACSimaParsingStyle(ModeEnum):
     PROCESSED_SINGLE_FOLDER = "processed_single_folder"
     PROCESSED_MULTIPLE_FOLDERS = "processed_multiple_folders"
     RAW = "raw"
-    AUTO = "auto"
 
 
 @dataclass
@@ -223,7 +222,7 @@ class MultiChannelImage:
 
 def macsima(
     path: str | Path,
-    parsing_style: MACSimaParsingStyle | str = MACSimaParsingStyle.AUTO,
+    parsing_style: MACSimaParsingStyle | str = MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER,
     filter_folder_names: list[str] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     subset: int | None = None,
@@ -293,18 +292,6 @@ def macsima(
     path = Path(path)
     if not isinstance(parsing_style, MACSimaParsingStyle):
         parsing_style = MACSimaParsingStyle(parsing_style)
-
-    if parsing_style == MACSimaParsingStyle.AUTO:
-        assert path.is_dir(), f"Path {path} is not a directory."
-
-        if any(p.suffix in [".tif", ".tiff"] for p in path.iterdir()):
-            # if path contains tifs, do parse_processed_folder on path
-            parsing_style = MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER
-        elif all(p.is_dir() for p in path.iterdir() if not p.name.startswith(".")):
-            # if path contains only folders or hidden files, do parse_processed_folder on each folder
-            parsing_style = MACSimaParsingStyle.PROCESSED_MULTIPLE_FOLDERS
-        else:
-            raise ValueError(f"Cannot determine parsing style for path {path}. Please specify the parsing style.")
 
     if parsing_style == MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER:
         return parse_processed_folder(
@@ -624,7 +611,7 @@ def parse_processed_folder(
     nuclei_channel_name: str = "DAPI",
     split_threshold_nuclei_channel: int | None = 2,
     skip_rounds: list[int] | None = None,
-    file_pattern: str = "*.tif*",
+    file_pattern: str = "**/*.tif*",
     include_cycle_in_channel_name: bool = False,
 ) -> SpatialData:
     """Parse a single folder containing images from a cyclical imaging platform."""
