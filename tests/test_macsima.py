@@ -1,4 +1,5 @@
 import math
+import os
 import shutil
 from copy import deepcopy
 from pathlib import Path
@@ -99,6 +100,16 @@ def test_exception_on_no_valid_files(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="No valid files were found"):
         macsima(tmp_path)
+
+
+def test_multiple_subfolder_parsing_skips_emtpy_folders(tmp_path: Path) -> None:
+    parent_folder = tmp_path / "test_folder"
+    shutil.copytree("./data/OMAP23_small", parent_folder / "OMAP23_small")
+    os.makedirs(parent_folder / "empty_folder")
+
+    with pytest.warns(UserWarning, match="No tif files found in .* skipping it"):
+        sdata = macsima(parent_folder, parsing_style="processed_multiple_folders")
+    assert len(sdata.images.keys()) == 1
 
 
 @pytest.mark.parametrize(
