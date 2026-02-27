@@ -47,7 +47,6 @@ class MACSimaParsingStyle(ModeEnum):
     PROCESSED_SINGLE_FOLDER = "processed_single_folder"
     PROCESSED_MULTIPLE_FOLDERS = "processed_multiple_folders"
     RAW = "raw"
-    AUTO = "auto"
 
 
 @dataclass
@@ -223,7 +222,7 @@ class MultiChannelImage:
 
 def macsima(
     path: str | Path,
-    parsing_style: MACSimaParsingStyle | str = MACSimaParsingStyle.AUTO,
+    parsing_style: MACSimaParsingStyle | str = MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER,
     filter_folder_names: list[str] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     subset: int | None = None,
@@ -294,18 +293,6 @@ def macsima(
     if not isinstance(parsing_style, MACSimaParsingStyle):
         parsing_style = MACSimaParsingStyle(parsing_style)
 
-    if parsing_style == MACSimaParsingStyle.AUTO:
-        assert path.is_dir(), f"Path {path} is not a directory."
-
-        if any(p.suffix in [".tif", ".tiff"] for p in path.iterdir()):
-            # if path contains tifs, do parse_processed_folder on path
-            parsing_style = MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER
-        elif all(p.is_dir() for p in path.iterdir() if not p.name.startswith(".")):
-            # if path contains only folders or hidden files, do parse_processed_folder on each folder
-            parsing_style = MACSimaParsingStyle.PROCESSED_MULTIPLE_FOLDERS
-        else:
-            raise ValueError(f"Cannot determine parsing style for path {path}. Please specify the parsing style.")
-
     if parsing_style == MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER:
         return parse_processed_folder(
             path=path,
@@ -331,6 +318,9 @@ def macsima(
             for p in path.iterdir()
             if p.is_dir() and (not filter_folder_names or not any(f in p.name for f in filter_folder_names))
         ]:
+            if not len(list(p.glob("*.tif*"))):
+                warnings.warn(f"No tif files found in {p}, skipping it!", UserWarning, stacklevel=2)
+                continue
             sdatas[p.stem] = parse_processed_folder(
                 path=p,
                 imread_kwargs=imread_kwargs,
@@ -624,7 +614,7 @@ def parse_processed_folder(
     nuclei_channel_name: str = "DAPI",
     split_threshold_nuclei_channel: int | None = 2,
     skip_rounds: list[int] | None = None,
-    file_pattern: str = "*.tif*",
+    file_pattern: str = "**/*.tif*",
     include_cycle_in_channel_name: bool = False,
 ) -> SpatialData:
     """Parse a single folder containing images from a cyclical imaging platform."""
