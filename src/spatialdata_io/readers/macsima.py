@@ -38,6 +38,7 @@ IMAGETYPE_DICT = {
     "B": "bleach",  # v1
     "AntigenCycle": "stain",  # v0
     "S": "stain",  # v1
+    "AF": "autofluorescence",
 }
 
 
@@ -380,6 +381,9 @@ def macsima(
             for p in path.iterdir()
             if p.is_dir() and (not filter_folder_names or not any(f in p.name for f in filter_folder_names))
         ]:
+            if not len(list(p.glob("*.tif*"))):
+                warnings.warn(f"No tif files found in {p}, skipping it!", UserWarning, stacklevel=2)
+                continue
             sdatas[p.stem] = parse_processed_folder(
                 path=p,
                 imread_kwargs=imread_kwargs,
