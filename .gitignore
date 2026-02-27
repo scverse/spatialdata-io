@@ -36,6 +36,12 @@ _version.py
 node_modules/
 .code-workspace
 
+# memray report
+*.bin
+
+# speedscope report
+profile.speedscope.json
+
 # test datasets (e.g. Xenium ones)
 # symlinks
 data

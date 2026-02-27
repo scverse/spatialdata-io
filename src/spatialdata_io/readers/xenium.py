@@ -11,20 +11,17 @@ from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
-import ome_types
 import packaging.version
 import pandas as pd
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import tifffile
 import zarr
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
-from joblib import Parallel, delayed
-from pyarrow import Table
 from shapely import GeometryType, Polygon, from_ragged_array
 from spatialdata import SpatialData
-from spatialdata._core.query.relational_query import get_element_instances
 from spatialdata.models import (
     Image2DModel,
     Labels2DModel,
@@ -44,6 +41,7 @@ from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwarg
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    import pyarrow as pa
     from anndata import AnnData
     from spatialdata._types import ArrayLike
 
@@ -61,7 +59,7 @@ def xenium(
     *,
     cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cells_as_circles: bool | None = None,
+    cells_as_circles: bool = False,
     cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
@@ -69,6 +67,7 @@ def xenium(
     morphology_focus: bool = True,
     aligned_images: bool = True,
     cells_table: bool = True,
+    n_jobs: int | None = None,
     gex_only: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -121,6 +120,10 @@ def xenium(
         `False` and use the `xenium_aligned_image` function directly.
     cells_table
         Whether to read the cell annotations in the `AnnData` table.
+    n_jobs
+        .. deprecated::
+            ``n_jobs`` is not used anymore and will be removed in a future release. The reading time of shapes is now
+            greatly improved and does not require parallelization.
     gex_only
         Whether to load only the "Gene Expression" feature type.
     imread_kwargs
@@ -136,7 +139,7 @@ def xenium(
 
     Notes
     -----
-    Old versions. Until spatialdata-io v0.1.3post0: previously, `cells_as_circles` was `True` by default; the table was associated to the
+    Old versions. Until spatialdata-io v0.6.0: `cells_as_circles` was `True` by default; the table was associated to the
     circles when `cells_as_circles` was `True`, and the table was associated to the polygons when `cells_as_circles`
     was `False`; the radii of the circles were computed form the nuclei instead of the cells.
 
@@ -153,13 +156,12 @@ def xenium(
     ... )
     >>> sdata.write("path/to/data.zarr")
     """
-    if cells_as_circles is None:
-        cells_as_circles = True
+    if n_jobs is not None:
         warnings.warn(
-            "The default value of `cells_as_circles` will change to `False` in the next release. "
-            "Please pass `True` explicitly to maintain the current behavior.",
+            "The `n_jobs` parameter is deprecated and will be removed in a future release. "
+            "The reading time of shapes is now greatly improved and does not require parallelization.",
             DeprecationWarning,
-            stacklevel=3,
+            stacklevel=2,
         )
     image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
         image_models_kwargs, labels_models_kwargs
@@ -196,9 +198,34 @@ def xenium(
     else:
         table = None
 
+    # open cells.zarr.zip once and reuse across all functions that need it
+    cells_zarr: zarr.Group | None = None
+    need_cells_zarr = (
+        nucleus_boundaries
+        or nucleus_labels
+        or cells_boundaries
+        or cells_labels
+        or (version is not None and version >= packaging.version.parse("2.0.0") and table is not None)
+    )
+    if need_cells_zarr:
+        cells_zarr_store = zarr.storage.ZipStore(path / XeniumKeys.CELLS_ZARR, read_only=True)
+        cells_zarr = zarr.open(cells_zarr_store, mode="r")
+
+    # pre-compute cell_id strings from the zarr once, to avoid redundant conversion.
+    cells_zarr_cell_id_str: np.ndarray | None = None
+    if cells_zarr is not None and version is not None and version >= packaging.version.parse("1.3.0"):
+        cell_id_raw = cells_zarr["cell_id"][...]
+        cell_id_prefix, dataset_suffix = cell_id_raw[:, 0], cell_id_raw[:, 1]
+        cells_zarr_cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
+
     if version is not None and version >= packaging.version.parse("2.0.0") and table is not None:
-        cell_summary_table = _get_cells_metadata_table_from_zarr(path, XeniumKeys.CELLS_ZARR, specs)
-        if not cell_summary_table[XeniumKeys.CELL_ID].equals(table.obs[XeniumKeys.CELL_ID]):
+        assert cells_zarr is not None
+        cell_summary_table = _get_cells_metadata_table_from_zarr(cells_zarr, cells_zarr_cell_id_str)
+        try:
+            _assert_arrays_equal_sampled(
+                cell_summary_table[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values
+            )
+        except AssertionError:
             warnings.warn(
                 'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
                 " table. This could be due to trying to read a new version that is not supported yet. Please "
@@ -206,8 +233,8 @@ def xenium(
                 UserWarning,
                 stacklevel=2,
             )
-        table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL]
-        table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT]
+        table.obs[XeniumKeys.Z_LEVEL] = cell_summary_table[XeniumKeys.Z_LEVEL].values
+        table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary_table[XeniumKeys.NUCLEUS_COUNT].values
 
     polygons = {}
     labels = {}
@@ -215,32 +242,33 @@ def xenium(
     points = {}
     images = {}
 
-    # From the public release notes here:
-    # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/release-notes/release-notes-for-xoa
-    # we see that for distinguishing between the nuclei of polinucleated cells, the `label_id` column is used.
-    # This column is currently not found in the preview data, while I think it is needed in order to unambiguously match
-    # nuclei to cells. Therefore for the moment we only link the table to the cell labels, and not to the nucleus
-    # labels.
+    # Build the label_index <-> cell_id mappings from the zarr once, reuse for both labels
+    # and boundaries. For v2.0+ this is deterministic from the zarr polygon_sets
+    # (label_id = cell_index + 1). For older versions, use seg_mask_value (cells only).
+    # For nuclei in v2.0+, this correctly handles multinucleate cells: each nucleus gets its
+    # own label_index, avoiding the bug of merging multiple nuclei into a single polygon.
+    # Older versions do not support multinucleate cells, so cell_id-based grouping is correct.
+    nucleus_indices_mapping: pd.DataFrame | None = None
+    cell_indices_mapping: pd.DataFrame | None = None
+    if cells_zarr_cell_id_str is not None and cells_zarr is not None and "polygon_sets" in cells_zarr:
+        if nucleus_boundaries or nucleus_labels:
+            nucleus_indices_mapping = _get_indices_mapping_from_zarr(cells_zarr, cells_zarr_cell_id_str, mask_index=0)
+        if cells_boundaries or cells_labels:
+            cell_indices_mapping = _get_indices_mapping_from_zarr(cells_zarr, cells_zarr_cell_id_str, mask_index=1)
+    elif cells_zarr_cell_id_str is not None:
+        if cells_boundaries or cells_labels:
+            cell_indices_mapping = _get_indices_mapping_legacy(cells_zarr, cells_zarr_cell_id_str, specs=specs)
+
     if nucleus_labels:
-        labels["nucleus_labels"], _ = _get_labels_and_indices_mapping(
-            path,
-            XeniumKeys.CELLS_ZARR,
-            specs,
-            mask_index=0,
-            labels_name="nucleus_labels",
-            labels_models_kwargs=labels_models_kwargs,
-        )
+        labels["nucleus_labels"] = _get_labels(cells_zarr, mask_index=0, labels_models_kwargs=labels_models_kwargs)
     if cells_labels:
-        labels["cell_labels"], cell_labels_indices_mapping = _get_labels_and_indices_mapping(
-            path,
-            XeniumKeys.CELLS_ZARR,
-            specs,
-            mask_index=1,
-            labels_name="cell_labels",
-            labels_models_kwargs=labels_models_kwargs,
-        )
-        if cell_labels_indices_mapping is not None and table is not None:
-            if not pd.DataFrame.equals(cell_labels_indices_mapping["cell_id"], table.obs[str(XeniumKeys.CELL_ID)]):
+        labels["cell_labels"] = _get_labels(cells_zarr, mask_index=1, labels_models_kwargs=labels_models_kwargs)
+        if cell_indices_mapping is not None and table is not None:
+            try:
+                _assert_arrays_equal_sampled(
+                    cell_indices_mapping["cell_id"].values, table.obs[str(XeniumKeys.CELL_ID)].values
+                )
+            except AssertionError:
                 warnings.warn(
                     "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
                     "cell labels data. This could be due to trying to read a new version that is not supported yet. "
@@ -249,7 +277,7 @@ def xenium(
                     stacklevel=2,
                 )
             else:
-                table.obs["cell_labels"] = cell_labels_indices_mapping["label_index"]
+                table.obs["cell_labels"] = cell_indices_mapping["label_index"].values
                 if not cells_as_circles:
                     table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
@@ -258,7 +286,8 @@ def xenium(
             path,
             XeniumKeys.NUCLEUS_BOUNDARIES_FILE,
             specs,
-            idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
+            indices_mapping=nucleus_indices_mapping,
+            is_nucleus=True,
         )
 
     if cells_boundaries:
@@ -266,7 +295,7 @@ def xenium(
             path,
             XeniumKeys.CELL_BOUNDARIES_FILE,
             specs,
-            idx=table.obs[str(XeniumKeys.CELL_ID)].copy(),
+            indices_mapping=cell_indices_mapping,
         )
 
     if transcripts:
@@ -318,6 +347,9 @@ def xenium(
                         3: XeniumKeys.MORPHOLOGY_FOCUS_CHANNEL_3.value,
                     }
             else:
+                # slow import
+                from ome_types import from_xml
+
                 # v4
                 if XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value not in files:
                     raise ValueError(
@@ -325,7 +357,7 @@ def xenium(
                         f"chNNNN_<name>.ome.tif starting with {XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value}"
                     )
                 first_tiff_path = morphology_focus_dir / XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value
-                ome = ome_types.from_xml(tifffile.tiffcomment(first_tiff_path), validate=False)
+                ome = from_xml(tifffile.tiffcomment(first_tiff_path), validate=False)
 
                 # Get channel names from the OME XML
                 ome_channels = ome.images[0].pixels.channels
@@ -360,8 +392,8 @@ def xenium(
                         return False
                     return True
 
-            logger = tifffile.logger()
-            logger.addFilter(IgnoreSpecificMessage())
+            tf_logger = tifffile.logger()
+            tf_logger.addFilter(IgnoreSpecificMessage())
             image_models_kwargs = dict(image_models_kwargs)
             assert "c_coords" not in image_models_kwargs, (
                 "The channel names for the morphology focus images are handled internally"
@@ -374,7 +406,7 @@ def xenium(
                 image_models_kwargs,
             )
             del image_models_kwargs["c_coords"]
-            logger.removeFilter(IgnoreSpecificMessage())
+            tf_logger.removeFilter(IgnoreSpecificMessage())
 
     if table is not None:
         tables["table"] = table
@@ -399,9 +431,18 @@ def xenium(
     return _set_reader_metadata(sdata, "xenium")
 
 
+def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 100) -> None:
+    """Assert two arrays are equal by checking a random sample of entries."""
+    assert len(a) == len(b), f"Array lengths differ: {len(a)} != {len(b)}"
+    idx = np.random.default_rng(0).choice(len(a), size=min(n, len(a)), replace=False)
+    np.testing.assert_array_equal(np.asarray(a[idx]), np.asarray(b[idx]))
+
+
 def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     if isinstance(cell_id_column.iloc[0], bytes):
         return cell_id_column.str.decode("utf-8")
+    if not isinstance(cell_id_column.iloc[0], str):
+        cell_id_column.index = cell_id_column.index.astype(str)
     return cell_id_column
 
 
@@ -409,21 +450,48 @@ def _get_polygons(
     path: Path,
     file: str,
     specs: dict[str, Any],
-    idx: ArrayLike | None = None,
+    indices_mapping: pd.DataFrame | None = None,
+    is_nucleus: bool = False,
 ) -> GeoDataFrame:
-    # seems to be faster than pd.read_parquet
-    df = pq.read_table(path / file).to_pandas()
-    cell_ids = df[XeniumKeys.CELL_ID].to_numpy()
-    x = df[XeniumKeys.BOUNDARIES_VERTEX_X].to_numpy()
-    y = df[XeniumKeys.BOUNDARIES_VERTEX_Y].to_numpy()
+    """Parse boundary polygons from a parquet file.
+
+    Parameters
+    ----------
+    indices_mapping
+        When provided (from ``_get_indices_mapping_from_zarr`` or ``_get_indices_mapping_legacy``),
+        contains ``cell_id`` and ``label_index`` columns. The parquet ``label_id`` column is used
+        for fast integer-based change detection (to locate all the vertices of each polygon).
+        When None, falls back to cell_id-based grouping from the parquet (Xenium < 2.0).
+    is_nucleus
+        When True (nucleus boundaries), use ``label_index`` as the GeoDataFrame index and store
+        ``cell_id`` as a column. This gives each nucleus a distinct integer id matching the raster
+        labels, correctly handling multinucleate cells.
+        When False (cell boundaries), use ``cell_id`` as the GeoDataFrame index.
+    """
+    # Check whether the parquet has a label_id column (v2.0+). When present, use it for
+    # fast integer-based change detection. Otherwise fall back to cell_id strings.
+    parquet_schema = pq.read_schema(path / file)
+    has_label_id = "label_id" in parquet_schema.names
+
+    columns_to_read = [str(XeniumKeys.BOUNDARIES_VERTEX_X), str(XeniumKeys.BOUNDARIES_VERTEX_Y)]
+    columns_to_read.append("label_id" if has_label_id else str(XeniumKeys.CELL_ID))
+    table = pq.read_table(path / file, columns=columns_to_read)
+
+    x = table.column(str(XeniumKeys.BOUNDARIES_VERTEX_X)).to_numpy()
+    y = table.column(str(XeniumKeys.BOUNDARIES_VERTEX_Y)).to_numpy()
     coords = np.column_stack([x, y])
 
-    change_mask = np.concatenate([[True], cell_ids[1:] != cell_ids[:-1]])
-    group_starts = np.where(change_mask)[0]
-    group_ends = np.concatenate([group_starts[1:], [len(cell_ids)]])
+    n = len(x)
 
-    # sanity check
-    n_unique_ids = len(df[XeniumKeys.CELL_ID].drop_duplicates())
+    if has_label_id:
+        id_col = table.column("label_id")
+        id_arr = id_col.to_numpy()
+        change_mask = id_arr[1:] != id_arr[:-1]
+    else:
+        id_col = table.column(str(XeniumKeys.CELL_ID))
+        change_mask = pc.not_equal(id_col.slice(0, n - 1), id_col.slice(1)).to_numpy(zero_copy_only=False)
+    group_starts = np.where(np.concatenate([[True], change_mask]))[0]
+    n_unique_ids = pc.count_distinct(id_col).as_py()
     if len(group_starts) != n_unique_ids:
         raise ValueError(
             f"In {file}, rows belonging to the same polygon must be contiguous. "
@@ -431,7 +499,7 @@ def _get_polygons(
             f"This indicates non-consecutive polygon rows."
         )
 
-    unique_ids = cell_ids[group_starts]
+    group_ends = np.concatenate([group_starts[1:], [n]])
 
     # offsets for ragged array:
     # offsets[0] (ring_offsets): describing to which rings the vertex positions belong to
@@ -441,126 +509,108 @@ def _get_polygons(
 
     geoms = from_ragged_array(GeometryType.POLYGON, coords, offsets=(ring_offsets, geom_offsets))
 
-    index = _decode_cell_id_column(pd.Series(unique_ids))
-    geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
-
-    version = _parse_version_of_xenium_analyzer(specs)
-    if version is not None and version < packaging.version.parse("2.0.0"):
-        assert idx is not None
-        assert len(idx) == len(geo_df)
-        assert index.equals(idx)
-    else:
-        if np.unique(geo_df.index).size != len(geo_df):
-            warnings.warn(
-                "Found non-unique polygon indices, this will be addressed in a future version of the reader. For the "
-                "time being please consider merging polygons with non-unique indices into single multi-polygons.",
-                UserWarning,
-                stacklevel=2,
+    if indices_mapping is not None:
+        assert len(indices_mapping) == len(group_starts), (
+            f"Expected {len(group_starts)} polygons, but indices_mapping has {len(indices_mapping)} entries."
+        )
+        if is_nucleus:
+            # Use label_index (int) as GeoDataFrame index, cell_id as column.
+            geo_df = GeoDataFrame(
+                {"geometry": geoms, str(XeniumKeys.CELL_ID): indices_mapping["cell_id"].values},
+                index=indices_mapping["label_index"].values,
             )
+        else:
+            # Use cell_id (str) as GeoDataFrame index.
+            geo_df = GeoDataFrame({"geometry": geoms}, index=indices_mapping["cell_id"].values)
+    else:
+        # Fall back to extracting unique cell IDs from parquet (slow for large_string columns).
+        unique_ids = id_col.filter(np.concatenate([[True], change_mask])).to_pylist()
+        index = _decode_cell_id_column(pd.Series(unique_ids))
+        geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
 
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
 
 
-def _get_labels_and_indices_mapping(
-    path: Path,
-    file: str,
-    specs: dict[str, Any],
+def _get_labels(
+    cells_zarr: zarr.Group,
     mask_index: int,
-    labels_name: str,
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> tuple[GeoDataFrame, pd.DataFrame | None]:
+) -> DataArray:
+    """Read the labels raster from cells.zarr.zip masks/{mask_index}."""
     if mask_index not in [0, 1]:
         raise ValueError(f"mask_index must be 0 or 1, found {mask_index}.")
+    masks = da.from_array(cells_zarr["masks"][f"{mask_index}"])
+    return Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
-    zip_file = path / XeniumKeys.CELLS_ZARR
-    store = zarr.storage.ZipStore(zip_file, read_only=True)
-    z = zarr.open(store, mode="r")
-    # get the labels
-    masks = da.from_array(z["masks"][f"{mask_index}"])
-    labels = Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
-    # build the matching table
-    version = _parse_version_of_xenium_analyzer(specs)
-    if mask_index == 0:
-        # nuclei currently not supported
-        return labels, None
-    if version is None or version is not None and version < packaging.version.parse("1.3.0"):
-        # supported in version 1.3.0 and not supported in version 1.0.2; conservatively, let's assume it is not
-        # supported in versions < 1.3.0
-        return labels, None
+def _get_indices_mapping_from_zarr(
+    cells_zarr: zarr.Group,
+    cells_zarr_cell_id_str: np.ndarray,
+    mask_index: int,
+) -> pd.DataFrame:
+    """Build the label_index <-> cell_id mapping from the zarr polygon_sets.
 
-    cell_id, dataset_suffix = z["cell_id"][...].T
-    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id, dataset_suffix)
+    From the 10x Genomics docs: "the label ID is equal to the cell index + 1",
+    where cell_index is polygon_sets/{mask_index}/cell_index. This is deterministic
+    and avoids reading the slow parquet boundary files.
 
-    # this information will probably be available in the `label_id` column for version > 2.0.0 (see public
-    # release notes mentioned above)
-    real_label_index = get_element_instances(labels).values
-
-    # background removal
-    if real_label_index[0] == 0:
-        real_label_index = real_label_index[1:]
-
-    if version < packaging.version.parse("2.0.0"):
-        expected_label_index = z["seg_mask_value"][...]
-
-        if not np.array_equal(expected_label_index, real_label_index):
-            raise ValueError(
-                "The label indices from the labels differ from the ones from the input data. Please report "
-                f"this issue. Real label indices: {real_label_index}, expected label indices: "
-                f"{expected_label_index}."
-            )
-    else:
-        labels_positional_indices = z["polygon_sets"][f"{mask_index}"]["cell_index"][...]
-        if not np.array_equal(labels_positional_indices, np.arange(len(labels_positional_indices))):
-            raise ValueError(
-                "The positional indices of the labels do not match the expected range. Please report this issue."
-            )
-
-    # labels_index is an uint32, so let's cast to np.int64 to avoid the risk of overflow on some systems
-    indices_mapping = pd.DataFrame(
+    For cells (mask_index=1): cell_index is 0..N-1 (1:1 with cells), so
+    label_index = arange(1, N+1).
+    For nuclei (mask_index=0): cell_index maps each nucleus to its parent cell,
+    so label_index = arange(1, M+1) and cell_id = cell_id_str[cell_index[i]].
+    """
+    cell_index = cells_zarr[f"polygon_sets/{mask_index}/cell_index"][...]
+    label_index = np.arange(1, len(cell_index) + 1, dtype=np.int64)
+    cell_id = cells_zarr_cell_id_str[cell_index]
+    return pd.DataFrame(
         {
-            "region": labels_name,
-            "cell_id": cell_id_str,
-            "label_index": real_label_index.astype(np.int64),
+            "cell_id": cell_id,
+            "label_index": label_index,
         }
     )
-    # because AnnData converts the indices to str
-    indices_mapping.index = indices_mapping.index.astype(str)
-    return labels, indices_mapping
+
+
+def _get_indices_mapping_legacy(
+    cells_zarr: zarr.Group,
+    cell_id_str: ArrayLike,
+    specs: dict[str, Any],
+) -> pd.DataFrame | None:
+    """Build the label_index <-> cell_id mapping for versions < 2.0.0.
+
+    Uses seg_mask_value from the zarr (available in v1.3.0+).
+    """
+    version = _parse_version_of_xenium_analyzer(specs)
+    if version is None or version < packaging.version.parse("1.3.0"):
+        return None
+    label_index = cells_zarr["seg_mask_value"][...]
+    return pd.DataFrame(
+        {
+            "cell_id": cell_id_str,
+            "label_index": label_index.astype(np.int64),
+        }
+    )
 
 
 @inject_docs(xx=XeniumKeys)
 def _get_cells_metadata_table_from_zarr(
-    path: Path,
-    file: str,
-    specs: dict[str, Any],
+    cells_zarr: zarr.Group,
+    cell_id_str: ArrayLike,
 ) -> AnnData:
     """Read cells metadata from ``{xx.CELLS_ZARR}``.
 
     Read the cells summary table, which contains the z_level information for versions < 2.0.0, and also the
     nucleus_count for versions >= 2.0.0.
     """
-    # for version >= 2.0.0, in this function we could also parse the segmentation method used to obtain the masks
-    zip_file = path / XeniumKeys.CELLS_ZARR
-    store = zarr.storage.ZipStore(zip_file, read_only=True)
-
-    z = zarr.open(store, mode="r")
-    x = z["cell_summary"][...]
-    column_names = z["cell_summary"].attrs["column_names"]
+    x = cells_zarr["cell_summary"][...]
+    column_names = cells_zarr["cell_summary"].attrs["column_names"]
     df = pd.DataFrame(x, columns=column_names)
-    cell_id_prefix = z["cell_id"][:, 0]
-    dataset_suffix = z["cell_id"][:, 1]
-    store.close()
 
-    cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
     df[XeniumKeys.CELL_ID] = cell_id_str
-    # because AnnData converts the indices to str
-    df.index = df.index.astype(str)
     return df
 
 
-def _get_points(path: Path, specs: dict[str, Any]) -> Table:
+def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
 
     # check if we need to decode bytes
@@ -602,10 +652,12 @@ def _get_tables_and_circles(
 ) -> AnnData | tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
     metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
-    np.testing.assert_array_equal(metadata.cell_id.astype(str), adata.obs_names.values)
+    _assert_arrays_equal_sampled(metadata.cell_id.astype(str), adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     adata.obsm["spatial"] = circ
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
+    # avoids anndata's ImplicitModificationWarning
+    metadata.index = adata.obs_names
     adata.obs = metadata
     adata.obs["region"] = specs["region"]
     adata.obs["region"] = adata.obs["region"].astype("category")
@@ -860,13 +912,18 @@ def _parse_version_of_xenium_analyzer(
         return None
 
 
-def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
-    # explained here:
-    # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
+def _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
+    """Reference implementation of cell_id_str_from_prefix_suffix_uint32.
+
+    Readable but slow for large arrays due to Python-level string operations.
+    Kept as ground truth for testing the optimized version.
+
+    See https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
+    """
     # convert to hex, remove the 0x prefix
     cell_id_prefix_hex = [hex(x)[2:] for x in cell_id_prefix]
 
-    # shift the hex values
+    # shift the hex values: '0'->'a', ..., '9'->'j', 'a'->'k', ..., 'f'->'p'
     hex_shift = {str(i): chr(ord("a") + i) for i in range(10)} | {
         chr(ord("a") + i): chr(ord("a") + 10 + i) for i in range(6)
     }
@@ -878,6 +935,31 @@ def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suf
     ]
 
     return np.array(cell_id_str)
+
+
+def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
+    """Convert cell ID prefix/suffix uint32 pairs to the Xenium string representation.
+
+    Each uint32 prefix is converted to 8 hex nibbles, each mapped to a character
+    (0->'a', 1->'b', ..., 15->'p'), then joined with "-{suffix}".
+
+    See https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
+    """
+    cell_id_prefix = np.asarray(cell_id_prefix, dtype=np.uint32)
+    dataset_suffix = np.asarray(dataset_suffix)
+
+    # Extract 8 hex nibbles (4 bits each) from each uint32, most significant first.
+    # Each nibble maps to a character: 0->'a', 1->'b', ..., 9->'j', 10->'k', ..., 15->'p'.
+    # Leading zero nibbles become 'a', equivalent to rjust(8, 'a') padding.
+    shifts = np.array([28, 24, 20, 16, 12, 8, 4, 0], dtype=np.uint32)
+    nibbles = (cell_id_prefix[:, np.newaxis] >> shifts) & 0xF
+    char_codes = (nibbles + ord("a")).astype(np.uint8)
+
+    # View the (n, 8) uint8 array as n byte-strings of length 8
+    prefix_strs = char_codes.view("S8").ravel().astype("U8")
+
+    suffix_strs = np.char.add("-", dataset_suffix.astype("U"))
+    return np.char.add(prefix_strs, suffix_strs)
 
 
 def prefix_suffix_uint32_from_cell_id_str(

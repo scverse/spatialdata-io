@@ -127,6 +127,7 @@ nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     ("py:class", "Path"),
+    ("py:class", "pathlib._local.Path"),
     ("py:class", "AnnData"),
     ("py:class", "SpatialData"),
     ("py:func", "imageio.imread"),  # maybe this can be fixed
