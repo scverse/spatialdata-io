@@ -1,16 +1,18 @@
 from anndata import AnnData
-from spatialdata_io.converters.legacy_anndata import to_legacy_anndata
 from spatialdata import SpatialData, match_sdata_to_table
 
+from spatialdata_io.converters.legacy_anndata import to_legacy_anndata
+
+
 def test_deconcatenate(
-        full_sdata: SpatialData, 
-        by: str,
-        target_coordinate_system: str,
-        sdata_table_name: str = "table",
-        region_key: str = "region",
-        join: str = "right") -> AnnData:
-    """
-    From a `SpatialData` object containing multiple regions, subset to a single region and return as an AnnData object.
+    full_sdata: SpatialData,
+    by: str,
+    target_coordinate_system: str,
+    sdata_table_name: str = "table",
+    region_key: str = "region",
+    join: str = "right",
+) -> AnnData:
+    """From a `SpatialData` object containing multiple regions, subset to a single region and return as an AnnData object.
 
     Parameters
     ----------
@@ -32,12 +34,15 @@ def test_deconcatenate(
     AnnData
         An `AnnData` object containing a subset of `full_sdata` filtered according to `region_key == by`.
     """
-
     sdata_table = full_sdata[sdata_table_name]
 
-    #maybe add "table" parameter coupled with "table_name" to follow match_sdata_to_table structure?
-    sdata_deconcat = match_sdata_to_table(full_sdata, table=sdata_table[sdata_table.obs[region_key] == by], table_name="table_name_test", how=join)
-    adata = to_legacy_anndata(sdata_deconcat, coordinate_system=target_coordinate_system, table_name="table_name_test", include_images=False)
-    #TODO: support for adding images to anndata object?
+    # maybe add "table" parameter coupled with "table_name" to follow match_sdata_to_table structure?
+    sdata_deconcat = match_sdata_to_table(
+        full_sdata, table=sdata_table[sdata_table.obs[region_key] == by], table_name="table_name_test", how=join
+    )
+    adata = to_legacy_anndata(
+        sdata_deconcat, coordinate_system=target_coordinate_system, table_name="table_name_test", include_images=False
+    )
+    # TODO: support for adding images to anndata object?
 
     return adata
