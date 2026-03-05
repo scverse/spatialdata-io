@@ -161,6 +161,7 @@ def visium_hd(
     filename_prefix, dataset_id = _get_filename_prefix(path, dataset_id)
 
     def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
+        scale_factors = image_models_kwargs.pop("scale_factors", scale_factors)
         _load_image(
             path=path,
             images=images,
