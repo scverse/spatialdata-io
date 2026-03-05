@@ -34,7 +34,7 @@ from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _set_reader_metadata
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, MutableMapping
 
     from anndata import AnnData
     from multiscale_spatial_image import MultiscaleSpatialImage
@@ -58,7 +58,7 @@ def visium_hd(
     load_all_images: bool = False,
     var_names_make_unique: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    image_models_kwargs: MutableMapping[str, Any] | None = None,
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """Read *10x Genomics* Visium HD formatted dataset.
@@ -118,6 +118,8 @@ def visium_hd(
     shapes = {}
     images: dict[str, Any] = {}
     labels: dict[str, Any] = {}
+    if image_models_kwargs is None:
+        image_models_kwargs = {}
 
     # Deprecation warning for load_segmentations_only default value
     if load_segmentations_only is None:
