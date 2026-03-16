@@ -70,6 +70,7 @@ def cosmx(
     -------
     :class:`spatialdata.SpatialData`
     """
+    print("This is the local version")
     path = Path(path)
 
     # tries to infer dataset_id from the name of the counts file
@@ -105,10 +106,12 @@ def cosmx(
     if not labels_dir.exists():
         raise FileNotFoundError(f"Labels directory not found: {labels_dir}.")
 
-    counts = pd.read_csv(path / counts_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
+    counts = pd.read_csv(counts_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
+    print(counts.head())
     counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxKeys.FOV).astype(str).values, sep="_")
 
-    obs = pd.read_csv(path / meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
+    obs = pd.read_csv(meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
+    print(obs.head())
     obs[CosmxKeys.FOV] = pd.Categorical(obs[CosmxKeys.FOV].astype(str))
     obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: s + "_labels"))
     obs[CosmxKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
@@ -256,7 +259,7 @@ def cosmx(
         with tempfile.TemporaryDirectory() as tmpdir:
             print("converting .csv to .parquet to improve the speed of the slicing operations... ", end="")
             assert transcripts_file is not None
-            transcripts_data = pd.read_csv(path / transcripts_file, header=0)
+            transcripts_data = pd.read_csv(transcripts_file, header=0)
             transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
             print("done")
 
