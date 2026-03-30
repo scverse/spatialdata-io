@@ -346,7 +346,7 @@ def visium_hd(
     # Integrate the segmentation data (skipped if segmentation files are not found)
     if cell_segmentation_files_exist:
         print("Found segmentation data. Incorporating cell_segmentations.")
-        cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH)
+        cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH, gex_only=False)
         cell_adata_hd.var_names_make_unique()
 
         cell_shapes_gdf = _extract_geometries_from_geojson(
