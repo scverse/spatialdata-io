@@ -1,4 +1,5 @@
 import math
+import os
 import shutil
 from copy import deepcopy
 from pathlib import Path
@@ -93,12 +94,59 @@ def test_exception_on_no_valid_files(tmp_path: Path) -> None:
     # Write a tiff file without metadata
     height = 10
     width = 10
-    arr = np.zeros((height, width, 1), dtype=np.uint16)
+    arr = np.zeros((1, height, width), dtype=np.uint16)
     path_no_metadata = Path(tmp_path) / "tiff_no_metadata.tiff"
     imwrite(path_no_metadata, arr, metadata=None, description=None, software=None, datetime=None)
 
     with pytest.raises(ValueError, match="No valid files were found"):
         macsima(tmp_path)
+
+
+def test_multiple_subfolder_parsing_skips_emtpy_folders(tmp_path: Path) -> None:
+    parent_folder = tmp_path / "test_folder"
+    shutil.copytree("./data/OMAP23_small", parent_folder / "OMAP23_small")
+    os.makedirs(parent_folder / "empty_folder")
+
+    with pytest.warns(UserWarning, match="No tif files found in .* skipping it"):
+        sdata = macsima(parent_folder, parsing_style="processed_multiple_folders")
+    assert len(sdata.images.keys()) == 1
+
+
+@pytest.mark.parametrize(
+    "dimensions,expected",
+    [
+        (((10, 10), (10, 10)), False),
+        (((10, 10), (15, 10)), True),
+        (((10, 10), (10, 15)), True),
+        (((15, 10), (10, 15)), True),
+    ],
+)
+def test_check_differing_dimensions_works(dimensions: tuple[tuple[int, int], tuple[int, int]], expected: bool) -> None:
+    imgs = []
+    for img_dim in dimensions:
+        arr = da.from_array(np.ones((1, img_dim[0], img_dim[1]), dtype=np.uint16))
+        imgs.append(arr)
+
+    if expected:
+        with pytest.warns(UserWarning, match="Supplied images have different dimensions!"):
+            assert MultiChannelImage._check_for_differing_xy_dimensions(imgs) == expected
+    else:
+        assert MultiChannelImage._check_for_differing_xy_dimensions(imgs) == expected
+
+
+def test_padding_on_differing_dimensions() -> None:
+    heights = [10, 10, 15, 20]
+    widths = [10, 15, 10, 20]
+
+    imgs = []
+    for height, width in zip(heights, widths, strict=True):
+        arr = da.from_array(np.ones((1, height, width), dtype=np.uint16))
+        imgs.append(arr)
+
+    with pytest.warns(UserWarning, match="Padding images with 0s to same size of \\(20, 20\\)"):
+        imgs_padded = MultiChannelImage._pad_images(imgs)
+    for img in imgs_padded:
+        assert img.shape == (1, 20, 20)
 
 
 @skip_if_below_python_version()
