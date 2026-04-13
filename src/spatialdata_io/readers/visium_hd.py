@@ -134,47 +134,26 @@ def visium_hd(
     # Check for segmentation files
     SEGMENTED_OUTPUTS_PATH = path / VisiumHDKeys.SEGMENTATION_OUTPUTS
     COUNT_MATRIX_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.FILTERED_CELL_COUNTS_FILE
-    CELL_GEOJSON_PATH = (
-        SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.CELL_SEGMENTATION_GEOJSON_PATH
-    )
-    NUCLEUS_GEOJSON_PATH = (
-        SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.NUCLEUS_SEGMENTATION_GEOJSON_PATH
-    )
-    SCALE_FACTORS_PATH = (
-        SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.SPATIAL / VisiumHDKeys.SCALEFACTORS_FILE
-    )
+    CELL_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.CELL_SEGMENTATION_GEOJSON_PATH
+    NUCLEUS_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.NUCLEUS_SEGMENTATION_GEOJSON_PATH
+    SCALE_FACTORS_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.SPATIAL / VisiumHDKeys.SCALEFACTORS_FILE
     if not SCALE_FACTORS_PATH.exists():
         # Visium HD 3.0.0 does not have the SEGMENTATION_OUTPUTS folder
         scale_factors_file = next(
-            (
-                file
-                for file in path.rglob("*")
-                if file.name.endswith(VisiumHDKeys.SCALEFACTORS_FILE)
-            ),
+            (file for file in path.rglob("*") if file.name.endswith(VisiumHDKeys.SCALEFACTORS_FILE)),
             None,
         )
-        assert (
-            scale_factors_file is not None
-        ), "Scale factors file not found in any of the subdirectories."
+        assert scale_factors_file is not None, "Scale factors file not found in any of the subdirectories."
         SCALE_FACTORS_PATH = scale_factors_file
     BARCODE_MAPPINGS_PATH = next(
-        (
-            file
-            for file in path.rglob("*")
-            if file.name.endswith(VisiumHDKeys.BARCODE_MAPPINGS_FILE)
-        ),
+        (file for file in path.rglob("*") if file.name.endswith(VisiumHDKeys.BARCODE_MAPPINGS_FILE)),
         None,
     )
     FILTERED_MATRIX_2U_PATH = (
-        path
-        / VisiumHDKeys.BINNED_OUTPUTS
-        / f"{VisiumHDKeys.BIN_PREFIX}002um"
-        / VisiumHDKeys.FILTERED_COUNTS_FILE
+        path / VisiumHDKeys.BINNED_OUTPUTS / f"{VisiumHDKeys.BIN_PREFIX}002um" / VisiumHDKeys.FILTERED_COUNTS_FILE
     )
     cell_segmentation_files_exist = (
-        COUNT_MATRIX_PATH.exists()
-        and CELL_GEOJSON_PATH.exists()
-        and SCALE_FACTORS_PATH.exists()
+        COUNT_MATRIX_PATH.exists() and CELL_GEOJSON_PATH.exists() and SCALE_FACTORS_PATH.exists()
     )
     nucleus_segmentation_files_exist = (
         NUCLEUS_GEOJSON_PATH.exists()
@@ -184,9 +163,7 @@ def visium_hd(
 
     filename_prefix, dataset_id = _get_filename_prefix(path, dataset_id)
 
-    def load_image(
-        path: Path, suffix: str, scale_factors: list[int] | None = None
-    ) -> None:
+    def load_image(path: Path, suffix: str, scale_factors: list[int] | None = None) -> None:
         _load_image(
             path=path,
             images=images,
@@ -244,25 +221,16 @@ def visium_hd(
                 [
                     bin_size.name
                     for bin_size in path_bins.iterdir()
-                    if bin_size.is_dir()
-                    and bin_size.name.startswith(VisiumHDKeys.BIN_PREFIX)
+                    if bin_size.is_dir() and bin_size.name.startswith(VisiumHDKeys.BIN_PREFIX)
                 ]
             )
 
-        all_path_bins = [
-            path_bin
-            for path_bin in all_files
-            if VisiumHDKeys.BINNED_OUTPUTS in str(path_bin)
-        ]
+        all_path_bins = [path_bin for path_bin in all_files if VisiumHDKeys.BINNED_OUTPUTS in str(path_bin)]
         if len(all_path_bins) != 0:
             path_bins_parts = all_path_bins[
                 -1
             ].parts  # just choosing last one here as users might have tar file which would be first
-            path_bins = Path(
-                *path_bins_parts[
-                    : path_bins_parts.index(VisiumHDKeys.BINNED_OUTPUTS) + 1
-                ]
-            )
+            path_bins = Path(*path_bins_parts[: path_bins_parts.index(VisiumHDKeys.BINNED_OUTPUTS) + 1])
         else:
             path_bins = path
         all_bin_sizes = _get_bins(path_bins)
@@ -271,11 +239,7 @@ def visium_hd(
         if bin_size is not None and (isinstance(bin_size, int) or len(bin_size) > 0):
             if not isinstance(bin_size, list):
                 bin_size = [bin_size]
-            bin_sizes = [
-                f"square_{bs:03}um"
-                for bs in bin_size
-                if f"square_{bs:03}um" in all_bin_sizes
-            ]
+            bin_sizes = [f"square_{bs:03}um" for bs in bin_size if f"square_{bs:03}um" in all_bin_sizes]
             if len(bin_sizes) < len(bin_size):
                 warnings.warn(
                     f"Requested bin size {bin_size} (available {all_bin_sizes}); ignoring the bin sizes that are not "
@@ -289,11 +253,7 @@ def visium_hd(
         # iterate over the given bins and load the data
         for bin_size_str in bin_sizes:
             path_bin = path_bins / bin_size_str
-            counts_file = (
-                VisiumHDKeys.FILTERED_COUNTS_FILE
-                if filtered_counts_file
-                else VisiumHDKeys.RAW_COUNTS_FILE
-            )
+            counts_file = VisiumHDKeys.FILTERED_COUNTS_FILE if filtered_counts_file else VisiumHDKeys.RAW_COUNTS_FILE
             adata = sc.read_10x_h5(
                 path_bin / counts_file,
                 gex_only=gex_only,
@@ -311,19 +271,14 @@ def visium_hd(
             # consistency check
             found_bin_size = re.search(r"\d{3}", bin_size_str)
             assert found_bin_size is not None
-            assert (
-                float(found_bin_size.group())
-                == scalefactors_bins[VisiumHDKeys.SCALEFACTORS_BIN_SIZE_UM]
-            )
+            assert float(found_bin_size.group()) == scalefactors_bins[VisiumHDKeys.SCALEFACTORS_BIN_SIZE_UM]
             assert np.isclose(
                 scalefactors_bins[VisiumHDKeys.SCALEFACTORS_BIN_SIZE_UM]
                 / scalefactors_bins[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES],
                 scalefactors_bins[VisiumHDKeys.SCALEFACTORS_MICRONS_PER_PIXEL],
             )
 
-            tissue_positions_file = (
-                path_bin_spatial / VisiumHDKeys.TISSUE_POSITIONS_FILE
-            )
+            tissue_positions_file = path_bin_spatial / VisiumHDKeys.TISSUE_POSITIONS_FILE
 
             # read coordinates and set up adata.obs and adata.obsm
             coords = pd.read_parquet(tissue_positions_file)
@@ -348,9 +303,7 @@ def visium_hd(
                 right_index=True,
             )
             # compatibility to legacy squidpy
-            adata.obsm["spatial"] = adata.obs[
-                [VisiumHDKeys.LOCATIONS_X, VisiumHDKeys.LOCATIONS_Y]
-            ].values
+            adata.obsm["spatial"] = adata.obs[[VisiumHDKeys.LOCATIONS_X, VisiumHDKeys.LOCATIONS_Y]].values
             # dropping the spatial coordinates (will be stored in shapes)
             adata.obs.drop(
                 columns=[
@@ -363,9 +316,7 @@ def visium_hd(
 
             # parse shapes
             shapes_name = dataset_id + "_" + bin_size_str
-            radius = (
-                scalefactors_bins[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
-            )
+            radius = scalefactors_bins[VisiumHDKeys.SCALEFACTORS_SPOT_DIAMETER_FULLRES] / 2.0
             circles = ShapesModel.parse(
                 adata.obsm["spatial"],
                 geometry=0,
@@ -384,9 +335,7 @@ def visium_hd(
 
             # parse table
             adata.obs[VisiumHDKeys.REGION_KEY] = shapes_name
-            adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[
-                VisiumHDKeys.REGION_KEY
-            ].astype("category")
+            adata.obs[VisiumHDKeys.REGION_KEY] = adata.obs[VisiumHDKeys.REGION_KEY].astype("category")
 
             tables[bin_size_str] = TableModel.parse(
                 adata,
@@ -414,9 +363,7 @@ def visium_hd(
         cell_adata_hd.obs["region"] = cell_adata_hd.obs["region"].astype("category")
         cell_adata_hd = cell_adata_hd[cell_shapes_gdf.index].copy()
 
-        shapes[SHAPES_KEY_HD] = ShapesModel.parse(
-            cell_shapes_gdf, transformations=transformations
-        )
+        shapes[SHAPES_KEY_HD] = ShapesModel.parse(cell_shapes_gdf, transformations=transformations)
         tables[VisiumHDKeys.CELL_SEG_KEY_HD] = TableModel.parse(
             cell_adata_hd,
             region=SHAPES_KEY_HD,
@@ -426,9 +373,7 @@ def visium_hd(
 
         # load nucleus segmentations if available
         if nucleus_segmentation_files_exist and load_nucleus_segmentations:
-            print(
-                "Found nucleus segmentation data. Incorporating nucleus_segmentations."
-            )
+            print("Found nucleus segmentation data. Incorporating nucleus_segmentations.")
 
             # we already ensure this by having nucleus_segmentation_files_exist True, but
             # mypy is not able to infer that
@@ -446,14 +391,10 @@ def visium_hd(
             SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
             nucleus_adata_hd.obs["cell_id"] = nucleus_adata_hd.obs.index
             nucleus_adata_hd.obs["region"] = SHAPES_KEY_HD
-            nucleus_adata_hd.obs["region"] = nucleus_adata_hd.obs["region"].astype(
-                "category"
-            )
+            nucleus_adata_hd.obs["region"] = nucleus_adata_hd.obs["region"].astype("category")
             nucleus_adata_hd = nucleus_adata_hd[nucleus_shapes_gdf.index].copy()
 
-            shapes[SHAPES_KEY_HD] = ShapesModel.parse(
-                nucleus_shapes_gdf, transformations=transformations
-            )
+            shapes[SHAPES_KEY_HD] = ShapesModel.parse(nucleus_shapes_gdf, transformations=transformations)
             tables[VisiumHDKeys.NUCLEUS_SEG_KEY_HD] = TableModel.parse(
                 nucleus_adata_hd,
                 region=SHAPES_KEY_HD,
@@ -465,17 +406,9 @@ def visium_hd(
     if fullres_image_file is None:
         path_fullres = path / VisiumHDKeys.MICROSCOPE_IMAGE
         if path_fullres.exists():
-            fullres_image_paths = [
-                file for file in path_fullres.iterdir() if file.is_file()
-            ]
-        elif list(
-            (path_fullres := (path / f"{filename_prefix}tissue_image")).parent.glob(
-                f"{path_fullres.name}.*"
-            )
-        ):
-            fullres_image_paths = list(
-                path_fullres.parent.glob(f"{path_fullres.name}.*")
-            )
+            fullres_image_paths = [file for file in path_fullres.iterdir() if file.is_file()]
+        elif list((path_fullres := (path / f"{filename_prefix}tissue_image")).parent.glob(f"{path_fullres.name}.*")):
+            fullres_image_paths = list(path_fullres.parent.glob(f"{path_fullres.name}.*"))
         else:
             fullres_image_paths = []
         if len(fullres_image_paths) > 1:
@@ -492,9 +425,7 @@ def visium_hd(
                 UserWarning,
                 stacklevel=2,
             )
-        fullres_image_file = (
-            fullres_image_paths[0] if len(fullres_image_paths) > 0 else None
-        )
+        fullres_image_file = fullres_image_paths[0] if len(fullres_image_paths) > 0 else None
 
     if fullres_image_file is not None:
         load_image(
@@ -511,9 +442,7 @@ def visium_hd(
         )
 
     # hires image
-    hires_image_path = [
-        path for path in all_files if VisiumHDKeys.IMAGE_HIRES_FILE in str(path)
-    ]
+    hires_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_HIRES_FILE in str(path)]
     if len(hires_image_path) > 0:
         load_image(
             path=hires_image_path[0],
@@ -535,9 +464,7 @@ def visium_hd(
         )
 
     # lowres image
-    lowres_image_path = [
-        path for path in all_files if VisiumHDKeys.IMAGE_LOWRES_FILE in str(path)
-    ]
+    lowres_image_path = [path for path in all_files if VisiumHDKeys.IMAGE_LOWRES_FILE in str(path)]
     if len(lowres_image_path) > 0:
         load_image(
             path=lowres_image_path[0],
@@ -559,9 +486,7 @@ def visium_hd(
         )
 
     # cytassist image
-    cytassist_path = [
-        path for path in all_files if VisiumHDKeys.IMAGE_CYTASSIST in str(path)
-    ]
+    cytassist_path = [path for path in all_files if VisiumHDKeys.IMAGE_CYTASSIST in str(path)]
     if load_all_images and len(cytassist_path) > 0:
         load_image(
             path=cytassist_path[0],
@@ -580,9 +505,7 @@ def visium_hd(
             # the projective matrix is not affine, we will separate the affine part and the projective shift, and apply
             # the projective shift to the image
             affine_matrix, projective_shift = _decompose_projective_matrix(projective)
-            affine = Affine(
-                affine_matrix, input_axes=("x", "y"), output_axes=("x", "y")
-            )
+            affine = Affine(affine_matrix, input_axes=("x", "y"), output_axes=("x", "y"))
 
             # determine the size of the transformed image
             bounding_box = get_extent(image, coordinate_system=dataset_id)
@@ -663,11 +586,7 @@ def visium_hd(
 
 def _infer_dataset_id(path: Path) -> str:
     suffix = f"_{VisiumHDKeys.FEATURE_SLICE_FILE.value}"
-    files = [
-        file.name
-        for file in path.iterdir()
-        if file.is_file() and file.name.endswith(suffix)
-    ]
+    files = [file.name for file in path.iterdir() if file.is_file() and file.name.endswith(suffix)]
     if len(files) == 0 or len(files) > 1:
         raise ValueError(
             f"Cannot infer `dataset_id` from the feature slice file in {path}, please pass `dataset_id` as an "
@@ -702,9 +621,9 @@ def _load_image(
         if data.shape[-1] == 3:  # HE image in RGB format
             data = data.transpose(2, 0, 1)
         else:
-            assert data.shape[0] == min(
-                data.shape
-            ), "When the image is not in RGB, the first dimension should be the number of channels."
+            assert data.shape[0] == min(data.shape), (
+                "When the image is not in RGB, the first dimension should be the number of channels."
+            )
 
         image = DataArray(data, dims=("c", "y", "x"))
         parsed = Image2DModel.parse(
@@ -716,15 +635,11 @@ def _load_image(
         )
         images[dataset_id + suffix] = parsed
     else:
-        warnings.warn(
-            f"File {path} does not exist, skipping it.", UserWarning, stacklevel=2
-        )
+        warnings.warn(f"File {path} does not exist, skipping it.", UserWarning, stacklevel=2)
     return None
 
 
-def _projective_matrix_transform_point(
-    projective_shift: ArrayLike, x: float, y: float
-) -> tuple[float, float]:
+def _projective_matrix_transform_point(projective_shift: ArrayLike, x: float, y: float) -> tuple[float, float]:
     v = np.array([x, y, 1])
     v = projective_shift @ v
     v /= v[2]
@@ -732,9 +647,7 @@ def _projective_matrix_transform_point(
 
 
 def _projective_matrix_is_affine(projective_matrix: ArrayLike) -> bool:
-    assert np.allclose(
-        projective_matrix[2, 2], 1
-    ), "A projective matrix should have a 1 in the bottom right corner."
+    assert np.allclose(projective_matrix[2, 2], 1), "A projective matrix should have a 1 in the bottom right corner."
     return np.allclose(projective_matrix[2, :2], [0, 0])
 
 
@@ -754,9 +667,7 @@ def _decompose_projective_matrix(
 
     Let P be the initial projective matrix and A the affine matrix. The projective shift S is defined as: S = A^-1 @ P.
     """
-    assert np.allclose(
-        projective_matrix[2, 2], 1
-    ), "A projective matrix should have a 1 in the bottom right corner."
+    assert np.allclose(projective_matrix[2, 2], 1), "A projective matrix should have a 1 in the bottom right corner."
     affine_matrix = projective_matrix.copy()
     affine_matrix[2] = [0, 0, 1]
     # equivalent to np.linalg.inv(affine_matrix) @ projective_matrix, but more numerically stable
@@ -802,20 +713,14 @@ def _get_filename_prefix(path: Path, dataset_id: str | None) -> tuple[str, str]:
     )
 
 
-def _parse_metadata(
-    path: Path, filename_prefix: str
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    with h5py.File(
-        path / f"{filename_prefix}{VisiumHDKeys.FEATURE_SLICE_FILE.value}", "r"
-    ) as f5:
+def _parse_metadata(path: Path, filename_prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    with h5py.File(path / f"{filename_prefix}{VisiumHDKeys.FEATURE_SLICE_FILE.value}", "r") as f5:
         metadata = json.loads(dict(f5.attrs)[VisiumHDKeys.METADATA_JSON])
         hd_layout = json.loads(metadata[VisiumHDKeys.HD_LAYOUT_JSON])
     return metadata, hd_layout
 
 
-def _get_transform_matrices(
-    metadata: dict[str, Any], hd_layout: dict[str, Any]
-) -> dict[str, ArrayLike]:
+def _get_transform_matrices(metadata: dict[str, Any], hd_layout: dict[str, Any]) -> dict[str, ArrayLike]:
     """Gets 4 projective transformation matrices, describing how to align the CytAssist, spots and microscope coordinates.
 
     Parameters
@@ -836,9 +741,7 @@ def _get_transform_matrices(
     transform_matrices = {}
 
     # this transformation is parsed but not used in the current implementation
-    transform_matrices["hd_layout_transform"] = np.array(
-        hd_layout[VisiumHDKeys.TRANSFORM]
-    ).reshape(3, 3)
+    transform_matrices["hd_layout_transform"] = np.array(hd_layout[VisiumHDKeys.TRANSFORM]).reshape(3, 3)
 
     for key in [
         VisiumHDKeys.CYTASSIST_COLROW_TO_SPOT_COLROW,
@@ -907,9 +810,7 @@ def _make_filtered_nucleus_adata(
             strict=True,
         )
     )
-    ordered_cell_ids = [
-        square_to_cell_map[square] for square in adata_filtered.obs_names
-    ]
+    ordered_cell_ids = [square_to_cell_map[square] for square in adata_filtered.obs_names]
     unique_cells = list(dict.fromkeys(ordered_cell_ids).keys())
     cell_to_idx = {cell: i for i, cell in enumerate(unique_cells)}
 
@@ -954,8 +855,7 @@ def _extract_geometries_from_geojson(
     with open(geojson_path) as f:
         geojson_data = json.load(f)
     geojson_features_map: dict[str, Any] = {
-        f"cellid_{feature['properties']['cell_id']:09d}-1": feature
-        for feature in geojson_data["features"]
+        f"cellid_{feature['properties']['cell_id']:09d}-1": feature for feature in geojson_data["features"]
     }
 
     geometries = []
@@ -968,6 +868,4 @@ def _extract_geometries_from_geojson(
             geometries.append(Polygon(polygon_coords))
             cell_ids_ordered.append(obs_index_str)
 
-    return GeoDataFrame(
-        {"cell_id": cell_ids_ordered, "geometry": geometries}, index=cell_ids_ordered
-    )
+    return GeoDataFrame({"cell_id": cell_ids_ordered, "geometry": geometries}, index=cell_ids_ordered)
