@@ -60,6 +60,7 @@ def visium_hd(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    gex_only: bool = False,
 ) -> SpatialData:
     """Read *10x Genomics* Visium HD formatted dataset.
 
@@ -107,6 +108,8 @@ def visium_hd(
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
     anndata_kwargs
         Keyword arguments for :func:`anndata.io.read_h5ad`.
+    gex_only
+        If `True`, only the gene expression (GEX) data will be loaded.
 
     Returns
     -------
@@ -253,7 +256,7 @@ def visium_hd(
             counts_file = VisiumHDKeys.FILTERED_COUNTS_FILE if filtered_counts_file else VisiumHDKeys.RAW_COUNTS_FILE
             adata = sc.read_10x_h5(
                 path_bin / counts_file,
-                gex_only=False,
+                gex_only=gex_only,
                 **anndata_kwargs,
             )
 
@@ -346,7 +349,7 @@ def visium_hd(
     # Integrate the segmentation data (skipped if segmentation files are not found)
     if cell_segmentation_files_exist:
         print("Found segmentation data. Incorporating cell_segmentations.")
-        cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH, gex_only=False)
+        cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH, gex_only=gex_only)
         cell_adata_hd.var_names_make_unique()
 
         cell_shapes_gdf = _extract_geometries_from_geojson(
@@ -379,6 +382,7 @@ def visium_hd(
             nucleus_adata_hd = _make_filtered_nucleus_adata(
                 filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH,
                 barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH,
+                gex_only=gex_only,
             )
             nucleus_shapes_gdf = _extract_geometries_from_geojson(
                 adata=nucleus_adata_hd, geojson_path=NUCLEUS_GEOJSON_PATH
@@ -756,6 +760,7 @@ def _make_filtered_nucleus_adata(
     barcode_mappings_parquet_path: Path,
     bin_col_name: str = "square_002um",
     aggregate_col_name: str = "cell_id",
+    gex_only: bool = False,
 ) -> AnnData:
     """Generate a filtered AnnData object by aggregating 2um binned data based on nucleus segmentation.
 
@@ -774,6 +779,8 @@ def _make_filtered_nucleus_adata(
         Column name in the barcode mappings that specifies the spatial bin (default is 'square_002um').
     aggregate_col_name
         Column name in the barcode mappings that specifies the aggregate cell ID (default is 'cell_id').
+    gex_only
+        If `True`, only the gene expression (GEX) data will be loaded.
 
     Returns:
     --------
@@ -782,7 +789,7 @@ def _make_filtered_nucleus_adata(
         and the variables correspond to the original features from the input data.
     """
     # Read in the necessary files
-    adata_2um = sc.read_10x_h5(filtered_matrix_h5_path)
+    adata_2um = sc.read_10x_h5(filtered_matrix_h5_path, gex_only=gex_only)
     barcode_mappings = pq.read_table(barcode_mappings_parquet_path)
 
     # Filter to only include valid cell IDs that are in both nucleus and cell
