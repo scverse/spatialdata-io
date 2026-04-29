@@ -455,7 +455,7 @@ def xenium(
     # --- assemble SpatialData ---
     tables = {"table": table} if table is not None else {}
     shapes = polygons
-    if circles is not None:
+    if circles is not None and cells_as_circles:
         shapes["cell_circles"] = circles
 
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
