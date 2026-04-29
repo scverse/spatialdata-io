@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -50,23 +50,26 @@ __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
 
 @dataclass
-class _CellsZarr:
-    """Read and expose the contents of ``cells.zarr.zip`` from a Xenium output folder.
+class _XeniumCells:
+    """Centralised cell-data context for a Xenium output folder.
 
-    ``cells.zarr.zip`` is a Zarr archive that ships with every Xenium run.  It stores
-    per-cell metadata that the reader needs to build label images and polygon
-    boundaries.  The layout on disk looks like::
+    All cell identity and mapping logic is handled here.  Information from
+    multiple on-disk sources is aggregated once so that no other part of the
+    reader parses cell IDs or resolves version-specific formats independently.
+
+    The layout of ``cells.zarr.zip`` looks like::
 
         cells.zarr.zip/
-        ├── cell_id          # (N, 2) uint32 — prefix + suffix, encode to strings
-        ├── cell_summary     # (N, K) float  — per-cell stats (z_level, nucleus_count, …)
+        ├── cell_id          # (N, 2) uint32 — N cells × (prefix, suffix); encodes to strings
+        ├── cell_summary     # (N, K) float  — all versions: K=7 (centroids, areas, z_level);
+        │                    #                 v2.0.0+:      K=8 (adds nucleus_count)
         ├── masks/
         │   ├── 0            # nucleus raster labels
         │   └── 1            # cell   raster labels
-        ├── polygon_sets/    # v2.0+  — maps each polygon to its parent cell
-        │   ├── 0/cell_index #   nucleus polygon → row index into cell_id
-        │   └── 1/cell_index #   cell   polygon → row index into cell_id
-        └── seg_mask_value   # v1.3.x–v1.x only — raster label value per cell (cells only)
+        ├── polygon_sets/    # v2.0+  — cell_index[p] = parent cell row; raster label = p+1
+        │   ├── 0/cell_index #   len = #nucleus polygons (≠ N for multinucleate/missing nuclei)
+        │   └── 1/cell_index #   len = N; values = [0, 1, ..., N-1] (bijection for cells)
+        └── seg_mask_value   # v1.3.0–v1.x only — raster label value per cell (cells only)
 
     The folder structure changed across XOA (Xenium Onboard Analysis) versions.
     This class detects which variant is present and exposes two booleans
@@ -78,7 +81,7 @@ class _CellsZarr:
     **v1.0.x (up to, but excluding, v1.3.0)** — ``cell_id`` is a plain integer
     array (single column).  No ``seg_mask_value`` or ``polygon_sets``.
 
-    **v1.3.x (up to, but excluding, v2.0.0)** — ``cell_id`` becomes a ``(N, 2) uint32``
+    **v1.3.0 (up to, but excluding, v2.0.0)** — ``cell_id`` becomes a ``(N, 2) uint32``
     array (prefix, suffix) that encodes to human-readable strings like ``aaaaficg-1``.
     ``seg_mask_value`` is present: it stores the actual raster label value for
     each cell (mask_index=1 only; nuclei have no dedicated mapping, which
@@ -86,10 +89,17 @@ class _CellsZarr:
     and no cells without a nucleus).
 
     **v2.0.0+** — ``polygon_sets`` replaces ``seg_mask_value``.  Each mask index
-    (0 = nuclei, 1 = cells) gets a ``cell_index`` array that maps every polygon
-    to its parent cell row.  The label in the raster image equals
-    ``cell_index + 1``.  Multinucleate cells are supported: multiple nucleus
-    polygons can point to the same cell.
+    (0 = nuclei, 1 = cells) has a ``cell_index`` array whose length equals the
+    number of polygons for that mask.  ``cell_index[p]`` is the 0-based row of
+    ``cell_id`` that owns polygon ``p``.  The raster label for polygon ``p`` is
+    ``p + 1`` (1-based polygon position; background = 0).
+
+    For cells (mask 1) those two happen to be equal because ``cell_index`` is
+    the trivial bijection ``[0, 1, ..., N-1]``, so ``p + 1 == cell_index[p] + 1``.
+    For nuclei (mask 0) they differ: a multinucleate cell has two polygons
+    ``p1 != p2`` with ``cell_index[p1] == cell_index[p2]``, giving them
+    different raster labels (``p1+1`` vs ``p2+1``) while mapping to the same
+    cell.  Cells without a detected nucleus have no entry in ``cell_index`` at all.
 
     ``has_polygon_sets`` and ``has_seg_mask_value`` are mutually exclusive.
 
@@ -104,12 +114,30 @@ class _CellsZarr:
     version: packaging.version.Version | None
     has_polygon_sets: bool
     has_seg_mask_value: bool
+    nucleus_indices_mapping: pd.DataFrame | None = field(init=False)
+    cell_indices_mapping: pd.DataFrame | None = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.nucleus_indices_mapping = self.get_indices_mapping(mask_index=0)
+        self.cell_indices_mapping = self.get_indices_mapping(mask_index=1)
 
     @classmethod
-    def open(cls, path: Path, version: packaging.version.Version | None) -> _CellsZarr:
+    def open(cls, path: Path, version: packaging.version.Version | None) -> _XeniumCells:
+        """Open ``cells.zarr.zip`` from a Xenium output folder and return a populated instance.
+
+        Parameters
+        ----------
+        path
+            Xenium output folder (the directory that contains ``cells.zarr.zip``).
+        version
+            XOA version parsed from ``experiment.xenium``, or ``None`` if unavailable.
+        """
         store = zarr.storage.ZipStore(path / XeniumKeys.CELLS_ZARR, read_only=True)
         group = zarr.open(store, mode="r")
 
+        # For v < 1.3.0 the zarr cell_id array is 1-D plain integers with no prefix/suffix
+        # encoding, so no string representation is produced here; cell_id_str stays None and
+        # downstream code reads cell IDs directly from the parquet files.
         cell_id_str = None
         if version is not None and version >= packaging.version.parse("1.3.0"):
             cell_id_raw = group["cell_id"][...]
@@ -121,7 +149,7 @@ class _CellsZarr:
         # some sanity checks
         assert not (has_polygon_sets and has_seg_mask_value), (
             "cells.zarr.zip has both polygon_sets and seg_mask_value; these are mutually exclusive "
-            "(polygon_sets is v2.0+, seg_mask_value is v1.3.x)"
+            "(polygon_sets is v2.0+, seg_mask_value is v1.3.x-v1.x)"
         )
         if version is not None:
             if has_polygon_sets:
@@ -153,25 +181,70 @@ class _CellsZarr:
         Notes
         ----------
         For v2.0+ (polygon_sets): uses polygon_sets/{mask_index}/cell_index.
-        For v1.3.0–v1.x (seg_mask_value): cells only (mask_index=1); nuclei return None.
+        For v1.3.0–v1.x (seg_mask_value): only mask_index=1 (cells) returns a mapping;
+        mask_index=0 (nuclei) returns None.  The nucleus label integers are identical to
+        the cell labels (same seg_mask_value, strict 1:1 mapping), but no per-polygon
+        nucleus mapping is needed for this version range.
         For v < 1.3.0: returns None (no mapping available).
         """
         if self.cell_id_str is not None and self.has_polygon_sets:
-            # From the 10x docs: "the label ID is equal to the cell index + 1".
-            # For cells (mask_index=1): cell_index is 0..N-1 (1:1 with cells).
-            # For nuclei (mask_index=0): cell_index maps each nucleus to its parent cell.
             cell_index = self.group[f"polygon_sets/{mask_index}/cell_index"][...]
             label_index = np.arange(1, len(cell_index) + 1, dtype=np.int64)
             cell_id = self.cell_id_str[cell_index]
             return pd.DataFrame({"cell_id": cell_id, "label_index": label_index})
-        if mask_index == 1 and self.cell_id_str is not None and self.has_seg_mask_value:
+        if self.cell_id_str is not None and self.has_seg_mask_value and mask_index == 1:
             label_index = self.group["seg_mask_value"][...]
+            expected = np.arange(1, len(label_index) + 1, dtype=label_index.dtype)
+            if not np.array_equal(label_index, expected):
+                warnings.warn(
+                    f"seg_mask_value is not the expected contiguous range 1..N "
+                    f"(version {self.version}). The label_index <-> cell_id mapping may be incorrect. "
+                    "Please open an issue at https://github.com/scverse/spatialdata-io/issues.",
+                    UserWarning,
+                    stacklevel=2,
+                )
             return pd.DataFrame({"cell_id": self.cell_id_str, "label_index": label_index.astype(np.int64)})
         return None
 
-    def get_cell_summary(self) -> pd.DataFrame:
-        """Read cells summary table (z_level, nucleus_count, etc.) from cells.zarr.zip."""
-        assert self.cell_id_str is not None, "cell_id_str is required for get_cell_summary (version >= 1.3.0)"
+    def get_cell_metadata(self, path: Path) -> pd.DataFrame:
+        """Read ``cells.parquet`` and cross-check its cell_id against the zarr cell_id array.
+
+        Parameters
+        ----------
+        path
+            Xenium output folder (the directory that contains ``cells.parquet``).
+
+        Returns
+        -------
+        DataFrame with the parquet contents; the ``cell_id`` column is already decoded to str.
+        """
+        metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
+        metadata[XeniumKeys.CELL_ID] = _decode_cell_id_column(metadata[XeniumKeys.CELL_ID])
+        if self.cell_id_str is not None:
+            try:
+                _assert_arrays_equal_sampled(metadata[XeniumKeys.CELL_ID].values, self.cell_id_str)
+            except AssertionError:
+                warnings.warn(
+                    f"The cell_id column in {XeniumKeys.CELL_METADATA_FILE!r} does not match the "
+                    "cell_id array in cells.zarr.zip. This could indicate a format version not yet "
+                    "supported. Please report this issue at "
+                    "https://github.com/scverse/spatialdata-io/issues.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        return metadata
+
+    def get_cell_summary(self) -> pd.DataFrame | None:
+        """Read cells summary table from cells.zarr.zip.
+
+        ``cell_summary`` exists in all XOA versions.  Returns ``None`` only for
+        v < 1.3.0 where ``cell_id_str`` is unavailable and the rows cannot be
+        matched to string cell IDs.  The returned DataFrame contains whatever
+        columns are present: v1.x has 7 columns (centroids, areas, z_level);
+        v2.0.0+ adds ``nucleus_count`` as an 8th column.
+        """
+        if self.cell_id_str is None:
+            return None
         x = self.group["cell_summary"][...]
         column_names = self.group["cell_summary"].attrs["column_names"]
         df = pd.DataFrame(x, columns=column_names)
@@ -305,6 +378,9 @@ def xenium(
 
     specs["region"] = "cell_circles" if cells_as_circles else "cell_labels"
 
+    # --- cells.zarr.zip (shared resource for labels, boundaries, and table enrichment) ---
+    cells_zarr_ctx = _XeniumCells.open(path, version)
+
     # --- table (required when cells_as_circles or boundaries are requested) ---
     if not cells_table and (cells_as_circles or cells_boundaries or nucleus_boundaries):
         logging.info("Reading the table is required for the requested elements; setting cells_table=True.")
@@ -313,22 +389,27 @@ def xenium(
     table = None
     circles = None
     if cells_table:
-        table, circles = _get_tables_and_circles(path, specs, gex_only)
-
-    # --- cells.zarr.zip (shared resource for labels, boundaries, and table enrichment) ---
-    cells_zarr_ctx = _CellsZarr.open(path, version)
-
-    # --- indices mappings (reused by both boundaries and labels) ---
-    nucleus_indices_mapping = None
-    cell_indices_mapping = None
-    if nucleus_boundaries or nucleus_labels:
-        nucleus_indices_mapping = cells_zarr_ctx.get_indices_mapping(mask_index=0)
-    if cells_boundaries or cells_labels:
-        cell_indices_mapping = cells_zarr_ctx.get_indices_mapping(mask_index=1)
-
-        # --- enrich table ---
-    if table is not None:
-        _enrich_table(table, cells_zarr_ctx, cell_indices_mapping if cells_labels else None, cells_as_circles)
+        table, circles = _get_tables_and_circles(path, specs, gex_only, cells_zarr_ctx)
+        # Map the table to the cell_labels element when available, so that the
+        # instance key can be resolved against raster labels instead of circles.
+        if cells_labels and cells_zarr_ctx.cell_indices_mapping is not None:
+            try:
+                _assert_arrays_equal_sampled(
+                    cells_zarr_ctx.cell_indices_mapping["cell_id"].values,
+                    table.obs[str(XeniumKeys.CELL_ID)].values,
+                )
+            except AssertionError:
+                warnings.warn(
+                    "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
+                    "cell labels data. This could be due to trying to read a new version that is not supported yet. "
+                    "Please report this issue.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
+                table.obs["cell_labels"] = cells_zarr_ctx.cell_indices_mapping["label_index"].values
+                if not cells_as_circles:
+                    table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
     # --- read elements ---
     polygons = {}
@@ -350,7 +431,7 @@ def xenium(
             path,
             XeniumKeys.NUCLEUS_BOUNDARIES_FILE,
             specs,
-            indices_mapping=nucleus_indices_mapping,
+            indices_mapping=cells_zarr_ctx.nucleus_indices_mapping,
             is_nucleus=True,
         )
         if nuc_polys is not None:
@@ -360,7 +441,7 @@ def xenium(
             path,
             XeniumKeys.CELL_BOUNDARIES_FILE,
             specs,
-            indices_mapping=cell_indices_mapping,
+            indices_mapping=cells_zarr_ctx.cell_indices_mapping,
         )
 
     if transcripts:
@@ -387,7 +468,7 @@ def xenium(
     return _set_reader_metadata(sdata, "xenium")
 
 
-def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 100) -> None:
+def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 1000) -> None:
     """Assert two arrays are equal by checking a random sample of entries."""
     assert len(a) == len(b), f"Array lengths differ: {len(a)} != {len(b)}"
     idx = np.random.default_rng(0).choice(len(a), size=min(n, len(a)), replace=False)
@@ -397,9 +478,7 @@ def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 100) -> No
 def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     if isinstance(cell_id_column.iloc[0], bytes):
         return cell_id_column.str.decode("utf-8")
-    if not isinstance(cell_id_column.iloc[0], str):
-        cell_id_column.index = cell_id_column.index.astype(str)
-    return cell_id_column
+    return cell_id_column.astype(str)
 
 
 def _get_polygons(
@@ -414,7 +493,7 @@ def _get_polygons(
     Parameters
     ----------
     indices_mapping
-        When provided (from ``_CellsZarr.get_indices_mapping``),
+        When provided (from ``_XeniumCells``),
         contains ``cell_id`` and ``label_index`` columns. The parquet ``label_id`` column is used
         for fast integer-based change detection (to locate all the vertices of each polygon).
         When None, falls back to cell_id-based grouping from the parquet (Xenium < 2.0).
@@ -527,6 +606,13 @@ def _get_polygons(
             geo_df = GeoDataFrame({"geometry": geoms}, index=indices_mapping["cell_id"].values)
     else:
         # Fall back to extracting unique cell IDs from parquet (slow for large_string columns).
+        # Triggered when indices_mapping is None: v < 1.3.0 (both nuclei and cells, because
+        # cell_id_str is unavailable from zarr) and v1.3.x nuclei (seg_mask_value covers
+        # cells only, so nucleus_indices_mapping is None).
+        # Possible improvement: for versions >= 1.3.0 and < 2.0.0, we know that the nuclei maps in a 1-to-1
+        #   fashion to the cells, so we could modify get_indices_mapping NOT to return None
+        #   in that case, which would imply that we don't fall into this slow fallback. This
+        #   could be work for a future version.
         unique_ids = id_col.filter(np.concatenate([[True], change_mask])).to_pylist()
         index = _decode_cell_id_column(pd.Series(unique_ids))
         geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
@@ -584,10 +670,16 @@ def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     return points
 
 
-def _get_tables_and_circles(path: Path, specs: dict[str, Any], gex_only: bool) -> tuple[AnnData, AnnData]:
+def _get_tables_and_circles(
+    path: Path,
+    specs: dict[str, Any],
+    gex_only: bool,
+    cells_zarr_ctx: _XeniumCells,
+) -> tuple[AnnData, AnnData]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
-    metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
-    _assert_arrays_equal_sampled(metadata.cell_id.astype(str), adata.obs_names.values)
+    # get_cell_metadata decodes cell_id and cross-checks it against cells.zarr.zip
+    metadata = cells_zarr_ctx.get_cell_metadata(path)
+    _assert_arrays_equal_sampled(metadata[XeniumKeys.CELL_ID].values, adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     adata.obsm["spatial"] = circ
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
@@ -596,7 +688,6 @@ def _get_tables_and_circles(path: Path, specs: dict[str, Any], gex_only: bool) -
     adata.obs = metadata
     adata.obs["region"] = specs["region"]
     adata.obs["region"] = adata.obs["region"].astype("category")
-    adata.obs[XeniumKeys.CELL_ID] = _decode_cell_id_column(adata.obs[XeniumKeys.CELL_ID])
     table = TableModel.parse(
         adata,
         region=specs["region"],
@@ -612,6 +703,22 @@ def _get_tables_and_circles(path: Path, specs: dict[str, Any], gex_only: bool) -
         transformations={"global": transform},
         index=adata.obs[XeniumKeys.CELL_ID].copy(),
     )
+    # Add z_level and nucleus_count from cell_summary (unavailable for v < 1.3.0).
+    cell_summary = cells_zarr_ctx.get_cell_summary()
+    if cell_summary is not None:
+        try:
+            _assert_arrays_equal_sampled(cell_summary[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values)
+        except AssertionError:
+            warnings.warn(
+                'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
+                " table. This could be due to trying to read a new version that is not supported yet. Please "
+                "report this issue.",
+                UserWarning,
+                stacklevel=2,
+            )
+        for col_key in (XeniumKeys.Z_LEVEL, XeniumKeys.NUCLEUS_COUNT):
+            if str(col_key) in cell_summary.columns:
+                table.obs[str(col_key)] = cell_summary[str(col_key)].values
     return table, circles
 
 
@@ -709,8 +816,13 @@ def _get_morphology_focus(
             channels.append((channel_idx, ome_ch.name))
         channel_names = dict(sorted(channels))
 
+    # this reads the scale 0 for all the 1 or 4 channels (the other files are parsed automatically)
+    # dask.image.imread will call tifffile.imread which will give a warning saying that reading multi-file
+    # pyramids is not supported; since we are reading the full scale image and reconstructing the pyramid, we
+    # can ignore this
     class IgnoreSpecificMessage(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:
+            # Ignore specific log message
             if "OME series cannot read multi-file pyramids" in record.getMessage():
                 return False
             return True
@@ -730,49 +842,6 @@ def _get_morphology_focus(
     )
     tf_logger.removeFilter(IgnoreSpecificMessage())
     return result
-
-
-def _enrich_table(
-    table: AnnData,
-    cells_zarr_ctx: _CellsZarr,
-    cell_indices_mapping: pd.DataFrame | None,
-    cells_as_circles: bool,
-) -> None:
-    """Add z_level, nucleus_count, and cell_labels mapping to the table in-place."""
-    # z_level and nucleus_count from cell_summary (v2.0+)
-    if cells_zarr_ctx.version is not None and cells_zarr_ctx.version >= packaging.version.parse("2.0.0"):
-        cell_summary = cells_zarr_ctx.get_cell_summary()
-        try:
-            _assert_arrays_equal_sampled(cell_summary[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values)
-        except AssertionError:
-            warnings.warn(
-                'The "cell_id" column in the cells metadata table does not match the "cell_id" column in the annotation'
-                " table. This could be due to trying to read a new version that is not supported yet. Please "
-                "report this issue.",
-                UserWarning,
-                stacklevel=2,
-            )
-        table.obs[XeniumKeys.Z_LEVEL] = cell_summary[XeniumKeys.Z_LEVEL].values
-        table.obs[XeniumKeys.NUCLEUS_COUNT] = cell_summary[XeniumKeys.NUCLEUS_COUNT].values
-
-    # cell_labels instance key mapping
-    if cell_indices_mapping is not None:
-        try:
-            _assert_arrays_equal_sampled(
-                cell_indices_mapping["cell_id"].values, table.obs[str(XeniumKeys.CELL_ID)].values
-            )
-        except AssertionError:
-            warnings.warn(
-                "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
-                "cell labels data. This could be due to trying to read a new version that is not supported yet. "
-                "Please report this issue.",
-                UserWarning,
-                stacklevel=2,
-            )
-        else:
-            table.obs["cell_labels"] = cell_indices_mapping["label_index"].values
-            if not cells_as_circles:
-                table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
 
 def _add_aligned_images(
