@@ -495,12 +495,13 @@ def _get_polygons(
         # cell_id, merging multiple nuclei of multinucleate cells into a single degenerate polygon.
         # The resulting geometry is invalid (two rings concatenated as one), so we skip nucleus
         # boundaries entirely for this format version.
-        # See: https://github.com/scverse/spatialdata-io/discussions/XXX
+        # See: https://github.com/scverse/spatialdata-io/discussions/387
         warnings.warn(
             "Nucleus boundaries are not supported for this Xenium format version (v2.0.0 early "
             "builds without label_id in the parquet). The parquet merges multinucleate cells into "
             "degenerate polygons. Skipping nucleus boundaries. You can derive nucleus polygons from "
-            "the raster labels using spatialdata.to_polygons().",
+            "the raster labels using spatialdata.to_polygons(). "
+            "See https://github.com/scverse/spatialdata-io/discussions/387 for details.",
             UserWarning,
             stacklevel=3,
         )
