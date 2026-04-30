@@ -34,6 +34,8 @@ __pycache__/
 _version.py
 node_modules/
 .code-workspace
+.asv/
+uv.lock
 
 # test datasets (e.g. Xenium ones)
 data/
