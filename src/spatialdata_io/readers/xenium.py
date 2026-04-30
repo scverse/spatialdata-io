@@ -478,7 +478,7 @@ def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 1000) -> N
 def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     if isinstance(cell_id_column.iloc[0], bytes):
         return cell_id_column.str.decode("utf-8")
-    return cell_id_column.astype(str)
+    return cell_id_column
 
 
 def _get_polygons(
@@ -679,7 +679,7 @@ def _get_tables_and_circles(
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
     # get_cell_metadata decodes cell_id and cross-checks it against cells.zarr.zip
     metadata = cells_zarr_ctx.get_cell_metadata(path)
-    _assert_arrays_equal_sampled(metadata[XeniumKeys.CELL_ID].values, adata.obs_names.values)
+    _assert_arrays_equal_sampled(metadata[XeniumKeys.CELL_ID].astype(str).values, adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     adata.obsm["spatial"] = circ
     metadata.drop([XeniumKeys.CELL_X, XeniumKeys.CELL_Y], axis=1, inplace=True)
