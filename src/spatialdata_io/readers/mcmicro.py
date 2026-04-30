@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 import numpy as np
@@ -12,14 +11,19 @@ import pandas as pd
 import yaml
 from anndata import AnnData
 from dask_image.imread import imread
-from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata.models import Image2DModel, Labels2DModel, TableModel
 from spatialdata.transformations import Identity, Translation, set_transformation
 from yaml.loader import SafeLoader
 
 from spatialdata_io._constants._constants import McmicroKeys
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
+    from spatial_image import SpatialImage
 
 __all__ = ["mcmicro"]
 
@@ -48,8 +52,7 @@ def mcmicro(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read a *Mcmicro* output into a SpatialData object.
+    """Read a *Mcmicro* output into a SpatialData object.
 
     .. seealso::
 
@@ -100,7 +103,7 @@ def mcmicro(
         assert len(samples) == 1
         data = imread(samples[0], **imread_kwargs)
         # , scale_factors=[2, 2]
-        data = Image2DModel.parse(data, transformations=_get_transformation(), **image_models_kwargs)
+        data = Image2DModel.parse(data, transformations=_get_transformation(), rgb=None, **image_models_kwargs)
         images["tma_map"] = data
 
         image_dir = path / McmicroKeys.IMAGES_DIR_TMA
@@ -116,7 +119,7 @@ def mcmicro(
             image_id = core_id
 
         data = imread(sample, **imread_kwargs)
-        data = Image2DModel.parse(data, c_coords=marker_names, **image_models_kwargs)
+        data = Image2DModel.parse(data, c_coords=marker_names, rgb=None, **image_models_kwargs)
         transformations = _get_transformation(
             tma=int(core_id) if tma else None, tma_centroids=tma_centroids, raster_data=data
         )
@@ -131,7 +134,9 @@ def mcmicro(
             raw_name = raw_image.with_name(raw_image.stem).with_suffix("").stem
 
             data = imread(raw_image, **imread_kwargs)
-            images[raw_name] = Image2DModel.parse(data, transformations={raw_name: Identity()}, **image_models_kwargs)
+            images[raw_name] = Image2DModel.parse(
+                data, transformations={raw_name: Identity()}, rgb=None, **image_models_kwargs
+            )
 
     illumination_dir = path / McmicroKeys.ILLUMINATION_DIR
     if illumination_dir.exists():
@@ -143,7 +148,7 @@ def mcmicro(
 
             data = imread(illumination_image, **imread_kwargs)
             images[illumination_name] = Image2DModel.parse(
-                data, transformations={raw_name: Identity()}, **image_models_kwargs
+                data, transformations={raw_name: Identity()}, rgb=None, **image_models_kwargs
             )
 
     samples_labels = list((path / McmicroKeys.LABELS_DIR).glob("*/*" + McmicroKeys.IMAGE_SUFFIX))
@@ -185,7 +190,8 @@ def mcmicro(
 
     tables_dict = _get_tables(path, markers, tma)
 
-    return SpatialData(images=images, labels=labels, tables=tables_dict)
+    sdata = SpatialData(images=images, labels=labels, tables=tables_dict)
+    return _set_reader_metadata(sdata, "mcmicro")
 
 
 def _load_params(path: Path) -> Any:
@@ -258,7 +264,7 @@ def _create_anndata(
         obs=table.drop(columns=var + coords),
         var=markers,
         obsm={"spatial": table[coords].to_numpy()},
-        dtype=np.float_,
+        dtype=float,
     )
     adata.obs["region"] = pd.Categorical([region_value] * len(adata))
     return adata, region_value

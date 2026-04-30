@@ -1,7 +1,8 @@
 from abc import ABC, ABCMeta
+from collections.abc import Callable
 from enum import Enum, EnumMeta
 from functools import wraps
-from typing import Any, Callable
+from typing import Any
 
 
 class PrettyEnum(Enum):
@@ -41,7 +42,7 @@ def _pretty_raise_enum(cls: type["ErrorFormatterABC"], func: Callable[..., Any])
 class ABCEnumMeta(EnumMeta, ABCMeta):
     def __call__(cls, *args: Any, **kwargs: Any) -> Any:
         if getattr(cls, "__error_format__", None) is None:
-            raise TypeError(f"Can't instantiate class `{cls.__name__}` " f"without `__error_format__` class attribute.")
+            raise TypeError(f"Can't instantiate class `{cls.__name__}` without `__error_format__` class attribute.")
         return super().__call__(*args, **kwargs)
 
     def __new__(cls, clsname: str, superclasses: tuple[type], attributedict: dict[str, Any]) -> "ABCEnumMeta":
@@ -50,7 +51,7 @@ class ABCEnumMeta(EnumMeta, ABCMeta):
         return res
 
 
-class ErrorFormatterABC(ABC):
+class ErrorFormatterABC(ABC):  # noqa
     """Mixin class that formats invalid value when constructing an enum."""
 
     __error_format__ = "Invalid option `{0}` for `{1}`. Valid options are: `{2}`."
@@ -58,7 +59,9 @@ class ErrorFormatterABC(ABC):
     @classmethod
     def _format(cls, value: Enum) -> str:
         return cls.__error_format__.format(
-            value, cls.__name__, [m.value for m in cls.__members__.values()]  # type: ignore[attr-defined]
+            value,
+            cls.__name__,
+            [m.value for m in cls.__members__.values()],  # type: ignore[attr-defined]
         )
 
 

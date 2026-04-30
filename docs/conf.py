@@ -9,6 +9,7 @@ import sys
 from datetime import datetime
 from importlib.metadata import metadata
 from pathlib import Path
+
 import spatialdata_io.experimental
 
 _ = spatialdata_io.experimental
@@ -22,7 +23,7 @@ sys.path.insert(0, str(HERE / "extensions"))
 info = metadata("spatialdata-io")
 project_name = info["Name"]
 author = info["Author"]
-copyright = f"{datetime.now():%Y}, {author}."
+copyright = f"{datetime.now():%Y}, {author}"
 version = info["Version"]
 repository_url = f"https://github.com/scverse/{project_name}"
 
@@ -57,6 +58,7 @@ extensions = [
     "sphinx_autodoc_typehints",
     "sphinx.ext.mathjax",
     "IPython.sphinxext.ipython_console_highlighting",
+    "sphinx_click",
     *[p.stem for p in (HERE / "extensions").glob("*.py")],
 ]
 
@@ -90,6 +92,7 @@ source_suffix = {
 }
 
 intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
     "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
     "spatialdata": ("https://scverse-spatialdata.readthedocs.io/en/latest/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
@@ -124,6 +127,7 @@ nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     ("py:class", "Path"),
+    ("py:class", "pathlib._local.Path"),
     ("py:class", "AnnData"),
     ("py:class", "SpatialData"),
     ("py:func", "imageio.imread"),  # maybe this can be fixed

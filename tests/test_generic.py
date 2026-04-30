@@ -1,0 +1,185 @@
+import logging
+import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
+from pathlib import Path
+
+import numpy as np
+import pytest
+from click.testing import CliRunner
+from PIL import Image
+from spatialdata import SpatialData
+from spatialdata._logging import logger
+from spatialdata.datasets import blobs
+from tifffile import imread as tiffread
+from tifffile import imwrite as tiffwrite
+
+from spatialdata_io.__main__ import read_generic_wrapper
+from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
+from spatialdata_io.readers.generic import image
+
+
+@contextmanager
+def save_temp_files() -> Generator[tuple[Path, Path, Path], None, None]:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sdata = blobs()
+        # save the image as jpg
+        x = sdata["blobs_image"].data.compute()
+        x = np.clip(x * 255, 0, 255).astype(np.uint8).transpose(1, 2, 0)
+        im = Image.fromarray(x)
+        jpg_path = Path(tmpdir) / "blobs_image.jpg"
+        im.save(jpg_path)
+
+        # save the shapes as geojson
+        gdf = sdata["blobs_multipolygons"]
+        geojson_path = Path(tmpdir) / "blobs_multipolygons.geojson"
+        gdf.to_file(geojson_path, driver="GeoJSON")
+
+        yield jpg_path, geojson_path, Path(tmpdir)
+
+
+@pytest.fixture(
+    scope="module",
+    params=[
+        {"axes": ("c", "y", "x"), "compression": None},
+        {"axes": ("x", "y", "c"), "compression": None},
+        {"axes": ("c", "y", "x"), "compression": "lzw"},
+        {"axes": ("x", "y", "c"), "compression": "lzw"},
+    ],
+)
+def save_tiff_files(
+    request: pytest.FixtureRequest,
+) -> Generator[tuple[Path, tuple[str], Path], None, None]:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        axes = request.param["axes"]
+        compression = request.param["compression"]
+
+        sdata = blobs()
+        # save the image as tiff
+        x = sdata["blobs_image"].transpose(*axes).data.compute()
+
+        tiff_path = Path(tmpdir) / "blobs_image.tiff"
+        tiffwrite(tiff_path, x, compression=compression)
+
+        yield tiff_path, axes, compression
+
+
+@pytest.mark.parametrize("scale_factors", [None, [2]])
+def test_read_tiff(
+    save_tiff_files: tuple[Path, tuple[str, ...], str | None],
+    caplog: pytest.LogCaptureFixture,
+    scale_factors: list[int] | None,
+) -> None:
+    tiff_path, axes, compression = save_tiff_files
+    # Use asymmetric chunk sizes to catch errors with the ordering of chunk dimensions and the assembly of the individual chunks
+    CHUNKS = {"c": 2, "y": 29, "x": 71}
+
+    logger.propagate = True
+    with caplog.at_level(logging.WARNING):
+        obj = image(
+            tiff_path,
+            data_axes=axes,
+            coordinate_system="global",
+            chunks=CHUNKS,
+            scale_factors=scale_factors,
+            use_tiff_memmap=True,
+        )
+    logger.propagate = False
+    assert ("image data is not memory-mappable" in caplog.text) == (compression is not None)
+
+    target = obj if scale_factors is None else obj["scale0"]["image"]
+
+    # check chunks are correct
+    for i, ax in enumerate(("c", "y", "x")):
+        assert target.chunksizes[ax][0] in (CHUNKS[ax], target.shape[i])
+
+    # check multiscale is correct
+    if scale_factors is not None:
+        assert "scale0" in obj and len(obj.keys()) == len(scale_factors) + 1
+
+    # check pixel data
+    ref = tiffread(tiff_path).transpose(*[axes.index(ax) for ax in ("c", "y", "x")])
+    assert (target.compute() == ref).all()
+
+
+@pytest.mark.parametrize("cli", [True, False])
+@pytest.mark.parametrize("element_name", [None, "test_element"])
+def test_read_generic_image(runner: CliRunner, cli: bool, element_name: str | None) -> None:
+    with save_temp_files() as (image_path, geojson_path, tmpdir):
+        output_zarr_path = tmpdir / "output.zarr"
+        if cli:
+            result = runner.invoke(
+                read_generic_wrapper,
+                [
+                    "--input",
+                    image_path,
+                    "--output",
+                    output_zarr_path,
+                    "--name",
+                    element_name,
+                    "--data-axes",
+                    "cyx",
+                    "--coordinate-system",
+                    "global",
+                ],
+            )
+            assert result.exit_code == 0, result.output
+            assert f"Data written to {tmpdir}" in result.output
+        else:
+            generic_to_zarr(
+                input=image_path,
+                output=output_zarr_path,
+                name=element_name,
+                data_axes="cyx",
+                coordinate_system="global",
+            )
+        sdata = SpatialData.read(output_zarr_path)
+        if element_name is None:
+            assert "blobs_image" in sdata
+        else:
+            assert element_name in sdata
+
+
+def test_cli_read_generic_image_invalid_data_axes(runner: CliRunner) -> None:
+    with save_temp_files() as (image_path, geojson_path, tmpdir):
+        output_zarr_path = tmpdir / "output.zarr"
+
+        result = runner.invoke(
+            read_generic_wrapper,
+            [
+                "--input",
+                image_path,
+                "--output",
+                output_zarr_path,
+                "--data-axes",
+                "invalid_axes",
+            ],
+        )
+        assert result.exit_code != 0, result.output
+        assert "data_axes must be a permutation of 'cyx' or 'czyx'." in result.exc_info[1].args[0]
+
+
+@pytest.mark.parametrize("cli", [True, False])
+def test_read_generic_geojson(runner: CliRunner, cli: bool) -> None:
+    with save_temp_files() as (image_path, geojson_path, tmpdir):
+        output_zarr_path = tmpdir / "output.zarr"
+
+        if cli:
+            result = runner.invoke(
+                read_generic_wrapper,
+                [
+                    "--input",
+                    geojson_path,
+                    "--output",
+                    output_zarr_path,
+                    "--coordinate-system",
+                    "global",
+                ],
+            )
+            assert result.exit_code == 0, result.output
+            assert f"Data written to {tmpdir}" in result.output
+        else:
+            generic_to_zarr(input=geojson_path, output=output_zarr_path, coordinate_system="global")
+
+        sdata = SpatialData.read(output_zarr_path)
+        assert "blobs_multipolygons" in sdata

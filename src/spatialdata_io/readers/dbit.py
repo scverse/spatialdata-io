@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 from re import Pattern
-from typing import Optional, Union
+from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
@@ -12,13 +12,16 @@ import pandas as pd
 import shapely
 import spatialdata as sd
 from dask_image.imread import imread
-from numpy.typing import NDArray
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from xarray import DataArray
 
 from spatialdata_io._constants._constants import DbitKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 __all__ = ["dbit"]
 
@@ -27,11 +30,10 @@ def _check_path(
     path: Path,
     pattern: Pattern[str],
     key: DbitKeys,
-    path_specific: Optional[str | Path] = None,
+    path_specific: str | Path | None = None,
     optional_arg: bool = False,
-) -> tuple[Union[Path, None], bool]:
-    """
-    Check that the path is valid and match a regex pattern.
+) -> tuple[Path | None, bool]:
+    """Check that the path is valid and match a regex pattern.
 
     Parameters
     ----------
@@ -105,15 +107,14 @@ def _check_path(
                     logger.warning(message)
                     return file_path, flag
                 else:
-                    raise IndexError(message)
+                    raise IndexError(message) from None
 
     logger.warning(f"{file_path} is used.")
     return file_path, flag
 
 
 def _barcode_check(barcode_file: Path) -> pd.DataFrame:
-    """
-    Check that the barcode file is formatted as expected.
+    """Check that the barcode file is formatted as expected.
 
     What do we expect :
         A tab separated file, headless, with 2 columns:
@@ -177,8 +178,7 @@ def _barcode_check(barcode_file: Path) -> pd.DataFrame:
 
 
 def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> NDArray[np.double]:
-    """
-    Construct vertex coordinate of a square from the barcode coordinates.
+    """Construct vertex coordinate of a square from the barcode coordinates.
 
     The constructed square has a scalable border.
 
@@ -218,16 +218,15 @@ def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_sca
 
 @inject_docs(vx=DbitKeys)
 def dbit(
-    path: Optional[str | Path] = None,
-    anndata_path: Optional[str] = None,
-    barcode_position: Optional[str] = None,
-    image_path: Optional[str] = None,
-    dataset_id: Optional[str] = None,
+    path: str | Path | None = None,
+    anndata_path: str | None = None,
+    barcode_position: str | None = None,
+    image_path: str | None = None,
+    dataset_id: str | None = None,
     border: bool = True,
     border_scale: float = 1,
 ) -> SpatialData:
-    """
-    Read DBiT experiment data (Deterministic Barcoding in Tissue)
+    """Read DBiT experiment data (Deterministic Barcoding in Tissue).
 
     This function reads the following files:
 
@@ -280,10 +279,16 @@ def dbit(
 
     # search for files paths. Gives priority to files matching the pattern found in path.
     anndata_path_checked = _check_path(
-        path=path, path_specific=anndata_path, pattern=patt_h5ad, key=DbitKeys.COUNTS_FILE  # type: ignore
+        path=path,  # type: ignore
+        path_specific=anndata_path,
+        pattern=patt_h5ad,
+        key=DbitKeys.COUNTS_FILE,
     )[0]
     barcode_position_checked = _check_path(
-        path=path, path_specific=barcode_position, pattern=patt_barcode, key=DbitKeys.BARCODE_POSITION  # type: ignore
+        path=path,  # type: ignore
+        path_specific=barcode_position,
+        pattern=patt_barcode,
+        key=DbitKeys.BARCODE_POSITION,
     )[0]
     image_path_checked, hasimage = _check_path(
         path=path,  # type: ignore
@@ -359,4 +364,4 @@ def dbit(
     if hasimage:
         imgname = dataset_id + "_image"
         sdata.images[imgname] = image_sd
-    return sdata
+    return _set_reader_metadata(sdata, "dbit")

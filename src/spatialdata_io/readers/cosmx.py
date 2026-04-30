@@ -2,49 +2,44 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 from anndata import AnnData
-from dask.dataframe import DataFrame as DaskDataFrame
 from dask_image.imread import imread
 from scipy.sparse import csr_matrix
-
-# from spatialdata._core.core_utils import xy_cs
 from skimage.transform import estimate_transform
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, Labels2DModel, PointsModel, TableModel
-
-# from spatialdata._core.ngff.ngff_coordinate_system import NgffAxis  # , CoordinateSystem
 from spatialdata.transformations.transformations import Affine, Identity
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from dask.dataframe import DataFrame as DaskDataFrame
 
 __all__ = ["cosmx"]
-
-# x_axis = NgffAxis(name="x", type="space", unit="discrete")
-# y_axis = NgffAxis(name="y", type="space", unit="discrete")
-# c_axis = NgffAxis(name="c", type="channel", unit="index")
 
 
 @inject_docs(cx=CosmxKeys)
 def cosmx(
     path: str | Path,
-    dataset_id: Optional[str] = None,
+    dataset_id: str | None = None,
     transcripts: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *Cosmx Nanostring* data.
+    """Read *Cosmx Nanostring* data.
 
     This function reads the following files:
 
@@ -177,7 +172,7 @@ def cosmx(
     fovs_images_and_labels = set(fovs_images).intersection(set(fovs_labels))
     fovs_diff = fovs_images_and_labels.difference(set(fovs_counts))
     if len(fovs_diff):
-        raise logger.warning(
+        logger.warning(
             f"Found images and labels for {len(fovs_images)} FOVs, but only {len(fovs_counts)} FOVs in the counts file.\n"
             + f"The following FOVs are missing: {fovs_diff} \n"
             + "... will use only fovs in Table."
@@ -200,6 +195,7 @@ def cosmx(
                         "global_only_image": aff,
                     },
                     dims=("y", "x", "c"),
+                    rgb=None,
                     **image_models_kwargs,
                 )
                 images[f"{fov}_image"] = parsed_im
@@ -271,17 +267,18 @@ def cosmx(
                 sub_table[CosmxKeys.INSTANCE_KEY] = sub_table[CosmxKeys.INSTANCE_KEY].astype("category")
                 # we rename z because we want to treat the data as 2d
                 sub_table.rename(columns={"z": "z_raw"}, inplace=True)
-                points[f"{fov}_points"] = PointsModel.parse(
-                    sub_table,
-                    coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
-                    feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
-                    instance_key=CosmxKeys.INSTANCE_KEY,
-                    transformations={
-                        fov: Identity(),
-                        "global": aff,
-                        "global_only_labels": aff,
-                    },
-                )
+                if len(sub_table) > 0:
+                    points[f"{fov}_points"] = PointsModel.parse(
+                        sub_table,
+                        coordinates={"x": CosmxKeys.X_LOCAL_TRANSCRIPT, "y": CosmxKeys.Y_LOCAL_TRANSCRIPT},
+                        feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
+                        instance_key=CosmxKeys.INSTANCE_KEY,
+                        transformations={
+                            fov: Identity(),
+                            "global": aff,
+                            "global_only_labels": aff,
+                        },
+                    )
 
     # TODO: what to do with fov file?
     # if fov_file is not None:
@@ -293,4 +290,5 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
 
-    return SpatialData(images=images, labels=labels, points=points, table=table)
+    sdata = SpatialData(images=images, labels=labels, points=points, tables={"table": table})
+    return _set_reader_metadata(sdata, "cosmx")

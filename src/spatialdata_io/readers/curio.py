@@ -11,6 +11,7 @@ from spatialdata.models import ShapesModel, TableModel
 
 from spatialdata_io._constants._constants import CurioKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
 
 __all__ = ["curio"]
 
@@ -19,8 +20,7 @@ __all__ = ["curio"]
 def curio(
     path: str | Path,
 ) -> SpatialData:
-    """
-    Read *Curio* formatted dataset.
+    """Read *Curio* formatted dataset.
 
     This function reads the following files:
 
@@ -73,7 +73,7 @@ def curio(
     categories = metrics[CurioKeys.CATEGORY].unique()
     for cat in categories:
         df = metrics.loc[metrics[CurioKeys.CATEGORY] == cat]
-        adata.uns[cat] = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
+        adata.uns[cat] = dict(zip(df.iloc[:, 0], df.iloc[:, 1], strict=False))
     adata.uns[CurioKeys.TOP_CLUSTER_DEFINING_FEATURES] = var_features_clusters
 
     # adding Moran's I information in adata.var, for the variable for which it is available
@@ -98,4 +98,5 @@ def curio(
 
     shapes = ShapesModel.parse(xy, geometry=0, radius=10, index=adata.obs[CurioKeys.INSTANCE_KEY])
 
-    return SpatialData(table=table, shapes={CurioKeys.REGION.value: shapes})
+    sdata = SpatialData(table=table, shapes={CurioKeys.REGION.value: shapes})
+    return _set_reader_metadata(sdata, "curio")
