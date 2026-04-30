@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 from anndata import AnnData
-from dask.dataframe import DataFrame as DaskDataFrame
 from dask_image.imread import imread
 from scipy.sparse import csr_matrix
 from skimage.transform import estimate_transform
@@ -23,6 +21,12 @@ from spatialdata.transformations.transformations import Affine, Identity
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from dask.dataframe import DataFrame as DaskDataFrame
 
 __all__ = ["cosmx"]
 
@@ -35,8 +39,7 @@ def cosmx(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *Cosmx Nanostring* data.
+    """Read *Cosmx Nanostring* data.
 
     This function reads the following files:
 
@@ -290,4 +293,5 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
 
-    return SpatialData(images=images, labels=labels, points=points, table=table)
+    sdata = SpatialData(images=images, labels=labels, points=points, tables={"table": table})
+    return _set_reader_metadata(sdata, "cosmx")

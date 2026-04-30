@@ -14,6 +14,8 @@
 [badge-pypi]: https://badge.fury.io/py/spatialdata-io.svg
 [link-pypi]: https://pypi.org/project/spatialdata-io/
 
+_We encourage contributions from the community and from developers of spatial technologies. Please see the "How to Contribute" section below._
+
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
 - 10x Genomics Visium®
@@ -32,6 +34,8 @@ This package contains reader functions to load common spatial omics formats into
 
 Note: all mentioned technologies are registered trademarks of their respective companies.
 
+Please refer to the list of [open Pull Requests](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aopen) for readers that are currently being developed.
+
 ## Known limitations
 
 Contributions for addressing the below limitations are very welcomed.
@@ -42,9 +46,7 @@ Contributions for addressing the below limitations are very welcomed.
 
 1. **Open a GitHub Issue**: Start by opening a new issue or commenting on an existing one in the repository. Clearly describe the problem and your proposed changes to avoid overlapping efforts with others.
 
-2. **Submit a Pull Request (PR)**: Once the issue is discussed, submit a PR to the `spatialdata-io` repository. Ensure your PR includes information about a suitable dataset for testing the reader, ideally no larger than 10 GB. Include clear instructions for accessing the data, preferably with a `curl` or `wget` command for easy downloading.
-
-3. **Optional Enhancements**: To facilitate reproducibility and ease of data access, consider adding a folder in the [spatialdata-sandbox](https://github.com/giovp/spatialdata-sandbox) repository. Include a `download.py` and `to_zarr.py` script (refer to examples in the repository) to enable others to reproduce your reader by simply running these scripts sequentially.
+2. **Submit a Pull Request (PR)**: Once the issue is discussed, submit a PR to the `spatialdata-io` repository. If you are contributing a new reader, or extending the reader for a new versions of a technologies, please consult our [contribution guide](https://spatialdata.scverse.org/projects/io/en/latest/contributing.html), which describes the steps to ensure that the pull request can be tested on suitable example data and reviewed efficiently.
 
 ## Getting started
 

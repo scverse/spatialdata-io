@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 from dask_image.imread import imread
@@ -13,6 +12,10 @@ from spatialdata.transformations.transformations import Identity
 from xarray import DataArray
 
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 __all__ = ["iss"]
 
@@ -31,8 +34,7 @@ def iss(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *Sanger ISS* formatted dataset.
+    """Read *Sanger ISS* formatted dataset.
 
     This function reads the following files:
 
@@ -105,8 +107,9 @@ def iss(
         **image_models_kwargs,
     )
 
-    return SpatialData(
+    sdata = SpatialData(
         images={f"{dataset_id}_raw_image": raw_image_parsed},
         labels={REGION: labels_image_parsed},
         table=table,
     )
+    return _set_reader_metadata(sdata, "iss")
