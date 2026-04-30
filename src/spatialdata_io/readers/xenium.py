@@ -675,7 +675,7 @@ def _get_tables_and_circles(
     specs: dict[str, Any],
     gex_only: bool,
     cells_zarr_ctx: _XeniumCells,
-) -> tuple[AnnData, AnnData]:
+) -> tuple[AnnData, GeoDataFrame]:
     adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
     # get_cell_metadata decodes cell_id and cross-checks it against cells.zarr.zip
     metadata = cells_zarr_ctx.get_cell_metadata(path)
