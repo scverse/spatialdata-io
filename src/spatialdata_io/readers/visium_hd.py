@@ -69,8 +69,8 @@ def visium_hd(
     path
         Path to directory containing the *10x Genomics* Visium HD output.
     dataset_id
-        Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it tries to
-         infer it from the file name of the feature slice file.
+        Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it is
+        inferred from the file name of the feature slice file.
     filtered_counts_file
         It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to
         ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
@@ -106,6 +106,9 @@ def visium_hd(
         Keyword arguments for :func:`imageio.imread`.
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
+        The ``scale_factors`` key, when provided, overrides the scale factors used to downscale the full-resolution
+        image (default: ``[2, 2, 2, 2]``). The low-resolution images (i.e. "lowres", "hires", and "CytAssist")
+        ignore ``scale_factors`` and are always stored as single-scale images (:class:`xarray.DataArray`).
     anndata_kwargs
         Keyword arguments for :func:`anndata.io.read_h5ad`.
     gex_only
@@ -121,6 +124,9 @@ def visium_hd(
     shapes = {}
     images: dict[str, Any] = {}
     labels: dict[str, Any] = {}
+    DEFAULT_FULLRES_SCALEFACTORS = [2, 2, 2, 2]
+    _scale_factors_override: list[int] | None = image_models_kwargs.get("scale_factors", None)
+    _image_models_kwargs = {k: v for k, v in image_models_kwargs.items() if k != "scale_factors"}
 
     # Deprecation warning for load_segmentations_only default value
     if load_segmentations_only is None:
@@ -170,7 +176,7 @@ def visium_hd(
             suffix=suffix,
             dataset_id=dataset_id,
             imread_kwargs=imread_kwargs,
-            image_models_kwargs=image_models_kwargs,
+            image_models_kwargs=_image_models_kwargs,
             scale_factors=scale_factors,
         )
 
@@ -431,7 +437,9 @@ def visium_hd(
         load_image(
             path=Path(fullres_image_file),
             suffix="_full_image",
-            scale_factors=[2, 2, 2, 2],
+            scale_factors=_scale_factors_override
+            if _scale_factors_override is not None
+            else DEFAULT_FULLRES_SCALEFACTORS,
         )
     else:
         warnings.warn(
