@@ -11,11 +11,13 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import dask.array as da
+import h5py
 import numpy as np
 import packaging.version
 import pandas as pd
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+import scanpy as sc
 import tifffile
 import zarr
 from dask.dataframe import read_parquet
@@ -35,8 +37,7 @@ from xarray import DataArray, DataTree
 
 from spatialdata_io._constants._constants import XeniumKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io._utils import deprecation_alias, zarr_open
-from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
+from spatialdata_io._utils import deprecation_alias
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
 
 if TYPE_CHECKING:
@@ -676,7 +677,13 @@ def _get_tables_and_circles(
     gex_only: bool,
     cells_zarr_ctx: _XeniumCells,
 ) -> tuple[AnnData, GeoDataFrame]:
-    adata = _read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
+    adata = sc.read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
+    # Undo fixed-point scaling factor applied to Xenium Protein data stored in HDF5.
+    with h5py.File(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, "r") as f:
+        if "protein_scaling_factor" in f.attrs:
+            protein_feats = np.flatnonzero(adata.var["feature_types"] == "Protein Expression")
+            if len(protein_feats) > 0:
+                adata.X[:, protein_feats] /= f.attrs["protein_scaling_factor"]
     # get_cell_metadata decodes cell_id and cross-checks it against cells.zarr.zip
     metadata = cells_zarr_ctx.get_cell_metadata(path)
     _assert_arrays_equal_sampled(metadata[XeniumKeys.CELL_ID].astype(str).values, adata.obs_names.values)
