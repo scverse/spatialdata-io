@@ -1,21 +1,25 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import anndata as ad
 from dask_image.imread import imread
-from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
-from spatial_image import SpatialImage
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, Labels2DModel, TableModel
 from spatialdata.transformations.transformations import Identity
 
 from spatialdata_io._constants._constants import SteinbockKeys
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
+    from spatial_image import SpatialImage
 
 __all__ = ["steinbock"]
 
@@ -26,8 +30,7 @@ def steinbock(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read a *Steinbock* output into a SpatialData object.
+    """Read a *Steinbock* output into a SpatialData object.
 
     .. seealso::
 
@@ -47,6 +50,29 @@ def steinbock(
     Returns
     -------
     :class:`spatialdata.SpatialData`
+
+    Notes
+    -----
+    Mandatory outputs of the Steinbock pipeline required by this reader:
+
+    - ``cells.h5ad``: the AnnData object in the main working directory
+    - ``ome/``: directory containing the steinbock OME-TIFF images (``*.ome.tiff``)
+    - ``masks_deepcell/`` or ``masks_ilastik/``: the masks directory, selected via the
+      ``labels_kind`` parameter (only one is used at a time)
+
+    When exporting to AnnData with ``steinbock export anndata``, the ``--info`` option
+    (default: ``images.csv``) controls whether image metadata is embedded. When present,
+    steinbock copies the ``image`` column from ``images.csv`` into ``adata.obs.image`` for
+    every cell; this reader requires that column to map cells to their source image. Without
+    it, ``adata.obs.image`` will not exist and the reader will fail. ``images.csv`` is
+    generated automatically by ``steinbock preprocess imc images`` when starting from
+    ``.mcd`` files. Users who start from TIFF images must hand-craft ``images.csv`` with at
+    least the columns ``image``, ``width_px``, ``height_px``, and ``num_channels`` as
+    described in the
+    `Steinbock file types documentation <https://bodenmillergroup.github.io/steinbock/latest/file-types/>`_.
+
+    All AnnData tables, masks, and OME-TIFFs must follow the steinbock naming conventions so
+    that the reader can correctly match all instances.
     """
     path = Path(path)
 
@@ -58,8 +84,7 @@ def steinbock(
     labels = {}
     if len(set(samples).difference(set(samples_labels))):
         logger.warning(
-            f"Samples {set(samples).difference(set(samples_labels))} have images but no labels. "
-            "They will be ignored."
+            f"Samples {set(samples).difference(set(samples_labels))} have images but no labels. They will be ignored."
         )
     for sample in samples:
         images[f"{sample}_image"] = _get_images(
@@ -76,7 +101,7 @@ def steinbock(
             image_models_kwargs,
         )
 
-    adata = ad.read(path / SteinbockKeys.CELLS_FILE)
+    adata = ad.read_h5ad(path / SteinbockKeys.CELLS_FILE)
     idx = adata.obs.index.str.split(" ").map(lambda x: int(x[1]))
     regions = adata.obs.image.str.replace(".tiff", "", regex=False)
     regions = regions.apply(lambda x: f"{x}_labels")
@@ -87,9 +112,11 @@ def steinbock(
     # duplicate of adata.obs['image']
     del adata.obs["Image"]
 
-    # / is an invalid character
-    adata.var["Final Concentration"] = adata.var["Final Concentration / Dilution"]
-    del adata.var["Final Concentration / Dilution"]
+    # for backwards compatibility with the demo dataset from spatialdata-io
+    if "Final Concentration / Dilution" in adata.var.columns:
+        # / is an invalid character
+        adata.var["Final Concentration"] = adata.var["Final Concentration / Dilution"]
+        del adata.var["Final Concentration / Dilution"]
 
     # replace all spaces with underscores
     adata.var.columns = adata.var.columns.str.replace(" ", "_")
@@ -98,7 +125,8 @@ def steinbock(
         raise ValueError("Samples in table and images are inconsistent, please check.")
     table = TableModel.parse(adata, region=regions.unique().tolist(), region_key="region", instance_key="cell_id")
 
-    return SpatialData(images=images, labels=labels, table=table)
+    sdata = SpatialData(images=images, labels=labels, tables={"table": table})
+    return _set_reader_metadata(sdata, "steinbock")
 
 
 def _get_images(

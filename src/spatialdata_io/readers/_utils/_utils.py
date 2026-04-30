@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any
 
 import scanpy as sc
-from anndata import AnnData, read_text
+from anndata.io import read_text
 from h5py import File
-from ome_types import from_tiff
-from ome_types.model import Pixels, UnitsLength
 from spatialdata._logging import logger
 
-PathLike = Union[os.PathLike, str]  # type:ignore[type-arg]
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from anndata import AnnData
+    from ome_types.model import Pixels
+    from spatialdata import SpatialData
+
+PathLike = os.PathLike | str  # type:ignore[type-arg]
 
 
 def _read_counts(
@@ -52,7 +56,7 @@ def _read_counts(
         try:
             from scanpy.readwrite import read_10x_mtx
         except ImportError:
-            raise ImportError("Please install scanpy to read 10x mtx files, `pip install scanpy`.")
+            raise ImportError("Please install scanpy to read 10x mtx files, `pip install scanpy`.") from None
         prefix = counts_file.replace("matrix.mtx.gz", "")
         adata = read_10x_mtx(path, prefix=prefix, **kwargs)
     else:
@@ -94,6 +98,8 @@ def calc_scale_factors(lower_scale_limit: float, min_size: int = 1000, default_s
 
 def parse_channels(path: Path) -> list[str]:
     """Parse channel names from an OME-TIFF file."""
+    from ome_types import from_tiff
+
     images = from_tiff(path).images
     if len(images) > 1:
         logger.warning("Found multiple images in OME-TIFF file. Only the first one will be used.")
@@ -103,8 +109,20 @@ def parse_channels(path: Path) -> list[str]:
     return names
 
 
+def _set_reader_metadata(sdata: SpatialData, reader: str) -> SpatialData:
+    """Set spatialdata-io provenance metadata on a SpatialData object."""
+    from spatialdata_io import __version__
+
+    sdata.attrs["spatialdata_io_software_version"] = __version__
+    sdata.attrs["spatialdata_io_reader"] = reader
+    return sdata
+
+
 def parse_physical_size(path: Path | None = None, ome_pixels: Pixels | None = None) -> float:
     """Parse physical size from OME-TIFF to micrometer."""
+    from ome_types import from_tiff
+    from ome_types.model import UnitsLength
+
     pixels = ome_pixels or from_tiff(path).images[0].pixels
     logger.debug(pixels)
     if pixels.physical_size_x_unit != pixels.physical_size_y_unit:

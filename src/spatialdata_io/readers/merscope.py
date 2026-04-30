@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import anndata
 import dask.dataframe as dd
@@ -23,6 +22,10 @@ from spatialdata.transformations import Affine, BaseTransformation
 
 from spatialdata_io._constants._constants import MerscopeKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
 
 SUPPORTED_BACKENDS = ["dask_image", "rioxarray"]
 
@@ -37,8 +40,7 @@ def _get_channel_names(images_dir: Path) -> list[str]:
 
 
 def _get_file_paths(path: Path, vpt_outputs: Path | str | dict[str, Any] | None) -> tuple[Path, Path, Path]:
-    """
-    Gets the MERSCOPE file paths when vpt_outputs is provided
+    """Gets the MERSCOPE file paths when vpt_outputs is provided.
 
     That is, (i) the file of transcript per cell, (ii) the cell metadata file, and (iii) the cell boundary file
     """
@@ -58,9 +60,9 @@ def _get_file_paths(path: Path, vpt_outputs: Path | str | dict[str, Any] | None)
         ]
         valid_boundaries = [path for path in plausible_boundaries if path.exists()]
 
-        assert (
-            valid_boundaries
-        ), f"Boundary file not found - expected to find one of these files: {', '.join(map(str, plausible_boundaries))}"
+        assert valid_boundaries, (
+            f"Boundary file not found - expected to find one of these files: {', '.join(map(str, plausible_boundaries))}"
+        )
 
         return (
             vpt_outputs / MerscopeKeys.COUNTS_FILE,
@@ -95,8 +97,7 @@ def merscope(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *MERSCOPE* data from Vizgen.
+    """Read *MERSCOPE* data from Vizgen.
 
     This function reads the following files:
 
@@ -160,9 +161,9 @@ def merscope(
         assert isinstance(image_models_kwargs, dict)
         image_models_kwargs["scale_factors"] = [2, 2, 2, 2]
 
-    assert (
-        backend is None or backend in SUPPORTED_BACKENDS
-    ), f"Backend '{backend} not supported. Should be one of: {', '.join(SUPPORTED_BACKENDS)}"
+    assert backend is None or backend in SUPPORTED_BACKENDS, (
+        f"Backend '{backend} not supported. Should be one of: {', '.join(SUPPORTED_BACKENDS)}"
+    )
 
     path = Path(path).absolute()
     count_path, obs_path, boundaries_path = _get_file_paths(path, vpt_outputs)
@@ -227,14 +228,15 @@ def merscope(
                 f"At least one of the following files does not exist: {count_path}, {obs_path}. The table is not loaded."
             )
 
-    return SpatialData(shapes=shapes, points=points, images=images, tables=tables)
+    sdata = SpatialData(shapes=shapes, points=points, images=images, tables=tables)
+    return _set_reader_metadata(sdata, "merscope")
 
 
 def _get_reader(backend: str | None) -> Callable:  # type: ignore[type-arg]
     if backend is not None:
         return _rioxarray_load_merscope if backend == "rioxarray" else _dask_image_load_merscope
     try:
-        import rioxarray  # noqa: F401
+        import rioxarray
 
         return _rioxarray_load_merscope
     except ModuleNotFoundError:
@@ -255,7 +257,7 @@ def _rioxarray_load_merscope(
     except ModuleNotFoundError:
         raise ModuleNotFoundError(
             "Using rioxarray backend requires to install the rioxarray library (`pip install rioxarray`)"
-        )
+        ) from None
     from rasterio.errors import NotGeoreferencedWarning
 
     warnings.simplefilter("ignore", category=NotGeoreferencedWarning)
@@ -302,7 +304,7 @@ def _get_points(transcript_path: Path, transformations: dict[str, BaseTransforma
     transcript_df = dd.read_csv(transcript_path)
     transcripts = PointsModel.parse(
         transcript_df,
-        coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y},
+        coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y, "z": MerscopeKeys.GLOBAL_Z},
         transformations=transformations,
         feature_key=MerscopeKeys.GENE_KEY,
     )

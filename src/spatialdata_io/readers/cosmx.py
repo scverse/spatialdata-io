@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 from anndata import AnnData
-from dask.dataframe import DataFrame as DaskDataFrame
 from dask_image.imread import imread
 from scipy.sparse import csr_matrix
 from skimage.transform import estimate_transform
@@ -23,6 +21,12 @@ from spatialdata.transformations.transformations import Affine, Identity
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from dask.dataframe import DataFrame as DaskDataFrame
 
 __all__ = ["cosmx"]
 
@@ -35,8 +39,7 @@ def cosmx(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """
-    Read *Cosmx Nanostring* data.
+    """Read *Cosmx Nanostring* data.
 
     This function reads the following files:
 
@@ -102,10 +105,10 @@ def cosmx(
     if not labels_dir.exists():
         raise FileNotFoundError(f"Labels directory not found: {labels_dir}.")
 
-    counts = pd.read_csv(path / counts_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
+    counts = pd.read_csv(counts_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
     counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxKeys.FOV).astype(str).values, sep="_")
 
-    obs = pd.read_csv(path / meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
+    obs = pd.read_csv(meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
     obs[CosmxKeys.FOV] = pd.Categorical(obs[CosmxKeys.FOV].astype(str))
     obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: s + "_labels"))
     obs[CosmxKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
@@ -251,9 +254,9 @@ def cosmx(
         import pyarrow.parquet as pq
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            print("converting .csv to .parquet to improve the speed of the slicing operations... ", end="")
+            print("converting .csv to .parquet to improve the speed of the slicing operations... ", end="", flush=True)
             assert transcripts_file is not None
-            transcripts_data = pd.read_csv(path / transcripts_file, header=0)
+            transcripts_data = pd.read_csv(transcripts_file, header=0)
             transcripts_data.to_parquet(Path(tmpdir) / "transcripts.parquet")
             print("done")
 
@@ -287,4 +290,5 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
 
-    return SpatialData(images=images, labels=labels, points=points, table=table)
+    sdata = SpatialData(images=images, labels=labels, points=points, tables={"table": table})
+    return _set_reader_metadata(sdata, "cosmx")
