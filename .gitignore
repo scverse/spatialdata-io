@@ -35,6 +35,8 @@ __pycache__/
 _version.py
 node_modules/
 .code-workspace
+.asv/
+uv.lock
 
 # memray report
 *.bin
@@ -43,11 +45,7 @@ node_modules/
 profile.speedscope.json
 
 # test datasets (e.g. Xenium ones)
-# symlinks
-data
 # data folder
 data/
 tests/data
-uv.lock
-.asv/
-.venv/
+.venv

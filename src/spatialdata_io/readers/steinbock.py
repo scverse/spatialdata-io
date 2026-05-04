@@ -50,6 +50,29 @@ def steinbock(
     Returns
     -------
     :class:`spatialdata.SpatialData`
+
+    Notes
+    -----
+    Mandatory outputs of the Steinbock pipeline required by this reader:
+
+    - ``cells.h5ad``: the AnnData object in the main working directory
+    - ``ome/``: directory containing the steinbock OME-TIFF images (``*.ome.tiff``)
+    - ``masks_deepcell/`` or ``masks_ilastik/``: the masks directory, selected via the
+      ``labels_kind`` parameter (only one is used at a time)
+
+    When exporting to AnnData with ``steinbock export anndata``, the ``--info`` option
+    (default: ``images.csv``) controls whether image metadata is embedded. When present,
+    steinbock copies the ``image`` column from ``images.csv`` into ``adata.obs.image`` for
+    every cell; this reader requires that column to map cells to their source image. Without
+    it, ``adata.obs.image`` will not exist and the reader will fail. ``images.csv`` is
+    generated automatically by ``steinbock preprocess imc images`` when starting from
+    ``.mcd`` files. Users who start from TIFF images must hand-craft ``images.csv`` with at
+    least the columns ``image``, ``width_px``, ``height_px``, and ``num_channels`` as
+    described in the
+    `Steinbock file types documentation <https://bodenmillergroup.github.io/steinbock/latest/file-types/>`_.
+
+    All AnnData tables, masks, and OME-TIFFs must follow the steinbock naming conventions so
+    that the reader can correctly match all instances.
     """
     path = Path(path)
 
