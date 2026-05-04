@@ -1,4 +1,5 @@
 import importlib
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -56,6 +57,14 @@ def _input_output_click_options(func: Callable[..., None]) -> Callable[..., None
     return func
 
 
+def _parse_json_param(value: str, param_name: str) -> dict[str, Any]:
+    try:
+        result: dict[str, Any] = json.loads(value)
+        return result
+    except json.JSONDecodeError as e:
+        raise click.BadParameter(f"Invalid JSON for {param_name!r}: {e}") from e
+
+
 @cli.command(name="codex")
 @_input_output_click_options
 @click.option(
@@ -71,20 +80,13 @@ def _input_output_click_options(func: Callable[..., None]) -> Callable[..., None
     help="JSON string of keyword arguments passed to imread. [default: {}]",
 )
 def codex_wrapper(
-    input: str, 
-    output: str, 
+    input: str,
+    output: str,
     fcs: bool = True,
     imread_kwargs: str = "{}",
 ) -> None:
     """Codex conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
-    sdata = codex(input, fcs=fcs, imread_kwargs=imread_kwargs_dict)  # type: ignore[name-defined] # noqa: F821
+    sdata = codex(input, fcs=fcs, imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"))  # type: ignore[name-defined] # noqa: F821
     sdata.write(output)
 
 
@@ -105,28 +107,20 @@ def codex_wrapper(
     help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
 )
 def cosmx_wrapper(
-    input: str, 
-    output: str, 
-    dataset_id: str | None = None, 
+    input: str,
+    output: str,
+    dataset_id: str | None = None,
     transcripts: bool = True,
     imread_kwargs: str = "{}",
     image_models_kwargs: str = "{}",
 ) -> None:
     """Cosmic conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = cosmx(  # type: ignore[name-defined] # noqa: F821
-        input, 
-        dataset_id=dataset_id, 
+        input,
+        dataset_id=dataset_id,
         transcripts=transcripts,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
     )
     sdata.write(output)
 
@@ -246,15 +240,6 @@ def iss_wrapper(
     labels_models_kwargs: str = "{}",
 ) -> None:
     """ISS conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-        labels_models_kwargs_dict = json.loads(labels_models_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = iss(  # type: ignore[name-defined] # noqa: F821
         input,
         raw_relative_path,
@@ -264,9 +249,9 @@ def iss_wrapper(
         dataset_id=dataset_id,
         multiscale_image=multiscale_image,
         multiscale_labels=multiscale_labels,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
-        labels_models_kwargs=labels_models_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
     )
     sdata.write(output)
 
@@ -295,27 +280,18 @@ def iss_wrapper(
     help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
 )
 def mcmicro_wrapper(
-    input: str, 
+    input: str,
     output: str,
     imread_kwargs: str = "{}",
     image_models_kwargs: str = "{}",
     labels_models_kwargs: str = "{}",
 ) -> None:
     """Conversion of MCMicro to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-        labels_models_kwargs_dict = json.loads(labels_models_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = mcmicro(  # type: ignore[name-defined] # noqa: F821
         input,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
-        labels_models_kwargs=labels_models_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
     )
     sdata.write(output)
 
@@ -369,14 +345,6 @@ def merscope_wrapper(
     image_models_kwargs: str = "{}",
 ) -> None:
     """Merscope conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = merscope(  # type: ignore[name-defined] # noqa: F821
         input,
         vpt_outputs=vpt_outputs,
@@ -388,8 +356,8 @@ def merscope_wrapper(
         cells_boundaries=cells_boundaries,
         cells_table=cells_table,
         mosaic_images=mosaic_images,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
     )
     sdata.write(output)
 
@@ -434,15 +402,6 @@ def seqfish_wrapper(
     imread_kwargs: str = "{}",
 ) -> None:
     """Seqfish conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
-    rois = list(rois) if rois else None
-    raster_models_scale_factors = list(raster_models_scale_factors) if raster_models_scale_factors else None
     sdata = seqfish(  # type: ignore[name-defined] # noqa: F821
         input,
         load_images=load_images,
@@ -450,9 +409,9 @@ def seqfish_wrapper(
         load_points=load_points,
         load_shapes=load_shapes,
         cells_as_circles=cells_as_circles,
-        rois=rois,
-        raster_models_scale_factors=raster_models_scale_factors,
-        imread_kwargs=imread_kwargs_dict,
+        rois=list(rois) if rois else None,
+        raster_models_scale_factors=list(raster_models_scale_factors) if raster_models_scale_factors else None,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
     )
     sdata.write(output)
 
@@ -478,26 +437,18 @@ def seqfish_wrapper(
     help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
 )
 def steinbock_wrapper(
-    input: str, 
-    output: str, 
+    input: str,
+    output: str,
     labels_kind: Literal["deepcell", "ilastik"] = "deepcell",
     imread_kwargs: str = "{}",
     image_models_kwargs: str = "{}",
 ) -> None:
     """Steinbock conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = steinbock(  # type: ignore[name-defined] # noqa: F821
-        input, 
+        input,
         labels_kind=labels_kind,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
     )
     sdata.write(output)
 
@@ -536,21 +487,13 @@ def stereoseq_wrapper(
     image_models_kwargs: str = "{}",
 ) -> None:
     """Stereoseq conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = stereoseq(  # type: ignore[name-defined] # noqa: F821
-        input, 
-        dataset_id=dataset_id, 
-        read_square_bin=read_square_bin, 
+        input,
+        dataset_id=dataset_id,
+        read_square_bin=read_square_bin,
         optional_tif=optional_tif,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
     )
     sdata.write(output)
 
@@ -613,14 +556,6 @@ def visium_wrapper(
     image_models_kwargs: str = "{}",
 ) -> None:
     """Visium conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = visium(  # type: ignore[name-defined] # noqa: F821
         input,
         dataset_id=dataset_id,
@@ -629,8 +564,8 @@ def visium_wrapper(
         tissue_positions_file=tissue_positions_file,
         scalefactors_file=scalefactors_file,
         var_names_make_unique=var_names_make_unique,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
     )
     sdata.write(output)
 
@@ -715,15 +650,6 @@ def visium_hd_wrapper(
     anndata_kwargs: str = "{}",
 ) -> None:
     """Visium HD conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-        anndata_kwargs_dict = json.loads(anndata_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = visium_hd(  # type: ignore[name-defined] # noqa: F821
         path=input,
         dataset_id=dataset_id,
@@ -734,9 +660,9 @@ def visium_hd_wrapper(
         load_all_images=load_all_images,
         annotate_table_by_labels=annotate_table_by_labels,
         var_names_make_unique=var_names_make_unique,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
-        anndata_kwargs=anndata_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        anndata_kwargs=_parse_json_param(anndata_kwargs, "anndata_kwargs"),
     )
     sdata.write(output)
 
@@ -808,15 +734,6 @@ def xenium_wrapper(
     labels_models_kwargs: str = "{}",
 ) -> None:
     """Xenium conversion to SpatialData."""
-    import json
-    
-    try:
-        imread_kwargs_dict = json.loads(imread_kwargs)
-        image_models_kwargs_dict = json.loads(image_models_kwargs)
-        labels_models_kwargs_dict = json.loads(labels_models_kwargs)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"Invalid JSON in kwargs parameter: {e}")
-    
     sdata = xenium(  # type: ignore[name-defined] # noqa: F821
         input,
         cells_boundaries=cells_boundaries,
@@ -830,9 +747,9 @@ def xenium_wrapper(
         aligned_images=aligned_images,
         cells_table=cells_table,
         n_jobs=n_jobs,
-        imread_kwargs=imread_kwargs_dict,
-        image_models_kwargs=image_models_kwargs_dict,
-        labels_models_kwargs=labels_models_kwargs_dict,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
     )
     sdata.write(output)
 
@@ -907,6 +824,12 @@ def xenium_wrapper(
     default=False,
     help="Whether to include the cycle number in the channel name. [default: False]",
 )
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
 def macsima_wrapper(
     input: str,
     output: str,
@@ -925,12 +848,14 @@ def macsima_wrapper(
     split_threshold_nuclei_channel: int | None = 2,
     skip_rounds: list[int] | None = None,
     include_cycle_in_channel_name: bool = False,
+    imread_kwargs: str = "{}",
 ) -> None:
     """Read MACSima formatted dataset and convert to SpatialData."""
     sdata = macsima(  # type: ignore[name-defined] # noqa: F821
         path=input,
         parsing_style=parsing_style,
         filter_folder_names=filter_folder_names,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
         subset=subset,
         c_subset=c_subset,
         max_chunk_size=max_chunk_size,
