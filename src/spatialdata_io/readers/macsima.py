@@ -266,9 +266,9 @@ class MultiChannelImage:
                 pad_width = (
                     # c axis: no pad
                     (0, 0),
-                    # y axis: no pad on the left, pad_y on the right
+                    # y axis: no pad near the origin (top), pad on the bottom
                     (0, pad_y),
-                    # x axis: no pad near the origin (top), pad_x on the bottom
+                    # x axis: no pad near the origin (left), pad on the right
                     (0, pad_x),
                 )
 
