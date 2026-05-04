@@ -551,6 +551,26 @@ def test_parse_v0_ome_metadata_bleach_cycle_appends_background() -> None:
     assert md["name"] == "CD4_background"
 
 
+def test_parse_v0_ome_metadata_handles_unknown_imagetypes() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(
+                    value={
+                        "MICS cycle type": "NOT A VALID TYPE",
+                    }
+                )
+            ]
+        ),
+        screens=[Screen(reagents=[Reagent(name="CD4__RPA-T4")])],
+    )
+
+    md = _parse_v0_ome_metadata(ome)
+
+    # Unknown types should just be passed through
+    assert md["imagetype"] == "NOT A VALID TYPE"
+
+
 def test_parse_v1_ome_metadata_basic_extraction_and_conversions() -> None:
     ome = OME(
         structured_annotations=StructuredAnnotations(
@@ -603,6 +623,26 @@ def test_parse_v1_ome_metadata_invalid_numerics_become_none() -> None:
     assert md["exposure"] is None
     assert md["cycle"] is None
     assert md["roi"] is None
+
+
+def test_parse_v1_ome_metadata_handles_unknown_imagetypes() -> None:
+    ome = OME(
+        structured_annotations=StructuredAnnotations(
+            map_annotations=[
+                MapAnnotation(
+                    value={
+                        "ScanType": "NOT A VALID TYPE",
+                    }
+                )
+            ]
+        ),
+        screens=[Screen(reagents=[Reagent(name="CD4__RPA-T4")])],
+    )
+
+    md = _parse_v1_ome_metadata(ome)
+
+    # Unknown types should just be passed through
+    assert md["imagetype"] == "NOT A VALID TYPE"
 
 
 def make_ome_with_version(version_value: str, extra_ma: dict[str, Any] | None = None) -> OME:
