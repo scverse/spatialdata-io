@@ -227,8 +227,8 @@ class MultiChannelImage:
         dims_x = [x.shape[2] for x in imgs]
         dims_y = [x.shape[1] for x in imgs]
 
-        dims_x_different = False if len(set(dims_x)) == 1 else True
-        dims_y_different = False if len(set(dims_y)) == 1 else True
+        dims_x_different = len(set(dims_x)) != 1
+        dims_y_different = len(set(dims_y)) != 1
 
         different_dimensions = any([dims_x_different, dims_y_different])
 
@@ -242,7 +242,11 @@ class MultiChannelImage:
 
     @staticmethod
     def _pad_images(imgs: list[da.Array]) -> list[da.Array]:
-        """Pad all images to the same dimensions in X and Y with 0s."""
+        """Pad all images to the same dimensions in X and Y with 0s.
+
+        Padding is added only away from the origin: on the right side for X and at the
+        bottom for Y, so the top-left corner of each image stays aligned.
+        """
         dims_x_max = max([x.shape[2] for x in imgs])
         dims_y_max = max([x.shape[1] for x in imgs])
 
@@ -260,8 +264,11 @@ class MultiChannelImage:
             if (pad_y, pad_y) != (0, 0):
                 # Always pad to the right/bottom
                 pad_width = (
+                    # c axis: no pad
                     (0, 0),
+                    # y axis: no pad on the left, pad_y on the right
                     (0, pad_y),
+                    # x axis: no pad near the origin (top), pad_x on the bottom
                     (0, pad_x),
                 )
 
@@ -294,6 +301,8 @@ def macsima(
     This function reads images from a MACSima cyclic imaging experiment. MACSima data follows the OME-TIFF specificiation.
     All metadata is parsed from the OME metadata. The exact metadata schema can change between software versions of MACSiQView.
     As there is no public specification of the metadata fields used, please consider the provided test data sets as ground truth to guide development.
+    If images from different cycles differ in spatial dimensions, they are zero-padded on the right (X) and bottom (Y) to match
+    the largest dimensions, keeping the top-left origin aligned; a warning is emitted in that case.
 
     .. seealso::
 

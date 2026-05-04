@@ -1,3 +1,4 @@
+import contextlib
 import math
 import os
 import shutil
@@ -127,10 +128,12 @@ def test_check_differing_dimensions_works(dimensions: tuple[tuple[int, int], tup
         arr = da.from_array(np.ones((1, img_dim[0], img_dim[1]), dtype=np.uint16))
         imgs.append(arr)
 
-    if expected:
-        with pytest.warns(UserWarning, match="Supplied images have different dimensions!"):
-            assert MultiChannelImage._check_for_differing_xy_dimensions(imgs) == expected
-    else:
+    ctx = (
+        pytest.warns(UserWarning, match="Supplied images have different dimensions!")
+        if expected
+        else contextlib.nullcontext()
+    )
+    with ctx:
         assert MultiChannelImage._check_for_differing_xy_dimensions(imgs) == expected
 
 
