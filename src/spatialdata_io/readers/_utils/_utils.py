@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any
 
-from anndata import AnnData
+import scanpy as sc
 from anndata.io import read_text
 from h5py import File
 from spatialdata._logging import logger
-
-from spatialdata_io.readers._utils._read_10x_h5 import _read_10x_h5
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -29,7 +27,7 @@ def _read_counts(
 ) -> tuple[AnnData, str]:
     path = Path(path)
     if counts_file.endswith(".h5"):
-        adata: AnnData = _read_10x_h5(path / counts_file, **kwargs)
+        adata: AnnData = sc.read_10x_h5(path / counts_file, **kwargs)
         with File(path / counts_file, mode="r") as f:
             attrs = dict(f.attrs)
             if library_id is None:

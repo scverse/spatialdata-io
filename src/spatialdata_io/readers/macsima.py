@@ -38,6 +38,7 @@ IMAGETYPE_DICT = {
     "B": "bleach",  # v1
     "AntigenCycle": "stain",  # v0
     "S": "stain",  # v1
+    "AF": "autofluorescence",  # v1
 }
 
 
@@ -489,7 +490,7 @@ def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
 
     # Harmonize imagetype across versions
     if metadata["imagetype"]:
-        metadata["imagetype"] = IMAGETYPE_DICT[metadata["imagetype"]]
+        metadata["imagetype"] = IMAGETYPE_DICT.get(metadata["imagetype"], metadata["imagetype"])
 
     return metadata
 
@@ -569,7 +570,7 @@ def _parse_v1_ome_metadata(ome: OME) -> dict[str, Any]:
 
     # Harmonize imagetype across versions
     if metadata["imagetype"]:
-        metadata["imagetype"] = IMAGETYPE_DICT[metadata["imagetype"]]
+        metadata["imagetype"] = IMAGETYPE_DICT.get(metadata["imagetype"], metadata["imagetype"])
 
     return metadata
 

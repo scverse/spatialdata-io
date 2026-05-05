@@ -60,6 +60,7 @@ def visium_hd(
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     anndata_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    gex_only: bool = False,
 ) -> SpatialData:
     """Read *10x Genomics* Visium HD formatted dataset.
 
@@ -68,8 +69,8 @@ def visium_hd(
     path
         Path to directory containing the *10x Genomics* Visium HD output.
     dataset_id
-        Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it tries to
-         infer it from the file name of the feature slice file.
+        Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it is
+        inferred from the file name of the feature slice file.
     filtered_counts_file
         It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to
         ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
@@ -105,8 +106,13 @@ def visium_hd(
         Keyword arguments for :func:`imageio.imread`.
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
+        The ``scale_factors`` key, when provided, overrides the scale factors used to downscale the full-resolution
+        image (default: ``[2, 2, 2, 2]``). The low-resolution images (i.e. "lowres", "hires", and "CytAssist")
+        ignore ``scale_factors`` and are always stored as single-scale images (:class:`xarray.DataArray`).
     anndata_kwargs
         Keyword arguments for :func:`anndata.io.read_h5ad`.
+    gex_only
+        If `True`, only the gene expression (GEX) data will be loaded.
 
     Returns
     -------
@@ -118,6 +124,9 @@ def visium_hd(
     shapes = {}
     images: dict[str, Any] = {}
     labels: dict[str, Any] = {}
+    DEFAULT_FULLRES_SCALEFACTORS = [2, 2, 2, 2]
+    _scale_factors_override: list[int] | None = image_models_kwargs.get("scale_factors", None)
+    _image_models_kwargs = {k: v for k, v in image_models_kwargs.items() if k != "scale_factors"}
 
     # Deprecation warning for load_segmentations_only default value
     if load_segmentations_only is None:
@@ -167,7 +176,7 @@ def visium_hd(
             suffix=suffix,
             dataset_id=dataset_id,
             imread_kwargs=imread_kwargs,
-            image_models_kwargs=image_models_kwargs,
+            image_models_kwargs=_image_models_kwargs,
             scale_factors=scale_factors,
         )
 
@@ -253,7 +262,7 @@ def visium_hd(
             counts_file = VisiumHDKeys.FILTERED_COUNTS_FILE if filtered_counts_file else VisiumHDKeys.RAW_COUNTS_FILE
             adata = sc.read_10x_h5(
                 path_bin / counts_file,
-                gex_only=False,
+                gex_only=gex_only,
                 **anndata_kwargs,
             )
 
@@ -346,7 +355,7 @@ def visium_hd(
     # Integrate the segmentation data (skipped if segmentation files are not found)
     if cell_segmentation_files_exist:
         print("Found segmentation data. Incorporating cell_segmentations.")
-        cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH)
+        cell_adata_hd = sc.read_10x_h5(COUNT_MATRIX_PATH, gex_only=gex_only)
         cell_adata_hd.var_names_make_unique()
 
         cell_shapes_gdf = _extract_geometries_from_geojson(
@@ -379,6 +388,7 @@ def visium_hd(
             nucleus_adata_hd = _make_filtered_nucleus_adata(
                 filtered_matrix_h5_path=FILTERED_MATRIX_2U_PATH,
                 barcode_mappings_parquet_path=BARCODE_MAPPINGS_PATH,
+                gex_only=gex_only,
             )
             nucleus_shapes_gdf = _extract_geometries_from_geojson(
                 adata=nucleus_adata_hd, geojson_path=NUCLEUS_GEOJSON_PATH
@@ -427,7 +437,9 @@ def visium_hd(
         load_image(
             path=Path(fullres_image_file),
             suffix="_full_image",
-            scale_factors=[2, 2, 2, 2],
+            scale_factors=_scale_factors_override
+            if _scale_factors_override is not None
+            else DEFAULT_FULLRES_SCALEFACTORS,
         )
     else:
         warnings.warn(
@@ -756,6 +768,7 @@ def _make_filtered_nucleus_adata(
     barcode_mappings_parquet_path: Path,
     bin_col_name: str = "square_002um",
     aggregate_col_name: str = "cell_id",
+    gex_only: bool = False,
 ) -> AnnData:
     """Generate a filtered AnnData object by aggregating 2um binned data based on nucleus segmentation.
 
@@ -774,6 +787,8 @@ def _make_filtered_nucleus_adata(
         Column name in the barcode mappings that specifies the spatial bin (default is 'square_002um').
     aggregate_col_name
         Column name in the barcode mappings that specifies the aggregate cell ID (default is 'cell_id').
+    gex_only
+        If `True`, only the gene expression (GEX) data will be loaded.
 
     Returns:
     --------
@@ -782,7 +797,7 @@ def _make_filtered_nucleus_adata(
         and the variables correspond to the original features from the input data.
     """
     # Read in the necessary files
-    adata_2um = sc.read_10x_h5(filtered_matrix_h5_path)
+    adata_2um = sc.read_10x_h5(filtered_matrix_h5_path, gex_only=gex_only)
     barcode_mappings = pq.read_table(barcode_mappings_parquet_path)
 
     # Filter to only include valid cell IDs that are in both nucleus and cell
