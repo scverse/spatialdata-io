@@ -366,14 +366,14 @@ def merscope_wrapper(
 @click.option("--cells-as-circles", type=bool, default=False, help="Whether to read cells as circles. [default: False]")
 @click.option(
     "--rois",
-    type=click.IntRange(min=0),
+    type=str,
     multiple=True,
     default=None,
-    help="Which sections to load. Provide one or more section indices. [default: All sections are loaded]",
+    help="Which sections to load. Provide one or more ROI identifiers. [default: All sections are loaded]",
 )
 @click.option(
     "--raster-models-scale-factors",
-    type=float,
+    type=int,
     multiple=True,
     default=None,
     help="Scale factors for raster models. [default: None]",
@@ -392,8 +392,8 @@ def seqfish_wrapper(
     load_points: bool = True,
     load_shapes: bool = True,
     cells_as_circles: bool = False,
-    rois: list[int] | None = None,
-    raster_models_scale_factors: list[float] | None = None,
+    rois: list[str] | None = None,
+    raster_models_scale_factors: list[int] | None = None,
     imread_kwargs: str = "{}",
 ) -> None:
     """Seqfish conversion to SpatialData."""
@@ -615,6 +615,7 @@ def visium_wrapper(
 )
 @click.option(
     "--load-segmentations-only",
+    type=bool,
     default=None,
     help="If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data will be skipped. [default: None, which will fall back to `False` with a deprecation warning]",
 )
@@ -629,6 +630,12 @@ def visium_wrapper(
     type=bool,
     default=True,
     help="Whether to make variable names unique. [default: True]",
+)
+@click.option(
+    "--gex-only",
+    type=bool,
+    default=False,
+    help="If `True`, only load gene expression features. [default: False]",
 )
 @click.option(
     "--imread-kwargs",
@@ -661,6 +668,7 @@ def visium_hd_wrapper(
     load_all_images: bool = False,
     annotate_table_by_labels: bool = False,
     var_names_make_unique: bool = True,
+    gex_only: bool = False,
     imread_kwargs: str = "{}",
     image_models_kwargs: str = "{}",
     anndata_kwargs: str = "{}",
@@ -680,6 +688,7 @@ def visium_hd_wrapper(
         load_all_images=load_all_images,
         annotate_table_by_labels=annotate_table_by_labels,
         var_names_make_unique=var_names_make_unique,
+        gex_only=gex_only,
         imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
         anndata_kwargs=_parse_json_param(anndata_kwargs, "anndata_kwargs"),
@@ -693,7 +702,7 @@ def visium_hd_wrapper(
 @click.option(
     "--nucleus-boundaries", type=bool, default=True, help="Whether to read Nucleus boundaries. [default: True]"
 )
-@click.option("--cells-as-circles", type=bool, default=None, help="Whether to read cells as circles. [default: None]")
+@click.option("--cells-as-circles", type=bool, default=False, help="Whether to read cells as circles. [default: False]")
 @click.option("--cells-labels", type=bool, default=True, help="Whether to read cells labels (raster). [default: True]")
 @click.option(
     "--nucleus-labels", type=bool, default=True, help="Whether to read nucleus labels (raster). [default: True]"
@@ -715,7 +724,12 @@ def visium_hd_wrapper(
     default=True,
     help="Whether to read cells annotations in the AnnData table. [default: True]",
 )
-@click.option("--n-jobs", type=int, default=1, help="Number of jobs. [default: 1]")
+@click.option(
+    "--gex-only",
+    type=bool,
+    default=True,
+    help="If `True`, only load gene expression features. [default: True]",
+)
 @click.option(
     "--imread-kwargs",
     type=str,
@@ -740,7 +754,7 @@ def xenium_wrapper(
     *,
     cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cells_as_circles: bool | None = None,
+    cells_as_circles: bool = False,
     cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
@@ -748,6 +762,7 @@ def xenium_wrapper(
     morphology_focus: bool = True,
     aligned_images: bool = True,
     cells_table: bool = True,
+    gex_only: bool = True,
     imread_kwargs: str = "{}",
     image_models_kwargs: str = "{}",
     labels_models_kwargs: str = "{}",
@@ -767,6 +782,7 @@ def xenium_wrapper(
         morphology_focus=morphology_focus,
         aligned_images=aligned_images,
         cells_table=cells_table,
+        gex_only=gex_only,
         imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
         labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),

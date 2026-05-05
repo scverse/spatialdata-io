@@ -1,6 +1,7 @@
 import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -266,3 +267,55 @@ def test_xenium_other_feature_types(dataset: str, gex_only: bool) -> None:
 
     else:
         assert ValueError(f"Unexpected dataset {dataset}")
+
+
+# ── CLI JSON kwargs tests (no real data needed) ───────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "kwarg_name",
+    ["--imread-kwargs", "--image-models-kwargs", "--labels-models-kwargs"],
+)
+def test_cli_xenium_invalid_json_rejected(runner: CliRunner, tmp_path: Path, kwarg_name: str) -> None:
+    """Invalid JSON for any kwargs option must produce a non-zero exit and a clear error."""
+    result = runner.invoke(
+        xenium_wrapper,
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out.zarr"),
+            kwarg_name,
+            "not-valid-json{",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid JSON" in result.output
+
+
+@pytest.mark.parametrize(
+    ("kwarg_name", "kwarg_param"),
+    [
+        ("--imread-kwargs", "imread_kwargs"),
+        ("--image-models-kwargs", "image_models_kwargs"),
+        ("--labels-models-kwargs", "labels_models_kwargs"),
+    ],
+)
+def test_cli_xenium_valid_json_forwarded(runner: CliRunner, tmp_path: Path, kwarg_name: str, kwarg_param: str) -> None:
+    """Valid JSON kwargs must be parsed and forwarded to the xenium reader as a dict."""
+    mock_sdata = MagicMock()
+    with patch("spatialdata_io.readers.xenium.xenium", return_value=mock_sdata) as mock_xenium:
+        result = runner.invoke(
+            xenium_wrapper,
+            [
+                "--input",
+                str(tmp_path),
+                "--output",
+                str(tmp_path / "out.zarr"),
+                kwarg_name,
+                '{"chunks": 512}',
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    call_kwargs = mock_xenium.call_args.kwargs
+    assert call_kwargs[kwarg_param] == {"chunks": 512}
