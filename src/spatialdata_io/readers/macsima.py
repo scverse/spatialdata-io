@@ -254,7 +254,8 @@ def macsima(
     path
         Path to the directory containing the data.
     parsing_style
-        Parsing style to use. If ``auto``, the parsing style is determined based on the contents of the path.
+        Parsing style to use. If ``processed_single_folder``, all subfolders of ``path`` are combined into a stack.
+        If ``processed_multiple_folders``, a stack is created for each folder directly beneath ``path``.
     filter_folder_names
         List of folder names to filter out when parsing multiple folders.
     imread_kwargs
@@ -295,6 +296,12 @@ def macsima(
         parsing_style = MACSimaParsingStyle(parsing_style)
 
     if parsing_style == MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER:
+        if filter_folder_names:
+            warnings.warn(
+                "single_processed_folder was requested but filter_folder_names was specified. Note that it is ignored here, filtering only happens for processed_multi_folders!",
+                UserWarning,
+                stacklevel=2,
+            )
         return parse_processed_folder(
             path=path,
             imread_kwargs=imread_kwargs,
