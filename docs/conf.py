@@ -23,7 +23,7 @@ sys.path.insert(0, str(HERE / "extensions"))
 info = metadata("spatialdata-io")
 project_name = info["Name"]
 author = info["Author"]
-copyright = f"{datetime.now():%Y}, {author}."
+copyright = f"{datetime.now():%Y}, {author}"
 version = info["Version"]
 repository_url = f"https://github.com/scverse/{project_name}"
 
@@ -127,6 +127,7 @@ nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     ("py:class", "Path"),
+    ("py:class", "pathlib._local.Path"),
     ("py:class", "AnnData"),
     ("py:class", "SpatialData"),
     ("py:func", "imageio.imread"),  # maybe this can be fixed

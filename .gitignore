@@ -6,6 +6,7 @@ temp/
 
 # Compiled files
 __pycache__/
+.ipynb_checkpoints/
 
 # Distribution / packaging
 /build/
@@ -34,11 +35,17 @@ __pycache__/
 _version.py
 node_modules/
 .code-workspace
-
-# test datasets (e.g. Xenium ones)
-data/
-tests/data
+.asv/
 uv.lock
 
-# benchmarks
-.asv/
+# memray report
+*.bin
+
+# speedscope report
+profile.speedscope.json
+
+# test datasets (e.g. Xenium ones)
+# data folder
+data/
+tests/data
+.venv

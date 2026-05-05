@@ -18,7 +18,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python: ["3.10", "3.12"]
+                python: ["3.11", "3.12", "3.13"]
                 os: [ubuntu-latest]
 
         env:
@@ -52,7 +52,7 @@ jobs:
                   pip install --pre -e ".[dev,test]"
 
             - name: Download artifact of test data
-              if: matrix.python == '3.12'
+              if: matrix.python == '3.13'
               uses: dawidd6/action-download-artifact@v9
               with:
                   workflow: prepare_test_data.yaml

@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 from spatialdata_io._constants._constants import StereoseqKeys as SK
 from spatialdata_io._docs import inject_docs
-from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
+from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -339,4 +339,4 @@ def stereoseq(
         images[Path(cell_mask_name).stem] = masks
 
     sdata = SpatialData(images=images, tables=tables, shapes=shapes, points=points)
-    return sdata
+    return _set_reader_metadata(sdata, "stereoseq")
