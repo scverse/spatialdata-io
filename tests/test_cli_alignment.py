@@ -1,13 +1,32 @@
 """Structural test: CLI/reader parameter alignment.
 
-Every parameter of each reader function must be exposed by its CLI wrapper.
+Every parameter of each reader function must be exposed by its CLI wrapper, and
+every wrapper parameter (beyond ``input``/``output``) must correspond to a reader
+parameter.  Both directions are checked as a symmetric difference.
+
 Runs automatically in CI on every PR to catch drift between readers and
 __main__.py before it reaches users.
 
-When a reader gains a new parameter and this test turns red, fix it by adding a
-corresponding @click.option and parameter to the relevant *_wrapper function in
-__main__.py. If the parameter should intentionally stay hidden (e.g. deprecated),
-add it to _READER_EXCEPTIONS with a comment explaining why.
+What this test does NOT check
+------------------------------
+- **Types**: a reader may declare ``imread_kwargs: Mapping[str, Any]`` while the
+  CLI accepts a JSON string (``str``).  The types will not match, and this test
+  will not catch that mismatch.
+- **Default values**: a reader default and the corresponding ``@click.option``
+  default can silently diverge (e.g. ``n_jobs=None`` vs ``default=1``).
+
+Both of these require manual or AI-assisted review.  Run the following command
+to ask Claude Code to audit type and default alignment for a specific reader::
+
+    claude "In src/spatialdata_io/__main__.py, compare every @click.option
+    default and type annotation in <wrapper_name> against the corresponding
+    parameter in the reader function in src/spatialdata_io/readers/<reader>.py.
+    List any mismatches in default values or types."
+
+When this test turns red, fix it by adding (or removing) the relevant
+``@click.option`` and parameter in ``__main__.py``.  If a reader parameter
+should intentionally stay hidden (e.g. deprecated), add it to
+``_READER_EXCEPTIONS`` with a comment explaining why.
 """
 
 import inspect
@@ -75,13 +94,23 @@ def _wrapper_params(func_name: str) -> set[str]:
 
 @pytest.mark.parametrize("module_path,reader_name,wrapper_name", _READERS)
 def test_cli_exposes_all_reader_params(module_path: str, reader_name: str, wrapper_name: str) -> None:
-    """Every non-path reader parameter must appear in the CLI wrapper."""
+    """CLI wrapper and reader must have exactly the same parameter names (symmetric)."""
     reader = _reader_params(module_path, reader_name)
     wrapper = _wrapper_params(wrapper_name)
     exceptions = _READER_EXCEPTIONS.get(reader_name, set())
+
+    # Reader params absent from the CLI — the wrapper is missing options.
     missing = reader - wrapper - exceptions
     assert not missing, (
         f"{wrapper_name} is missing CLI parameters for reader '{reader_name}': {sorted(missing)}\n"
         f"Add @click.option and a matching parameter to {wrapper_name} in __main__.py.\n"
         f"If the parameter should intentionally be hidden, add it to _READER_EXCEPTIONS['{reader_name}']."
+    )
+
+    # Wrapper params absent from the reader — the CLI has stale/extra options.
+    extra = wrapper - reader - exceptions
+    assert not extra, (
+        f"{wrapper_name} has CLI parameters not present in reader '{reader_name}': {sorted(extra)}\n"
+        f"Remove the corresponding @click.option from {wrapper_name} in __main__.py,\n"
+        f"or add the parameter to the reader if it was omitted by mistake."
     )
