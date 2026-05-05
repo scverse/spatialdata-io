@@ -1,11 +1,11 @@
 import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 from click.testing import CliRunner
+from pytest_mock import MockerFixture
 from spatialdata import match_table_to_element, read_zarr
 from spatialdata.models import TableModel, get_table_keys
 
@@ -301,21 +301,23 @@ def test_cli_xenium_invalid_json_rejected(runner: CliRunner, tmp_path: Path, kwa
         ("--labels-models-kwargs", "labels_models_kwargs"),
     ],
 )
-def test_cli_xenium_valid_json_forwarded(runner: CliRunner, tmp_path: Path, kwarg_name: str, kwarg_param: str) -> None:
+def test_cli_xenium_valid_json_forwarded(
+    runner: CliRunner, tmp_path: Path, mocker: MockerFixture, kwarg_name: str, kwarg_param: str
+) -> None:
     """Valid JSON kwargs must be parsed and forwarded to the xenium reader as a dict."""
-    mock_sdata = MagicMock()
-    with patch("spatialdata_io.readers.xenium.xenium", return_value=mock_sdata) as mock_xenium:
-        result = runner.invoke(
-            xenium_wrapper,
-            [
-                "--input",
-                str(tmp_path),
-                "--output",
-                str(tmp_path / "out.zarr"),
-                kwarg_name,
-                '{"chunks": 512}',
-            ],
-        )
+    mock_xenium = mocker.patch("spatialdata_io.readers.xenium.xenium")
+    mock_xenium.return_value = mocker.MagicMock()
+    result = runner.invoke(
+        xenium_wrapper,
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out.zarr"),
+            kwarg_name,
+            '{"chunks": 512}',
+        ],
+    )
     assert result.exit_code == 0, result.output
     call_kwargs = mock_xenium.call_args.kwargs
     assert call_kwargs[kwarg_param] == {"chunks": 512}
