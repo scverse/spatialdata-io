@@ -45,10 +45,7 @@ uv.lock
 profile.speedscope.json
 
 # test datasets (e.g. Xenium ones)
-# symlinks
-data
 # data folder
 data/
 tests/data
 .venv
-.uv.lock
