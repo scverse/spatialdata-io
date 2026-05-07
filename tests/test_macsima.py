@@ -196,7 +196,7 @@ def test_skip_rounds(dataset: str, skip_rounds: list[int], expected: list[str]) 
 
 
 def test_unsupported_parsing_styles() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid option `not_a_parsing_style` for `MACSimaParsingStyle`."):
         macsima(Path(), parsing_style="not_a_parsing_style")
 
 
@@ -218,7 +218,7 @@ def test_processed_single_folder_parsing_warns_when_specifying_filtered_folders(
     omap10_path = Path("./data/OMAP10_small")
     shutil.copytree(omap10_path, tmp_path / "OMAP10_small_1")
     shutil.copytree(omap10_path, tmp_path / "OMAP10_small_2")
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="filtering only happens for processed_multi_folders"):
         macsima(tmp_path, parsing_style="processed_single_folder", filter_folder_names=["OMAP10_small_2"])
 
 
