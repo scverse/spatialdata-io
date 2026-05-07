@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -37,6 +38,14 @@ def _input_output_click_options(func: Callable[..., None]) -> Callable[..., None
     return func
 
 
+def _parse_json_param(value: str, param_name: str) -> dict[str, Any]:
+    try:
+        result: dict[str, Any] = json.loads(value)
+        return result
+    except json.JSONDecodeError as e:
+        raise click.BadParameter(f"Invalid JSON for {param_name!r}: {e}") from e
+
+
 @cli.command(name="codex")
 @_input_output_click_options
 @click.option(
@@ -45,11 +54,22 @@ def _input_output_click_options(func: Callable[..., None]) -> Callable[..., None
     default=True,
     help="Whether the .fcs file is provided if False a .csv file is expected. [default: True]",
 )
-def codex_wrapper(input: str, output: str, fcs: bool = True) -> None:
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+def codex_wrapper(
+    input: str,
+    output: str,
+    fcs: bool = True,
+    imread_kwargs: str = "{}",
+) -> None:
     """Codex conversion to SpatialData."""
     from spatialdata_io.readers.codex import codex
 
-    sdata = codex(input, fcs=fcs)
+    sdata = codex(input, fcs=fcs, imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"))
     sdata.write(output)
 
 
@@ -57,11 +77,36 @@ def codex_wrapper(input: str, output: str, fcs: bool = True) -> None:
 @_input_output_click_options
 @click.option("--dataset-id", type=str, default=None, help="Name of the dataset [default: None]")
 @click.option("--transcripts", type=bool, default=True, help="Whether to load transcript information. [default: True]")
-def cosmx_wrapper(input: str, output: str, dataset_id: str | None = None, transcripts: bool = True) -> None:
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
+def cosmx_wrapper(
+    input: str,
+    output: str,
+    dataset_id: str | None = None,
+    transcripts: bool = True,
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
+) -> None:
     """Cosmic conversion to SpatialData."""
     from spatialdata_io.readers.cosmx import cosmx
 
-    sdata = cosmx(input, dataset_id=dataset_id, transcripts=transcripts)
+    sdata = cosmx(
+        input,
+        dataset_id=dataset_id,
+        transcripts=transcripts,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+    )
     sdata.write(output)
 
 
@@ -151,6 +196,24 @@ def dbit_wrapper(
     default=True,
     help="Whether to process the label image into a multiscale image [default: True]",
 )
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
+@click.option(
+    "--labels-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
+)
 def iss_wrapper(
     input: str,
     output: str,
@@ -161,6 +224,9 @@ def iss_wrapper(
     dataset_id: str = "region",
     multiscale_image: bool = True,
     multiscale_labels: bool = True,
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
+    labels_models_kwargs: str = "{}",
 ) -> None:
     """ISS conversion to SpatialData."""
     from spatialdata_io.readers.iss import iss
@@ -174,6 +240,9 @@ def iss_wrapper(
         dataset_id=dataset_id,
         multiscale_image=multiscale_image,
         multiscale_labels=multiscale_labels,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
     )
     sdata.write(output)
 
@@ -183,11 +252,40 @@ def iss_wrapper(
     "--input", "-i", type=click.Path(exists=True), help="Path to the mcmicro project directory.", required=True
 )
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
-def mcmicro_wrapper(input: str, output: str) -> None:
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
+@click.option(
+    "--labels-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
+)
+def mcmicro_wrapper(
+    input: str,
+    output: str,
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
+    labels_models_kwargs: str = "{}",
+) -> None:
     """Conversion of MCMicro to SpatialData."""
     from spatialdata_io.readers.mcmicro import mcmicro
 
-    sdata = mcmicro(input)
+    sdata = mcmicro(
+        input,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
+    )
     sdata.write(output)
 
 
@@ -212,6 +310,18 @@ def mcmicro_wrapper(input: str, output: str) -> None:
 @click.option("--cells-boundaries", type=bool, default=True, help="Whether to read cells boundaries. [default: True]")
 @click.option("--cells-table", type=bool, default=True, help="Whether to read cells table.  [default: True]")
 @click.option("--mosaic-images", type=bool, default=True, help="Whether to read the mosaic images.  [default: True]")
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
 def merscope_wrapper(
     input: str,
     output: str,
@@ -224,6 +334,8 @@ def merscope_wrapper(
     cells_boundaries: bool = True,
     cells_table: bool = True,
     mosaic_images: bool = True,
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
 ) -> None:
     """Merscope conversion to SpatialData."""
     from spatialdata_io.readers.merscope import merscope
@@ -239,6 +351,8 @@ def merscope_wrapper(
         cells_boundaries=cells_boundaries,
         cells_table=cells_table,
         mosaic_images=mosaic_images,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
     )
     sdata.write(output)
 
@@ -252,10 +366,23 @@ def merscope_wrapper(
 @click.option("--cells-as-circles", type=bool, default=False, help="Whether to read cells as circles. [default: False]")
 @click.option(
     "--rois",
-    type=click.IntRange(min=0),
+    type=str,
     multiple=True,
     default=None,
-    help="Which sections to load. Provide one or more section indices. [default: All sections are loaded]",
+    help="Which sections to load. Provide one or more ROI identifiers. [default: All sections are loaded]",
+)
+@click.option(
+    "--raster-models-scale-factors",
+    type=int,
+    multiple=True,
+    default=None,
+    help="Scale factors for raster models. [default: None]",
+)
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
 )
 def seqfish_wrapper(
     input: str,
@@ -265,12 +392,13 @@ def seqfish_wrapper(
     load_points: bool = True,
     load_shapes: bool = True,
     cells_as_circles: bool = False,
-    rois: list[int] | None = None,
+    rois: list[str] | None = None,
+    raster_models_scale_factors: list[int] | None = None,
+    imread_kwargs: str = "{}",
 ) -> None:
     """Seqfish conversion to SpatialData."""
     from spatialdata_io.readers.seqfish import seqfish
 
-    rois = list(rois) if rois else None
     sdata = seqfish(
         input,
         load_images=load_images,
@@ -278,7 +406,9 @@ def seqfish_wrapper(
         load_points=load_points,
         load_shapes=load_shapes,
         cells_as_circles=cells_as_circles,
-        rois=rois,
+        rois=list(rois) if rois else None,
+        raster_models_scale_factors=list(raster_models_scale_factors) if raster_models_scale_factors else None,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
     )
     sdata.write(output)
 
@@ -291,11 +421,34 @@ def seqfish_wrapper(
     default="deepcell",
     help="What kind of labels to use. [default: 'deepcell']",
 )
-def steinbock_wrapper(input: str, output: str, labels_kind: Literal["deepcell", "ilastik"] = "deepcell") -> None:
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
+def steinbock_wrapper(
+    input: str,
+    output: str,
+    labels_kind: Literal["deepcell", "ilastik"] = "deepcell",
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
+) -> None:
     """Steinbock conversion to SpatialData."""
     from spatialdata_io.readers.steinbock import steinbock
 
-    sdata = steinbock(input, labels_kind=labels_kind)
+    sdata = steinbock(
+        input,
+        labels_kind=labels_kind,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+    )
     sdata.write(output)
 
 
@@ -311,17 +464,38 @@ def steinbock_wrapper(input: str, output: str, labels_kind: Literal["deepcell", 
 @click.option(
     "--optional-tif", type=bool, default=False, help="If True, will read ``{xx.TISSUE_TIF!r}`` files. [default: False]"
 )
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
 def stereoseq_wrapper(
     input: str,
     output: str,
     dataset_id: str | None = None,
     read_square_bin: bool = True,
     optional_tif: bool = False,
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
 ) -> None:
     """Stereoseq conversion to SpatialData."""
     from spatialdata_io.readers.stereoseq import stereoseq
 
-    sdata = stereoseq(input, dataset_id=dataset_id, read_square_bin=read_square_bin, optional_tif=optional_tif)
+    sdata = stereoseq(
+        input,
+        dataset_id=dataset_id,
+        read_square_bin=read_square_bin,
+        optional_tif=optional_tif,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+    )
     sdata.write(output)
 
 
@@ -352,6 +526,24 @@ def stereoseq_wrapper(
     default=None,
     help="Path to the scalefactors file. [default: None]",
 )
+@click.option(
+    "--var-names-make-unique",
+    type=bool,
+    default=True,
+    help="Whether to make variable names unique. [default: True]",
+)
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
 def visium_wrapper(
     input: str,
     output: str,
@@ -360,6 +552,9 @@ def visium_wrapper(
     fullres_image_file: str | Path | None = None,
     tissue_positions_file: str | Path | None = None,
     scalefactors_file: str | Path | None = None,
+    var_names_make_unique: bool = True,
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
 ) -> None:
     """Visium conversion to SpatialData."""
     from spatialdata_io.readers.visium import visium
@@ -371,6 +566,9 @@ def visium_wrapper(
         fullres_image_file=fullres_image_file,
         tissue_positions_file=tissue_positions_file,
         scalefactors_file=scalefactors_file,
+        var_names_make_unique=var_names_make_unique,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
     )
     sdata.write(output)
 
@@ -417,6 +615,7 @@ def visium_wrapper(
 )
 @click.option(
     "--load-segmentations-only",
+    type=bool,
     default=None,
     help="If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data will be skipped. [default: None, which will fall back to `False` with a deprecation warning]",
 )
@@ -425,6 +624,36 @@ def visium_wrapper(
     type=bool,
     default=False,
     help="If `True` and nucleus segmentation files are present, load nucleus segmentation polygons and the corresponding nucleus-filtered count table. [default: False]",
+)
+@click.option(
+    "--var-names-make-unique",
+    type=bool,
+    default=True,
+    help="Whether to make variable names unique. [default: True]",
+)
+@click.option(
+    "--gex-only",
+    type=bool,
+    default=False,
+    help="If `True`, only load gene expression features. [default: False]",
+)
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
+@click.option(
+    "--anndata-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to anndata. [default: {}]",
 )
 def visium_hd_wrapper(
     input: str,
@@ -438,6 +667,11 @@ def visium_hd_wrapper(
     fullres_image_file: str | Path | None = None,
     load_all_images: bool = False,
     annotate_table_by_labels: bool = False,
+    var_names_make_unique: bool = True,
+    gex_only: bool = False,
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
+    anndata_kwargs: str = "{}",
 ) -> None:
     """Visium HD conversion to SpatialData."""
     from spatialdata_io.readers.visium_hd import visium_hd
@@ -453,6 +687,11 @@ def visium_hd_wrapper(
         fullres_image_file=fullres_image_file,
         load_all_images=load_all_images,
         annotate_table_by_labels=annotate_table_by_labels,
+        var_names_make_unique=var_names_make_unique,
+        gex_only=gex_only,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        anndata_kwargs=_parse_json_param(anndata_kwargs, "anndata_kwargs"),
     )
     sdata.write(output)
 
@@ -463,7 +702,7 @@ def visium_hd_wrapper(
 @click.option(
     "--nucleus-boundaries", type=bool, default=True, help="Whether to read Nucleus boundaries. [default: True]"
 )
-@click.option("--cells-as-circles", type=bool, default=None, help="Whether to read cells as circles. [default: None]")
+@click.option("--cells-as-circles", type=bool, default=False, help="Whether to read cells as circles. [default: False]")
 @click.option("--cells-labels", type=bool, default=True, help="Whether to read cells labels (raster). [default: True]")
 @click.option(
     "--nucleus-labels", type=bool, default=True, help="Whether to read nucleus labels (raster). [default: True]"
@@ -485,13 +724,37 @@ def visium_hd_wrapper(
     default=True,
     help="Whether to read cells annotations in the AnnData table. [default: True]",
 )
+@click.option(
+    "--gex-only",
+    type=bool,
+    default=True,
+    help="If `True`, only load gene expression features. [default: True]",
+)
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
+@click.option(
+    "--labels-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
+)
 def xenium_wrapper(
     input: str,
     output: str,
     *,
     cells_boundaries: bool = True,
     nucleus_boundaries: bool = True,
-    cells_as_circles: bool | None = None,
+    cells_as_circles: bool = False,
     cells_labels: bool = True,
     nucleus_labels: bool = True,
     transcripts: bool = True,
@@ -499,6 +762,10 @@ def xenium_wrapper(
     morphology_focus: bool = True,
     aligned_images: bool = True,
     cells_table: bool = True,
+    gex_only: bool = True,
+    imread_kwargs: str = "{}",
+    image_models_kwargs: str = "{}",
+    labels_models_kwargs: str = "{}",
 ) -> None:
     """Xenium conversion to SpatialData."""
     from spatialdata_io.readers.xenium import xenium
@@ -515,12 +782,22 @@ def xenium_wrapper(
         morphology_focus=morphology_focus,
         aligned_images=aligned_images,
         cells_table=cells_table,
+        gex_only=gex_only,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
     )
     sdata.write(output)
 
 
 @cli.command(name="macsima")
 @_input_output_click_options
+@click.option(
+    "--parsing-style",
+    type=click.Choice(["auto", "processed_single_folder", "processed_multiple_folders", "raw"]),
+    default="auto",
+    help="Parsing style for MACSima data. [default: auto]",
+)
 @click.option(
     "--filter-folder-names",
     type=str,
@@ -583,10 +860,17 @@ def xenium_wrapper(
     default=False,
     help="Whether to include the cycle number in the channel name. [default: False]",
 )
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
 def macsima_wrapper(
     input: str,
     output: str,
     *,
+    parsing_style: str = "auto",
     filter_folder_names: list[str] | None = None,
     subset: int | None = None,
     c_subset: int | None = None,
@@ -600,13 +884,16 @@ def macsima_wrapper(
     split_threshold_nuclei_channel: int | None = 2,
     skip_rounds: list[int] | None = None,
     include_cycle_in_channel_name: bool = False,
+    imread_kwargs: str = "{}",
 ) -> None:
     """Read MACSima formatted dataset and convert to SpatialData."""
     from spatialdata_io.readers.macsima import macsima
 
     sdata = macsima(
         path=input,
+        parsing_style=parsing_style,
         filter_folder_names=filter_folder_names,
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
         subset=subset,
         c_subset=c_subset,
         max_chunk_size=max_chunk_size,
