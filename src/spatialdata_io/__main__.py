@@ -794,9 +794,9 @@ def xenium_wrapper(
 @_input_output_click_options
 @click.option(
     "--parsing-style",
-    type=click.Choice(["auto", "processed_single_folder", "processed_multiple_folders", "raw"]),
-    default="auto",
-    help="Parsing style for MACSima data. [default: auto]",
+    type=click.Choice(["processed_single_folder", "processed_multiple_folders", "raw"]),
+    default="processed_single_folder",
+    help="Parsing style for MACSima data. [default: processed_single_folder]",
 )
 @click.option(
     "--filter-folder-names",
@@ -870,7 +870,7 @@ def macsima_wrapper(
     input: str,
     output: str,
     *,
-    parsing_style: str = "auto",
+    parsing_style: str = "processed_single_folder",
     filter_folder_names: list[str] | None = None,
     subset: int | None = None,
     c_subset: int | None = None,
