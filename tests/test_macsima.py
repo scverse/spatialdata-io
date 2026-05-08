@@ -220,7 +220,6 @@ def test_padding_on_differing_dimensions() -> None:
         assert img.shape == (1, 17, 18)
 
 
-@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
