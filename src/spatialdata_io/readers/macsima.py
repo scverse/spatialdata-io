@@ -62,6 +62,8 @@ class ChannelMetadata:
     roi: int
     fluorophore: str
     exposure: float
+    translation_x: int
+    translation_y: int
     clone: str | None = None  # For example DAPI doesnt have a clone
 
 
@@ -104,6 +106,8 @@ class MultiChannelImage:
                     fluorophore=metadata["fluorophore"],
                     clone=metadata["clone"],
                     exposure=metadata["exposure"],
+                    translation_x=metadata["translation_x"],
+                    translation_y=metadata["translation_y"],
                 )
             )
 
@@ -129,7 +133,7 @@ class MultiChannelImage:
 
         # Pad images to same dimensions if necessary
         if cls._check_for_differing_xy_dimensions(imgs):
-            imgs = cls._pad_images(imgs)
+            imgs = cls._pad_images(imgs, channel_metadata)
 
         # create MultiChannelImage object with imgs and metadata
         output = cls(data=imgs, metadata=channel_metadata)
@@ -241,14 +245,25 @@ class MultiChannelImage:
         return different_dimensions
 
     @staticmethod
-    def _pad_images(imgs: list[da.Array]) -> list[da.Array]:
+    def _pad_images(imgs: list[da.Array], channel_metadata: list[ChannelMetadata]) -> list[da.Array]:
         """Pad all images to the same dimensions in X and Y with 0s.
 
-        Padding is added only away from the origin: on the right side for X and at the
+        Padding obeys translations stored in ome metadata.
+        If no translations are found, padding is added only away from the origin:
+        on the right side for X and at the
         bottom for Y, so the top-left corner of each image stays aligned.
         """
-        dims_x_max = max([x.shape[2] for x in imgs])
-        dims_y_max = max([x.shape[1] for x in imgs])
+        min_translation_x = min(metadata.translation_x for metadata in channel_metadata)
+        min_translation_y = min(metadata.translation_y for metadata in channel_metadata)
+        normalized_translations_x = [metadata.translation_x - min_translation_x for metadata in channel_metadata]
+        normalized_translations_y = [metadata.translation_y - min_translation_y for metadata in channel_metadata]
+
+        dims_x_max = max(
+            img.shape[2] + translation_x for img, translation_x in zip(imgs, normalized_translations_x, strict=True)
+        )
+        dims_y_max = max(
+            img.shape[1] + translation_y for img, translation_y in zip(imgs, normalized_translations_y, strict=True)
+        )
 
         warnings.warn(
             f"Padding images with 0s to same size of ({dims_y_max}, {dims_x_max})",
@@ -257,19 +272,22 @@ class MultiChannelImage:
         )
 
         padded_imgs = []
-        for img in imgs:
-            pad_y = dims_y_max - img.shape[1]
-            pad_x = dims_x_max - img.shape[2]
+        for img, translation_x, translation_y in zip(
+            imgs, normalized_translations_x, normalized_translations_y, strict=True
+        ):
+            pad_y_prepend = translation_y
+            pad_x_prepend = translation_x
+            # For appending, we check how much space is already covered by the original image, and we take into account how many pixels were prepended
+            # If there still is a difference, we append 0 to get to the same image size
+            pad_y_append = dims_y_max - img.shape[1] - pad_y_prepend
+            pad_x_append = dims_x_max - img.shape[2] - pad_x_prepend
             # Only pad if necessary
-            if (pad_y, pad_y) != (0, 0):
-                # Always pad to the right/bottom
+            if (pad_x_prepend, pad_x_append, pad_y_prepend, pad_y_append) != (0, 0, 0, 0):
                 pad_width = (
                     # c axis: no pad
                     (0, 0),
-                    # y axis: no pad near the origin (top), pad on the bottom
-                    (0, pad_y),
-                    # x axis: no pad near the origin (left), pad on the right
-                    (0, pad_x),
+                    (pad_y_prepend, pad_y_append),
+                    (pad_x_prepend, pad_x_append),
                 )
 
                 img = da.pad(img, pad_width, mode="constant", constant_values=0)
@@ -476,6 +494,25 @@ def _get_software_major_version(version: str) -> int:
     return major
 
 
+def _get_translations(ome: OME) -> dict[str, int]:
+    try:
+        translations = {
+            "translation_x": ome.images[0].pixels.planes[0].position_x,
+            "translation_y": ome.images[0].pixels.planes[0].position_y,
+        }
+        # If the position attributes are not present the values will be None and we default to (0,0)
+        if any(v is None for v in translations.values()):
+            logger.debug(f"No translation found for {ome.images[0].name}, defaulting to (0, 0)")
+            translations = {"translation_x": 0, "translation_y": 0}
+
+    # In case the ome is faulty, also default to (0,0)
+    except AttributeError:
+        logger.debug(f"No translation found for {ome.images[0].name}, defaulting to (0, 0)")
+        translations = {"translation_x": 0, "translation_y": 0}
+
+    return translations
+
+
 def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
     """Parse Legacy Format of OME Metadata (software version 0.x.x)."""
     logger.debug("Parsing OME metadata expecting version 0 format")
@@ -653,11 +690,15 @@ def _parse_ome_metadata(ome: OME) -> dict[str, Any]:
     major = _get_software_major_version(version_str)
 
     if major == 0:
-        return _parse_v0_ome_metadata(ome)
+        metadata = _parse_v0_ome_metadata(ome)
     elif major == 1:
-        return _parse_v1_ome_metadata(ome)
+        metadata = _parse_v1_ome_metadata(ome)
     else:
         raise ValueError("Unknown software version, cannot determine parser")
+
+    translations = _get_translations(ome)
+    metadata.update(translations)
+    return metadata
 
 
 def parse_metadata(path: Path) -> dict[str, Any]:
@@ -821,6 +862,7 @@ def create_table(mci: MultiChannelImage) -> ad.AnnData:
     clones = mci.get_clones()
     exposures = mci.get_exposures()
 
+    # We dont add the translations, because they are usually not interesting for the user
     df = pd.DataFrame(
         {
             "name": names,
