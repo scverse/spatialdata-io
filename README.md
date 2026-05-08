@@ -34,7 +34,7 @@ This package contains reader functions to load common spatial omics formats into
 
 Note: all mentioned technologies are registered trademarks of their respective companies.
 
-Please refer to the list of [open Pull Requests](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aopen) for readers that are currently being developed.
+Please refer to the list of [open Pull Requests](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aopen) for readers that are currently being developed. The list of [closed but unmerged PRs](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aunmerged+is%3Aclosed) may also contain useful code from old drafts of readers. Please get in touch if you would like to [contribute](https://github.com/scverse/spatialdata-io/blob/main/docs/contributing.md) and iterate on a PR, or reopen a closed one.
 
 ## Known limitations
 
