@@ -1,4 +1,6 @@
+import contextlib
 import math
+import os
 import shutil
 from copy import deepcopy
 from pathlib import Path
@@ -12,7 +14,12 @@ import pytest
 from click.testing import CliRunner
 from ome_types import OME
 from ome_types.model import (
+    Image,
     MapAnnotation,
+    Pixels,
+    Pixels_DimensionOrder,
+    PixelType,
+    Plane,
     Plate,
     Reagent,
     Screen,
@@ -30,6 +37,7 @@ from spatialdata_io.readers.macsima import (
     _collect_map_annotation_values,
     _get_software_major_version,
     _get_software_version,
+    _get_translations,
     _parse_ome_metadata,
     _parse_v0_ome_metadata,
     _parse_v1_ome_metadata,
@@ -51,21 +59,25 @@ if not (Path("./data/OMAP10_small").exists() or Path("./data/OMAP23_small").exis
 def make_ChannelMetadata(
     name: str,
     cycle: int,
-    fluorophore: str | None = None,
-    exposure: float | None = None,
-    imagetype: str | None = None,
-    well: str | None = None,
-    roi: int | None = None,
+    fluorophore: str = "",
+    exposure: float = 0.0,
+    imagetype: str = "StainCycle",
+    well: str = "A01",
+    roi: int = 0,
+    translation_x: int = 0,
+    translation_y: int = 0,
 ) -> ChannelMetadata:
     """Helper to construct ChannelMetadata with required defaults."""
     return ChannelMetadata(
         name=name,
         cycle=cycle,
-        fluorophore=fluorophore or "",
-        exposure=exposure if exposure is not None else 0.0,
-        imagetype=imagetype or "StainCycle",
-        well=well or "A01",
-        roi=roi if roi is not None else 0,
+        fluorophore=fluorophore,
+        exposure=exposure,
+        imagetype=imagetype,
+        well=well,
+        translation_x=translation_x,
+        translation_y=translation_y,
+        roi=roi,
     )
 
 
@@ -92,12 +104,120 @@ def test_exception_on_no_valid_files(tmp_path: Path) -> None:
     # Write a tiff file without metadata
     height = 10
     width = 10
-    arr = np.zeros((height, width, 1), dtype=np.uint16)
+    arr = np.zeros((1, height, width), dtype=np.uint16)
     path_no_metadata = Path(tmp_path) / "tiff_no_metadata.tiff"
     imwrite(path_no_metadata, arr, metadata=None, description=None, software=None, datetime=None)
 
     with pytest.raises(ValueError, match="No valid files were found"):
         macsima(tmp_path)
+
+
+def test_multiple_subfolder_parsing_skips_emtpy_folders(tmp_path: Path) -> None:
+    parent_folder = tmp_path / "test_folder"
+    shutil.copytree("./data/OMAP23_small", parent_folder / "OMAP23_small")
+    os.makedirs(parent_folder / "empty_folder")
+
+    with pytest.warns(UserWarning, match="No tif files found in .* skipping it"):
+        sdata = macsima(parent_folder, parsing_style="processed_multiple_folders")
+    assert len(sdata.images.keys()) == 1
+
+
+@pytest.mark.parametrize(
+    "dimensions,expected",
+    [
+        (((10, 10), (10, 10)), False),
+        (((10, 10), (15, 10)), True),
+        (((10, 10), (10, 15)), True),
+        (((15, 10), (10, 15)), True),
+    ],
+)
+def test_check_differing_dimensions_works(dimensions: tuple[tuple[int, int], tuple[int, int]], expected: bool) -> None:
+    imgs = []
+    for img_dim in dimensions:
+        arr = da.from_array(np.ones((1, img_dim[0], img_dim[1]), dtype=np.uint16))
+        imgs.append(arr)
+
+    ctx = (
+        pytest.warns(UserWarning, match="Supplied images have different dimensions!")
+        if expected
+        else contextlib.nullcontext()
+    )
+    with ctx:
+        assert MultiChannelImage._check_for_differing_xy_dimensions(imgs) == expected
+
+
+def test_padding_on_differing_dimensions() -> None:
+    # Simple test where all translations are 0
+    # Here we expect to pad to the largest element.
+    heights = [10, 10, 15, 20]
+    widths = [10, 15, 10, 20]
+
+    imgs = []
+    for height, width in zip(heights, widths, strict=True):
+        arr = da.from_array(np.ones((1, height, width), dtype=np.uint16))
+        imgs.append(arr)
+
+    channel_metadata = [make_ChannelMetadata(name="test", cycle=1)] * 4
+    with pytest.warns(UserWarning, match="Padding images with 0s to same size of \\(20, 20\\)"):
+        imgs_padded = MultiChannelImage._pad_images(imgs, channel_metadata)
+    for img in imgs_padded:
+        assert img.shape == (1, 20, 20)
+
+    # More complex with non-zero translations
+    # First test that padding does the minimal padding necessary.
+    # To do this create images with very large, but identical translations. Since all of these should be normalized out we expect size 20x20 again.
+    heights = [10, 10, 15, 20]
+    widths = [10, 15, 10, 20]
+
+    imgs = []
+    for height, width in zip(heights, widths, strict=True):
+        arr = da.from_array(np.ones((1, height, width), dtype=np.uint16))
+        imgs.append(arr)
+    channel_metadata = channel_metadata = [
+        make_ChannelMetadata(name="test", cycle=1, translation_x=100, translation_y=100)
+    ] * 4
+    with pytest.warns(UserWarning, match="Padding images with 0s to same size of \\(20, 20\\)"):
+        imgs_padded = MultiChannelImage._pad_images(imgs, channel_metadata)
+    for img in imgs_padded:
+        assert img.shape == (1, 20, 20)
+
+    # Test with differing translations but same size.
+    # As we translate the first image by 2 in x and 3 in y, we expect a 13x12 image
+    heights = [10, 10]
+    widths = [10, 10]
+
+    imgs = []
+    for height, width in zip(heights, widths, strict=True):
+        arr = da.from_array(np.ones((1, height, width), dtype=np.uint16))
+        imgs.append(arr)
+    channel_metadata = channel_metadata = [
+        make_ChannelMetadata(name="test", cycle=1, translation_x=2, translation_y=3),
+        make_ChannelMetadata(name="test", cycle=1, translation_x=0, translation_y=0),
+    ]
+    with pytest.warns(UserWarning, match="Padding images with 0s to same size of \\(13, 12\\)"):
+        imgs_padded = MultiChannelImage._pad_images(imgs, channel_metadata)
+    for img in imgs_padded:
+        assert img.shape == (1, 13, 12)
+
+    # Final test with differing image sizes, and translations that need to be normalized
+    # For the total size, we need to check the sum of each image dimension + normalized translation
+    # Here that would be image 2, with y = 15 + 5 - 3 = 17 (normalized to other image!) and x = 15 + 5 - 2 = 18
+
+    heights = [10, 15]
+    widths = [10, 15]
+
+    imgs = []
+    for height, width in zip(heights, widths, strict=True):
+        arr = da.from_array(np.ones((1, height, width), dtype=np.uint16))
+        imgs.append(arr)
+    channel_metadata = channel_metadata = [
+        make_ChannelMetadata(name="test", cycle=1, translation_x=2, translation_y=3),
+        make_ChannelMetadata(name="test", cycle=1, translation_x=5, translation_y=5),
+    ]
+    with pytest.warns(UserWarning, match="Padding images with 0s to same size of \\(17, 18\\)"):
+        imgs_padded = MultiChannelImage._pad_images(imgs, channel_metadata)
+    for img in imgs_padded:
+        assert img.shape == (1, 17, 18)
 
 
 @pytest.mark.parametrize(
@@ -683,15 +803,77 @@ def test_parse_v1_ome_metadata_handles_unknown_imagetypes() -> None:
     assert md["imagetype"] == "NOT A VALID TYPE"
 
 
-def make_ome_with_version(version_value: str, extra_ma: dict[str, Any] | None = None) -> OME:
-    base = {"SoftwareVersion": version_value}
+def test_get_translations_returns_correct_values() -> None:
+    ome = OME(
+        images=[
+            Image(
+                pixels=Pixels(
+                    dimension_order=Pixels_DimensionOrder("XYZCT"),
+                    type=PixelType.UINT16,
+                    size_x=1,
+                    size_y=1,
+                    size_z=1,
+                    size_c=1,
+                    size_t=1,
+                    planes=[Plane(position_x=1, position_y=2, the_z=0, the_t=0, the_c=0)],
+                )
+            )
+        ]
+    )
+    expected = {"translation_x": 1, "translation_y": 2}
+
+    translations = _get_translations(ome)
+    assert translations == expected
+
+
+def test_get_translations_defaults_to_0_on_missing_data() -> None:
+    ome = OME(
+        images=[
+            Image(
+                pixels=Pixels(
+                    dimension_order=Pixels_DimensionOrder("XYZCT"),
+                    type=PixelType.UINT16,
+                    size_x=1,
+                    size_y=1,
+                    size_z=1,
+                    size_c=1,
+                    size_t=1,
+                    planes=[Plane(the_z=0, the_t=0, the_c=0)],
+                )
+            )
+        ],
+    )
+    expected = {"translation_x": 0, "translation_y": 0}
+
+    translations = _get_translations(ome)
+    assert translations == expected
+
+
+def make_ome(extra_ma: dict[str, Any] | None = None) -> OME:
+    base = {}
     if extra_ma:
         base.update(extra_ma)
-    return OME(structured_annotations=StructuredAnnotations(map_annotations=[MapAnnotation(value=base)]))
+    return OME(
+        images=[
+            Image(
+                pixels=Pixels(
+                    dimension_order=Pixels_DimensionOrder("XYZCT"),
+                    type=PixelType.UINT16,
+                    size_x=1,
+                    size_y=1,
+                    size_z=1,
+                    size_c=1,
+                    size_t=1,
+                    planes=[Plane(the_z=0, the_t=0, the_c=0)],
+                )
+            )
+        ],
+        structured_annotations=StructuredAnnotations(map_annotations=[MapAnnotation(value=base)]),
+    )
 
 
 def test_parse_ome_metadata_dispatches_to_v0() -> None:
-    ome = make_ome_with_version("0.9.0")
+    ome = make_ome(extra_ma={"SoftwareVersion": "0.9.0"})
     # enrich some so v0 parser has something to see
     ome.screens = [Screen(reagents=[Reagent(name="Marker0")])]
 
@@ -704,15 +886,14 @@ def test_parse_ome_metadata_dispatches_to_v0() -> None:
 
 
 def test_parse_ome_metadata_dispatches_to_v1() -> None:
-    ome = make_ome_with_version("1.0.0", extra_ma={"Biomarker": "CD3"})
-
+    ome = make_ome(extra_ma={"SoftwareVersion": "1.0.0", "Biomarker": "CD3"})
     md = _parse_ome_metadata(ome)
 
     assert md["name"] == "CD3"
 
 
 def test_parse_ome_metadata_unknown_major_raises() -> None:
-    ome = make_ome_with_version("2.0.0")
+    ome = make_ome(extra_ma={"SoftwareVersion": "2.0.0"})
 
     with pytest.raises(ValueError, match="Unknown software version"):
         _parse_ome_metadata(ome)
