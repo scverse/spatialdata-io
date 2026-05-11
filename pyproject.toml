@@ -37,8 +37,6 @@ dependencies = [
     "tifffile>=2023.8.12",
     "ome-types",
     "xmltodict",
-    "napari-spatialdata>=0.7.1",
-    "napari[all]>=0.7.0",
 ]
 
 [project.optional-dependencies]
