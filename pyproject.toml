@@ -82,6 +82,14 @@ testpaths = ["tests"]
 xfail_strict = true
 addopts = [
     "--import-mode=importlib", # allow using test files with same name
+    "--strict-markers",
+]
+markers = [
+    "unit: fast isolated tests that do not require external datasets",
+    "integration: multi-component tests, file I/O tests, or reader workflow tests",
+    "data: tests that require optional downloaded test datasets",
+    "slow: tests with comparatively high runtime",
+    "cli: command-line interface tests",
 ]
 
 [tool.ruff]

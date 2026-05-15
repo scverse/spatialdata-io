@@ -1,8 +1,8 @@
 import math
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import numpy as np
 import pytest
 from click.testing import CliRunner
 from spatialdata import get_extent, read_zarr
@@ -10,54 +10,19 @@ from spatialdata.models import get_table_keys
 
 from spatialdata_io.__main__ import visium_hd_wrapper
 from spatialdata_io._constants._constants import VisiumHDKeys
-from spatialdata_io.readers.visium_hd import (
-    _decompose_projective_matrix,
-    _projective_matrix_is_affine,
-    visium_hd,
-)
-from tests._utils import skip_if_below_python_version
-
-# --- UNIT TESTS FOR HELPER FUNCTIONS ---
-
-
-def test_projective_matrix_is_affine() -> None:
-    """Test the affine matrix check function."""
-    # An affine matrix should have [0, 0, 1] as its last row
-    affine_matrix = np.array([[2, 0.5, 10], [0.5, 2, 20], [0, 0, 1]])
-    assert _projective_matrix_is_affine(affine_matrix)
-
-    # A projective matrix is not affine if the last row is different
-    projective_matrix = np.array([[2, 0.5, 10], [0.5, 2, 20], [0.01, 0.02, 1]])
-    assert not _projective_matrix_is_affine(projective_matrix)
-
-
-def test_decompose_projective_matrix() -> None:
-    """Test the decomposition of a projective matrix into affine and shift components."""
-    projective_matrix = np.array([[1, 2, 3], [4, 5, 6], [0.1, 0.2, 1]])
-    affine, shift = _decompose_projective_matrix(projective_matrix)
-
-    expected_affine = np.array([[1, 2, 3], [4, 5, 6], [0, 0, 1]])
-
-    # The affine component should be correctly extracted
-    assert np.allclose(affine, expected_affine)
-    # Recomposing the affine and shift matrices should yield the original projective matrix
-    assert np.allclose(affine @ shift, projective_matrix)
-
+from spatialdata_io.readers.visium_hd import visium_hd
 
 # --- END-TO-END TESTS ON EXAMPLE DATA ---
-# This dataset name is used to locate the test data in the './data/' directory.
+# This dataset key is used to locate the test data in the dataset manifest.
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml
 # for instructions on how to download and place the data on disk.
-DATASET_FOLDER = "Visium_HD_Tiny_3prime_Dataset_outs"
+DATASET_KEY = "visium_hd_tiny"
 DATASET_ID = "visium_hd_tiny"
 
 
-@skip_if_below_python_version()
-def test_visium_hd_data_extent() -> None:
+def test_visium_hd_data_extent(require_test_dataset: Callable[[str], Path]) -> None:
     """Check the spatial extent of the loaded Visium HD data."""
-    f = Path("./data") / DATASET_FOLDER
-    if not f.is_dir():
-        pytest.skip(f"Test data not found at '{f}'. Skipping extent test.")
+    f = require_test_dataset(DATASET_KEY)
 
     sdata = visium_hd(f, dataset_id=DATASET_ID)
     extent = get_extent(sdata, exact=False, coordinate_system="visium_hd_tiny_downscaled_lowres")
@@ -68,7 +33,6 @@ def test_visium_hd_data_extent() -> None:
     assert str(extent) == expected_extent
 
 
-@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "params",
     [
@@ -122,11 +86,9 @@ def test_visium_hd_data_extent() -> None:
         },
     ],
 )
-def test_visium_hd_data_integrity(params: dict[str, bool]) -> None:
+def test_visium_hd_data_integrity(params: dict[str, bool], require_test_dataset: Callable[[str], Path]) -> None:
     """Check the integrity of various components of the loaded SpatialData object."""
-    f = Path("./data") / DATASET_FOLDER
-    if not f.is_dir():
-        pytest.skip(f"Test data not found at '{f}'. Skipping integrity test.")
+    f = require_test_dataset(DATASET_KEY)
 
     sdata = visium_hd(f, dataset_id=DATASET_ID, **params)
 
@@ -182,17 +144,13 @@ def test_visium_hd_data_integrity(params: dict[str, bool]) -> None:
 # --- CLI WRAPPER TEST ---
 
 
-@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset",
-    ["Visium_HD_Tiny_3prime_Dataset_outs"],
+    [pytest.param("visium_hd_tiny", id="visium_hd_tiny")],
 )
-def test_cli_visium_hd(runner: CliRunner, dataset: str) -> None:
+def test_cli_visium_hd(runner: CliRunner, dataset: str, require_test_dataset: Callable[[str], Path]) -> None:
     """Test the command-line interface for the Visium HD reader."""
-    f = Path("./data") / dataset[0]
-
-    if not f.is_dir():
-        pytest.skip(f"Test data not found at '{f}'. Skipping CLI test.")
+    f = require_test_dataset(dataset)
 
     with TemporaryDirectory() as tmpdir:
         output_zarr = Path(tmpdir) / "data.zarr"
