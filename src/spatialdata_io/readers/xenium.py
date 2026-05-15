@@ -605,6 +605,7 @@ def _get_polygons(
         else:
             # Use cell_id (str) as GeoDataFrame index.
             geo_df = GeoDataFrame({"geometry": geoms}, index=indices_mapping["cell_id"].values)
+            geo_df.index.name = "cell_id"
     else:
         # Fall back to extracting unique cell IDs from parquet (slow for large_string columns).
         # Triggered when indices_mapping is None: v < 1.3.0 (both nuclei and cells, because
@@ -617,6 +618,7 @@ def _get_polygons(
         unique_ids = id_col.filter(np.concatenate([[True], change_mask])).to_pylist()
         index = _decode_cell_id_column(pd.Series(unique_ids))
         geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
+        geo_df.index.name = "cell_id"
 
     scale = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     return ShapesModel.parse(geo_df, transformations={"global": scale})
