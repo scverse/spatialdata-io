@@ -123,6 +123,38 @@ If the `download.py` and `to_zarr.py` scripts require Python imports for package
 
 We encourage testing the reader function and any helper function.
 
+Tests are split by scope:
+
+- Unit tests live in `tests/unit/` and should not require downloaded test data.
+- Integration tests live in `tests/integration/` and cover reader workflows, CLI commands, file I/O, and zarr roundtrips.
+- Integration tests that require external datasets use dataset keys from `scripts/test_data_downloader/datasets.toml`.
+  They resolve data under `SPATIALDATA_IO_TEST_DATA_DIR` when set, otherwise `data/` in the repository root. If the required dataset is unavailable, the test should skip with a clear message.
+- Reader tests are marked by reader name. When modifying one reader, use `pytest -m <reader>` to run the tests
+  specific to that reader, including shared parametrized checks for that reader.
+
+Useful local commands:
+
+```bash
+pytest tests/unit
+pytest tests/integration
+pytest -m "integration and data"
+pytest -m xenium
+pytest -m "xenium and data"
+pytest -m "xenium and not slow"
+pytest -m "xenium and cli"
+python scripts/test_data_downloader --group xenium
+SPATIALDATA_IO_TEST_DATA_DIR=/path/to/data pytest -m data
+```
+
+To download the same optional datasets used by CI, run:
+
+```bash
+python scripts/test_data_downloader
+```
+
+By default, the downloader skips datasets that already exist. Use `--force` to redownload selected datasets, `--dataset` for a single dataset key, and `--list` to show the available keys.
+The dataset registry lives in `scripts/test_data_downloader/datasets.toml`; append new entries there when adding or updating test datasets.
+
 ### Testing multiple versions
 
 When multiple versions of the raw data format are present, we encourage testing the reader on all of them to ensure backward compatibility. This task is greatly simplified if small test datasets are used for the CI tests. If this is not available, we suggest running the tests locally on multiple versions of the data before the PR is ready for review.

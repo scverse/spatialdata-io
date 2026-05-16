@@ -1,4 +1,5 @@
 import math
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -8,20 +9,24 @@ from spatialdata import read_zarr
 
 from spatialdata_io.__main__ import seqfish_wrapper
 from spatialdata_io.readers.seqfish import seqfish
-from tests._utils import skip_if_below_python_version
 
 
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml for instructions on
 # how to download and place the data on disk
-@skip_if_below_python_version()
 @pytest.mark.parametrize(
-    "dataset,expected", [("seqfish-2-test-dataset/instrument 2 official", "{'y': (0, 108), 'x': (0, 108)}")]
+    "dataset,expected",
+    [pytest.param("seqfish", "{'y': (0, 108), 'x': (0, 108)}", id="seqfish")],
 )
 @pytest.mark.parametrize("rois", [["Roi1"], None])
 @pytest.mark.parametrize("cells_as_circles", [False, True])
-def test_example_data(dataset: str, expected: str, rois: list[int] | None, cells_as_circles: bool) -> None:
-    f = Path("./data") / dataset
-    assert f.is_dir()
+def test_example_data(
+    dataset: str,
+    expected: str,
+    rois: list[int] | None,
+    cells_as_circles: bool,
+    require_test_dataset: Callable[[str], Path],
+) -> None:
+    f = require_test_dataset(dataset)
     sdata = seqfish(f, cells_as_circles=cells_as_circles, rois=rois)
     from spatialdata import get_extent
 
@@ -34,11 +39,9 @@ def test_example_data(dataset: str, expected: str, rois: list[int] | None, cells
     assert str(extent) == expected
 
 
-@skip_if_below_python_version()
-@pytest.mark.parametrize("dataset", ["seqfish-2-test-dataset/instrument 2 official"])
-def test_cli_seqfish(runner: CliRunner, dataset: str) -> None:
-    f = Path("./data") / dataset
-    assert f.is_dir()
+@pytest.mark.parametrize("dataset", [pytest.param("seqfish", id="seqfish")])
+def test_cli_seqfish(runner: CliRunner, dataset: str, require_test_dataset: Callable[[str], Path]) -> None:
+    f = require_test_dataset(dataset)
     with TemporaryDirectory() as tmpdir:
         output_zarr = Path(tmpdir) / "data.zarr"
         result = runner.invoke(

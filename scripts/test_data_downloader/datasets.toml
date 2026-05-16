@@ -1,0 +1,106 @@
+# -------
+# the Xenium datasets are licensed as CC BY 4.0, as shown here
+# https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/resources/xenium-example-data
+
+# 10x Genomics Xenium 2.0.0
+[[datasets]]
+key = "xenium_breast"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Breast_2fov/Xenium_V1_human_Breast_2fov_outs.zip"
+archive_name = "Xenium_V1_human_Breast_2fov_outs.zip"
+extracted_dir = "Xenium_V1_human_Breast_2fov_outs"
+source = "10x Genomics Xenium 2.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 2.0.0
+[[datasets]]
+key = "xenium_lung"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Lung_2fov/Xenium_V1_human_Lung_2fov_outs.zip"
+archive_name = "Xenium_V1_human_Lung_2fov_outs.zip"
+extracted_dir = "Xenium_V1_human_Lung_2fov_outs"
+source = "10x Genomics Xenium 2.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, multimodal cell segmentation
+# this file seems to be corrupted; skipping it for now
+# https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny.zip
+
+# 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, nuclear expansion
+[[datasets]]
+key = "xenium_prime_mouse_ileum"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Mouse_Ileum_tiny/Xenium_Prime_Mouse_Ileum_tiny_outs.zip"
+archive_name = "Xenium_Prime_Mouse_Ileum_tiny_outs.zip"
+extracted_dir = "Xenium_Prime_Mouse_Ileum_tiny_outs"
+source = "10x Genomics Xenium 3.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 4.0.0 (v1) Human ovary, nuclear expansion
+[[datasets]]
+key = "xenium_ovary"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Human_Ovary_tiny/Xenium_V1_Human_Ovary_tiny_outs.zip"
+archive_name = "Xenium_V1_Human_Ovary_tiny_outs.zip"
+extracted_dir = "Xenium_V1_Human_Ovary_tiny_outs"
+source = "10x Genomics Xenium 4.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 4.0.0 (v1) Human ovary, multimodal cell segmentation
+[[datasets]]
+key = "xenium_multicell_ovary"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_MultiCellSeg_Human_Ovary_tiny/Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs.zip"
+archive_name = "Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs.zip"
+extracted_dir = "Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs"
+source = "10x Genomics Xenium 4.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 4.0.0 (v1+Protein) Human kidney, multimodal cell segmentation
+[[datasets]]
+key = "xenium_protein_kidney"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip"
+archive_name = "Xenium_V1_Protein_Human_Kidney_tiny_outs.zip"
+extracted_dir = "Xenium_V1_Protein_Human_Kidney_tiny_outs"
+source = "10x Genomics Xenium 4.0.0, CC BY 4.0"
+
+# -------
+# the Visium HD dataset is licensed as CC BY 4.0, as shown here
+# https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-hd-example-data
+
+# 10x Genomics Visium HD 4.0.1 3' Mouse Brain Chunk
+[[datasets]]
+key = "visium_hd_tiny"
+group = "visium_hd"
+url = "https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Tiny_3prime_Dataset/Visium_HD_Tiny_3prime_Dataset_outs.zip"
+archive_name = "Visium_HD_Tiny_3prime_Dataset_outs.zip"
+extracted_dir = "Visium_HD_Tiny_3prime_Dataset_outs"
+source = "10x Genomics Visium HD 4.0.1, CC BY 4.0"
+
+# -------
+# we received written permission to make the following dataset public and integrate it in the CI system of spatialdata-io
+# Spatial Genomics seqFISH v2
+[[datasets]]
+key = "seqfish"
+group = "seqfish"
+url = "https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip"
+archive_name = "seqfish-2-test-dataset.zip"
+extracted_dir = "seqfish-2-test-dataset"
+source = "Spatial Genomics seqFISH v2, public test data"
+test_path = "instrument 2 official"
+
+# -------
+# MACSima OMAP datasets are licensed as CC BY 4.0
+# OMAP23 for format v1.x.x
+[[datasets]]
+key = "macsima_omap23"
+group = "macsima"
+url = "https://zenodo.org/api/records/18196452/files-archive"
+archive_name = "OMAP23_small.zip"
+extracted_dir = "OMAP23_small"
+source = "MACSima OMAP23, CC BY 4.0"
+
+# OMAP10 for format v0.x.x
+[[datasets]]
+key = "macsima_omap10"
+group = "macsima"
+url = "https://zenodo.org/api/records/18196366/files-archive"
+archive_name = "OMAP10_small.zip"
+extracted_dir = "OMAP10_small"
+source = "MACSima OMAP10, CC BY 4.0"

@@ -1,89 +1,41 @@
 import math
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
 import pytest
 from click.testing import CliRunner
-from pytest_mock import MockerFixture
 from spatialdata import match_table_to_element, read_zarr
-from spatialdata.models import TableModel, get_table_keys
+from spatialdata.models import get_table_keys
 
 from spatialdata_io.__main__ import xenium_wrapper
-from spatialdata_io.readers.xenium import (
-    _cell_id_str_from_prefix_suffix_uint32_reference,
-    cell_id_str_from_prefix_suffix_uint32,
-    prefix_suffix_uint32_from_cell_id_str,
-    xenium,
-)
-from tests._utils import skip_if_below_python_version
-
-
-def test_cell_id_str_from_prefix_suffix_uint32() -> None:
-    cell_id_prefix = np.array([1, 1437536272, 1437536273], dtype=np.uint32)
-    dataset_suffix = np.array([1, 1, 2])
-    expected = np.array(["aaaaaaab-1", "ffkpbaba-1", "ffkpbabb-2"])
-
-    result = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
-    reference = _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix, dataset_suffix)
-    assert np.array_equal(result, expected)
-    assert np.array_equal(reference, expected)
-
-
-def test_cell_id_str_optimized_matches_reference() -> None:
-    rng = np.random.default_rng(42)
-    cell_id_prefix = rng.integers(0, 2**32, size=10_000, dtype=np.uint32)
-    dataset_suffix = rng.integers(0, 10, size=10_000)
-
-    result = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
-    reference = _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix, dataset_suffix)
-    assert np.array_equal(result, reference)
-
-
-def test_prefix_suffix_uint32_from_cell_id_str() -> None:
-    cell_id_str = np.array(["aaaaaaab-1", "ffkpbaba-1", "ffkpbabb-2"])
-
-    cell_id_prefix, dataset_suffix = prefix_suffix_uint32_from_cell_id_str(cell_id_str)
-    assert np.array_equal(cell_id_prefix, np.array([1, 1437536272, 1437536273], dtype=np.uint32))
-    assert np.array_equal(dataset_suffix, np.array([1, 1, 2]))
-
-
-def test_roundtrip_with_data_limits() -> None:
-    # min and max values for uint32
-    cell_id_prefix = np.array([0, 4294967295], dtype=np.uint32)
-    dataset_suffix = np.array([1, 1])
-    cell_id_str = np.array(["aaaaaaaa-1", "pppppppp-1"])
-    f0 = cell_id_str_from_prefix_suffix_uint32
-    f1 = prefix_suffix_uint32_from_cell_id_str
-    assert np.array_equal(cell_id_prefix, f1(f0(cell_id_prefix, dataset_suffix))[0])
-    assert np.array_equal(dataset_suffix, f1(f0(cell_id_prefix, dataset_suffix))[1])
-    assert np.array_equal(cell_id_str, f0(*f1(cell_id_str)))
+from spatialdata_io.readers.xenium import xenium
 
 
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml for instructions on
 # how to download and place the data on disk
 # TODO: add tests for Xenium 3.0.0
-@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset,expected",
     [
         (
-            "Xenium_V1_human_Breast_2fov_outs",
+            "xenium_breast",
             "{'y': (0, 3529), 'x': (0, 5792), 'z': (10, 25)}",
         ),
         (
-            "Xenium_V1_human_Lung_2fov_outs",
+            "xenium_lung",
             "{'y': (0, 3553), 'x': (0, 5793), 'z': (7, 32)}",
         ),
         (
-            "Xenium_V1_Protein_Human_Kidney_tiny_outs",
+            "xenium_protein_kidney",
             "{'y': (0, 6915), 'x': (0, 2963), 'z': (6, 22)}",
         ),
     ],
+    ids=["xenium_breast", "xenium_lung", "xenium_protein_kidney"],
 )
-def test_example_data_data_extent(dataset: str, expected: str) -> None:
-    f = Path("./data") / dataset
-    assert f.is_dir()
+def test_example_data_data_extent(dataset: str, expected: str, require_test_dataset: Callable[[str], Path]) -> None:
+    f = require_test_dataset(dataset)
     sdata = xenium(f, cells_as_circles=False)
     from spatialdata import get_extent
 
@@ -93,17 +45,19 @@ def test_example_data_data_extent(dataset: str, expected: str) -> None:
 
 
 # TODO: add tests for Xenium 3.0.0
-@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset",
-    ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs", "Xenium_V1_Protein_Human_Kidney_tiny_outs"],
+    [
+        pytest.param("xenium_breast", id="xenium_breast"),
+        pytest.param("xenium_lung", id="xenium_lung"),
+        pytest.param("xenium_protein_kidney", id="xenium_protein_kidney"),
+    ],
 )
-def test_example_data_index_integrity(dataset: str) -> None:
-    f = Path("./data") / dataset
-    assert f.is_dir()
+def test_example_data_index_integrity(dataset: str, require_test_dataset: Callable[[str], Path]) -> None:
+    f = require_test_dataset(dataset)
     sdata = xenium(f, cells_as_circles=False)
 
-    if dataset == "Xenium_V1_human_Breast_2fov_outs":
+    if dataset == "xenium_breast":
         # fmt: off
         # test elements
         assert sdata["morphology_focus"]["scale0"]["image"].sel(c="DAPI", y=20.5, x=20.5).data.compute() == 94
@@ -130,7 +84,7 @@ def test_example_data_index_integrity(dataset: str) -> None:
             "aaaljapa-1",
             "aabhbgmg-1",
         ]
-    elif dataset == "Xenium_V1_human_Lung_2fov_outs":
+    elif dataset == "xenium_lung":
         # fmt: off
         # test elements
         assert sdata["morphology_focus"]["scale0"]["image"].sel(c="DAPI", y=0.5, x=2215.5).data.compute() == 1
@@ -158,7 +112,7 @@ def test_example_data_index_integrity(dataset: str) -> None:
             "aabdiein-1",
         ]
     else:
-        assert dataset == "Xenium_V1_Protein_Human_Kidney_tiny_outs"
+        assert dataset == "xenium_protein_kidney"
         # fmt: off
         # test elements
         assert sdata["morphology_focus"]["scale0"]["image"].sel(c="VISTA", y=2876.5, x=32.5).data.compute() == 99
@@ -188,14 +142,16 @@ def test_example_data_index_integrity(dataset: str) -> None:
 
 
 # TODO: add tests for Xenium 3.0.0
-@skip_if_below_python_version()
 @pytest.mark.parametrize(
     "dataset",
-    ["Xenium_V1_human_Breast_2fov_outs", "Xenium_V1_human_Lung_2fov_outs", "Xenium_V1_Protein_Human_Kidney_tiny_outs"],
+    [
+        pytest.param("xenium_breast", marks=pytest.mark.slow, id="xenium_breast"),
+        pytest.param("xenium_lung", marks=pytest.mark.slow, id="xenium_lung"),
+        pytest.param("xenium_protein_kidney", marks=pytest.mark.slow, id="xenium_protein_kidney"),
+    ],
 )
-def test_cli_xenium(runner: CliRunner, dataset: str) -> None:
-    f = Path("./data") / dataset
-    assert f.is_dir()
+def test_cli_xenium(runner: CliRunner, dataset: str, require_test_dataset: Callable[[str], Path]) -> None:
+    f = require_test_dataset(dataset)
     with TemporaryDirectory() as tmpdir:
         output_zarr = Path(tmpdir) / "data.zarr"
         result = runner.invoke(
@@ -211,30 +167,28 @@ def test_cli_xenium(runner: CliRunner, dataset: str) -> None:
         _ = read_zarr(output_zarr)
 
 
-@skip_if_below_python_version()
 @pytest.mark.parametrize(
     (
         "dataset",
         "gex_only",
     ),
     [
-        ("Xenium_V1_human_Lung_2fov_outs", False),
-        ("Xenium_V1_human_Lung_2fov_outs", True),
-        ("Xenium_V1_Human_Ovary_tiny_outs", False),
-        ("Xenium_V1_Human_Ovary_tiny_outs", True),
-        ("Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs", False),
-        ("Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs", True),
-        ("Xenium_V1_Protein_Human_Kidney_tiny_outs", False),
-        ("Xenium_V1_Protein_Human_Kidney_tiny_outs", True),
+        pytest.param("xenium_lung", False, id="xenium_lung_all_features"),
+        pytest.param("xenium_lung", True, id="xenium_lung_gex_only"),
+        pytest.param("xenium_ovary", False, id="xenium_ovary_all_features"),
+        pytest.param("xenium_ovary", True, id="xenium_ovary_gex_only"),
+        pytest.param("xenium_multicell_ovary", False, id="xenium_multicell_ovary_all_features"),
+        pytest.param("xenium_multicell_ovary", True, id="xenium_multicell_ovary_gex_only"),
+        pytest.param("xenium_protein_kidney", False, id="xenium_protein_kidney_all_features"),
+        pytest.param("xenium_protein_kidney", True, id="xenium_protein_kidney_gex_only"),
     ],
 )
-def test_xenium_other_feature_types(dataset: str, gex_only: bool) -> None:
-    f = Path("./data") / dataset
-    assert f.is_dir()
+def test_xenium_other_feature_types(dataset: str, gex_only: bool, require_test_dataset: Callable[[str], Path]) -> None:
+    f = require_test_dataset(dataset)
     sdata = xenium(f, cells_as_circles=False, gex_only=gex_only)
     if gex_only:
         assert set(sdata["table"].var["feature_types"]) == {"Gene Expression"}
-    elif dataset == "Xenium_V1_human_Lung_2fov_outs":
+    elif dataset == "xenium_lung":
         assert set(sdata["table"].var["feature_types"]) == {
             "Deprecated Codeword",
             "Gene Expression",
@@ -242,7 +196,7 @@ def test_xenium_other_feature_types(dataset: str, gex_only: bool) -> None:
             "Negative Control Probe",
             "Unassigned Codeword",
         }
-    elif dataset in {"Xenium_V1_Human_Ovary_tiny_outs", "Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs"}:
+    elif dataset in {"xenium_ovary", "xenium_multicell_ovary"}:
         assert set(sdata["table"].var["feature_types"]) == {
             "Gene Expression",
             "Genomic Control",
@@ -250,7 +204,7 @@ def test_xenium_other_feature_types(dataset: str, gex_only: bool) -> None:
             "Negative Control Probe",
             "Unassigned Codeword",
         }
-    elif dataset == "Xenium_V1_Protein_Human_Kidney_tiny_outs":
+    elif dataset == "xenium_protein_kidney":
         assert set(sdata["table"].var["feature_types"]) == {
             "Gene Expression",
             "Genomic Control",
@@ -270,57 +224,3 @@ def test_xenium_other_feature_types(dataset: str, gex_only: bool) -> None:
 
     else:
         assert ValueError(f"Unexpected dataset {dataset}")
-
-
-# ── CLI JSON kwargs tests (no real data needed) ───────────────────────────────
-
-
-@pytest.mark.parametrize(
-    "kwarg_name",
-    ["--imread-kwargs", "--image-models-kwargs", "--labels-models-kwargs"],
-)
-def test_cli_xenium_invalid_json_rejected(runner: CliRunner, tmp_path: Path, kwarg_name: str) -> None:
-    """Invalid JSON for any kwargs option must produce a non-zero exit and a clear error."""
-    result = runner.invoke(
-        xenium_wrapper,
-        [
-            "--input",
-            str(tmp_path),
-            "--output",
-            str(tmp_path / "out.zarr"),
-            kwarg_name,
-            "not-valid-json{",
-        ],
-    )
-    assert result.exit_code != 0
-    assert "Invalid JSON" in result.output
-
-
-@pytest.mark.parametrize(
-    ("kwarg_name", "kwarg_param"),
-    [
-        ("--imread-kwargs", "imread_kwargs"),
-        ("--image-models-kwargs", "image_models_kwargs"),
-        ("--labels-models-kwargs", "labels_models_kwargs"),
-    ],
-)
-def test_cli_xenium_valid_json_forwarded(
-    runner: CliRunner, tmp_path: Path, mocker: MockerFixture, kwarg_name: str, kwarg_param: str
-) -> None:
-    """Valid JSON kwargs must be parsed and forwarded to the xenium reader as a dict."""
-    mock_xenium = mocker.patch("spatialdata_io.readers.xenium.xenium")
-    mock_xenium.return_value = mocker.MagicMock()
-    result = runner.invoke(
-        xenium_wrapper,
-        [
-            "--input",
-            str(tmp_path),
-            "--output",
-            str(tmp_path / "out.zarr"),
-            kwarg_name,
-            '{"chunks": 512}',
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    call_kwargs = mock_xenium.call_args.kwargs
-    assert call_kwargs[kwarg_param] == {"chunks": 512}
