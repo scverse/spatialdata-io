@@ -183,6 +183,9 @@ ignore = [
     "F401",
 ]
 
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
 [tool.ruff.lint.per-file-ignores]
 "src/spatialdata_io/__init__.py" = ["I001"]
 
