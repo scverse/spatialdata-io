@@ -90,6 +90,21 @@ markers = [
     "data: tests that require optional downloaded test datasets",
     "slow: tests with comparatively high runtime",
     "cli: command-line interface tests",
+    "codex: tests for the codex reader",
+    "cosmx: tests for the cosmx reader",
+    "curio: tests for the curio reader",
+    "dbit: tests for the dbit reader",
+    "generic: tests for the generic reader module",
+    "iss: tests for the iss reader",
+    "macsima: tests for the macsima reader",
+    "mcmicro: tests for the mcmicro reader",
+    "merscope: tests for the merscope reader",
+    "seqfish: tests for the seqfish reader",
+    "steinbock: tests for the steinbock reader",
+    "stereoseq: tests for the stereoseq reader",
+    "visium: tests for the visium reader",
+    "visium_hd: tests for the visium_hd reader",
+    "xenium: tests for the xenium reader",
 ]
 
 [tool.ruff]

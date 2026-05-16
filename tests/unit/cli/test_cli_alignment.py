@@ -34,22 +34,27 @@ from typing import Any
 
 import pytest
 
+
+def _reader_case(module_path: str, reader_name: str, wrapper_name: str) -> Any:
+    return pytest.param(module_path, reader_name, wrapper_name, marks=getattr(pytest.mark, reader_name), id=reader_name)
+
+
 # (reader_module_path, reader_func_name, cli_wrapper_func_name)
 _READERS = [
-    ("spatialdata_io.readers.codex", "codex", "codex_wrapper"),
-    ("spatialdata_io.readers.cosmx", "cosmx", "cosmx_wrapper"),
-    ("spatialdata_io.readers.curio", "curio", "curio_wrapper"),
-    ("spatialdata_io.readers.dbit", "dbit", "dbit_wrapper"),
-    ("spatialdata_io.readers.iss", "iss", "iss_wrapper"),
-    ("spatialdata_io.readers.macsima", "macsima", "macsima_wrapper"),
-    ("spatialdata_io.readers.mcmicro", "mcmicro", "mcmicro_wrapper"),
-    ("spatialdata_io.readers.merscope", "merscope", "merscope_wrapper"),
-    ("spatialdata_io.readers.seqfish", "seqfish", "seqfish_wrapper"),
-    ("spatialdata_io.readers.steinbock", "steinbock", "steinbock_wrapper"),
-    ("spatialdata_io.readers.stereoseq", "stereoseq", "stereoseq_wrapper"),
-    ("spatialdata_io.readers.visium", "visium", "visium_wrapper"),
-    ("spatialdata_io.readers.visium_hd", "visium_hd", "visium_hd_wrapper"),
-    ("spatialdata_io.readers.xenium", "xenium", "xenium_wrapper"),
+    _reader_case("spatialdata_io.readers.codex", "codex", "codex_wrapper"),
+    _reader_case("spatialdata_io.readers.cosmx", "cosmx", "cosmx_wrapper"),
+    _reader_case("spatialdata_io.readers.curio", "curio", "curio_wrapper"),
+    _reader_case("spatialdata_io.readers.dbit", "dbit", "dbit_wrapper"),
+    _reader_case("spatialdata_io.readers.iss", "iss", "iss_wrapper"),
+    _reader_case("spatialdata_io.readers.macsima", "macsima", "macsima_wrapper"),
+    _reader_case("spatialdata_io.readers.mcmicro", "mcmicro", "mcmicro_wrapper"),
+    _reader_case("spatialdata_io.readers.merscope", "merscope", "merscope_wrapper"),
+    _reader_case("spatialdata_io.readers.seqfish", "seqfish", "seqfish_wrapper"),
+    _reader_case("spatialdata_io.readers.steinbock", "steinbock", "steinbock_wrapper"),
+    _reader_case("spatialdata_io.readers.stereoseq", "stereoseq", "stereoseq_wrapper"),
+    _reader_case("spatialdata_io.readers.visium", "visium", "visium_wrapper"),
+    _reader_case("spatialdata_io.readers.visium_hd", "visium_hd", "visium_hd_wrapper"),
+    _reader_case("spatialdata_io.readers.xenium", "xenium", "xenium_wrapper"),
 ]
 
 # Parameters to skip in the reader (first positional path arg, and **kwargs catch-alls)

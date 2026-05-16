@@ -29,6 +29,24 @@ def _load_dataset_manifest() -> ModuleType:
 
 _DATASET_MANIFEST = _load_dataset_manifest()
 
+_READER_MARKS = {
+    "codex",
+    "cosmx",
+    "curio",
+    "dbit",
+    "generic",
+    "iss",
+    "macsima",
+    "mcmicro",
+    "merscope",
+    "seqfish",
+    "steinbock",
+    "stereoseq",
+    "visium",
+    "visium_hd",
+    "xenium",
+}
+
 
 @pytest.fixture
 def runner() -> CliRunner:
@@ -47,9 +65,9 @@ def require_test_dataset(test_data_dir: Path) -> Callable[[str], Path]:
 
     def _require_test_dataset(dataset_key: str) -> Path:
         dataset = cast("TestDatasetType", _DATASET_MANIFEST.get_dataset(dataset_key))
-        path = test_data_dir / dataset.extracted_dir
+        path: Path = test_data_dir / dataset.extracted_dir
         if dataset.test_path:
-            path /= dataset.test_path
+            path = path / dataset.test_path
         if not path.is_dir():
             pytest.skip(
                 f"Test data for {dataset_key!r} not found at {path!s}. "
@@ -62,7 +80,7 @@ def require_test_dataset(test_data_dir: Path) -> Callable[[str], Path]:
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Apply tier markers from the test path."""
+    """Apply scope and reader markers from the test path."""
     for item in items:
         path = Path(str(item.fspath))
         parts = path.parts
@@ -74,3 +92,6 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.cli)
         if "require_test_dataset" in getattr(item, "fixturenames", ()):
             item.add_marker(pytest.mark.data)
+        for part in parts:
+            if part in _READER_MARKS:
+                item.add_marker(getattr(pytest.mark, part))

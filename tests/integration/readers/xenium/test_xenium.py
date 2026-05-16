@@ -145,9 +145,9 @@ def test_example_data_index_integrity(dataset: str, require_test_dataset: Callab
 @pytest.mark.parametrize(
     "dataset",
     [
-        pytest.param("xenium_breast", id="xenium_breast"),
-        pytest.param("xenium_lung", id="xenium_lung"),
-        pytest.param("xenium_protein_kidney", id="xenium_protein_kidney"),
+        pytest.param("xenium_breast", marks=pytest.mark.slow, id="xenium_breast"),
+        pytest.param("xenium_lung", marks=pytest.mark.slow, id="xenium_lung"),
+        pytest.param("xenium_protein_kidney", marks=pytest.mark.slow, id="xenium_protein_kidney"),
     ],
 )
 def test_cli_xenium(runner: CliRunner, dataset: str, require_test_dataset: Callable[[str], Path]) -> None:

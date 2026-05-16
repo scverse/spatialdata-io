@@ -20,6 +20,7 @@ DATASET_KEY = "visium_hd_tiny"
 DATASET_ID = "visium_hd_tiny"
 
 
+@pytest.mark.slow
 def test_visium_hd_data_extent(require_test_dataset: Callable[[str], Path]) -> None:
     """Check the spatial extent of the loaded Visium HD data."""
     f = require_test_dataset(DATASET_KEY)
@@ -37,37 +38,49 @@ def test_visium_hd_data_extent(require_test_dataset: Callable[[str], Path]) -> N
     "params",
     [
         # Test case 1: Default binned data loading (squares)
-        {
-            "load_segmentations_only": False,
-            "load_nucleus_segmentations": False,
-            "bins_as_squares": True,
-            "annotate_table_by_labels": False,
-            "load_all_images": False,
-        },
+        pytest.param(
+            {
+                "load_segmentations_only": False,
+                "load_nucleus_segmentations": False,
+                "bins_as_squares": True,
+                "annotate_table_by_labels": False,
+                "load_all_images": False,
+            },
+            marks=pytest.mark.slow,
+        ),
         # Test case 2: Binned data as circles
-        {
-            "load_segmentations_only": False,
-            "load_nucleus_segmentations": False,
-            "bins_as_squares": False,
-            "annotate_table_by_labels": False,
-            "load_all_images": False,
-        },
+        pytest.param(
+            {
+                "load_segmentations_only": False,
+                "load_nucleus_segmentations": False,
+                "bins_as_squares": False,
+                "annotate_table_by_labels": False,
+                "load_all_images": False,
+            },
+            marks=pytest.mark.slow,
+        ),
         # Test case 3: Binned data with tables annotating labels instead of shapes
-        {
-            "load_segmentations_only": False,
-            "load_nucleus_segmentations": False,
-            "bins_as_squares": True,
-            "annotate_table_by_labels": True,
-            "load_all_images": False,
-        },
+        pytest.param(
+            {
+                "load_segmentations_only": False,
+                "load_nucleus_segmentations": False,
+                "bins_as_squares": True,
+                "annotate_table_by_labels": True,
+                "load_all_images": False,
+            },
+            marks=pytest.mark.slow,
+        ),
         # Test case 4: Load binned data AND all segmentations (cell + nucleus)
-        {
-            "load_segmentations_only": False,
-            "load_nucleus_segmentations": True,
-            "bins_as_squares": True,
-            "annotate_table_by_labels": False,
-            "load_all_images": False,
-        },
+        pytest.param(
+            {
+                "load_segmentations_only": False,
+                "load_nucleus_segmentations": True,
+                "bins_as_squares": True,
+                "annotate_table_by_labels": False,
+                "load_all_images": False,
+            },
+            marks=pytest.mark.slow,
+        ),
         # Test case 5: Load cell segmentations only
         {
             "load_segmentations_only": True,
@@ -148,6 +161,7 @@ def test_visium_hd_data_integrity(params: dict[str, bool], require_test_dataset:
     "dataset",
     [pytest.param("visium_hd_tiny", id="visium_hd_tiny")],
 )
+@pytest.mark.slow
 def test_cli_visium_hd(runner: CliRunner, dataset: str, require_test_dataset: Callable[[str], Path]) -> None:
     """Test the command-line interface for the Visium HD reader."""
     f = require_test_dataset(dataset)
