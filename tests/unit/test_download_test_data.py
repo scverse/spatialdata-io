@@ -16,9 +16,11 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
-def _load_download_script() -> ModuleType:
-    module_path = Path(__file__).parents[2] / "scripts" / "download_test_data.py"
-    spec = importlib.util.spec_from_file_location("download_test_data", module_path)
+SCRIPT_DIR = Path(__file__).parents[2] / "scripts" / "test_data_downloader"
+
+
+def _load_module(module_name: str, module_path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not import {module_path}")
     module = importlib.util.module_from_spec(spec)
@@ -27,7 +29,8 @@ def _load_download_script() -> ModuleType:
     return module
 
 
-download_test_data = _load_download_script()
+manifest = _load_module("manifest", SCRIPT_DIR / "manifest.py")
+download_test_data = _load_module("downloader", SCRIPT_DIR / "downloader.py")
 
 
 def _make_dataset(
@@ -66,8 +69,8 @@ class _BytesResponse(io.BytesIO):
 
 class TestDownload:
     def test_uses_dataset_manifest_module(self) -> None:
-        assert download_test_data.TestDataset.__module__ == "download_test_data_datasets"
-        assert all(isinstance(dataset, download_test_data.TestDataset) for dataset in download_test_data.DATASETS)
+        assert download_test_data.TestDataset.__module__ == "manifest"
+        assert all(isinstance(dataset, manifest.TestDataset) for dataset in download_test_data.DATASETS)
 
     def test_sends_explicit_headers(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         seen_request: urllib.request.Request | None = None
@@ -123,53 +126,153 @@ class TestDownload:
 
 class TestDatasetManifest:
     def test_manifest_is_valid(self) -> None:
-        download_test_data.validate_datasets(download_test_data.DATASETS)
+        manifest.validate_datasets()
 
     def test_returns_dataset_by_key(self) -> None:
-        dataset = download_test_data.get_dataset("seqfish")
+        dataset = manifest.get_dataset("seqfish")
 
         assert dataset.key == "seqfish"
         assert dataset.extracted_dir == "seqfish-2-test-dataset"
 
     def test_reports_unknown_dataset_key(self) -> None:
         with pytest.raises(KeyError, match="Unknown test dataset key 'missing'"):
-            download_test_data.get_dataset("missing")
+            manifest.get_dataset("missing")
 
     def test_test_path_defaults_to_extracted_directory_root(self) -> None:
-        dataset = download_test_data.get_dataset("xenium_breast")
+        dataset = manifest.get_dataset("xenium_breast")
 
         assert dataset.test_path == ""
 
     def test_can_filter_datasets_by_group(self) -> None:
-        datasets = download_test_data.datasets_by_group("macsima")
+        datasets = manifest.datasets_by_group("macsima")
 
         assert {dataset.key for dataset in datasets} == {"macsima_omap10", "macsima_omap23"}
+
+    def test_loads_datasets_from_toml(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "datasets.toml"
+        manifest_path.write_text(
+            """
+[[datasets]]
+key = "example"
+group = "group"
+url = "https://example.com/example.zip"
+archive_name = "example.zip"
+extracted_dir = "example"
+source = "example source"
+test_path = "nested"
+""",
+            encoding="utf-8",
+        )
+
+        datasets = manifest.load_datasets(manifest_path)
+
+        assert datasets == (
+            manifest.TestDataset(
+                key="example",
+                group="group",
+                url="https://example.com/example.zip",
+                archive_name="example.zip",
+                extracted_dir="example",
+                source="example source",
+                test_path="nested",
+            ),
+        )
 
     def test_rejects_duplicate_dataset_keys(self) -> None:
         first = _make_dataset("duplicate", extracted_dir="first")
         second = _make_dataset("duplicate", extracted_dir="second")
 
         with pytest.raises(ValueError, match="Duplicate test dataset key: 'duplicate'"):
-            download_test_data.validate_datasets((first, second))
+            manifest.validate_datasets((first, second))
 
     def test_rejects_duplicate_extracted_dirs(self) -> None:
         first = _make_dataset("first", extracted_dir="duplicate")
         second = _make_dataset("second", extracted_dir="duplicate")
 
         with pytest.raises(ValueError, match="Duplicate test dataset extracted_dir: 'duplicate'"):
-            download_test_data.validate_datasets((first, second))
+            manifest.validate_datasets((first, second))
 
     def test_rejects_empty_required_manifest_fields(self) -> None:
         dataset = _make_dataset("missing-group", group="")
 
         with pytest.raises(ValueError, match="Dataset 'missing-group' has empty group"):
-            download_test_data.validate_datasets((dataset,))
+            manifest.validate_datasets((dataset,))
 
     def test_rejects_test_path_outside_extracted_dir(self) -> None:
         dataset = _make_dataset("unsafe-test-path", test_path="../outside")
 
         with pytest.raises(ValueError, match="test_path must be a relative path"):
-            download_test_data.validate_datasets((dataset,))
+            manifest.validate_datasets((dataset,))
+
+    def test_rejects_manifest_without_datasets_array(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "datasets.toml"
+        manifest_path.write_text("datasets = { key = 'example' }\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match=r"\[\[datasets\]\] array"):
+            manifest.load_datasets(manifest_path)
+
+    def test_rejects_invalid_toml(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "datasets.toml"
+        manifest_path.write_text("[[datasets]\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Invalid dataset manifest TOML"):
+            manifest.load_datasets(manifest_path)
+
+    def test_rejects_unknown_root_manifest_field(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "datasets.toml"
+        manifest_path.write_text(
+            """
+version = 1
+
+[[datasets]]
+key = "example"
+group = "group"
+url = "https://example.com/example.zip"
+archive_name = "example.zip"
+extracted_dir = "example"
+source = "example source"
+""",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="unknown root field"):
+            manifest.load_datasets(manifest_path)
+
+    def test_rejects_missing_required_manifest_field(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "datasets.toml"
+        manifest_path.write_text(
+            """
+[[datasets]]
+key = "example"
+group = "group"
+url = "https://example.com/example.zip"
+archive_name = "example.zip"
+extracted_dir = "example"
+""",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="missing required field"):
+            manifest.load_datasets(manifest_path)
+
+    def test_rejects_unknown_manifest_field(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "datasets.toml"
+        manifest_path.write_text(
+            """
+[[datasets]]
+key = "example"
+group = "group"
+url = "https://example.com/example.zip"
+archive_name = "example.zip"
+extracted_dir = "example"
+source = "example source"
+checksum = "unexpected"
+""",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="unknown field"):
+            manifest.load_datasets(manifest_path)
 
 
 class TestExtractZip:
@@ -257,6 +360,17 @@ class TestMain:
         download_test_data.main(["--output", str(tmp_path), "--dataset", "first", "--dataset", "third"])
 
         assert attempted == ["first", "third"]
+
+    def test_lists_available_datasets(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        dataset = _make_dataset("listed", group="group", extracted_dir="listed-dir", source="listed source")
+
+        monkeypatch.setattr(download_test_data, "DATASETS", (dataset,))
+
+        download_test_data.main(["--list"])
+
+        assert capsys.readouterr().out == "listed\tgroup\tlisted-dir\tlisted source\n"
 
     def test_continues_after_failure_then_exits_nonzero(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]

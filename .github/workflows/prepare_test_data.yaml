@@ -25,8 +25,7 @@ on:
             - main
         paths:
             - ".github/workflows/prepare_test_data.yaml"
-            - "scripts/download_test_data.py"
-            - "scripts/download_test_data_datasets.py"
+            - "scripts/test_data_downloader/**"
 
 jobs:
     prepare-data:
@@ -58,7 +57,7 @@ jobs:
                   if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force_redownload }}" == "true" ]]; then
                       args+=(--force)
                   fi
-                  python scripts/download_test_data.py "${args[@]}"
+                  python scripts/test_data_downloader "${args[@]}"
 
             - name: Upload artifacts
               uses: actions/upload-artifact@v7

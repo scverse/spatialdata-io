@@ -1,16 +1,9 @@
-"""Download optional external datasets used by integration tests.
-
-The script is intentionally standalone so it can run from CI before the package
-itself is installed. Dataset metadata lives in ``download_test_data_datasets.py``
-to keep the manifest reusable from tests and workflow helpers.
-"""
+"""Download optional external datasets used by integration tests."""
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import shutil
-import sys
 import tempfile
 import time
 import urllib.error
@@ -19,11 +12,10 @@ import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from manifest import DATASETS, TestDataset, validate_datasets
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from types import ModuleType
-
-    from download_test_data_datasets import TestDataset as TestDatasetType
 
 
 # Some providers reject Python's default user agent even for public files.
@@ -37,32 +29,10 @@ RETRY_DELAY_SEC = 2.0
 TRANSIENT_HTTP_STATUS_CODES = {408, 429}
 
 
-def _load_dataset_manifest() -> ModuleType:
-    """Load the sibling dataset manifest without relying on package imports."""
-    manifest_path = Path(__file__).with_name("download_test_data_datasets.py")
-    spec = importlib.util.spec_from_file_location("download_test_data_datasets", manifest_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not import {manifest_path}")
-    module = importlib.util.module_from_spec(spec)
-    # Register before execution so dataclasses and annotations resolve the module by its stable name.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-# Re-export selected manifest helpers so tests and callers can import this script as one unit.
-_DATASET_MANIFEST = _load_dataset_manifest()
-TestDataset = _DATASET_MANIFEST.TestDataset
-DATASETS: tuple[TestDatasetType, ...] = _DATASET_MANIFEST.DATASETS
-get_dataset = _DATASET_MANIFEST.get_dataset
-datasets_by_group = _DATASET_MANIFEST.datasets_by_group
-validate_datasets = _DATASET_MANIFEST.validate_datasets
-
-
 class DatasetDownloadError(RuntimeError):
     """Error raised when a test dataset cannot be downloaded or extracted."""
 
-    def __init__(self, dataset: TestDatasetType, action: str, reason: str, suggestion: str | None = None) -> None:
+    def __init__(self, dataset: TestDataset, action: str, reason: str, suggestion: str | None = None) -> None:
         self.dataset = dataset
         self.action = action
         self.reason = reason
@@ -73,101 +43,7 @@ class DatasetDownloadError(RuntimeError):
         super().__init__(message)
 
 
-def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments for selecting and downloading datasets."""
-    dataset_keys = sorted(dataset.key for dataset in DATASETS)
-    groups = sorted({dataset.group for dataset in DATASETS})
-    parser = argparse.ArgumentParser(description="Download optional test datasets used by spatialdata-io CI.")
-    parser.add_argument("--output", type=Path, default=Path("data"), help="Directory where datasets are extracted.")
-    parser.add_argument(
-        "--dataset",
-        action="append",
-        choices=dataset_keys,
-        help="Dataset key to download. May be passed multiple times. Defaults to all datasets.",
-    )
-    parser.add_argument(
-        "--group",
-        action="append",
-        choices=groups,
-        help="Dataset group to download. May be passed multiple times.",
-    )
-    parser.add_argument("--force", action="store_true", help="Redownload and replace existing selected datasets.")
-    parser.add_argument("--list", action="store_true", help="List available datasets and exit.")
-    return parser.parse_args(argv)
-
-
-def _selected_datasets(dataset_keys: list[str] | None, groups: list[str] | None) -> list[TestDatasetType]:
-    """Return manifest entries selected by explicit keys, groups, or all datasets."""
-    selected_keys = set(dataset_keys or ())
-    selected_groups = set(groups or ())
-    if not selected_keys and not selected_groups:
-        return list(DATASETS)
-    return [dataset for dataset in DATASETS if dataset.key in selected_keys or dataset.group in selected_groups]
-
-
-def _is_transient_error(error: BaseException) -> bool:
-    """Return whether a download error is worth retrying."""
-    if isinstance(error, urllib.error.HTTPError):
-        return error.code in TRANSIENT_HTTP_STATUS_CODES or 500 <= error.code < 600
-    return isinstance(error, urllib.error.URLError | TimeoutError)
-
-
-def _download_error(dataset: TestDatasetType, error: BaseException) -> DatasetDownloadError:
-    """Translate urllib and timeout failures into dataset-aware errors."""
-    if isinstance(error, urllib.error.HTTPError):
-        reason = f"HTTP {error.code} {error.reason}"
-        suggestion = None
-        if error.code == 403:
-            suggestion = (
-                "The server rejected the request. The downloader sends a curl-like User-Agent; "
-                "if this persists, verify the URL in a browser or with curl and check whether the provider changed access rules"
-            )
-        return DatasetDownloadError(dataset, "download", reason, suggestion)
-    if isinstance(error, urllib.error.URLError):
-        return DatasetDownloadError(dataset, "download", f"URL error: {error.reason}")
-    if isinstance(error, TimeoutError):
-        return DatasetDownloadError(dataset, "download", f"timed out after {DOWNLOAD_TIMEOUT_SEC} seconds")
-    return DatasetDownloadError(dataset, "download", str(error))
-
-
-def _download(dataset: TestDatasetType, archive_path: Path) -> None:
-    """Download ``dataset`` to ``archive_path`` with bounded retries."""
-    print(f"Downloading {dataset.key} from {dataset.url}")
-    for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
-        request = urllib.request.Request(dataset.url, headers=REQUEST_HEADERS)
-        try:
-            with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SEC) as response:
-                with archive_path.open("wb") as handle:
-                    shutil.copyfileobj(response, handle)
-            return
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
-            if attempt < MAX_DOWNLOAD_ATTEMPTS and _is_transient_error(exc):
-                print(f"Retrying {dataset.key} after download failure ({attempt}/{MAX_DOWNLOAD_ATTEMPTS}): {exc}")
-                time.sleep(RETRY_DELAY_SEC)
-                continue
-            raise _download_error(dataset, exc) from exc
-
-
-def _extract_zip(dataset: TestDatasetType, archive_path: Path, destination: Path) -> None:
-    """Extract ``archive_path`` into ``destination`` after validating member paths."""
-    try:
-        with zipfile.ZipFile(archive_path) as archive:
-            destination_root = destination.resolve()
-            for member in archive.infolist():
-                # Guard against zip-slip archives that contain absolute paths or ``..`` components.
-                member_path = (destination / member.filename).resolve()
-                if not member_path.is_relative_to(destination_root):
-                    raise DatasetDownloadError(
-                        dataset,
-                        "extract",
-                        f"archive member {member.filename!r} would be extracted outside {destination}",
-                    )
-            archive.extractall(destination)
-    except zipfile.BadZipFile as exc:
-        raise DatasetDownloadError(dataset, "extract", "downloaded file is not a valid zip archive") from exc
-
-
-def download_dataset(dataset: TestDatasetType, output: Path, force: bool) -> None:
+def download_dataset(dataset: TestDataset, output: Path, force: bool) -> None:
     """Download and extract a single dataset.
 
     Parameters
@@ -238,5 +114,95 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(1)
 
 
-if __name__ == "__main__":
-    main()
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments for selecting and downloading datasets."""
+    dataset_keys = sorted(dataset.key for dataset in DATASETS)
+    groups = sorted({dataset.group for dataset in DATASETS})
+    parser = argparse.ArgumentParser(description="Download optional test datasets used by spatialdata-io CI.")
+    parser.add_argument("--output", type=Path, default=Path("data"), help="Directory where datasets are extracted.")
+    parser.add_argument(
+        "--dataset",
+        action="append",
+        choices=dataset_keys,
+        help="Dataset key to download. May be passed multiple times. Defaults to all datasets.",
+    )
+    parser.add_argument(
+        "--group",
+        action="append",
+        choices=groups,
+        help="Dataset group to download. May be passed multiple times.",
+    )
+    parser.add_argument("--force", action="store_true", help="Redownload and replace existing selected datasets.")
+    parser.add_argument("--list", action="store_true", help="List available datasets and exit.")
+    return parser.parse_args(argv)
+
+
+def _selected_datasets(dataset_keys: list[str] | None, groups: list[str] | None) -> list[TestDataset]:
+    """Return manifest entries selected by explicit keys, groups, or all datasets."""
+    selected_keys = set(dataset_keys or ())
+    selected_groups = set(groups or ())
+    if not selected_keys and not selected_groups:
+        return list(DATASETS)
+    return [dataset for dataset in DATASETS if dataset.key in selected_keys or dataset.group in selected_groups]
+
+
+def _is_transient_error(error: BaseException) -> bool:
+    """Return whether a download error is worth retrying."""
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code in TRANSIENT_HTTP_STATUS_CODES or 500 <= error.code < 600
+    return isinstance(error, urllib.error.URLError | TimeoutError)
+
+
+def _download_error(dataset: TestDataset, error: BaseException) -> DatasetDownloadError:
+    """Translate urllib and timeout failures into dataset-aware errors."""
+    if isinstance(error, urllib.error.HTTPError):
+        reason = f"HTTP {error.code} {error.reason}"
+        suggestion = None
+        if error.code == 403:
+            suggestion = (
+                "The server rejected the request. The downloader sends a curl-like User-Agent; "
+                "if this persists, verify the URL in a browser or with curl and check whether the provider changed access rules"
+            )
+        return DatasetDownloadError(dataset, "download", reason, suggestion)
+    if isinstance(error, urllib.error.URLError):
+        return DatasetDownloadError(dataset, "download", f"URL error: {error.reason}")
+    if isinstance(error, TimeoutError):
+        return DatasetDownloadError(dataset, "download", f"timed out after {DOWNLOAD_TIMEOUT_SEC} seconds")
+    return DatasetDownloadError(dataset, "download", str(error))
+
+
+def _download(dataset: TestDataset, archive_path: Path) -> None:
+    """Download ``dataset`` to ``archive_path`` with bounded retries."""
+    print(f"Downloading {dataset.key} from {dataset.url}")
+    for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
+        request = urllib.request.Request(dataset.url, headers=REQUEST_HEADERS)
+        try:
+            with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SEC) as response:
+                with archive_path.open("wb") as handle:
+                    shutil.copyfileobj(response, handle)
+            return
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            if attempt < MAX_DOWNLOAD_ATTEMPTS and _is_transient_error(exc):
+                print(f"Retrying {dataset.key} after download failure ({attempt}/{MAX_DOWNLOAD_ATTEMPTS}): {exc}")
+                time.sleep(RETRY_DELAY_SEC)
+                continue
+            raise _download_error(dataset, exc) from exc
+
+
+def _extract_zip(dataset: TestDataset, archive_path: Path, destination: Path) -> None:
+    """Extract ``archive_path`` into ``destination`` after validating member paths."""
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            destination_root = destination.resolve()
+            for member in archive.infolist():
+                # Guard against zip-slip archives that contain absolute paths or ``..`` components.
+                member_path = (destination / member.filename).resolve()
+                if not member_path.is_relative_to(destination_root):
+                    raise DatasetDownloadError(
+                        dataset,
+                        "extract",
+                        f"archive member {member.filename!r} would be extracted outside {destination}",
+                    )
+            archive.extractall(destination)
+    except zipfile.BadZipFile as exc:
+        raise DatasetDownloadError(dataset, "extract", "downloaded file is not a valid zip archive") from exc

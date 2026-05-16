@@ -13,12 +13,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from types import ModuleType
 
-    from download_test_data_datasets import TestDataset as TestDatasetType
+    from manifest import TestDataset as TestDatasetType
 
 
 def _load_dataset_manifest() -> ModuleType:
-    manifest_path = Path(__file__).parents[1] / "scripts" / "download_test_data_datasets.py"
-    spec = importlib.util.spec_from_file_location("download_test_data_datasets", manifest_path)
+    manifest_path = Path(__file__).parents[1] / "scripts" / "test_data_downloader" / "manifest.py"
+    spec = importlib.util.spec_from_file_location("manifest", manifest_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not import {manifest_path}")
     module = importlib.util.module_from_spec(spec)
@@ -71,7 +71,7 @@ def require_test_dataset(test_data_dir: Path) -> Callable[[str], Path]:
         if not path.is_dir():
             pytest.skip(
                 f"Test data for {dataset_key!r} not found at {path!s}. "
-                f"Download it with `uv run python scripts/download_test_data.py --dataset {dataset_key}` or set "
+                f"Download it with `uv run python scripts/test_data_downloader --dataset {dataset_key}` or set "
                 "SPATIALDATA_IO_TEST_DATA_DIR."
             )
         return path
