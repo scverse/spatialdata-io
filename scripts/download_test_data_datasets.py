@@ -1,7 +1,14 @@
+"""Dataset manifest for optional test data downloads.
+
+The downloader imports this module directly from ``scripts/`` so CI jobs and
+tests can share one source of truth for dataset keys, archive names, and groups.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cache
+from pathlib import PurePath
 
 
 @dataclass(frozen=True)
@@ -38,6 +45,7 @@ class TestDataset:
     test_path: str = ""
 
 
+# Keep keys and groups stable because CI workflows and pytest markers may refer to them.
 DATASETS = (
     TestDataset(
         key="xenium_breast",
@@ -123,8 +131,47 @@ DATASETS = (
 )
 
 
+def validate_datasets(datasets: tuple[TestDataset, ...] = DATASETS) -> None:
+    """Validate that the dataset manifest is internally consistent.
+
+    Parameters
+    ----------
+    datasets : tuple[TestDataset, ...]
+        Dataset entries to validate. Defaults to the module-level manifest.
+
+    Raises
+    ------
+    ValueError
+        If a required field is empty, a key or extracted directory is
+        duplicated, or ``test_path`` points outside the extracted directory.
+    """
+    seen_keys: set[str] = set()
+    seen_extracted_dirs: set[str] = set()
+
+    for dataset in datasets:
+        for field_name in ("key", "group", "url", "archive_name", "extracted_dir", "source"):
+            value = getattr(dataset, field_name)
+            if not value.strip():
+                raise ValueError(f"Dataset {dataset.key!r} has empty {field_name}.")
+        test_path = PurePath(dataset.test_path)
+        # Test paths are appended to extracted_dir by tests, so they must stay inside that directory.
+        if dataset.test_path and (test_path.is_absolute() or ".." in test_path.parts):
+            raise ValueError(f"Dataset {dataset.key!r} test_path must be a relative path inside extracted_dir.")
+        if dataset.key in seen_keys:
+            raise ValueError(f"Duplicate test dataset key: {dataset.key!r}.")
+        if dataset.extracted_dir in seen_extracted_dirs:
+            raise ValueError(f"Duplicate test dataset extracted_dir: {dataset.extracted_dir!r}.")
+        seen_keys.add(dataset.key)
+        seen_extracted_dirs.add(dataset.extracted_dir)
+
+
+# Fail fast when the manifest is imported, before any network work starts.
+validate_datasets()
+
+
 @cache
 def _datasets_by_key() -> dict[str, TestDataset]:
+    """Return cached lookup table for dataset keys."""
     return {dataset.key: dataset for dataset in DATASETS}
 
 
@@ -144,5 +191,5 @@ def get_dataset(key: str) -> TestDataset:
 
 
 def datasets_by_group(group: str) -> tuple[TestDataset, ...]:
-    """Return datasets registered for ``group``."""
+    """Return datasets registered for ``group`` in manifest order."""
     return tuple(dataset for dataset in DATASETS if dataset.group == group)

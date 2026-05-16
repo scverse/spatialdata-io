@@ -2,13 +2,31 @@ name: Prepare test data
 
 on:
     schedule:
-        - cron: "0 0 1 * *" # run once a month to prevent artifact expiration
+        - cron: "0 0 1 */2 *" # Run on the first day of every other month at midnight
     workflow_dispatch:
-    # Uncomment and adjust the branch name if you need to add new datasets to the artifact.
-    # It needs to be a branch in the spatialdata-io origin repository, not from a fork.
-    # push:
-    #   branches:
-    #     - main
+        inputs:
+            force_all:
+                description: "Download all registered datasets. Set to false to use dataset_keys."
+                required: true
+                type: boolean
+                default: true
+            dataset_keys:
+                description: "Dataset keys to download when force_all is false. Separate keys with spaces or commas."
+                required: false
+                type: string
+                default: ""
+            force_redownload:
+                description: "Redownload and replace existing selected datasets."
+                required: true
+                type: boolean
+                default: false
+    push:
+        branches:
+            - main
+        paths:
+            - ".github/workflows/prepare_test_data.yaml"
+            - "scripts/download_test_data.py"
+            - "scripts/download_test_data_datasets.py"
 
 jobs:
     prepare-data:
@@ -25,7 +43,22 @@ jobs:
 
             - name: Download test datasets
               run: |
-                  python scripts/download_test_data.py --output ./data
+                  args=(--output ./data)
+                  if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force_all }}" == "false" ]]; then
+                      dataset_keys="${{ inputs.dataset_keys }}"
+                      if [[ -z "${dataset_keys}" ]]; then
+                          echo "::error::dataset_keys must be provided when force_all is false."
+                          exit 1
+                      fi
+                      dataset_keys="${dataset_keys//,/ }"
+                      for dataset_key in ${dataset_keys}; do
+                          args+=(--dataset "${dataset_key}")
+                      done
+                  fi
+                  if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force_redownload }}" == "true" ]]; then
+                      args+=(--force)
+                  fi
+                  python scripts/download_test_data.py "${args[@]}"
 
             - name: Upload artifacts
               uses: actions/upload-artifact@v7
@@ -33,3 +66,4 @@ jobs:
                   name: data
                   path: ./data
                   if-no-files-found: error
+                  retention-days: 64

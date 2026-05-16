@@ -30,14 +30,24 @@ def _load_download_script() -> ModuleType:
 download_test_data = _load_download_script()
 
 
-def _make_dataset(key: str = "example") -> Any:
+def _make_dataset(
+    key: str = "example",
+    *,
+    group: str = "group",
+    url: str | None = None,
+    archive_name: str | None = None,
+    extracted_dir: str | None = None,
+    source: str = "example",
+    test_path: str = "",
+) -> Any:
     return download_test_data.TestDataset(
         key=key,
-        group="group",
-        url=f"https://example.com/{key}.zip",
-        archive_name=f"{key}.zip",
-        extracted_dir=key,
-        source="example",
+        group=group,
+        url=url or f"https://example.com/{key}.zip",
+        archive_name=archive_name or f"{key}.zip",
+        extracted_dir=extracted_dir or key,
+        source=source,
+        test_path=test_path,
     )
 
 
@@ -112,6 +122,9 @@ class TestDownload:
 
 
 class TestDatasetManifest:
+    def test_manifest_is_valid(self) -> None:
+        download_test_data.validate_datasets(download_test_data.DATASETS)
+
     def test_returns_dataset_by_key(self) -> None:
         dataset = download_test_data.get_dataset("seqfish")
 
@@ -132,6 +145,32 @@ class TestDatasetManifest:
 
         assert {dataset.key for dataset in datasets} == {"macsima_omap10", "macsima_omap23"}
 
+    def test_rejects_duplicate_dataset_keys(self) -> None:
+        first = _make_dataset("duplicate", extracted_dir="first")
+        second = _make_dataset("duplicate", extracted_dir="second")
+
+        with pytest.raises(ValueError, match="Duplicate test dataset key: 'duplicate'"):
+            download_test_data.validate_datasets((first, second))
+
+    def test_rejects_duplicate_extracted_dirs(self) -> None:
+        first = _make_dataset("first", extracted_dir="duplicate")
+        second = _make_dataset("second", extracted_dir="duplicate")
+
+        with pytest.raises(ValueError, match="Duplicate test dataset extracted_dir: 'duplicate'"):
+            download_test_data.validate_datasets((first, second))
+
+    def test_rejects_empty_required_manifest_fields(self) -> None:
+        dataset = _make_dataset("missing-group", group="")
+
+        with pytest.raises(ValueError, match="Dataset 'missing-group' has empty group"):
+            download_test_data.validate_datasets((dataset,))
+
+    def test_rejects_test_path_outside_extracted_dir(self) -> None:
+        dataset = _make_dataset("unsafe-test-path", test_path="../outside")
+
+        with pytest.raises(ValueError, match="test_path must be a relative path"):
+            download_test_data.validate_datasets((dataset,))
+
 
 class TestExtractZip:
     def test_reports_invalid_archive(self, tmp_path: Path) -> None:
@@ -140,6 +179,16 @@ class TestExtractZip:
 
         with pytest.raises(download_test_data.DatasetDownloadError, match="not a valid zip archive"):
             download_test_data._extract_zip(_make_dataset(), archive_path, tmp_path / "extract")
+
+    def test_rejects_archive_members_outside_destination(self, tmp_path: Path) -> None:
+        archive_path = tmp_path / "unsafe.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr("../escape.txt", "bad")
+
+        with pytest.raises(download_test_data.DatasetDownloadError, match="outside"):
+            download_test_data._extract_zip(_make_dataset(), archive_path, tmp_path / "extract")
+
+        assert not (tmp_path / "escape.txt").exists()
 
 
 class TestDownloadDataset:
@@ -175,8 +224,40 @@ class TestDownloadDataset:
         assert not (target / "old.txt").exists()
         assert (target / "payload.txt").read_text(encoding="utf-8") == "ok"
 
+    def test_reports_archive_without_expected_contents(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        dataset = _make_dataset("empty")
+
+        def write_empty_archive(dataset: object, archive_path: Path) -> None:
+            with zipfile.ZipFile(archive_path, "w"):
+                pass
+
+        monkeypatch.setattr(download_test_data, "_download", write_empty_archive)
+
+        with pytest.raises(download_test_data.DatasetDownloadError, match="expected directory"):
+            download_test_data.download_dataset(dataset, tmp_path, force=False)
+
+        assert not (tmp_path / dataset.extracted_dir).exists()
+
 
 class TestMain:
+    def test_downloads_multiple_selected_datasets(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        first = _make_dataset("first")
+        second = _make_dataset("second")
+        third = _make_dataset("third")
+        attempted: list[str] = []
+
+        def download_dataset(dataset: Any, output: Path, force: bool) -> None:
+            attempted.append(dataset.key)
+            assert output == tmp_path
+            assert not force
+
+        monkeypatch.setattr(download_test_data, "DATASETS", (first, second, third))
+        monkeypatch.setattr(download_test_data, "download_dataset", download_dataset)
+
+        download_test_data.main(["--output", str(tmp_path), "--dataset", "first", "--dataset", "third"])
+
+        assert attempted == ["first", "third"]
+
     def test_continues_after_failure_then_exits_nonzero(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -191,10 +272,9 @@ class TestMain:
 
         monkeypatch.setattr(download_test_data, "DATASETS", (first, second))
         monkeypatch.setattr(download_test_data, "download_dataset", download_dataset)
-        monkeypatch.setattr(sys, "argv", ["download_test_data.py", "--output", str(tmp_path)])
 
         with pytest.raises(SystemExit) as exc_info:
-            download_test_data.main()
+            download_test_data.main(["--output", str(tmp_path)])
 
         assert exc_info.value.code == 1
         assert attempted == ["first", "second"]
