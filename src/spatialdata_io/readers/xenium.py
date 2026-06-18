@@ -514,9 +514,18 @@ def _add_cells_analysis(table: AnnData, path: Path) -> None:
     analysis_dir = path / XeniumKeys.ANALYSIS_DIR
     if not analysis_dir.is_dir():
         return
-    obs_names = table.obs_names
     barcode = str(XeniumKeys.ANALYSIS_BARCODE)
     cluster = str(XeniumKeys.ANALYSIS_CLUSTER)
+    # The clustering/projection CSVs key on the Xenium ``cell_id`` barcode. Join on
+    # the ``cell_id`` obs column rather than ``obs_names``: depending on the Xenium
+    # Analyzer version the table index may be the barcode OR a positional integer,
+    # but the ``cell_id`` column is always the barcode. ``join_keys`` stays in table
+    # row order, so reindexing to it keeps everything row-aligned.
+    cell_id_col = str(XeniumKeys.CELL_ID)
+    if cell_id_col in table.obs.columns:
+        join_keys = pd.Index([str(x) for x in table.obs[cell_id_col]])
+    else:
+        join_keys = pd.Index([str(x) for x in table.obs_names])
 
     # clustering -> categorical obs columns
     clustering_dir = analysis_dir / XeniumKeys.ANALYSIS_CLUSTERING_DIR
@@ -526,17 +535,17 @@ def _add_cells_analysis(table: AnnData, path: Path) -> None:
             if not csv.is_file():
                 continue
             df = pd.read_csv(csv, dtype={barcode: str})
-            labels = df.set_index(barcode)[cluster].reindex(obs_names)
+            labels = df.set_index(barcode)[cluster].reindex(join_keys)
             # Cluster ids are 1-based ints; store as string categories (idiomatic
             # for scanpy/squidpy) so "1" never becomes "1.0" via the NaN upcast.
             str_labels = [None if pd.isna(v) else str(int(v)) for v in labels]
             table.obs[sub.name] = pd.Categorical(str_labels)
 
     # pca / umap projections -> obsm
-    pca = _read_projection(analysis_dir / XeniumKeys.ANALYSIS_PCA_DIR, obs_names, barcode)
+    pca = _read_projection(analysis_dir / XeniumKeys.ANALYSIS_PCA_DIR, join_keys, barcode)
     if pca is not None:
         table.obsm["X_pca"] = pca
-    umap = _read_projection(analysis_dir / XeniumKeys.ANALYSIS_UMAP_DIR, obs_names, barcode)
+    umap = _read_projection(analysis_dir / XeniumKeys.ANALYSIS_UMAP_DIR, join_keys, barcode)
     if umap is not None:
         table.obsm["X_umap"] = umap
 
@@ -552,12 +561,13 @@ def _add_cells_analysis(table: AnnData, path: Path) -> None:
             table.uns["diffexp"] = diffexp
 
 
-def _read_projection(group_dir: Path, obs_names: pd.Index, barcode: str) -> ArrayLike | None:
+def _read_projection(group_dir: Path, join_keys: pd.Index, barcode: str) -> ArrayLike | None:
     """Read a ``<name>/projection.csv`` under ``group_dir`` into an obsm-shaped array.
 
-    Returns an ``(n_obs, n_components)`` float array aligned to ``obs_names`` (rows absent from
-    the projection become NaN), or ``None`` when ``group_dir`` has no projection. If several
-    projections exist (rare), the one with the most components is used.
+    Returns an ``(n_obs, n_components)`` float array aligned to ``join_keys`` (the cell-id
+    barcodes in table row order; rows absent from the projection become NaN), or ``None``
+    when ``group_dir`` has no projection. If several projections exist (rare), the one with
+    the most components is used.
     """
     if not group_dir.is_dir():
         return None
@@ -568,7 +578,7 @@ def _read_projection(group_dir: Path, obs_names: pd.Index, barcode: str) -> Arra
         if not csv.is_file():
             continue
         df = pd.read_csv(csv, dtype={barcode: str}).set_index(barcode)
-        arr = df.reindex(obs_names).to_numpy(dtype=np.float32)
+        arr = df.reindex(join_keys).to_numpy(dtype=np.float32)
         if arr.shape[1] > best_cols:
             best, best_cols = arr, arr.shape[1]
     return best
