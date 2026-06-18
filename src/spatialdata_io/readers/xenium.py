@@ -272,6 +272,7 @@ def xenium(
     morphology_focus: bool = True,
     aligned_images: bool = True,
     cells_table: bool = True,
+    cells_analysis: bool = True,
     n_jobs: int | None = None,
     gex_only: bool = True,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -325,6 +326,13 @@ def xenium(
         `False` and use the `xenium_aligned_image` function directly.
     cells_table
         Whether to read the cell annotations in the `AnnData` table.
+    cells_analysis
+        Whether to read the Xenium onboard secondary analysis (the ``analysis/`` folder) into the table, when present.
+        Clustering results (``analysis/clustering``) are added as categorical columns in ``table.obs`` (one per
+        clustering, joined to the cells by ``cell_id``); PCA and UMAP projections are added to ``table.obsm`` as
+        ``"X_pca"`` / ``"X_umap"``; and differential-expression tables (``analysis/diffexp``) are added to
+        ``table.uns["diffexp"]``. Requires ``cells_table=True``; a missing ``analysis/`` folder (e.g. re-segmented
+        data) is a no-op.
     n_jobs
         .. deprecated::
             ``n_jobs`` is not used anymore and will be removed in a future release. The reading time of shapes is now
@@ -412,6 +420,9 @@ def xenium(
                 if not cells_as_circles:
                     table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
+        if cells_analysis:
+            _add_cells_analysis(table, path)
+
     # --- read elements ---
     polygons = {}
     labels = {}
@@ -480,6 +491,87 @@ def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     if isinstance(cell_id_column.iloc[0], bytes):
         return cell_id_column.str.decode("utf-8")
     return cell_id_column
+
+
+def _add_cells_analysis(table: AnnData, path: Path) -> None:
+    """Enrich the cell table in place with the Xenium onboard secondary analysis.
+
+    Reads the ``analysis/`` folder of the Xenium output, joining everything to the
+    cells by the ``Barcode`` column, which is the Xenium ``cell_id`` (and hence
+    ``table.obs_names``). Cells absent from a given result (e.g. filtered out by QC
+    before clustering) receive a missing value rather than being dropped.
+
+    - ``analysis/clustering/<name>/clusters.csv`` -> one categorical column per
+      clustering in ``table.obs`` (named ``<name>``, e.g. ``gene_expression_graphclust``).
+    - ``analysis/pca/<name>/projection.csv``  -> ``table.obsm["X_pca"]``.
+    - ``analysis/umap/<name>/projection.csv`` -> ``table.obsm["X_umap"]``.
+    - ``analysis/diffexp/<name>/differential_expression.csv`` ->
+      ``table.uns["diffexp"][<name>]``.
+
+    A missing ``analysis/`` folder is a no-op (e.g. re-segmented data, or a
+    matrix-only export).
+    """
+    analysis_dir = path / XeniumKeys.ANALYSIS_DIR
+    if not analysis_dir.is_dir():
+        return
+    obs_names = table.obs_names
+    barcode = str(XeniumKeys.ANALYSIS_BARCODE)
+    cluster = str(XeniumKeys.ANALYSIS_CLUSTER)
+
+    # clustering -> categorical obs columns
+    clustering_dir = analysis_dir / XeniumKeys.ANALYSIS_CLUSTERING_DIR
+    if clustering_dir.is_dir():
+        for sub in sorted(p for p in clustering_dir.iterdir() if p.is_dir()):
+            csv = sub / XeniumKeys.ANALYSIS_CLUSTERS_FILE
+            if not csv.is_file():
+                continue
+            df = pd.read_csv(csv, dtype={barcode: str})
+            labels = df.set_index(barcode)[cluster].reindex(obs_names)
+            # Cluster ids are 1-based ints; store as string categories (idiomatic
+            # for scanpy/squidpy) so "1" never becomes "1.0" via the NaN upcast.
+            str_labels = [None if pd.isna(v) else str(int(v)) for v in labels]
+            table.obs[sub.name] = pd.Categorical(str_labels)
+
+    # pca / umap projections -> obsm
+    pca = _read_projection(analysis_dir / XeniumKeys.ANALYSIS_PCA_DIR, obs_names, barcode)
+    if pca is not None:
+        table.obsm["X_pca"] = pca
+    umap = _read_projection(analysis_dir / XeniumKeys.ANALYSIS_UMAP_DIR, obs_names, barcode)
+    if umap is not None:
+        table.obsm["X_umap"] = umap
+
+    # differential expression -> uns
+    diffexp_dir = analysis_dir / XeniumKeys.ANALYSIS_DIFFEXP_DIR
+    if diffexp_dir.is_dir():
+        diffexp: dict[str, pd.DataFrame] = {}
+        for sub in sorted(p for p in diffexp_dir.iterdir() if p.is_dir()):
+            csv = sub / XeniumKeys.ANALYSIS_DIFFEXP_FILE
+            if csv.is_file():
+                diffexp[sub.name] = pd.read_csv(csv)
+        if diffexp:
+            table.uns["diffexp"] = diffexp
+
+
+def _read_projection(group_dir: Path, obs_names: pd.Index, barcode: str) -> ArrayLike | None:
+    """Read a ``<name>/projection.csv`` under ``group_dir`` into an obsm-shaped array.
+
+    Returns an ``(n_obs, n_components)`` float array aligned to ``obs_names`` (rows absent from
+    the projection become NaN), or ``None`` when ``group_dir`` has no projection. If several
+    projections exist (rare), the one with the most components is used.
+    """
+    if not group_dir.is_dir():
+        return None
+    best: ArrayLike | None = None
+    best_cols = -1
+    for sub in sorted(p for p in group_dir.iterdir() if p.is_dir()):
+        csv = sub / XeniumKeys.ANALYSIS_PROJECTION_FILE
+        if not csv.is_file():
+            continue
+        df = pd.read_csv(csv, dtype={barcode: str}).set_index(barcode)
+        arr = df.reindex(obs_names).to_numpy(dtype=np.float32)
+        if arr.shape[1] > best_cols:
+            best, best_cols = arr, arr.shape[1]
+    return best
 
 
 def _get_polygons(
