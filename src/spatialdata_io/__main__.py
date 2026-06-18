@@ -725,6 +725,12 @@ def visium_hd_wrapper(
     help="Whether to read cells annotations in the AnnData table. [default: True]",
 )
 @click.option(
+    "--cells-analysis",
+    type=bool,
+    default=True,
+    help="Whether to read the onboard secondary analysis (clustering/PCA/UMAP/diffexp) into the table. [default: True]",
+)
+@click.option(
     "--gex-only",
     type=bool,
     default=True,
@@ -762,6 +768,7 @@ def xenium_wrapper(
     morphology_focus: bool = True,
     aligned_images: bool = True,
     cells_table: bool = True,
+    cells_analysis: bool = True,
     gex_only: bool = True,
     imread_kwargs: str = "{}",
     image_models_kwargs: str = "{}",
@@ -782,6 +789,7 @@ def xenium_wrapper(
         morphology_focus=morphology_focus,
         aligned_images=aligned_images,
         cells_table=cells_table,
+        cells_analysis=cells_analysis,
         gex_only=gex_only,
         imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
