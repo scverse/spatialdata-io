@@ -216,16 +216,6 @@ def _parse_labels(arr: Any, ox: float, oy: float) -> Labels2DModel:
     return Labels2DModel.parse(arr, dims=("y", "x"), transformations={"global": _translation_transform(ox, oy)})
 
 
-def _collect_global_cell_ids_from_tables(tables: dict[str, AnnData]) -> set[int]:
-    """Gather all non-zero global_cell_ids across all tables."""
-    ids: set[int] = set()
-    for table in tables.values():
-        col = _global_id_series(table)
-        if col is not None:
-            ids.update(int(v) for v in col if pd.notna(v) and int(v) != 0)
-    return ids
-
-
 def _filter_tables_to_ids(
     tables: dict[str, AnnData],
     valid_ids: set[int],
@@ -722,11 +712,7 @@ class CosMxDatasetReader:
 
     # -- Read labels --
 
-    def read_labels(
-        self,
-        *,
-        allowed_global_ids: set[int] | None = None,
-    ) -> tuple[dict[str, Labels2DModel], set[int]]:
+    def read_labels(self) -> tuple[dict[str, Labels2DModel], set[int]]:
         """Read or rasterize cell labels.
 
         Tries in order:
@@ -738,7 +724,7 @@ class CosMxDatasetReader:
         """
         # --- Path 1: polygon → raster ---
         if self.polygons_as_labels and self.dataset.polygons_file is not None:
-            return self._labels_from_polygons(allowed_global_ids)
+            return self._labels_from_polygons()
 
         # --- Path 2: flat CellLabels directory ---
         if self.dataset.cell_labels_dir is not None:
@@ -750,21 +736,10 @@ class CosMxDatasetReader:
 
         return {}, set()
 
-    def _labels_from_polygons(
-        self,
-        allowed_global_ids: set[int] | None,
-    ) -> tuple[dict[str, Labels2DModel], set[int]]:
+    def _labels_from_polygons(self) -> tuple[dict[str, Labels2DModel], set[int]]:
         """Rasterize polygons into a label image."""
         poly_df = self._get_polygons()
         ox, oy = self._origin_x, self._origin_y
-
-        if allowed_global_ids is not None:
-            before = len(poly_df)
-            poly_df = poly_df[poly_df["global_cell_id"].isin(allowed_global_ids)].reset_index(drop=True)
-            dropped = before - len(poly_df)
-            if dropped:
-                logger.info("Labels: removed %d polygon(s) without a matching table row.", dropped)
-            self._poly_df = poly_df
 
         if poly_df.empty:
             logger.warning("No polygons left after alignment. Skipping labels.")
@@ -1140,9 +1115,10 @@ def _cosmx_multi(
         if tx_points:
             points = {"transcripts": next(iter(tx_points.values()))}
 
-    # Table/label alignment — the multimodal path is LABEL-ANCHORED: labels are read
-    # first (above), then each modality's table is filtered to the label IDs. The
-    # single-modality path in cosmx() is table-anchored instead; keep them distinct.
+    # Label-anchored co-registration (same as cosmx()): the protein-derived
+    # segmentation read above is the ground truth; filter each modality's table to
+    # the rasterised label IDs. (Modalities quantify different cell subsets, so the
+    # labels cannot be anchored on any single modality's table.)
     tables: dict[str, AnnData] = {}
     region_refs = list(labels.keys()) or list(shapes.keys()) or ["cells"]
     if read_gexp:
@@ -1284,9 +1260,16 @@ def _prescan_max_cell_id(
             continue
         try:
             lf = pl.scan_csv(path, n_rows=None)
-            if fov_set is not None and "fov" in lf.collect_schema().names():
+            cols = lf.collect_schema().names()
+            # Expression/metadata use ``cell_ID``; polygon CSVs use ``cellID``. Including
+            # the polygon column is essential — orphan (segmented-only) cells are often the
+            # highest per-FOV IDs and would otherwise be missed, mis-locking max_cell_id.
+            id_col = next((c for c in ("cell_ID", "cellID") if c in cols), None)
+            if id_col is None:
+                continue
+            if fov_set is not None and "fov" in cols:
                 lf = lf.filter(pl.col("fov").is_in(list(fov_set)))
-            val = lf.select(pl.col("cell_ID").max()).collect().item()
+            val = lf.select(pl.col(id_col).max()).collect().item()
             if val is not None:
                 max_ids.append(int(val))
         except Exception:
@@ -1499,35 +1482,18 @@ def cosmx(
     )
     points = reader.read_transcripts() if read_transcripts and dataset.tx_file is not None else {}
 
-    # Table/label alignment — the single-modality path is TABLE-ANCHORED: read tables
-    # first, then constrain labels to the table/polygon IDs. The multimodal path in
-    # _cosmx_multi is label-anchored instead; keep the two strategies distinct.
-    region_refs = list(shapes.keys()) + list(images.keys()) or ["cells"]
+    # Label-anchored co-registration: the segmentation is the ground truth (in
+    # multimodal runs it is the protein-derived segmentation, shared across
+    # modalities), so rasterise every cell and filter the table to the cells that
+    # actually rasterised. _cosmx_multi runs the same cascade per modality.
+    labels, label_ids = reader.read_labels() if read_labels else ({}, set())
+
+    region_refs = list(labels.keys()) or list(shapes.keys()) or ["cells"]
     tables = reader.read_tables(region_refs) if read_gexp else {}
-
-    # Align tables ↔ polygons
-    polygon_id_set: set[int] | None = None
-    if reader.polygons_as_labels and reader.dataset.polygons_file is not None:
-        poly_df = reader._get_polygons()
-        polygon_ids = {int(v) for v in poly_df["global_cell_id"].to_numpy() if pd.notna(v) and int(v) != 0}
-        tables = _filter_tables_to_ids(tables, polygon_ids, source_label="polygons")
-        polygon_id_set = polygon_ids
-
-    # Determine allowed label IDs
-    table_ids = _collect_global_cell_ids_from_tables(tables)
-    allowed_label_ids = (table_ids & polygon_id_set) if polygon_id_set else table_ids
-    if not allowed_label_ids:
-        allowed_label_ids = None
-
-    labels, label_ids = reader.read_labels(allowed_global_ids=allowed_label_ids) if read_labels else ({}, set())
+    if label_ids:
+        tables = _filter_tables_to_ids(tables, label_ids, source_label="rasterised labels")
 
     if add_fovs_as_shapes:
         shapes = {**shapes, **reader.build_fov_shapes()}
 
-    sdata = _assemble_sdata(images, points, labels, shapes, tables)
-
-    # Final pass: drop table rows not in rasterised labels
-    if label_ids:
-        sdata.tables = _filter_tables_to_ids(dict(sdata.tables), label_ids, source_label="rasterised labels")
-
-    return sdata
+    return _assemble_sdata(images, points, labels, shapes, tables)
