@@ -141,6 +141,46 @@ def _pandas_categoricals_to_string(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _sanitize_obs_columns(obs: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of *obs* with zarr-safe, de-duplicated column names.
+
+    Case-insensitive duplicate columns are dropped; the rest are sanitized to
+    ``[0-9A-Za-z_]`` (preserving ``global_cell_id`` / ``region_key``), with numeric
+    suffixes resolving any collisions.
+    """
+    obs = obs.copy()
+    seen: dict[str, str] = {}
+    to_drop = []
+    for col in obs.columns:
+        key = col.lower()
+        if key in seen:
+            to_drop.append(col)
+        else:
+            seen[key] = col
+    if to_drop:
+        obs = obs.drop(columns=to_drop)
+
+    preserve = {"global_cell_id", "region_key"}
+    rename_map: dict[str, str] = {}
+    taken: set[str] = set(obs.columns)
+    for col in list(obs.columns):
+        if col in preserve:
+            continue
+        new = re.sub(r"[^0-9A-Za-z_]", "_", col.strip())
+        if not re.match(r"[A-Za-z_]", new):
+            new = f"col_{new}"
+        base, i = new, 1
+        while new in taken and new != col:
+            i += 1
+            new = f"{base}_{i}"
+        if new != col:
+            rename_map[col] = new
+            taken.add(new)
+    if rename_map:
+        obs = obs.rename(columns=rename_map)
+    return obs
+
+
 def _dask_categoricals_to_string(df: dd.DataFrame) -> dd.DataFrame:
     """Partition-wise categorical → string conversion for dask DataFrames."""
     cat_cols = [
