@@ -45,6 +45,7 @@ from spatialdata.models import (
 from spatialdata.transformations import Translation
 
 from spatialdata_io._constants._constants import CosmxKeys
+from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._cosmx_discovery import (
     _infer_dataset_id,
     _set_up_cosmx_dataset_for_conversion,
@@ -1338,6 +1339,7 @@ def _prescan_max_cell_id(
 # ---------------------------------------------------------------------------
 
 
+@inject_docs(cx=CosmxKeys)
 def cosmx(
     path: str | Path,
     dataset_id: str | None = None,
@@ -1367,6 +1369,11 @@ def cosmx(
     Supports all known CosMx export formats: flat CSV files, nested
     CellStatsDir layouts, multimodal RNA+Protein runs, and both old-style
     (px-only / mm-only) and new-style (px+mm) FOV positions files.
+
+    Files are recognized by their standard CosMx suffixes — counts
+    ``{cx.COUNTS_SUFFIX!r}``, metadata ``{cx.METADATA_SUFFIX!r}``, transcripts
+    ``{cx.TRANSCRIPTS_SUFFIX!r}``, and FOV positions ``{cx.FOV_SUFFIX!r}`` —
+    typically prefixed with the dataset id.
 
     Parameters
     ----------
