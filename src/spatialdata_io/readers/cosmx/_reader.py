@@ -46,11 +46,12 @@ from spatialdata.transformations import Translation
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io.readers._cosmx_discovery import (
+
+from ._discovery import (
     _infer_dataset_id,
     _set_up_cosmx_dataset_for_conversion,
 )
-from spatialdata_io.readers._cosmx_io import (
+from ._io import (
     COSMX_FOV_SIZE_PX,
     _default_image_kwargs,
     _find_matching_fov_file,
@@ -65,7 +66,7 @@ from spatialdata_io.readers._cosmx_io import (
     _read_transcripts_csv,
     place_local_in_fov_grid,
 )
-from spatialdata_io.readers._cosmx_stitching import (
+from ._stitching import (
     _canvas_from_fov_locs_for_polygons,
     _plot_fov_preview,
     _polygons_to_label_raster,
@@ -73,7 +74,7 @@ from spatialdata_io.readers._cosmx_stitching import (
     _read_stitched_image,
     stitch_segmentation_label_image,
 )
-from spatialdata_io.readers._cosmx_utils import (
+from ._utils import (
     _dask_categoricals_to_string,
     _normalize_image_channels,
     _pandas_categoricals_to_string,
@@ -872,7 +873,7 @@ class CosMxDatasetReader:
         using the same ``global_cell_id`` formula as :meth:`global_cell_id`
         so that label IDs match the table's global_cell_id values.
         """
-        from spatialdata_io.readers._cosmx_utils import find_cell_label_tifs
+        from ._utils import find_cell_label_tifs
 
         cell_labels_dir = self.dataset.cell_labels_dir
         if cell_labels_dir is None:

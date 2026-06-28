@@ -299,7 +299,7 @@ def _set_up_cosmx_dataset_for_conversion(
 ):
     """Build a :class:`CosMxDataset` descriptor from a directory."""
     # import here to avoid circular dependency
-    from spatialdata_io.readers.cosmx import CosMxDataset
+    from ._reader import CosMxDataset
 
     path = path.resolve()
     inferred_id = _infer_dataset_id(path, dataset_id)

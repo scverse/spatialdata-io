@@ -24,7 +24,7 @@ from dask_image.imread import imread
 from spatialdata._logging import logger
 from tqdm import tqdm
 
-from ._cosmx_utils import (
+from ._utils import (
     _deduplicate_names,
     _match_header,
     _pandas_categoricals_to_string,
