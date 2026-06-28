@@ -26,11 +26,11 @@ from skimage.draw import polygon
 from spatialdata._logging import logger
 from tqdm.auto import tqdm
 
-from ._cosmx_io import (
+from ._io import (
     COSMX_FOV_SIZE_PX,
     _read_fov_image,
 )
-from ._cosmx_utils import FOV_DIR_RE, MORPH_FOV_RE, compute_with_limit
+from ._utils import FOV_DIR_RE, MORPH_FOV_RE, compute_with_limit
 
 # ---------------------------------------------------------------------------
 # Tile clipping helper
@@ -160,7 +160,7 @@ def _label_tile_flip(fov_locs: pd.DataFrame, fov: int, flip_image: bool) -> bool
     """Per-FOV label-tile flip: the inverse of ``flip_y``.
 
     Transcripts are placed in coordinate space via ``flip_y`` (see
-    :func:`spatialdata_io.readers._cosmx_io.place_local_in_fov_grid`), so a label
+    :func:`spatialdata_io.readers.cosmx._io.place_local_in_fov_grid`), so a label
     raster co-registers iff it is flipped ``not flip_y``.  When ``flip_y`` is
     unavailable (column absent, or FOV missing from the table) fall back to
     ``flip_image``.  Single source of truth for both label stitchers (#39 / #41).
@@ -364,7 +364,7 @@ def _read_stitched_cell_labels_from_dir(
     tuple[da.Array, set[int], pd.DataFrame]
         ``(stitched_labels, present_cell_ids, fov_locs_used)``
     """
-    from spatialdata_io.readers._cosmx_utils import find_cell_label_tifs
+    from ._utils import find_cell_label_tifs
 
     fov_tif_map = find_cell_label_tifs(cell_labels_dir)
 
@@ -721,8 +721,8 @@ def stitch_segmentation_label_image(
         ``(stitched_labels, cell_info_df)`` where *cell_info_df* has an
         added ``global_cell_id`` column.
     """
-    from ._cosmx_discovery import _infer_dataset_id
-    from ._cosmx_io import _read_fov_locs
+    from ._discovery import _infer_dataset_id
+    from ._io import _read_fov_locs
 
     path = Path(path)
     dataset_id = _infer_dataset_id(path, dataset_id)
