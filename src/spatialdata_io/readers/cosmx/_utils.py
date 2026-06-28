@@ -218,6 +218,30 @@ _CANONICAL: dict[str, list[str]] = {
 }
 
 
+def _match_canonical(hdr: list[str], canon: str) -> str | None:
+    """Return the raw column in *hdr* matching canonical name *canon*, else ``None``.
+
+    Uses the same case-insensitive alias patterns as :func:`_match_header`, but for a
+    single column and without requiring the full polygon schema. This is the shared
+    entry point so every caller honours the *same* alias set (e.g. ``cell_ID`` also
+    matching ``cellID``/``cell_id``/``object_id``) — a narrower ad-hoc match risks
+    missing columns one path accepts and another silently drops.
+    """
+    hdr_stripped = [c.strip() for c in hdr]
+    for pat in _CANONICAL.get(canon, []):
+        hit = next(
+            (
+                orig
+                for orig, stripped in zip(hdr, hdr_stripped, strict=False)
+                if re.fullmatch(pat, stripped, flags=re.IGNORECASE)
+            ),
+            None,
+        )
+        if hit is not None:
+            return hit
+    return None
+
+
 def _match_header(hdr: list[str]) -> dict[str, str]:
     """Map raw CSV column names to canonical names via regex matching.
 
@@ -229,22 +253,12 @@ def _match_header(hdr: list[str]) -> dict[str, str]:
     ValueError
         If required columns cannot be identified.
     """
-    hdr_stripped = [c.strip() for c in hdr]
     rename: dict[str, str] = {}
 
-    for canon, patterns in _CANONICAL.items():
-        for pat in patterns:
-            hit = next(
-                (
-                    orig
-                    for orig, stripped in zip(hdr, hdr_stripped, strict=False)
-                    if re.fullmatch(pat, stripped, flags=re.IGNORECASE)
-                ),
-                None,
-            )
-            if hit is not None:
-                rename[hit] = canon
-                break
+    for canon in _CANONICAL:
+        hit = _match_canonical(hdr, canon)
+        if hit is not None:
+            rename[hit] = canon
 
     # Heuristic fallback for x/y — these vary the most across exports.
     def _first_like(coord: str) -> str | None:

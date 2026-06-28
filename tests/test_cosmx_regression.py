@@ -437,6 +437,73 @@ class TestGlobalCellId:
         gid = real_reader.global_cell_id(pd.DataFrame({"fov": [1], "cell_ID": [20]}))
         assert gid.iloc[0] == 1 * 21 + 20
 
+    def test_prescan_matches_aliased_id_and_fov_columns(self, tmp_path):
+        """The pre-scan must honour the same column aliases as the header
+        canonicaliser. A polygon CSV using ``object_id``/``roi`` (instead of
+        ``cell_ID``/``fov``) must still contribute its max — otherwise an
+        orphan (segmented-only) cell with the highest per-FOV id is missed and
+        max_cell_id is mis-locked. The old hardcoded ("cell_ID", "cellID")
+        match would skip this file entirely.
+        """
+        from spatialdata_io.readers.cosmx._reader import _prescan_max_cell_id
+
+        poly_csv = tmp_path / "poly.csv"
+        expr_csv = tmp_path / "expr.csv"
+        # Orphan id 30 lives only in the polygons, under aliased headers. The
+        # fov-2 id=99 row must be excluded once we restrict to FOV 1 — which
+        # only works if the aliased ``roi`` column is resolved too.
+        poly_csv.write_text("roi,object_id,x,y\n1,30,0,0\n2,99,0,0\n")
+        expr_csv.write_text("fov,cell_ID,Gene_0\n1,20,5\n")
+
+        class FakeDataset:
+            polygons_file = poly_csv
+            exprMat_file = expr_csv
+            metadata_file = None
+
+        class FakeReader:
+            max_cell_id = None
+
+        reader = FakeReader()
+        _prescan_max_cell_id(reader, FakeDataset(), fov_set={1})
+        assert reader.max_cell_id == 30
+
+    def test_prescan_warns_instead_of_silently_dropping_a_file(self, tmp_path, caplog):
+        """A file that exists but has no recognizable cell-ID column must be
+        surfaced (warning), not silently swallowed — a silent drop in a pre-scan
+        that establishes the max_cell_id invariant hides the exact schema
+        mismatch that mis-locks the max.
+        """
+        import logging
+
+        from spatialdata._logging import logger as sd_logger
+
+        from spatialdata_io.readers.cosmx._reader import _prescan_max_cell_id
+
+        bad_csv = tmp_path / "bad.csv"
+        bad_csv.write_text("fov,mystery,x,y\n1,7,0,0\n")
+
+        class FakeDataset:
+            polygons_file = bad_csv
+            exprMat_file = None
+            metadata_file = None
+
+        class FakeReader:
+            max_cell_id = None
+
+        reader = FakeReader()
+        # spatialdata's logger does not propagate to the root logger caplog
+        # attaches to, so enable it for the duration of this assertion.
+        prev_propagate = sd_logger.propagate
+        sd_logger.propagate = True
+        try:
+            with caplog.at_level(logging.WARNING):
+                _prescan_max_cell_id(reader, FakeDataset(), fov_set=None)
+        finally:
+            sd_logger.propagate = prev_propagate
+
+        assert reader.max_cell_id is None
+        assert any("cell_ID" in rec.getMessage() for rec in caplog.records)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4b. TILE CLIPPING HELPER

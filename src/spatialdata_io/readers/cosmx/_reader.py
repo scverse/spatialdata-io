@@ -76,6 +76,7 @@ from ._stitching import (
 )
 from ._utils import (
     _dask_categoricals_to_string,
+    _match_canonical,
     _normalize_image_channels,
     _pandas_categoricals_to_string,
     _sanitize_obs_columns,
@@ -1261,19 +1262,31 @@ def _prescan_max_cell_id(
         try:
             lf = pl.scan_csv(path, n_rows=None)
             cols = lf.collect_schema().names()
-            # Expression/metadata use ``cell_ID``; polygon CSVs use ``cellID``. Including
-            # the polygon column is essential — orphan (segmented-only) cells are often the
-            # highest per-FOV IDs and would otherwise be missed, mis-locking max_cell_id.
-            id_col = next((c for c in ("cell_ID", "cellID") if c in cols), None)
-            if id_col is None:
-                continue
-            if fov_set is not None and "fov" in cols:
-                lf = lf.filter(pl.col("fov").is_in(list(fov_set)))
-            val = lf.select(pl.col(id_col).max()).collect().item()
-            if val is not None:
-                max_ids.append(int(val))
-        except Exception:
+        except Exception as e:
+            # A file that exists but cannot be scanned is a real problem for a pre-scan
+            # whose whole job is to establish the max_cell_id invariant — surface it
+            # rather than silently dropping the file (which would mis-lock the max).
+            logger.warning("Could not pre-scan %s for max cell_ID: %s", path, e)
             continue
+        # Match the id column through the shared canonical alias set, NOT a hardcoded
+        # ("cell_ID", "cellID") pair: expression/metadata use ``cell_ID`` while polygon
+        # CSVs use ``cellID``, and other exports use ``cell_id``/``object_id``. Including
+        # the polygon column is essential — orphan (segmented-only) cells are often the
+        # highest per-FOV IDs and would otherwise be missed, mis-locking max_cell_id.
+        id_col = _match_canonical(cols, "cell_ID")
+        if id_col is None:
+            logger.warning("No cell_ID-like column found in %s (columns: %s) — skipping for max cell_ID.", path, cols)
+            continue
+        fov_col = _match_canonical(cols, "fov")
+        if fov_set is not None and fov_col is not None:
+            lf = lf.filter(pl.col(fov_col).is_in(list(fov_set)))
+        try:
+            val = lf.select(pl.col(id_col).max()).collect().item()
+        except Exception as e:
+            logger.warning("Could not read max %s from %s: %s", id_col, path, e)
+            continue
+        if val is not None:
+            max_ids.append(int(val))
 
     if max_ids:
         reader.max_cell_id = max(max_ids)
