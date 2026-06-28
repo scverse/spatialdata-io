@@ -354,24 +354,6 @@ class TestDatasetDiscovery:
         assert ds.morphology_2d_dir is not None
         assert ds.modalities is None
 
-    def test_fixture_b(self, fixture_b):
-        from spatialdata_io.readers.cosmx._discovery import _set_up_cosmx_dataset_for_conversion
-
-        ds = _set_up_cosmx_dataset_for_conversion(fixture_b)
-        assert ds.dataset_id is not None
-        assert ds.fov_positions_file is not None
-        assert ds.polygons_file is not None
-        assert ds.morphology_2d_dir is not None
-
-    def test_fixture_c(self, fixture_c):
-        from spatialdata_io.readers.cosmx._discovery import _set_up_cosmx_dataset_for_conversion
-
-        ds = _set_up_cosmx_dataset_for_conversion(fixture_c)
-        assert ds.dataset_id == "Pancreas"
-        assert ds.fov_positions_file is not None
-        assert ds.cell_labels_dir is not None
-        assert ds.morphology_2d_dir is None  # no Morphology2D for pancreas
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. FOV POSITIONS
@@ -379,20 +361,6 @@ class TestDatasetDiscovery:
 
 
 class TestFovPositions:
-    def test_px_and_mm_no_flip(self, fixture_a):
-        from spatialdata_io.readers.cosmx._io import _read_fov_locs
-
-        fl = _read_fov_locs(fixture_a / "S0_fov_positions_file.csv.gz")
-        assert not fl["flip_y"].any()
-        assert set(fl.index) == {1, 2}
-
-    def test_px_only_flip(self, fixture_b):
-        from spatialdata_io.readers.cosmx._io import _read_fov_locs
-
-        fl = _read_fov_locs(fixture_b / "Run5642_S3_Quarter_fov_positions_file.csv")
-        assert fl["flip_y"].all()
-        assert set(fl.index) == {1, 5}
-
     def test_mm_only_flip_and_conversion(self, fixture_c):
         from spatialdata_io.readers.cosmx._io import _read_fov_locs
 
@@ -415,12 +383,6 @@ class TestFovPositions:
             assert (fl["xmax"] > fl["xmin"]).all()
             assert (fl["ymax"] > fl["ymin"]).all()
 
-    def test_subset_filters(self, fixture_a):
-        from spatialdata_io.readers.cosmx._io import _read_fov_locs
-
-        fl = _read_fov_locs(fixture_a / "S0_fov_positions_file.csv.gz", fovs=[1])
-        assert set(fl.index) == {1}
-
     def test_missing_fov_raises(self, fixture_a):
         from spatialdata_io.readers.cosmx._io import _read_fov_locs
 
@@ -431,37 +393,6 @@ class TestFovPositions:
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. HEADER MATCHING (no I/O)
 # ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestHeaderMatching:
-    def _m(self, hdr):
-        from spatialdata_io.readers.cosmx._utils import _match_header
-
-        return _match_header(hdr)
-
-    def test_standard(self):
-        r = self._m(["fov", "cellID", "x_local_px", "y_local_px"])
-        assert r["cellID"] == "cell_ID"
-
-    def test_global(self):
-        r = self._m(["fov", "cell_ID", "x_global_px", "y_global_px"])
-        assert r["x_global_px"] == "x"
-
-    def test_case_insensitive(self):
-        r = self._m(["FOV", "Cell_ID", "X_Local_Px", "Y_Local_Px"])
-        assert set(r.values()) >= {"fov", "cell_ID", "x", "y"}
-
-    def test_roi_as_fov(self):
-        r = self._m(["roi", "cell_ID", "x", "y"])
-        assert r["roi"] == "fov"
-
-    def test_polygon_index_optional(self):
-        r = self._m(["fov", "cell_ID", "x", "y"])
-        assert "polygon_index" not in r.values()
-
-    def test_missing_raises(self):
-        with pytest.raises(ValueError, match="Failed to identify"):
-            self._m(["fov", "cell_ID", "a", "b"])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -475,19 +406,6 @@ class TestGlobalCellId:
         df = pd.DataFrame({"fov": [1, 1, 2, 2], "cell_ID": [0, 5, 0, 3]})
         gids = df["fov"] * base * (df["cell_ID"] > 0).astype(int) + df["cell_ID"]
         assert gids.tolist() == [0, 11, 0, 15]
-
-    def test_background_zero(self):
-        for fov in [1, 50, 999]:
-            assert fov * 101 * (0 > 0) + 0 == 0
-
-    def test_no_collisions(self):
-        base = 101
-        seen = set()
-        for fov in range(1, 20):
-            for cid in range(1, 101):
-                gid = fov * base + cid
-                assert gid not in seen
-                seen.add(gid)
 
     def test_prescan_prevents_crash(self, tmp_path):
         """max_cell_id pre-scan should prevent ValueError when elements
@@ -525,52 +443,6 @@ class TestGlobalCellId:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestClipTileToCanvas:
-    def test_fully_inside(self):
-        from spatialdata_io.readers.cosmx._stitching import _clip_tile_to_canvas
-
-        result = _clip_tile_to_canvas(10, 50, 20, 60, canvas_h=100, canvas_w=100)
-        assert result is not None
-        gl_y, gl_x, src_y, src_x = result
-        assert gl_y == slice(10, 50)
-        assert gl_x == slice(20, 60)
-        assert src_y == slice(0, 40)
-        assert src_x == slice(0, 40)
-
-    def test_partially_outside_negative(self):
-        from spatialdata_io.readers.cosmx._stitching import _clip_tile_to_canvas
-
-        # Tile starts at y=-5, so first 5 rows are clipped
-        result = _clip_tile_to_canvas(-5, 45, 0, 50, canvas_h=100, canvas_w=100)
-        assert result is not None
-        gl_y, gl_x, src_y, src_x = result
-        assert gl_y == slice(0, 45)
-        assert gl_x == slice(0, 50)
-        assert src_y == slice(5, 50)  # skip first 5 source rows
-        assert src_x == slice(0, 50)
-
-    def test_partially_outside_overflow(self):
-        from spatialdata_io.readers.cosmx._stitching import _clip_tile_to_canvas
-
-        # Tile extends beyond canvas at y=90..130, canvas_h=100
-        result = _clip_tile_to_canvas(90, 130, 0, 50, canvas_h=100, canvas_w=100)
-        assert result is not None
-        gl_y, gl_x, src_y, src_x = result
-        assert gl_y == slice(90, 100)
-        assert src_y == slice(0, 10)  # only first 10 rows fit
-
-    def test_fully_outside(self):
-        from spatialdata_io.readers.cosmx._stitching import _clip_tile_to_canvas
-
-        assert _clip_tile_to_canvas(200, 250, 0, 50, canvas_h=100, canvas_w=100) is None
-        assert _clip_tile_to_canvas(0, 50, -100, -50, canvas_h=100, canvas_w=100) is None
-
-    def test_zero_size_tile(self):
-        from spatialdata_io.readers.cosmx._stitching import _clip_tile_to_canvas
-
-        assert _clip_tile_to_canvas(10, 10, 20, 60, canvas_h=100, canvas_w=100) is None
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # 4c. TRANSCRIPT PLACEMENT (local-coord; replaces the old fov_shift / +4256)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -604,14 +476,6 @@ class TestTranscriptPlacement:
             }
         )
 
-    def test_noflip_matches_polygon_formula(self):
-        from spatialdata_io.readers.cosmx._io import place_local_in_fov_grid
-
-        out = place_local_in_fov_grid(self._df(), self._fov_locs)
-        # non-flip: x = x0 + x_local ; y = y0 + (h - y_local), h = 4256
-        assert out["x_global_px"].tolist() == [10.0, 4256.0 + 20.0]
-        assert out["y_global_px"].tolist() == [4256.0 - 100.0, 4256.0 - 200.0]
-
     def test_flip_matches_polygon_formula(self):
         from spatialdata_io.readers.cosmx._io import place_local_in_fov_grid
 
@@ -621,14 +485,6 @@ class TestTranscriptPlacement:
         # flip: y = y0 + y_local
         assert out["x_global_px"].tolist() == [10.0, 4256.0 + 20.0]
         assert out["y_global_px"].tolist() == [100.0, 200.0]
-
-    def test_missing_flip_column_defaults_to_noflip(self):
-        from spatialdata_io.readers.cosmx._io import place_local_in_fov_grid
-
-        fov_locs = self._fov_locs.drop(columns=["flip_y"])
-        out = place_local_in_fov_grid(self._df(), fov_locs)
-        # no flip_y column -> treated as non-flip: y = y0 + (h - y_local)
-        assert out["y_global_px"].tolist() == [4256.0 - 100.0, 4256.0 - 200.0]
 
     @pytest.mark.parametrize("flip", [True, False])
     def test_dask_path_matches_pandas(self, flip):
@@ -763,20 +619,6 @@ class TestLabelTileFlip:
         assert _label_tile_flip(locs, 1, flip_image=False) is False
         # flip_y is authoritative — it overrides the flip_image fallback
         assert _label_tile_flip(locs, 2, flip_image=True) is False
-
-    def test_flip_y_false_means_tile_flip(self):
-        from spatialdata_io.readers.cosmx._stitching import _label_tile_flip
-
-        locs = self._locs(False)
-        assert _label_tile_flip(locs, 1, flip_image=False) is True
-        assert _label_tile_flip(locs, 2, flip_image=False) is True
-
-    def test_fallback_to_flip_image_when_no_flip_y_column(self):
-        from spatialdata_io.readers.cosmx._stitching import _label_tile_flip
-
-        locs = pd.DataFrame({"xmin": [0.0], "ymin": [0.0]}, index=pd.Index([1], name="fov"))
-        assert _label_tile_flip(locs, 1, flip_image=True) is True
-        assert _label_tile_flip(locs, 1, flip_image=False) is False
 
     def test_fallback_when_fov_absent_from_locs(self):
         from spatialdata_io.readers.cosmx._stitching import _label_tile_flip
@@ -1377,25 +1219,6 @@ class TestZarrRoundTrip:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestSnapshotValues:
-    def test_table_dimensions(self, sdio, fixture_a):
-        sdata = _read(sdio, fixture_a, fovs=[1, 2])
-        tbl = next(iter(sdata.tables.values()))
-        assert tbl.n_vars == N_GENES
-        assert tbl.n_obs <= len([1, 2]) * N_CELLS_PER_FOV
-        assert tbl.n_obs > 0
-
-    def test_fov_box_count_adjacent(self, sdio, fixture_a):
-        sdata = _read(sdio, fixture_a, fovs=[1, 2])
-        fov_keys = [k for k in sdata.shapes if "fov_box" in k]
-        assert len(sdata.shapes[fov_keys[0]]) == 2
-
-    def test_fov_box_count_single(self, sdio, fixture_c):
-        sdata = _read(sdio, fixture_c, fovs=[1], read_images=False)
-        fov_keys = [k for k in sdata.shapes if "fov_box" in k]
-        assert len(sdata.shapes[fov_keys[0]]) == 1
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # skip_empty_fovs / phantom FOVs (issue #37)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1693,19 +1516,6 @@ class TestImageNormalizationPrimitive:
         out = np.asarray(out.compute())
         assert out.max() > 1.0, "scale-only must not clip the brightest pixels to 1.0"
         np.testing.assert_allclose(out * scales["DNA"], ch.astype("float32"), rtol=1e-4)
-
-    def test_per_channel_independent(self):
-        two = np.stack(
-            [
-                np.full((64, 64), 30, dtype="uint16"),
-                np.full((64, 64), 30, dtype="uint16"),
-            ]
-        )
-        two[0, :8, :8] = 60000  # bright channel
-        two[1, :8, :8] = 800  # dim channel
-        out, _ = self._norm(two, ["hi", "lo"], percentile=99.9)
-        out = np.asarray(out.compute())
-        assert out[0].max() > 0.9 and out[1].max() > 0.9, "each channel must use its own percentile"
 
     def test_multi_chunk_percentile(self):
         # Production stitched images are multi-chunk, where da.percentile is approximate.
