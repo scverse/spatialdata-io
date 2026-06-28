@@ -33,7 +33,7 @@ import pandas as pd
 import shapely.geometry as sgeom
 import tifffile
 from shapely.affinity import translate as _translate
-from spatialdata import SpatialData
+from spatialdata import SpatialData, sanitize_table
 from spatialdata._logging import logger
 from spatialdata.models import (
     Image2DModel,
@@ -46,6 +46,7 @@ from spatialdata.transformations import Translation
 
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._utils._utils import _set_reader_metadata
 
 from ._discovery import (
     _infer_dataset_id,
@@ -79,7 +80,6 @@ from ._utils import (
     _match_canonical,
     _normalize_image_channels,
     _pandas_categoricals_to_string,
-    _sanitize_obs_columns,
     detect_fovs_with_data,
 )
 
@@ -950,10 +950,10 @@ class CosMxDatasetReader:
 
         adata.obs["region_key"] = pd.Series(region, index=adata.obs.index, dtype="category")
 
-        # Zarr-safe, de-duplicated obs column names.
-        obs = _sanitize_obs_columns(adata.obs)
-        _pandas_categoricals_to_string(obs)
-        adata.obs = obs
+        # Zarr-safe, case-insensitively unique obs/var keys (spatialdata core),
+        # then categoricals → string (zarr cannot serialize categoricals).
+        sanitize_table(adata)
+        _pandas_categoricals_to_string(adata.obs)
 
         if bg_df is not None:
             adata.uns["fov_bg_signal"] = bg_df
@@ -1185,7 +1185,7 @@ def _assemble_sdata(
             sdata.tables[table_name] = _parse_cell_table(raw, region=main_label)
             sdata.set_table_annotates_spatialelement(table_name, region=main_label)
 
-    return sdata
+    return _set_reader_metadata(sdata, "cosmx")
 
 
 # ---------------------------------------------------------------------------
