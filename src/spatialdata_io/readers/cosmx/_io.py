@@ -20,12 +20,12 @@ import scipy.sparse
 import shapely.geometry as sgeom
 import tifffile
 from anndata import AnnData
+from anndata.utils import make_index_unique
 from dask_image.imread import imread
 from spatialdata._logging import logger
 from tqdm import tqdm
 
 from ._utils import (
-    _deduplicate_names,
     _match_header,
     _pandas_categoricals_to_string,
     _to_float01_dtype_max,
@@ -223,7 +223,7 @@ def _read_fov_image(
         protein_image, protein_names = _read_protein_fov(protein_path)
         image = da.concatenate([image, protein_image], axis=0)
 
-    all_names = _deduplicate_names(morphology_coords + protein_names).tolist()
+    all_names = make_index_unique(pd.Index(morphology_coords + protein_names)).tolist()
 
     if selected_channels is not None:
         name_to_idx = {n: i for i, n in enumerate(all_names)}
