@@ -970,6 +970,36 @@ def _img_shape(sdata):
     return tuple(arr.shape)
 
 
+class TestLabelAnchoring:
+    """Co-registration is label-anchored: the segmentation is the ground truth."""
+
+    def test_segmented_but_unquantified_cell_kept(self, sdio, tmp_path):
+        # A polygon with no expression row (cell 6, the highest cell_ID) is an
+        # orphan. It must be KEPT in the labels (segmentation = ground truth) while
+        # the table holds only the 5 quantified cells. Its high cell_ID also guards
+        # the max_cell_id prescan, which must read the polygon 'cellID' column.
+        import dask.array as da
+
+        root = tmp_path / "orphan"
+        root.mkdir()
+        fov_pos = {1: (0.0, 0.0)}
+        fov_df = pd.DataFrame(
+            {"FOV": [1], "x_global_px": [0.0], "y_global_px": [0.0], "x_global_mm": [0.0], "y_global_mm": [0.0]}
+        )
+        _write_csv(root / "S0_fov_positions_file.csv.gz", fov_df, compress=True)
+        _write_csv(root / "S0-polygons.csv.gz", _make_polygon_df(fov_pos, n_cells=6), compress=True)
+        _write_csv(root / "S0_exprMat_file.csv.gz", _make_expr_mat([1], n_cells=5), compress=True)
+        _write_csv(root / "S0_metadata_file.csv.gz", _make_metadata([1], n_cells=5), compress=True)
+
+        sd = sdio.cosmx(root, fovs=[1], read_images=False, read_transcripts=False, read_proteins=False, n_workers=1)
+        lab = next(iter(sd.labels.values()))
+        arr = lab.data if hasattr(lab, "data") else lab["scale0"]["image"].data
+        n_label = int((np.asarray(da.unique(arr).compute()) != 0).sum())
+        n_table = next(iter(sd.tables.values())).n_obs
+        assert n_label == 6, f"labels must keep all 6 segmented cells (incl. the orphan), got {n_label}"
+        assert n_table == 5, f"table must hold only the 5 quantified cells, got {n_table}"
+
+
 class TestFovPlacement:
     """Verify stitching geometry for adjacent, non-adjacent, and single FOV."""
 
