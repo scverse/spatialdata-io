@@ -78,6 +78,7 @@ from ._utils import (
     _dask_categoricals_to_string,
     _normalize_image_channels,
     _pandas_categoricals_to_string,
+    _sanitize_obs_columns,
     detect_fovs_with_data,
 )
 
@@ -194,19 +195,34 @@ def _element_name(base: str, fovs: set[int] | None, *, max_listed: int = 8) -> s
 # ---------------------------------------------------------------------------
 
 
+def _global_id_series(table: AnnData) -> pd.Series | None:
+    """Return the (Int64-coerced) ``global_cell_id`` column of a table, or ``None``."""
+    adata = table.table if hasattr(table, "table") else table
+    if "global_cell_id" not in adata.obs:
+        return None
+    col = adata.obs["global_cell_id"]
+    return col.astype("Int64") if isinstance(col.dtype, pd.CategoricalDtype) else col
+
+
+def _parse_cell_table(adata: AnnData, *, region: str | None, region_key: str | None = "region_key") -> AnnData:
+    """Parse a cell-annotation table with the standard CosMx region/instance keys."""
+    return TableModel.parse(
+        adata, region=region, region_key=region_key, instance_key="global_cell_id", overwrite_metadata=True
+    )
+
+
+def _parse_labels(arr: Any, ox: float, oy: float) -> Labels2DModel:
+    """Parse a ``(y, x)`` label raster with a global translation by ``(ox, oy)``."""
+    return Labels2DModel.parse(arr, dims=("y", "x"), transformations={"global": _translation_transform(ox, oy)})
+
+
 def _collect_global_cell_ids_from_tables(tables: dict[str, AnnData]) -> set[int]:
     """Gather all non-zero global_cell_ids across all tables."""
     ids: set[int] = set()
     for table in tables.values():
-        adata = table.table if hasattr(table, "table") else table
-        if "global_cell_id" not in adata.obs:
-            continue
-        col = adata.obs["global_cell_id"]
-        if isinstance(col.dtype, pd.CategoricalDtype):
-            col = col.astype("Int64")
-        for v in col:
-            if pd.notna(v) and int(v) != 0:
-                ids.add(int(v))
+        col = _global_id_series(table)
+        if col is not None:
+            ids.update(int(v) for v in col if pd.notna(v) and int(v) != 0)
     return ids
 
 
@@ -221,13 +237,10 @@ def _filter_tables_to_ids(
         return tables
     filtered: dict[str, AnnData] = {}
     for name, table in tables.items():
-        adata = table.table if hasattr(table, "table") else table
-        if "global_cell_id" not in adata.obs:
+        col = _global_id_series(table)
+        if col is None:
             filtered[name] = table
             continue
-        col = adata.obs["global_cell_id"]
-        if isinstance(col.dtype, pd.CategoricalDtype):
-            col = col.astype("Int64")
         mask = col.isin(valid_ids)
         if not mask.any():
             logger.warning("Table %s: all rows removed after matching to %s.", name, source_label)
@@ -236,15 +249,10 @@ def _filter_tables_to_ids(
             filtered[name] = table
             continue
         logger.info("Table %s: dropping %d row(s) not in %s.", name, int((~mask).sum()), source_label)
+        adata = table.table if hasattr(table, "table") else table
         ad2 = adata[mask].copy()
         region_val = ad2.obs["region_key"].iloc[0] if "region_key" in ad2.obs else None
-        filtered[name] = TableModel.parse(
-            ad2,
-            region=region_val,
-            region_key="region_key" if region_val else None,
-            instance_key="global_cell_id",
-            overwrite_metadata=True,
-        )
+        filtered[name] = _parse_cell_table(ad2, region=region_val, region_key="region_key" if region_val else None)
     return filtered
 
 
@@ -576,6 +584,18 @@ class CosMxDatasetReader:
         )
         return df
 
+    def _finalize_transcripts(self, frame: Any, name: str, coord_map: dict[str, str]) -> dict[str, PointsModel]:
+        """Parse a placed transcripts frame into a PointsModel at the global origin."""
+        ox, oy = self._ensure_origin()
+        return {
+            name: PointsModel.parse(
+                frame,
+                coordinates=coord_map,
+                feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
+                transformations={"global": _translation_transform(ox, oy)},
+            )
+        }
+
     def _read_transcripts_parquet(self, src: Path) -> dict[str, PointsModel]:
         """Read large transcripts via Parquet cache + Dask."""
         pq_file = _parquet_cache_for_tx(src, self.dataset.dataset_id, n_workers=self.n_workers)
@@ -605,15 +625,7 @@ class CosMxDatasetReader:
                 ox, oy = self._ensure_origin()
                 df = df.assign(x=df["x_global_px"] - ox, y=df["y_global_px"] - oy)
 
-        ox, oy = self._ensure_origin()
-        return {
-            name: PointsModel.parse(
-                df,
-                coordinates=coord_map,
-                feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
-                transformations={"global": _translation_transform(ox, oy)},
-            )
-        }
+        return self._finalize_transcripts(df, name, coord_map)
 
     def _read_transcripts_csv(self, src: Path) -> dict[str, PointsModel]:
         """Read small transcripts directly from CSV."""
@@ -635,16 +647,8 @@ class CosMxDatasetReader:
         # Convert to Dask before PointsModel.parse to avoid a partition
         # alignment error in spatialdata when it independently converts the
         # feature column and the coordinate columns to separate Dask objects.
-        ox, oy = self._ensure_origin()
         ddf = dd.from_pandas(df, npartitions=max(1, len(df) // 2_000_000))
-        return {
-            name: PointsModel.parse(
-                ddf,
-                coordinates=coord_map,
-                feature_key=CosmxKeys.TARGET_OF_TRANSCRIPT,
-                transformations={"global": _translation_transform(ox, oy)},
-            )
-        }
+        return self._finalize_transcripts(ddf, name, coord_map)
 
     def _transcript_naming(self, df) -> tuple[str, dict[str, str]]:
         """Determine element name and coordinate mapping for transcripts.
@@ -786,7 +790,7 @@ class CosMxDatasetReader:
 
         present_ids = {int(x) for x in da.unique(raster.data).compute() if x != 0}
         name = _element_name("polygons_labels", self.fovs)
-        lbl = Labels2DModel.parse(raster, dims=("y", "x"), transformations={"global": _translation_transform(ox, oy)})
+        lbl = _parse_labels(raster, ox, oy)
         return {name: lbl}, present_ids
 
     def _labels_from_cell_labels_dir(self) -> tuple[dict[str, Labels2DModel], set[int]]:
@@ -826,7 +830,7 @@ class CosMxDatasetReader:
         self._origin_y = oy
 
         name = _element_name("cell_labels", self.fovs)
-        lbl = Labels2DModel.parse(stitched, dims=("y", "x"), transformations={"global": _translation_transform(ox, oy)})
+        lbl = _parse_labels(stitched, ox, oy)
         return {name: lbl}, present_ids
 
     def _labels_from_cell_stats_dir(self) -> tuple[dict[str, Labels2DModel], set[int]]:
@@ -842,7 +846,7 @@ class CosMxDatasetReader:
             fovs=self.fovs if self.fovs else None,
         )
         present_ids = {int(x) for x in df["global_cell_id"].to_numpy() if x != 0}
-        lbl = Labels2DModel.parse(stitched, dims=("y", "x"), transformations={"global": _translation_transform(ox, oy)})
+        lbl = _parse_labels(stitched, ox, oy)
         return {"cell_labels_from_cellstats": lbl}, present_ids
 
     def _build_cell_label_luts(self) -> dict[int, np.ndarray] | None:
@@ -970,51 +974,15 @@ class CosMxDatasetReader:
 
         adata.obs["region_key"] = pd.Series(region, index=adata.obs.index, dtype="category")
 
-        # Sanitize column names for zarr compatibility
-        obs = adata.obs.copy()
-        seen: dict[str, str] = {}
-        to_drop = []
-        for col in obs.columns:
-            key = col.lower()
-            if key in seen:
-                to_drop.append(col)
-            else:
-                seen[key] = col
-        if to_drop:
-            obs = obs.drop(columns=to_drop)
-
-        preserve = {"global_cell_id", "region_key"}
-        rename_map: dict[str, str] = {}
-        taken: set[str] = set(obs.columns)
-        for col in list(obs.columns):
-            if col in preserve:
-                continue
-            new = re.sub(r"[^0-9A-Za-z_]", "_", col.strip())
-            if not re.match(r"[A-Za-z_]", new):
-                new = f"col_{new}"
-            base, i = new, 1
-            while new in taken and new != col:
-                i += 1
-                new = f"{base}_{i}"
-            if new != col:
-                rename_map[col] = new
-                taken.add(new)
-        if rename_map:
-            obs = obs.rename(columns=rename_map)
-
+        # Zarr-safe, de-duplicated obs column names.
+        obs = _sanitize_obs_columns(adata.obs)
         _pandas_categoricals_to_string(obs)
         adata.obs = obs
 
         if bg_df is not None:
             adata.uns["fov_bg_signal"] = bg_df
 
-        table = TableModel.parse(
-            adata,
-            region=region,
-            region_key="region_key",
-            instance_key="global_cell_id",
-            overwrite_metadata=True,
-        )
+        table = _parse_cell_table(adata, region=region)
         return {"cell_data": table}
 
 
@@ -1237,13 +1205,7 @@ def _assemble_sdata(
                 continue
             raw.uns.pop("spatialdata_attrs", None)
             raw.obs["region_key"] = pd.Series(main_label, index=raw.obs.index, dtype="category")
-            sdata.tables[table_name] = TableModel.parse(
-                raw,
-                region=main_label,
-                region_key="region_key",
-                instance_key="global_cell_id",
-                overwrite_metadata=True,
-            )
+            sdata.tables[table_name] = _parse_cell_table(raw, region=main_label)
             sdata.set_table_annotates_spatialelement(table_name, region=main_label)
 
     return sdata
