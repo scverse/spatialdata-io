@@ -66,6 +66,13 @@ jobs:
                   # OMAP10 for format v0.x.x
                   curl -o OMAP10_small.zip "https://zenodo.org/api/records/18196366/files-archive"
 
+                  # -------
+                  # nf-core/mcmicro 2.0.0 `test` profile output (WSI, single sample, mccellpose segmentation).
+                  # Derived from nf-core/test-datasets:mcmicro (lunaphore_example, MIT-licensed; source data
+                  # Wuennemann et al. 2024, syn51471704, CC BY 4.0). Reproduce with:
+                  #   nextflow run nf-core/mcmicro -r 2.0.0 -profile test,docker --outdir out
+                  curl -L -o mcmicro-nfcore-wsi-test.zip "https://github.com/mc2-center/spatialdata-io/releases/download/test-data/mcmicro-nfcore-wsi-test.zip"
+
             - name: Unzip files
               run: |
                   cd ./data
