@@ -253,6 +253,18 @@ def iss_wrapper(
 )
 @click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
 @click.option(
+    "--pipeline",
+    type=click.Choice(["labsyspharm", "nfcore"]),
+    default=None,
+    help="Which mcmicro pipeline produced the output. [default: auto-detect]",
+)
+@click.option(
+    "--markers-file",
+    type=click.Path(),
+    default=None,
+    help="Path to the markers CSV. [default: auto-detect]",
+)
+@click.option(
     "--imread-kwargs",
     type=str,
     default="{}",
@@ -273,6 +285,8 @@ def iss_wrapper(
 def mcmicro_wrapper(
     input: str,
     output: str,
+    pipeline: str | None = None,
+    markers_file: str | None = None,
     imread_kwargs: str = "{}",
     image_models_kwargs: str = "{}",
     labels_models_kwargs: str = "{}",
@@ -282,6 +296,8 @@ def mcmicro_wrapper(
 
     sdata = mcmicro(
         input,
+        pipeline=pipeline,
+        markers_file=markers_file,
         imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
         labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),

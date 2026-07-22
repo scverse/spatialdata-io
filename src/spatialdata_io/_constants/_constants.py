@@ -276,10 +276,18 @@ class StereoseqKeys(ModeEnum):
 
 
 @unique
+class McmicroPipeline(ModeEnum):
+    """The two mcmicro pipeline flavors whose output layouts the reader understands."""
+
+    LABSYSPHARM = "labsyspharm"  # original labsyspharm/mcmicro Nextflow pipeline
+    NFCORE = "nfcore"  # nf-core/mcmicro pipeline
+
+
+@unique
 class McmicroKeys(ModeEnum):
     """Keys for *Mcmicro* formatted dataset."""
 
-    # files and directories
+    # files and directories (labsyspharm/mcmicro layout)
     QUANTIFICATION_DIR = "quantification"
     MARKERS_FILE = "markers.csv"
     IMAGES_DIR_WSI = "registration"
@@ -292,7 +300,21 @@ class McmicroKeys(ModeEnum):
     COREOGRAPH_CENTROIDS = "qc/coreograph/centroidsY-X.txt"
     COREOGRAPH_TMA_MAP = "qc/coreograph/TMA_MAP.tif"
 
+    # files and directories (nf-core/mcmicro layout)
+    NFCORE_IMAGES_DIR_WSI = "registration/ashlar"
+    NFCORE_IMAGES_DIR_TMA = "tma_dearray"
+    NFCORE_QUANTIFICATION_DIR = "quantification/mcquant"
+    NFCORE_COREOGRAPH_CENTROIDS = "tma_dearray/centroidsY-X.txt"
+    NFCORE_PIPELINE_INFO = "pipeline_info"
+    NFCORE_PARAMS_GLOB = "params*.json"
+    NFCORE_BACKSUB_DIR = "backsub"
+    NFCORE_BACKSUB_MARKERS_GLOB = "*_backsub.csv"
+    NFCORE_MARKERSHEET_GLOBS = "summary/*markersheet*.tsv;prelude/*markersheet*.tsv"
+    NFCORE_TMA_MAP_STEM = "TMA_MAP"
+
     # metadata
+    MARKER_NAME = "marker_name"
+    CHANNEL_NUMBER = "channel_number"
     COORDS_X = "X_centroid"
     COORDS_Y = "Y_centroid"
     INSTANCE_KEY = "CellID"
