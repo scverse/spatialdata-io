@@ -27,13 +27,13 @@ jobs:
       envs: ${{ steps.get-envs.outputs.envs }}
     steps:
       - &clone
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           filter: blob:none
           fetch-depth: 0
           persist-credentials: false
       - &setup-uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Get test environments
         id: get-envs
         run: |
@@ -72,7 +72,7 @@ jobs:
       - *clone
       - *setup-uv
       - name: Download artifact of test data
-        uses: dawidd6/action-download-artifact@07ab29fd4a977ae4d2b275087cf67563dfdf0295 # v9
+        uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151 # v21
         with:
           workflow: prepare_test_data.yaml
           name: data
