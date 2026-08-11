@@ -62,6 +62,8 @@ def get_paths() -> tuple[Path, Path]:
 
 
 class IOBenchmarkXenium:
+    """Benchmark reading Xenium data and writing it to the SpatialData Zarr format."""
+
     timeout = 3600
     repeat = 3
     number = 1

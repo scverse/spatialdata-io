@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import warnings
-import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -169,6 +168,7 @@ def seqfish(
 
         # map tables to cell labels (defined later)
         region = os.path.splitext(get_cell_segmentation_labels_file(roi_str))[0]
+        assert isinstance(adata.obs, pd.DataFrame)
         adata.obs[SK.REGION_KEY] = region
         adata.obs[SK.REGION_KEY] = adata.obs[SK.REGION_KEY].astype("category")
         adata.obs[SK.INSTANCE_KEY_TABLE] = instance_id.to_numpy().astype(np.uint16)
@@ -289,8 +289,8 @@ def _is_ome_tiff_multiscale(ome_tiff_file: Path) -> bool:
     # for some image files we couldn't find the multiscale information in the omexml metadata, and this method proves to
     # be more robust
     try:
-        zarr_tiff_store = tifffile.imread(ome_tiff_file, is_ome=True, level=1, aszarr=True)
-        zarr_tiff_store.close()
+        with tifffile.TiffFile(ome_tiff_file, is_ome=True) as tif:
+            tif.aszarr(level=1).close()
     except IndexError:
         return False
     return True
@@ -307,6 +307,8 @@ def _get_n_pixels(ome_tiff_file: Path) -> int:
 
 def _get_scale_factors_scale0(DAPI_path: Path) -> list[float]:
     with tifffile.TiffFile(DAPI_path, is_ome=True) as tif:
+        if tif.ome_metadata is None:
+            raise ValueError(f"Expected OME-XML metadata in {DAPI_path}, found none.")
         ome_metadata = xmltodict.parse(tif.ome_metadata)
         scalefactor_x = ome_metadata["OME"]["Image"]["Pixels"]["@PhysicalSizeX"]
         scalefactor_y = ome_metadata["OME"]["Image"]["Pixels"]["@PhysicalSizeY"]

@@ -177,7 +177,9 @@ def _barcode_check(barcode_file: Path) -> pd.DataFrame:
     return pd.DataFrame(bc_positions).transpose()
 
 
-def _xy2edges(xy: list[int], scale: float = 1.0, border: bool = True, border_scale: float = 1) -> NDArray[np.double]:
+def _xy2edges(
+    xy: NDArray[np.int_], scale: float = 1.0, border: bool = True, border_scale: float = 1
+) -> NDArray[np.double]:
     """Construct vertex coordinate of a square from the barcode coordinates.
 
     The constructed square has a scalable border.
@@ -264,13 +266,12 @@ def dbit(
     -------
     :class:`spatialdata.SpatialData`.
     """
-    if path is not None:
-        path = Path(path)
-        # if path is invalid, raise error
-        if not os.path.isdir(path):
-            raise FileNotFoundError(
-                f"The path you have passed: {path} has not been found. A correct path to the data directory is needed."
-            )
+    path = Path() if path is None else Path(path)
+    # if path is invalid, raise error
+    if not os.path.isdir(path):
+        raise FileNotFoundError(
+            f"The path you have passed: {path} has not been found. A correct path to the data directory is needed."
+        )
 
     # compile regex pattern to find file name in path, according to _constants.DbitKeys()
     patt_h5ad = re.compile(f".*{DbitKeys.COUNTS_FILE}")
@@ -279,29 +280,33 @@ def dbit(
 
     # search for files paths. Gives priority to files matching the pattern found in path.
     anndata_path_checked = _check_path(
-        path=path,  # type: ignore
+        path=path,
         path_specific=anndata_path,
         pattern=patt_h5ad,
         key=DbitKeys.COUNTS_FILE,
     )[0]
     barcode_position_checked = _check_path(
-        path=path,  # type: ignore
+        path=path,
         path_specific=barcode_position,
         pattern=patt_barcode,
         key=DbitKeys.BARCODE_POSITION,
     )[0]
     image_path_checked, hasimage = _check_path(
-        path=path,  # type: ignore
+        path=path,
         path_specific=image_path,
         pattern=patt_lowres,
         key=DbitKeys.IMAGE_LOWRES_FILE,
         optional_arg=True,
     )
+    # `_check_path` raises unless `optional_arg=True`, so the two mandatory files are always found
+    assert anndata_path_checked is not None
+    assert barcode_position_checked is not None
 
     # read annData.
     adata = ad.read_h5ad(anndata_path_checked)
+    assert isinstance(adata.obs, pd.DataFrame)
     # Read barcode.
-    bc_df = _barcode_check(barcode_file=barcode_position_checked)  # type: ignore
+    bc_df = _barcode_check(barcode_file=barcode_position_checked)
 
     # add barcode positions to annData.
     # A and B naming follow original publication and protocol
@@ -310,13 +315,13 @@ def dbit(
     # sort annData by barcode position. Barcode A first, then Barcode B
     idx = adata.obs.sort_values(by=["array_A", "array_B"]).index
     adata = adata[idx]
+    assert isinstance(adata.obs, pd.DataFrame)
 
     # populate annData
     if dataset_id is None:  # if no dataset_id, use file name as id.
         logger.warning("No dataset_id received as input.")
-        dataset_id = ".".join(
-            anndata_path_checked.name.split(".")[:-1]  # type: ignore
-        )  # this is the filename stripped from the file extension
+        # this is the filename stripped from the file extension
+        dataset_id = ".".join(anndata_path_checked.name.split(".")[:-1])
         logger.warning(f"{dataset_id} is used as dataset_id.")
 
     adata.obs["region"] = dataset_id

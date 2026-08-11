@@ -106,23 +106,22 @@ def cosmx(
         raise FileNotFoundError(f"Labels directory not found: {labels_dir}.")
 
     counts = pd.read_csv(counts_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
-    counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxKeys.FOV).astype(str).values, sep="_")
+    counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxKeys.FOV).astype(str).tolist(), sep="_")
 
     obs = pd.read_csv(meta_file, header=0, index_col=CosmxKeys.INSTANCE_KEY)
     obs[CosmxKeys.FOV] = pd.Categorical(obs[CosmxKeys.FOV].astype(str))
     obs[CosmxKeys.REGION_KEY] = pd.Categorical(obs[CosmxKeys.FOV].astype(str).apply(lambda s: s + "_labels"))
     obs[CosmxKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
     obs.rename_axis(None, inplace=True)
-    obs.index = obs.index.astype(str).str.cat(obs[CosmxKeys.FOV].values, sep="_")
+    obs.index = obs.index.astype(str).str.cat(obs[CosmxKeys.FOV].astype(str).tolist(), sep="_")
 
     common_index = obs.index.intersection(counts.index)
 
     adata = AnnData(
         csr_matrix(counts.loc[common_index, :].values),
-        dtype=counts.values.dtype,
         obs=obs.loc[common_index, :],
     )
-    adata.var_names = counts.columns
+    adata.var_names = list(counts.columns)
 
     table = TableModel.parse(
         adata,
@@ -131,7 +130,9 @@ def cosmx(
         instance_key=CosmxKeys.INSTANCE_KEY.value,
     )
 
-    fovs_counts = list(map(str, adata.obs.fov.astype(int).unique()))
+    adata_obs = adata.obs
+    assert isinstance(adata_obs, pd.DataFrame)
+    fovs_counts = list(map(str, adata_obs.fov.astype(int).unique()))
 
     affine_transforms_to_global = {}
 

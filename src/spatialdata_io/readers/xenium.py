@@ -50,6 +50,13 @@ if TYPE_CHECKING:
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
 
+def _zarr_array(group: zarr.Group, key: str) -> zarr.Array:
+    node = group[key]
+    if not isinstance(node, zarr.Array):
+        raise TypeError(f"Expected {key!r} to be a zarr array, found {type(node).__name__}.")
+    return node
+
+
 @dataclass
 class _XeniumCells:
     """Centralised cell-data context for a Xenium output folder.
@@ -134,14 +141,14 @@ class _XeniumCells:
             XOA version parsed from ``experiment.xenium``, or ``None`` if unavailable.
         """
         store = zarr.storage.ZipStore(path / XeniumKeys.CELLS_ZARR, read_only=True)
-        group = zarr.open(store, mode="r")
+        group = zarr.open_group(store, mode="r")
 
         # For v < 1.3.0 the zarr cell_id array is 1-D plain integers with no prefix/suffix
         # encoding, so no string representation is produced here; cell_id_str stays None and
         # downstream code reads cell IDs directly from the parquet files.
         cell_id_str = None
         if version is not None and version >= packaging.version.parse("1.3.0"):
-            cell_id_raw = group["cell_id"][...]
+            cell_id_raw = np.asarray(_zarr_array(group, "cell_id")[...])
             cell_id_prefix, dataset_suffix = cell_id_raw[:, 0], cell_id_raw[:, 1]
             cell_id_str = cell_id_str_from_prefix_suffix_uint32(cell_id_prefix, dataset_suffix)
 
@@ -180,7 +187,7 @@ class _XeniumCells:
             in the cells.zarr.zip structure.
 
         Notes
-        ----------
+        -----
         For v2.0+ (polygon_sets): uses polygon_sets/{mask_index}/cell_index.
         For v1.3.0–v1.x (seg_mask_value): only mask_index=1 (cells) returns a mapping;
         mask_index=0 (nuclei) returns None.  The nucleus label integers are identical to
@@ -189,12 +196,12 @@ class _XeniumCells:
         For v < 1.3.0: returns None (no mapping available).
         """
         if self.cell_id_str is not None and self.has_polygon_sets:
-            cell_index = self.group[f"polygon_sets/{mask_index}/cell_index"][...]
+            cell_index = np.asarray(_zarr_array(self.group, f"polygon_sets/{mask_index}/cell_index")[...])
             label_index = np.arange(1, len(cell_index) + 1, dtype=np.int64)
             cell_id = self.cell_id_str[cell_index]
             return pd.DataFrame({"cell_id": cell_id, "label_index": label_index})
         if self.cell_id_str is not None and self.has_seg_mask_value and mask_index == 1:
-            label_index = self.group["seg_mask_value"][...]
+            label_index = np.asarray(_zarr_array(self.group, "seg_mask_value")[...])
             expected = np.arange(1, len(label_index) + 1, dtype=label_index.dtype)
             if not np.array_equal(label_index, expected):
                 warnings.warn(
@@ -246,9 +253,11 @@ class _XeniumCells:
         """
         if self.cell_id_str is None:
             return None
-        x = self.group["cell_summary"][...]
-        column_names = self.group["cell_summary"].attrs["column_names"]
-        df = pd.DataFrame(x, columns=column_names)
+        cell_summary = _zarr_array(self.group, "cell_summary")
+        column_names = cell_summary.attrs["column_names"]
+        if not isinstance(column_names, list):
+            raise TypeError(f"Expected 'column_names' to be a list, found {type(column_names).__name__}.")
+        df = pd.DataFrame(np.asarray(cell_summary[...]), columns=column_names)
         df[XeniumKeys.CELL_ID] = self.cell_id_str
         return df
 
@@ -438,12 +447,14 @@ def xenium(
         if nuc_polys is not None:
             polygons["nucleus_boundaries"] = nuc_polys
     if cells_boundaries:
-        polygons["cell_boundaries"] = _get_polygons(
+        cell_polys = _get_polygons(
             path,
             XeniumKeys.CELL_BOUNDARIES_FILE,
             specs,
             indices_mapping=cells_zarr_ctx.cell_indices_mapping,
         )
+        if cell_polys is not None:
+            polygons["cell_boundaries"] = cell_polys
 
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
@@ -632,7 +643,7 @@ def _get_labels(
     """Read the labels raster from cells.zarr.zip masks/{mask_index}."""
     if mask_index not in [0, 1]:
         raise ValueError(f"mask_index must be 0 or 1, found {mask_index}.")
-    masks = da.from_array(cells_zarr["masks"][f"{mask_index}"])
+    masks = da.from_array(_zarr_array(cells_zarr, f"masks/{mask_index}"))
     return Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
 
@@ -802,7 +813,10 @@ def _get_morphology_focus(
                 f"chNNNN_<name>.ome.tif starting with {XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value}"
             )
         first_tiff_path = morphology_focus_dir / XeniumKeys.MORPHOLOGY_FOCUS_V4_DAPI_FILENAME.value
-        ome = from_xml(tifffile.tiffcomment(first_tiff_path), validate=False)
+        ome_xml = tifffile.tiffcomment(first_tiff_path)
+        if ome_xml is None:
+            raise ValueError(f"Expected OME-XML metadata in {first_tiff_path}, found none.")
+        ome = from_xml(ome_xml, validate=False)
 
         # Get channel names from the OME XML
         ome_channels = ome.images[0].pixels.channels

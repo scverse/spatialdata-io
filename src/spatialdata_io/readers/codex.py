@@ -58,7 +58,7 @@ def codex(
     patt = re.compile(".*.fcs") if fcs else re.compile(".*.csv")
     path_files = [i for i in os.listdir(path) if patt.match(i)]
     if path_files and CodexKeys.FCS_FILE or CodexKeys.FCS_FILE_CSV in patt.pattern:
-        fcs = (
+        df = (
             readfcs.ReadFCS(path / path_files[0]).data
             if CodexKeys.FCS_FILE in path_files[0]
             else pd.read_csv(path_files[0], header=0, index_col=None)
@@ -66,7 +66,8 @@ def codex(
     else:
         raise ValueError("Cannot determine data set. Expecting a file with format .fcs or .csv")
 
-    adata = _codex_df_to_anndata(fcs)
+    adata = _codex_df_to_anndata(df)
+    assert isinstance(adata.obs, pd.DataFrame)
 
     xy = adata.obsm[CodexKeys.SPATIAL_KEY]
     shapes = ShapesModel.parse(xy, geometry=0, radius=1, index=adata.obs[CodexKeys.INSTANCE_KEY])

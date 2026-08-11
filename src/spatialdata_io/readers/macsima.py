@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-import re
 import warnings
 from collections import defaultdict
 from copy import deepcopy
@@ -23,7 +21,6 @@ from spatialdata_io._constants._enum import ModeEnum
 from spatialdata_io.readers._utils._utils import (
     _set_reader_metadata,
     calc_scale_factors,
-    parse_channels,
     parse_physical_size,
 )
 
@@ -490,14 +487,14 @@ def _get_software_major_version(version: str) -> int:
 
 def _get_translations(ome: OME) -> dict[str, int]:
     try:
-        translations = {
-            "translation_x": ome.images[0].pixels.planes[0].position_x,
-            "translation_y": ome.images[0].pixels.planes[0].position_y,
-        }
+        plane = ome.images[0].pixels.planes[0]
+        position_x, position_y = plane.position_x, plane.position_y
         # If the position attributes are not present the values will be None and we default to (0,0)
-        if any(v is None for v in translations.values()):
+        if position_x is None or position_y is None:
             logger.debug(f"No translation found for {ome.images[0].name}, defaulting to (0, 0)")
             translations = {"translation_x": 0, "translation_y": 0}
+        else:
+            translations = {"translation_x": int(position_x), "translation_y": int(position_y)}
 
     # In case the ome is faulty, also default to (0,0)
     except AttributeError:
@@ -801,7 +798,7 @@ def create_sdata(
         for p in path_files:
             try:
                 pixels_to_microns = parse_physical_size(p)
-            except Exception:
+            except (OSError, ValueError, IndexError, NotImplementedError):
                 logger.debug(f"Could not parse physical size from {p}. Trying next file.")
                 continue
         if pixels_to_microns is None:

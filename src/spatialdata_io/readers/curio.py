@@ -65,9 +65,11 @@ def curio(
     var_features_moransi = pd.read_csv(path / file_names[CurioKeys.VAR_FEATURES_MORANSI], sep="\t", header=0)
 
     # adding cluster information in adata.obs
-    assert np.array_equal(cluster_assign[0].to_numpy(), adata.obs.index.to_numpy())
-    adata.obs = adata.obs.assign(cluster=cluster_assign[1].values)
-    adata.obs["cluster"] = adata.obs["cluster"].astype("category")
+    obs = adata.obs
+    assert isinstance(obs, pd.DataFrame)
+    assert np.array_equal(cluster_assign[0].to_numpy(), obs.index.to_numpy())
+    obs = obs.assign(cluster=cluster_assign[1].values)
+    obs["cluster"] = obs["cluster"].astype("category")
 
     # adding metrics information in adata.uns
     categories = metrics[CurioKeys.CATEGORY].unique()
@@ -77,12 +79,15 @@ def curio(
     adata.uns[CurioKeys.TOP_CLUSTER_DEFINING_FEATURES] = var_features_clusters
 
     # adding Moran's I information in adata.var, for the variable for which it is available
+    var = adata.var
+    assert isinstance(var, pd.DataFrame)
     assert set(adata.var_names).issuperset(var_features_moransi.index)
-    adata.var.join(var_features_moransi, how="outer")
+    var.join(var_features_moransi, how="outer")
 
-    adata.obs[CurioKeys.REGION_KEY] = CurioKeys.REGION
-    adata.obs[CurioKeys.REGION_KEY] = adata.obs[CurioKeys.REGION_KEY].astype("category")
-    adata.obs[CurioKeys.INSTANCE_KEY] = adata.obs.index
+    obs[CurioKeys.REGION_KEY] = CurioKeys.REGION
+    obs[CurioKeys.REGION_KEY] = obs[CurioKeys.REGION_KEY].astype("category")
+    obs[CurioKeys.INSTANCE_KEY] = obs.index
+    adata.obs = obs
 
     table = TableModel.parse(
         adata,
@@ -92,8 +97,10 @@ def curio(
     )
 
     # adding geometry information in a shapes element (we redundantly leave it in obsm['spatial'])
-    assert np.array_equal(adata.obsm["spatial"], adata.obsm["X_spatial"])
     xy = adata.obsm["spatial"]
+    x_spatial = adata.obsm["X_spatial"]
+    assert isinstance(xy, np.ndarray) and isinstance(x_spatial, np.ndarray)
+    assert np.array_equal(xy, x_spatial)
     del adata.obsm["X_spatial"]
 
     shapes = ShapesModel.parse(xy, geometry=0, radius=10, index=adata.obs[CurioKeys.INSTANCE_KEY])

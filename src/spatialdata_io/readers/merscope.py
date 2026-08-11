@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import re
 import warnings
 from pathlib import Path
@@ -232,15 +233,12 @@ def merscope(
     return _set_reader_metadata(sdata, "merscope")
 
 
-def _get_reader(backend: str | None) -> Callable:  # type: ignore[type-arg]
+def _get_reader(backend: str | None) -> Callable[..., Image2DModel]:
     if backend is not None:
         return _rioxarray_load_merscope if backend == "rioxarray" else _dask_image_load_merscope
-    try:
-        import rioxarray
-
+    if importlib.util.find_spec("rioxarray") is not None:
         return _rioxarray_load_merscope
-    except ModuleNotFoundError:
-        return _dask_image_load_merscope
+    return _dask_image_load_merscope
 
 
 def _rioxarray_load_merscope(
@@ -335,8 +333,9 @@ def _get_table(
     obs = pd.read_csv(obs_path, index_col=0, dtype={MerscopeKeys.METADATA_CELL_KEY: str})
 
     is_gene = ~data.columns.str.lower().str.contains("blank")
-    adata = anndata.AnnData(data.loc[:, is_gene], dtype=data.values.dtype, obs=obs)
+    adata = anndata.AnnData(data.loc[:, is_gene], obs=obs)
 
+    assert isinstance(adata.obs, pd.DataFrame)
     adata.obsm["blank"] = data.loc[:, ~is_gene]  # blank fields are excluded from adata.X
     adata.obsm["spatial"] = adata.obs[[MerscopeKeys.CELL_X, MerscopeKeys.CELL_Y]].values
     adata.obs["region"] = pd.Series(vizgen_region, index=adata.obs_names, dtype="category")

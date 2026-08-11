@@ -59,7 +59,7 @@ def stereoseq(
     :class:`spatialdata.SpatialData`
 
     Notes
-    _____
+    -----
     The cell segmentation, which encodes the background as 0 and the cells as 1, is parsed as an image (i.e. (c, y, x))
     object and not as labels object (i.e. (y, x)). If you want to visualize this binary image with napari you will
     have to adjust the color limit to be able to see the cells.
@@ -151,6 +151,7 @@ def stereoseq(
     var[SK.GENE_EXON] = cellbin_gef[SK.CELL_BIN][SK.GENE_EXON][:]
 
     # merge columns of obs and var to adata.obs and adata.var
+    assert isinstance(adata.obs, pd.DataFrame) and isinstance(adata.var, pd.DataFrame)
     obs.index = adata.obs.index
     adata.obs = pd.merge(adata.obs, obs, left_index=True, right_index=True)
     var.index = adata.var.index
@@ -269,8 +270,11 @@ def stereoseq(
 
             expression = coo_matrix(
                 (
-                    df_points[SK.COUNT],
-                    (index_to_bin_id.loc[df_points.index]["bin_id"].to_numpy(), df_points[SK.FEATURE_KEY].cat.codes),
+                    df_points[SK.COUNT].to_numpy(),
+                    (
+                        index_to_bin_id.loc[df_points.index]["bin_id"].to_numpy(),
+                        df_points[SK.FEATURE_KEY].cat.codes.to_numpy(),
+                    ),
                 ),
                 shape=(len(points_coords), len(df_points[SK.FEATURE_KEY].cat.categories)),
             ).tocsr()

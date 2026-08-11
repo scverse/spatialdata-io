@@ -1,51 +1,36 @@
 # Temp files
 .DS_Store
 *~
-*.tmp
-temp/
-
-# Compiled files
-__pycache__/
-.ipynb_checkpoints/
-
-# Distribution / packaging
-/build/
-/dist/
-/*.egg-info/
-
-# Tests and coverage
-/.pytest_cache/
-/.cache/
-/data/
-
-# docs
-/docs/generated/
-/docs/_build/
+buck-out/
 
 # IDEs
 /.idea/
 /.vscode/
 /.spyproject/
+*.code-workspace
+
+# Compiled files
+.venv/
+__pycache__/
+.*cache/
+.ipynb_checkpoints/
+
+# Distribution / packaging
+/dist/
+_version.py
+uv.lock
+
+# Tests and coverage
+/data/
+/node_modules/
+/.coverage*
+/tests/data/
 
 # docs
 /docs/generated/
 /docs/_build/
 
-# other
-_version.py
-node_modules/
-.code-workspace
-.asv/
-uv.lock
-
-# memray report
+# benchmarks
+/.asv/
 *.bin
-
-# speedscope report
 profile.speedscope.json
-
-# test datasets (e.g. Xenium ones)
-# data folder
-data/
-tests/data
-.venv

@@ -112,11 +112,10 @@ def test_read_generic_image(runner: CliRunner, cli: bool, element_name: str | No
                 read_generic_wrapper,
                 [
                     "--input",
-                    image_path,
+                    str(image_path),
                     "--output",
-                    output_zarr_path,
-                    "--name",
-                    element_name,
+                    str(output_zarr_path),
+                    *(() if element_name is None else ("--name", element_name)),
                     "--data-axes",
                     "cyx",
                     "--coordinate-system",
@@ -148,14 +147,15 @@ def test_cli_read_generic_image_invalid_data_axes(runner: CliRunner) -> None:
             read_generic_wrapper,
             [
                 "--input",
-                image_path,
+                str(image_path),
                 "--output",
-                output_zarr_path,
+                str(output_zarr_path),
                 "--data-axes",
                 "invalid_axes",
             ],
         )
         assert result.exit_code != 0, result.output
+        assert result.exc_info is not None
         assert "data_axes must be a permutation of 'cyx' or 'czyx'." in result.exc_info[1].args[0]
 
 
@@ -169,9 +169,9 @@ def test_read_generic_geojson(runner: CliRunner, cli: bool) -> None:
                 read_generic_wrapper,
                 [
                     "--input",
-                    geojson_path,
+                    str(geojson_path),
                     "--output",
-                    output_zarr_path,
+                    str(output_zarr_path),
                     "--coordinate-system",
                     "global",
                 ],

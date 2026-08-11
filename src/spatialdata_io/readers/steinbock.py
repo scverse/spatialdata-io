@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 import anndata as ad
+import pandas as pd
 from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata._logging import logger
@@ -102,6 +103,7 @@ def steinbock(
         )
 
     adata = ad.read_h5ad(path / SteinbockKeys.CELLS_FILE)
+    assert isinstance(adata.obs, pd.DataFrame) and isinstance(adata.var, pd.DataFrame)
     idx = adata.obs.index.str.split(" ").map(lambda x: int(x[1]))
     regions = adata.obs.image.str.replace(".tiff", "", regex=False)
     regions = regions.apply(lambda x: f"{x}_labels")

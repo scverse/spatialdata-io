@@ -103,7 +103,7 @@ def visium_hd(
     var_names_make_unique
         If `True`, call `.var_names_make_unique()` on each `AnnData` table.
     imread_kwargs
-        Keyword arguments for :func:`imageio.imread`.
+        Keyword arguments for :func:`imageio.v2.imread`.
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`.
         The ``scale_factors`` key, when provided, overrides the scale factors used to downscale the full-resolution
@@ -395,6 +395,7 @@ def visium_hd(
             )
 
             SHAPES_KEY_HD = f"{dataset_id}_{VisiumHDKeys.NUCLEUS_SEG_KEY_HD}"
+            assert isinstance(nucleus_adata_hd.obs, pd.DataFrame)
             nucleus_adata_hd.obs["cell_id"] = nucleus_adata_hd.obs.index
             nucleus_adata_hd.obs["region"] = SHAPES_KEY_HD
             nucleus_adata_hd.obs["region"] = nucleus_adata_hd.obs["region"].astype("category")
@@ -777,8 +778,8 @@ def _make_filtered_nucleus_adata(
     and aggregates the data based on specified bin into cell IDs which only contain
     the 2um square data under segmented nuclei.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     filtered_matrix_h5_path
         Path to the 10x Genomics HDF5 matrix file.
     barcode_mappings_parquet_path
@@ -790,8 +791,8 @@ def _make_filtered_nucleus_adata(
     gex_only
         If `True`, only the gene expression (GEX) data will be loaded.
 
-    Returns:
-    --------
+    Returns
+    -------
     AnnData
         An AnnData object where the observations correspond to filtered cell IDs
         and the variables correspond to the original features from the input data.

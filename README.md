@@ -57,7 +57,7 @@ Please refer to the [documentation][link-docs]. In particular, the
 
 ## Installation
 
-You need to have Python 3.8 or newer installed on your system. If you don't have
+You need to have Python 3.12 or newer installed on your system. If you don't have
 Python installed, we recommend installing [Miniconda](https://docs.conda.io/en/latest/miniconda.html).
 
 There are several alternative options to install spatialdata-io:

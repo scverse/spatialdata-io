@@ -1,6 +1,6 @@
 from importlib import import_module
 from importlib.metadata import version
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 __version__ = version("spatialdata-io")
 
@@ -74,11 +74,17 @@ def __dir__() -> list[str]:
 
 
 if TYPE_CHECKING:
+    # converters
+    from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
+
     # readers
     from spatialdata_io.readers.codex import codex
     from spatialdata_io.readers.cosmx import cosmx
     from spatialdata_io.readers.curio import curio
     from spatialdata_io.readers.dbit import dbit
+
+    # readers file types
+    from spatialdata_io.readers.generic import generic, geojson, image
     from spatialdata_io.readers.macsima import macsima
     from spatialdata_io.readers.mcmicro import mcmicro
     from spatialdata_io.readers.merscope import merscope
@@ -92,9 +98,3 @@ if TYPE_CHECKING:
         xenium_aligned_image,
         xenium_explorer_selection,
     )
-
-    # readers file types
-    from spatialdata_io.readers.generic import generic, geojson, image
-
-    # converters
-    from spatialdata_io.converters.generic_to_zarr import generic_to_zarr

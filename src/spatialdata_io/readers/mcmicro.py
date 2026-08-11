@@ -260,11 +260,10 @@ def _create_anndata(
         region_value = "core_" + sample_id + "_" + labels_basename
         table[McmicroKeys.INSTANCE_KEY] = table[McmicroKeys.INSTANCE_KEY]
     adata = AnnData(
-        table[var].to_numpy(),
+        table[var].to_numpy(dtype=float),
         obs=table.drop(columns=var + coords),
         var=markers,
-        obsm={"spatial": table[coords].to_numpy()},
-        dtype=float,
     )
+    adata.obsm["spatial"] = table[coords].to_numpy()
     adata.obs["region"] = pd.Categorical([region_value] * len(adata))
     return adata, region_value

@@ -14,11 +14,11 @@ from spatialdata.models._utils import DEFAULT_COORDINATE_SYSTEM
 from spatialdata.transformations import Identity
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
+    from typing import Any
 
     from geopandas import GeoDataFrame
     from numpy.typing import NDArray
-    from spatialdata.models.models import Chunks_t
     from xarray import DataArray
 
 
@@ -113,10 +113,10 @@ def _tiff_to_chunks(
         2D list of dask arrays representing spatial tiles, each with shape (n_channels, height, width).
     """
     # Lazy file reader
-    slide = tifffile.memmap(input)
+    memmapped_slide = tifffile.memmap(input)
 
     # Transpose to cyx order
-    slide = np.transpose(slide, (axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"]))
+    slide = np.transpose(memmapped_slide, (axes_dim_mapping["c"], axes_dim_mapping["y"], axes_dim_mapping["x"]))
 
     # Get dimensions in (y, x)
     slide_dimensions = slide.shape[1], slide.shape[2]
@@ -171,7 +171,11 @@ def image(
     data_axes: Sequence[str],
     coordinate_system: str,
     use_tiff_memmap: bool = True,
-    chunks: Chunks_t | None = None,
+    chunks: int
+    | tuple[int, ...]
+    | tuple[tuple[int, ...], ...]
+    | Mapping[Any, int | tuple[int, ...] | None]
+    | None = None,
     scale_factors: Sequence[int] | None = None,
 ) -> DataArray:
     """Read an image file and returns a parsed Image2D spatial element.

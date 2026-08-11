@@ -123,7 +123,12 @@ def parse_physical_size(path: Path | None = None, ome_pixels: Pixels | None = No
     from ome_types import from_tiff
     from ome_types.model import UnitsLength
 
-    pixels = ome_pixels or from_tiff(path).images[0].pixels
+    if ome_pixels is not None:
+        pixels = ome_pixels
+    elif path is not None:
+        pixels = from_tiff(path).images[0].pixels
+    else:
+        raise ValueError("Either `path` or `ome_pixels` must be provided.")
     logger.debug(pixels)
     if pixels.physical_size_x_unit != pixels.physical_size_y_unit:
         logger.error("Physical units for x and y dimensions are not the same.")
@@ -131,6 +136,9 @@ def parse_physical_size(path: Path | None = None, ome_pixels: Pixels | None = No
     if pixels.physical_size_x != pixels.physical_size_y:
         logger.error("Physical sizes for x and y dimensions are not the same.")
         raise NotImplementedError
+    if pixels.physical_size_x is None:
+        logger.error("Physical size for the x dimension is not set.")
+        raise ValueError("The OME-TIFF metadata does not define a physical size for the x dimension.")
     # convert to micrometer if needed
     if pixels.physical_size_x_unit == UnitsLength.NANOMETER:
         physical_size = pixels.physical_size_x / 1000

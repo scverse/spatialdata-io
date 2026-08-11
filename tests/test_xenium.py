@@ -7,7 +7,7 @@ import pytest
 from click.testing import CliRunner
 from pytest_mock import MockerFixture
 from spatialdata import match_table_to_element, read_zarr
-from spatialdata.models import TableModel, get_table_keys
+from spatialdata.models import get_table_keys
 
 from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
@@ -202,9 +202,9 @@ def test_cli_xenium(runner: CliRunner, dataset: str) -> None:
             xenium_wrapper,
             [
                 "--input",
-                f,
+                str(f),
                 "--output",
-                output_zarr,
+                str(output_zarr),
             ],
         )
         assert result.exit_code == 0, result.output

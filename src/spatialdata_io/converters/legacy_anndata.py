@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 from spatialdata import (
     SpatialData,
     get_centroids,
@@ -357,6 +358,7 @@ def from_legacy_anndata(adata: AnnData, rgb: bool | None = None) -> SpatialData:
         new_table = adata.copy()
         if TableModel.ATTRS_KEY in new_table.uns:
             del new_table.uns[TableModel.ATTRS_KEY]
+        assert isinstance(new_table.obs, pd.DataFrame)
         new_table.obs[REGION_KEY] = REGION
         new_table.obs[REGION_KEY] = new_table.obs[REGION_KEY].astype("category")
         new_table.obs[INSTANCE_KEY] = shapes[REGION].index.values

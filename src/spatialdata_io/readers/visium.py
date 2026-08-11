@@ -172,9 +172,9 @@ def visium(
         assert tissue_positions_file.name == VisiumKeys.SPOTS_FILE_2
         coords = pd.read_csv(tissue_positions_file, header=0, index_col=0)
 
+    assert isinstance(adata.obs, pd.DataFrame)
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
-    coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
-    adata.obsm["spatial"] = coords
+    adata.obsm["spatial"] = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
     adata.obs = pd.DataFrame(adata.obs)
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
     adata.obs["spot_id"] = np.arange(len(adata))

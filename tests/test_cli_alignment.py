@@ -30,7 +30,6 @@ should intentionally stay hidden (e.g. deprecated), add it to
 """
 
 import inspect
-from typing import Any
 
 import pytest
 

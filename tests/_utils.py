@@ -3,7 +3,7 @@ import sys
 import pytest
 
 
-def skip_if_below_python_version() -> pytest.mark.skipif:
+def skip_if_below_python_version() -> pytest.MarkDecorator:
     """Decorator to skip tests if the Python version is below a specified version.
 
     This decorator prevents running tests on unsupported Python versions. Update the `MIN_VERSION`
@@ -11,12 +11,12 @@ def skip_if_below_python_version() -> pytest.mark.skipif:
 
     Returns
     -------
-    pytest.mark.skipif
+    pytest.MarkDecorator
         A pytest marker that skips the test if the current Python version is below the specified `MIN_VERSION`.
 
     Notes
     -----
-    The current minimum version is set to Python 3.10. Adjust the `MIN_VERSION` constant as needed
+    The current minimum version is set to Python 3.13. Adjust the `MIN_VERSION` constant as needed
     to accommodate newer Python versions.
 
     Examples

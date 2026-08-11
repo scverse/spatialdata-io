@@ -1,0 +1,44 @@
+{
+  "template": "https://github.com/scverse/cookiecutter-scverse",
+  "commit": "707f3faab836f9272912f92188b63b31da70c064",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "project_name": "spatialdata-io",
+      "package_name": "spatialdata_io",
+      "project_description": "SpatialData IO for common techs",
+      "author_full_name": "scverse",
+      "author_email": "scverse@scverse.scverse",
+      "github_user": "scverse",
+      "github_repo": "spatialdata-io",
+      "license": "BSD 3-Clause License",
+      "ide_integration": false,
+      "issue_categorization": "labels",
+      "_copy_without_render": [
+        ".github/workflows/build.yaml",
+        ".github/workflows/test.yaml",
+        "docs/_templates/autosummary/**.rst"
+      ],
+      "_exclude_on_template_update": [
+        "CHANGELOG.md",
+        "LICENSE",
+        "README.md",
+        "docs/api.md",
+        "docs/index.md",
+        "docs/notebooks/example.ipynb",
+        "docs/references.bib",
+        "docs/references.md",
+        "src/**",
+        "tests/**"
+      ],
+      "_render_devdocs": false,
+      "_jinja2_env_vars": {
+        "lstrip_blocks": true,
+        "trim_blocks": true
+      },
+      "_template": "https://github.com/scverse/cookiecutter-scverse",
+      "_commit": "707f3faab836f9272912f92188b63b31da70c064"
+    }
+  },
+  "directory": null
+}
