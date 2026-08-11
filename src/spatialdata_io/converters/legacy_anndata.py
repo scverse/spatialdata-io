@@ -333,6 +333,7 @@ def from_legacy_anndata(adata: AnnData, rgb: bool | None = None) -> SpatialData:
                 shapes_transformations[transform_name] = Scale([scalefactor, scalefactor], axes=("x", "y"))
 
     # validate the spot_diameter_fullres value
+    spot_diameter_fullres: float
     if len(spot_diameter_fullres_list) > 0:
         d = np.array(spot_diameter_fullres_list)
         if not np.allclose(d, d[0]):
