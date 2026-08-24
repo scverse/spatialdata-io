@@ -162,6 +162,18 @@ class XeniumKeys(ModeEnum):
     EXPLORER_SELECTION_Y = "Y"
     EXPLORER_SELECTION_KEY = "Selection"
 
+    # secondary analysis (the ``analysis/`` folder: clustering / pca / umap / diffexp)
+    ANALYSIS_DIR = "analysis"
+    ANALYSIS_CLUSTERING_DIR = "clustering"
+    ANALYSIS_PCA_DIR = "pca"
+    ANALYSIS_UMAP_DIR = "umap"
+    ANALYSIS_DIFFEXP_DIR = "diffexp"
+    ANALYSIS_CLUSTERS_FILE = "clusters.csv"
+    ANALYSIS_PROJECTION_FILE = "projection.csv"
+    ANALYSIS_DIFFEXP_FILE = "differential_expression.csv"
+    ANALYSIS_BARCODE = "Barcode"
+    ANALYSIS_CLUSTER = "Cluster"
+
 
 @unique
 class VisiumKeys(ModeEnum):
