@@ -217,7 +217,10 @@ class FeatureCatalog:
                 "feature_code": np.arange(n, dtype=self.dtype),
                 "is_gene": np.arange(n) < self.n_genes,
             },
-            index=pd.Index(list(self.names), name="name"),
+            # The index is deliberately unnamed: pandas then writes it as
+            # '__index_level_0__', which is the only name a client looks for. A named
+            # index becomes a column of that name instead, and the gene list reads empty.
+            index=pd.Index(list(self.names)),
         )
         return frame.sort_index()
 

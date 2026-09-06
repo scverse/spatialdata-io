@@ -231,3 +231,24 @@ def test_matches_celldega_row_group_index_formula() -> None:
         tid = int(grid.tile_id(np.array(tx), np.array(ty)))
         assert tid == js_row_group
         assert grid.chunk_location(tid, max_rg) == (js_file, js_local)
+
+
+def test_meta_gene_index_is_unnamed_so_it_serializes_as_index_level_0(tmp_path) -> None:
+    """A client finds the gene list only under '__index_level_0__'.
+
+    pandas writes a *named* index as a column of that name, which the client does not
+    look for, leaving the gene list empty and the viewer with no transcript controls.
+    """
+    import pyarrow.parquet as pq
+
+    from spatialdata_io.experimental.feature_catalog import FeatureCatalog
+
+    catalog = FeatureCatalog(names=("GENEA", "GENEB", "NegControlProbe_1"), n_genes=2)
+    path = tmp_path / "meta_gene.parquet"
+    catalog.to_frame().to_parquet(path)
+
+    names = pq.read_table(path).schema.names
+    assert "__index_level_0__" in names
+    assert "color" in names
+    for stat in ("mean", "std", "max", "non-zero"):
+        assert stat in names
