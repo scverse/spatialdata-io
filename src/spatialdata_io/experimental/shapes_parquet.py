@@ -163,7 +163,11 @@ def write_shapes_regular_grid(
     transform = display_transform or DisplayTransform.from_element(shapes, coordinate_system)
     display, cx, cy = _display_geometry_array(shapes.geometry, transform)
 
-    table = _canonical_geoparquet_table(shapes)
+    # Re-tiling an already-tiled element must replace the render columns, not append
+    # duplicates: a duplicated name makes projected reads fail outright, and the stale
+    # copy is also mistyped because a pandas round-trip degrades fixed_size_list to list.
+    stale = [c for c in (GEOMETRY_COLUMN, CELL_CODE_COLUMN) if c in shapes.columns]
+    table = _canonical_geoparquet_table(shapes.drop(columns=stale) if stale else shapes)
 
     if cell_index is None:
         codes = np.arange(len(shapes), dtype=np.uint32)
