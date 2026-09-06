@@ -318,7 +318,7 @@ def write_points_regular_grid(
     schema = table.schema.with_metadata(
         {
             **(table.schema.metadata or {}),
-            b"profile": b"celldega_regular_grid_v1",
+            b"profile": b"grid_files_v1",
             b"storage_mode": b"row_groups_chunked",
             b"max_row_groups_per_file": str(max_row_groups_per_file).encode(),
             b"tile_grid": json.dumps(grid.to_manifest_dict()).encode(),
@@ -462,7 +462,7 @@ def _write_streaming(
         schema = schema.with_metadata(
             {
                 **(schema.metadata or {}),
-                b"profile": b"celldega_regular_grid_v1",
+                b"profile": b"grid_files_v1",
                 b"storage_mode": b"row_groups_chunked",
                 b"max_row_groups_per_file": str(max_row_groups_per_file).encode(),
                 b"tile_grid": json.dumps(grid.to_manifest_dict()).encode(),

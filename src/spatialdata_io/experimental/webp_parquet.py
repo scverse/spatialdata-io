@@ -234,7 +234,7 @@ def write_webp_pyramid(
             b"storage_mode": b"row_groups_image_chunked",
             b"max_row_groups_per_file": str(max_row_groups_per_file).encode(),
             b"tile_size": str(tile_size).encode(),
-            b"profile": b"celldega_regular_grid_v1",
+            b"profile": b"grid_files_v1",
         }
     )
 

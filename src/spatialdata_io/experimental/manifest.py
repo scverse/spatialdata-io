@@ -29,7 +29,7 @@ __all__ = [
     "write_manifest",
 ]
 
-PROFILE_NAME = "celldega_regular_grid_v1"
+PROFILE_NAME = "grid_files_v1"
 PROFILE_VERSION = "0.1.0"
 MANIFEST_FILENAME = "landscape_parameters.json"
 
@@ -45,6 +45,7 @@ def build_manifest(
     image_info: list[dict[str, Any]] | None = None,
     image_dimensions: dict[str, Any] | None = None,
     max_pyramid_zoom: int | None = None,
+    fixed_path_assets: dict[str, Any] | None = None,
     source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the profile manifest from the fragments returned by each writer.
@@ -94,6 +95,12 @@ def build_manifest(
         "profile": PROFILE_NAME,
         "profile_version": PROFILE_VERSION,
     }
+    if fixed_path_assets:
+        # Files a client reads by convention rather than through row_group_files:
+        # cell_metadata.parquet, meta_gene.parquet, micron_to_image_transform.csv,
+        # cell_clusters/. Recorded so the profile is self-describing even though the
+        # client does not consult these entries to find them.
+        manifest["fixed_path_assets"] = fixed_path_assets
     if image_dimensions is not None:
         manifest["image_dimensions"] = image_dimensions
     if max_pyramid_zoom is not None:

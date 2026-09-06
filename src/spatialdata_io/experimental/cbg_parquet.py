@@ -116,7 +116,7 @@ def write_cbg_row_groups(
             b"storage_mode": b"row_groups_cbg_chunked",
             b"num_genes": str(n_genes).encode(),
             b"max_row_groups_per_file": str(max_row_groups_per_file).encode(),
-            b"profile": b"celldega_regular_grid_v1",
+            b"profile": b"grid_files_v1",
         }
     )
 

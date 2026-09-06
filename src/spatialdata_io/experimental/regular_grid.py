@@ -1,7 +1,7 @@
 """Deterministic regular-grid spatial tiling.
 
 This module defines the tile geometry and the tile -> row-group -> file numbering
-used by the ``celldega_regular_grid_v1`` visualization profile.
+used by the ``grid_files_v1`` visualization profile.
 
 The grid is a non-overlapping regular square grid in *display pixel* space (level-0
 pixels of a chosen reference image). Given an origin, a tile size and grid dimensions,

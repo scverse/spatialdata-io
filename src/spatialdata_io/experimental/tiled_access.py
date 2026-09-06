@@ -7,10 +7,8 @@ Two entry points, both a single call:
 :func:`xenium_spatially_tiled`
     Read raw Xenium and write a tiled store in one go.
 
-The one-shot path is internally ``read -> write -> tile`` because the tiling rewrites
-*written* Parquet. When the installed SpatialData exposes the ``points_writer`` hook the
-points element is written in its tiled form directly, avoiding writing it twice; otherwise
-it falls back to writing normally and rewriting, which produces an identical store.
+The one-shot path is internally ``read -> write -> tile``, because the tiling rewrites
+*written* Parquet.
 
 Everything here is additive and opt-in. A store that has been tiled is still an ordinary
 SpatialData store: :func:`spatialdata.read_zarr` works unchanged, the canonical columns and
@@ -20,7 +18,6 @@ the extra columns and the manifest.
 
 from __future__ import annotations
 
-import inspect
 import shutil
 from pathlib import Path
 from typing import Any
@@ -43,19 +40,15 @@ from spatialdata_io.experimental.regular_grid import (
     DEFAULT_MAX_ROW_GROUPS_PER_FILE,
     RegularGrid,
 )
-from spatialdata_io.experimental.shapes_parquet import write_shapes_regular_grid
+from spatialdata_io.experimental.shapes_parquet import (
+    write_cell_metadata,
+    write_shapes_regular_grid,
+)
 
-__all__ = ["add_spatial_tiling", "xenium_spatially_tiled", "supports_points_writer_hook"]
+__all__ = ["add_spatial_tiling", "xenium_spatially_tiled"]
 
 #: Directory inside the store holding derived (non-canonical) profile assets.
 PROFILE_DIR = "visualization"
-
-
-def supports_points_writer_hook() -> bool:
-    """Whether the installed SpatialData accepts a ``points_writer`` in ``write()``."""
-    from spatialdata import SpatialData
-
-    return "points_writer" in inspect.signature(SpatialData.write).parameters
 
 
 def _grid_for(points: Any, transform: DisplayTransform, tile_size_px: float) -> RegularGrid:
@@ -170,15 +163,29 @@ def add_spatial_tiling(
     transcripts["directory"] = f"../../points/{points_element}/points.parquet"
 
     cell_segmentation = None
+    cell_metadata = None
+    cell_names: list[str] | None = None
     if shapes_element:
         if shapes_element not in sdata.shapes:
             raise ValueError(f"shapes element {shapes_element!r} not found; have {list(sdata.shapes)}")
         shapes = sdata.shapes[shapes_element]
+        shapes_transform = DisplayTransform.from_element(shapes, coordinate_system)
+        # Cells are the overview representation, so the client needs every centroid up
+        # front. Centroids are not stored anywhere in the SpatialData store (the Xenium
+        # reader puts no x/y_centroid in obs), so they are derived from the geometry --
+        # the same centroids already computed for tile assignment.
+        cell_metadata = write_cell_metadata(
+            shapes,
+            profile_dir / "cell_metadata.parquet",
+            display_transform=shapes_transform,
+            cell_index=list(table.obs_names) if table is not None else None,
+        )
+        cell_names = [str(k) for k in (table.obs_names if table is not None else shapes.index)]
         cell_segmentation = write_shapes_regular_grid(
             shapes,
             store / "shapes" / shapes_element / "shapes.parquet",
             grid=grid,
-            display_transform=DisplayTransform.from_element(shapes, coordinate_system),
+            display_transform=shapes_transform,
             cell_index=list(table.obs_names) if table is not None else None,
             max_row_groups_per_file=max_row_groups_per_file,
             compression=compression,
@@ -232,6 +239,14 @@ def add_spatial_tiling(
 
     catalog.to_frame().to_parquet(profile_dir / "meta_gene.parquet", index=False)
 
+    # Files a client reads at fixed paths rather than through the manifest. Writing them
+    # is what lets the profile directory stand in for a DegaFiles root, so no client needs
+    # to know it is looking at a SpatialData store.
+    _write_micron_to_image_transform(profile_dir / "micron_to_image_transform.csv", transform)
+    cluster_info = None
+    if cell_names is not None:
+        cluster_info = _write_cell_clusters(profile_dir / "cell_clusters", cell_names, None)
+
     manifest = build_manifest(
         grid=grid,
         technology=technology,
@@ -242,6 +257,12 @@ def add_spatial_tiling(
         image_info=image_info,
         image_dimensions=image_dimensions,
         max_pyramid_zoom=max_pyramid_zoom,
+        fixed_path_assets={
+            "meta_gene": "meta_gene.parquet",
+            "micron_to_image_transform": "micron_to_image_transform.csv",
+            **({"cell_metadata": cell_metadata} if cell_metadata else {}),
+            **({"cell_clusters": cluster_info} if cluster_info else {}),
+        },
         source={
             "store": store.name,
             "points_element": points_element,
@@ -316,3 +337,49 @@ def xenium_spatially_tiled(
         compression=compression,
         **(tiling or {}),
     )
+
+
+def _write_micron_to_image_transform(path: Path, transform: DisplayTransform) -> None:
+    """Write the micron-to-image affine Celldega reads at a fixed path.
+
+    Coordinates in the profile are already in display pixels, so this is not needed to
+    place anything. It is needed for the scale bar and any physical-units readout, so it
+    must be the real micron-to-pixel affine and not identity -- writing identity would
+    make the scale bar wrong by the pixel size.
+    """
+    (a, b, c), (d, e, f) = transform.matrix
+    rows = [f"{a} {b} {c}", f"{d} {e} {f}", "0.0 0.0 1.0"]
+    path.write_text("\n".join(rows) + "\n")
+
+
+def _write_cell_clusters(directory: Path, cell_names: list[str], clusters: Any | None) -> dict[str, Any]:
+    """Write the cluster assignment and palette Celldega reads at a fixed path.
+
+    SpatialData does not require a clustering, and the Xenium reader does not load one, so
+    when none is supplied every cell is placed in a single group. That keeps the viewer's
+    category machinery working instead of failing on a missing file; it is a placeholder,
+    not a scientific result.
+    """
+    import colorsys
+
+    import pandas as pd
+
+    directory.mkdir(parents=True, exist_ok=True)
+    if clusters is None:
+        labels = pd.Series(["unclustered"] * len(cell_names), index=cell_names, dtype=object)
+    else:
+        labels = pd.Series([str(v) for v in clusters], index=cell_names, dtype=object)
+
+    counts = labels.value_counts()
+    palette = {}
+    for i, name in enumerate(counts.index):
+        r, g, b = colorsys.hsv_to_rgb((i * 0.618033988749895) % 1.0, 0.6, 0.9)
+        palette[name] = f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+
+    pd.DataFrame({"cluster": labels}).to_parquet(directory / "cluster.parquet")
+    pd.DataFrame(
+        {"color": [palette[n] for n in counts.index], "count": counts.to_numpy()},
+        index=list(counts.index),
+    ).to_parquet(directory / "meta_cluster.parquet")
+
+    return {"n_clusters": int(counts.size), "placeholder": clusters is None}

@@ -40,7 +40,12 @@ from spatialdata_io.experimental.regular_grid import (
     RegularGrid,
 )
 
-__all__ = ["GEOMETRY_COLUMN", "CELL_CODE_COLUMN", "write_shapes_regular_grid"]
+__all__ = [
+    "GEOMETRY_COLUMN",
+    "CELL_CODE_COLUMN",
+    "write_shapes_regular_grid",
+    "write_cell_metadata",
+]
 
 #: Column holding the nested integer-pixel display polygons.
 GEOMETRY_COLUMN = "display_geometry"
@@ -196,7 +201,7 @@ def write_shapes_regular_grid(
     schema = table.schema.with_metadata(
         {
             **(table.schema.metadata or {}),
-            b"profile": b"celldega_regular_grid_v1",
+            b"profile": b"grid_files_v1",
             b"storage_mode": b"row_groups_chunked",
             b"max_row_groups_per_file": str(max_row_groups_per_file).encode(),
             b"tile_grid": json.dumps(grid.to_manifest_dict()).encode(),
@@ -256,3 +261,62 @@ def write_shapes_regular_grid(
         fragment["directory"] = output_path.name
         fragment["files"] = filenames
     return fragment
+
+
+def write_cell_metadata(
+    shapes: Any,
+    output_path: str | Path,
+    *,
+    display_transform: DisplayTransform | None = None,
+    coordinate_system: str = "global",
+    cell_index: Any | None = None,
+) -> dict[str, Any]:
+    """Write the per-cell centroid table used for the overview scatter layer.
+
+    Cells, not sampled transcripts, are the overview representation, so a client needs
+    every cell's centroid up front. This is a single small file (a few MB for ~10^5 cells)
+    rather than a tiled one, because the whole set is wanted at once.
+
+    Row order is significant: a client takes a cell's integer id from its *position* here,
+    so the order must match ``cell_index`` (the annotating table's ``obs`` order) and hence
+    the ``cell_code`` written into the tiled shapes and the CBG.
+
+    The schema matches Celldega's ``cell_metadata.parquet``: ``name`` plus ``geometry`` as
+    ``list<double>`` holding ``[x, y]`` in display pixels.
+    """
+    output_path = Path(output_path)
+    transform = display_transform or DisplayTransform.from_element(shapes, coordinate_system)
+
+    simple = _exterior_only(shapes.geometry)
+    centroids = shapely.centroid(simple)
+    cx, cy = _to_display_pixels(shapely.get_x(centroids), shapely.get_y(centroids), transform)
+
+    order = np.arange(len(shapes))
+    names = [str(k) for k in shapes.index]
+    if cell_index is not None:
+        position = {k: i for i, k in enumerate(shapes.index)}
+        missing = [k for k in cell_index if k not in position]
+        if missing:
+            raise ValueError(
+                f"{len(missing)} cell(s) in cell_index have no shape (e.g. {missing[:3]}); "
+                f"their centroid would be undefined."
+            )
+        order = np.fromiter((position[k] for k in cell_index), dtype=np.int64, count=len(cell_index))
+        names = [str(k) for k in cell_index]
+
+    flat = np.empty(len(order) * 2, dtype=np.float64)
+    flat[0::2] = cx[order]
+    flat[1::2] = cy[order]
+    geometry = pa.ListArray.from_arrays(pa.array(np.arange(len(order) + 1, dtype=np.int32) * 2), pa.array(flat))
+
+    table = pa.table({"name": pa.array(names, pa.string()), "geometry": geometry})
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table, output_path, compression="zstd")
+
+    return {
+        "path": output_path.name,
+        "n_cells": int(table.num_rows),
+        "position_encoding": "list",
+        "coordinate_space": "image-pixel",
+        "order": "annotating table obs order (position == cell_code)",
+    }
