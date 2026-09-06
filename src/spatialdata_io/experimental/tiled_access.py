@@ -78,6 +78,12 @@ def add_spatial_tiling(
     feature_key: str = "feature_name",
     technology: str = "Xenium",
     include_cbg: bool = True,
+    image_element: str | None = None,
+    image_channel: int | str | None = None,
+    image_name: str = "dapi",
+    image_button_name: str = "DAPI",
+    image_color: tuple[int, int, int] = (0, 0, 255),
+    image_tile_size: int = 512,
     compression: str = "zstd",
 ) -> dict[str, Any]:
     """Add the regular-grid visualization profile to an existing SpatialData store.
@@ -109,6 +115,15 @@ def add_spatial_tiling(
         Celldega technology string recorded in the manifest.
     include_cbg
         Whether to write the gene-major cell-by-gene files.
+    image_element
+        Name of an image element to render into a WebP display pyramid, or ``None`` to
+        skip images. The canonical OME-Zarr image is left untouched either way.
+    image_channel
+        Channel index or name to render. Defaults to the first channel.
+    image_name, image_button_name, image_color
+        Celldega channel descriptor recorded in ``image_info``.
+    image_tile_size
+        Image tile edge length in pixels.
     compression
         Parquet compression codec.
 
@@ -186,6 +201,35 @@ def add_spatial_tiling(
             overwrite=True,
         )
 
+    images: dict[str, Any] = {}
+    image_info: list[dict[str, Any]] = []
+    image_dimensions: dict[str, Any] | None = None
+    max_pyramid_zoom: int | None = None
+    if image_element:
+        from spatialdata_io.experimental.webp_parquet import write_webp_pyramid
+
+        if image_element not in sdata.images:
+            raise ValueError(f"image element {image_element!r} not found; have {list(sdata.images)}")
+        pyramid = write_webp_pyramid(
+            sdata.images[image_element],
+            profile_dir / "images" / image_name,
+            channel=image_channel,
+            tile_size=image_tile_size,
+            source_element=image_element,
+            overwrite=True,
+        )
+        # ImageRowGroupReader resolves files as baseUrl/directory/file and reads the
+        # per-zoom grid from the entry's zoom_info.
+        pyramid["directory"] = f"images/{image_name}"
+        images[image_name] = pyramid
+        image_info = [{"name": image_name, "button_name": image_button_name, "color": list(image_color)}]
+        image_dimensions = {
+            "width": pyramid["source_width"],
+            "height": pyramid["source_height"],
+            "tile_size": image_tile_size,
+        }
+        max_pyramid_zoom = pyramid["max_zoom"]
+
     catalog.to_frame().to_parquet(profile_dir / "meta_gene.parquet", index=False)
 
     manifest = build_manifest(
@@ -194,11 +238,16 @@ def add_spatial_tiling(
         transcripts=transcripts,
         cell_segmentation=cell_segmentation,
         cbg=cbg,
+        images=images,
+        image_info=image_info,
+        image_dimensions=image_dimensions,
+        max_pyramid_zoom=max_pyramid_zoom,
         source={
             "store": store.name,
             "points_element": points_element,
             "shapes_element": shapes_element,
             "table_element": table_element,
+            "image_element": image_element,
             "coordinate_system": coordinate_system,
             "tile_size_px": tile_size_px,
         },
@@ -217,6 +266,7 @@ def xenium_spatially_tiled(
     include_cbg: bool = True,
     compression: str = "zstd",
     overwrite: bool = False,
+    tiling: dict[str, Any] | None = None,
     **xenium_kwargs: Any,
 ) -> dict[str, Any]:
     """Read raw Xenium data and write a spatially tiled SpatialData store in one call.
@@ -237,6 +287,10 @@ def xenium_spatially_tiled(
         Parquet compression codec.
     overwrite
         Replace ``output_path`` if it exists.
+    tiling
+        Extra keyword arguments for :func:`add_spatial_tiling`, for example
+        ``{"image_element": "morphology_focus", "image_channel": "DAPI"}``. Kept separate
+        from ``xenium_kwargs`` because the two functions have distinct option sets.
     xenium_kwargs
         Forwarded to :func:`spatialdata_io.xenium`.
 
@@ -260,4 +314,5 @@ def xenium_spatially_tiled(
         max_row_groups_per_file=max_row_groups_per_file,
         include_cbg=include_cbg,
         compression=compression,
+        **(tiling or {}),
     )

@@ -43,6 +43,8 @@ def build_manifest(
     cbg: dict[str, Any] | None = None,
     images: dict[str, Any] | None = None,
     image_info: list[dict[str, Any]] | None = None,
+    image_dimensions: dict[str, Any] | None = None,
+    max_pyramid_zoom: int | None = None,
     source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the profile manifest from the fragments returned by each writer.
@@ -77,15 +79,25 @@ def build_manifest(
 
     manifest: dict[str, Any] = {
         # -- keys Celldega's existing reader consumes -------------------------
+        # Names and shapes follow a DegaFiles landscape_parameters.json so the reader
+        # needs no special-casing for a SpatialData store.
         "technology": technology,
         "use_row_groups": True,
+        "use_int_index": True,
+        "segmentation_approach": ["default"],
+        "tile_size": grid.tile_size_px,
         "tile_grid": grid.to_manifest_dict(),
         "row_group_files": row_group_files,
         "image_info": image_info or [],
+        "image_format": ".webp",
         # -- profile identification -------------------------------------------
         "profile": PROFILE_NAME,
         "profile_version": PROFILE_VERSION,
     }
+    if image_dimensions is not None:
+        manifest["image_dimensions"] = image_dimensions
+    if max_pyramid_zoom is not None:
+        manifest["max_pyramid_zoom"] = max_pyramid_zoom
     if source is not None:
         manifest["source"] = source
     return manifest

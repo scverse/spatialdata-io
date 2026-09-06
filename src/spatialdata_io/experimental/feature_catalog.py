@@ -123,9 +123,10 @@ class FeatureCatalog:
         if hasattr(col, "cat"):
             try:
                 features = list(col.cat.categories)
-            except Exception:
-                # Unknown categories (typical straight after read_zarr): realize just the
-                # category list, which is tiny, rather than computing the whole column.
+            except (NotImplementedError, AttributeError):
+                # dask raises AttributeNotImplementedError (a subclass of both) for
+                # unknown categories, which is the normal state straight after read_zarr.
+                # Realize just the category list, which is tiny, rather than the column.
                 features = list(col.cat.as_known().cat.categories)
         else:
             features = list(col.unique().compute() if hasattr(col, "compute") else col.unique())

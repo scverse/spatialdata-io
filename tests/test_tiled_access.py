@@ -67,9 +67,7 @@ def test_validate_rejects_row_group_count_mismatch() -> None:
 
 
 def test_validate_rejects_wrong_file_count() -> None:
-    m = build_manifest(
-        grid=GRID, transcripts=_transcripts_entry(max_row_groups_per_file=2, files=["chunk_0.parquet"])
-    )
+    m = build_manifest(grid=GRID, transcripts=_transcripts_entry(max_row_groups_per_file=2, files=["chunk_0.parquet"]))
     with pytest.raises(ValueError, match="lists 1 file"):
         validate_manifest(m)
 
@@ -152,14 +150,16 @@ def store(tmp_path: Path) -> Path:
 
     obs = pd.DataFrame({"region": pd.Categorical(["cell_boundaries"] * 12), "instance_id": range(12)}, index=cells)
     table = TableModel.parse(
-        AnnData(X=sp.csr_matrix(rng.integers(0, 5, (12, 3)).astype(np.float32)), obs=obs,
-                var=pd.DataFrame(index=genes)),
-        region="cell_boundaries", region_key="region", instance_key="instance_id",
+        AnnData(
+            X=sp.csr_matrix(rng.integers(0, 5, (12, 3)).astype(np.float32)), obs=obs, var=pd.DataFrame(index=genes)
+        ),
+        region="cell_boundaries",
+        region_key="region",
+        instance_key="instance_id",
     )
 
     path = tmp_path / "s.zarr"
-    SpatialData(points={"transcripts": points}, shapes={"cell_boundaries": shapes},
-                tables={"table": table}).write(path)
+    SpatialData(points={"transcripts": points}, shapes={"cell_boundaries": shapes}, tables={"table": table}).write(path)
     return path
 
 
@@ -218,8 +218,9 @@ def test_tiling_is_rerunnable(store: Path) -> None:
     first = add_spatial_tiling(store, tile_size_px=10.0)
     second = add_spatial_tiling(store, tile_size_px=10.0)
     assert first["tile_grid"] == second["tile_grid"]
-    assert first["row_group_files"]["transcripts"]["total_row_groups"] == (
-        second["row_group_files"]["transcripts"]["total_row_groups"]
+    assert (
+        first["row_group_files"]["transcripts"]["total_row_groups"]
+        == (second["row_group_files"]["transcripts"]["total_row_groups"])
     )
 
     import spatialdata

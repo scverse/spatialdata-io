@@ -18,8 +18,8 @@ the last tile is closed so that points lying exactly on ``x_max`` / ``y_max`` ar
 exactly one Parquet row group, including empty tiles, which are written as zero-row row
 groups. Row groups are then split across files::
 
-    file_index       = tile_id // max_row_groups_per_file
-    local_row_group  = tile_id %  max_row_groups_per_file
+    file_index = tile_id // max_row_groups_per_file
+    local_row_group = tile_id % max_row_groups_per_file
 
 Multi-file output is deliberate: a Parquet reader must fetch a file's entire footer
 before it can read any row group, and footer size grows with row-group count. Splitting

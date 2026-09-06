@@ -31,9 +31,7 @@ XFORM = DisplayTransform(matrix=((2.0, 0.0, 0.0), (0.0, 2.0, 0.0)), coordinate_s
 
 def _square(cx: float, cy: float, half: float) -> Polygon:
     """A square in *canonical* coords, centred on (cx, cy)."""
-    return Polygon(
-        [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half)]
-    )
+    return Polygon([(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half)])
 
 
 #: name -> (geometry, expected tile id). Canonical coords; pixels are 2x.

@@ -86,6 +86,7 @@ class DisplayTransform:
         return a * x + b * y + c, d * x + e * y + f
 
     def to_manifest_dict(self) -> dict[str, Any]:
+        """Serialize the transform for the manifest, so a client can reproduce the mapping."""
         return {
             "coordinate_space": "image-pixel",
             "coordinate_system": self.coordinate_system,

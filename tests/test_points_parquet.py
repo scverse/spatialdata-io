@@ -141,9 +141,7 @@ def test_canonical_columns_are_unchanged(written: tuple[Path, dict], points: pd.
 
     merged = got.set_index("transcript_id").loc[original["transcript_id"].to_numpy()]
     for col in ("x", "y", "z", "cell_id", "qv"):
-        np.testing.assert_array_equal(
-            merged[col].to_numpy(), original[col].to_numpy(), err_msg=f"column {col} changed"
-        )
+        np.testing.assert_array_equal(merged[col].to_numpy(), original[col].to_numpy(), err_msg=f"column {col} changed")
     assert list(merged["feature_name"].astype(str)) == list(original["feature_name"].astype(str))
 
 
