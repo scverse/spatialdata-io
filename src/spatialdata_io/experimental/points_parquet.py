@@ -129,6 +129,93 @@ def _interleaved_positions(px: NDArray[np.uint32], py: NDArray[np.uint32]) -> pa
     return pa.FixedSizeListArray.from_arrays(pa.array(flat), 2)
 
 
+#: Internal column carrying the tile assignment through the streaming spill files.
+_TILE_ID = "__tile_id"
+
+
+def _prepare_table(
+    df: pd.DataFrame,
+    *,
+    transform: DisplayTransform,
+    catalog: FeatureCatalog,
+    feature_key: str,
+    grid: RegularGrid,
+    categories: Any | None,
+) -> tuple[pa.Table, NDArray[np.int64]]:
+    """Add the render columns to one chunk and return it with its tile assignment.
+
+    ``categories`` pins the categorical dictionary so that every chunk converts to an
+    identical Arrow schema; without it, partitions observing different feature subsets
+    would produce incompatible dictionary types and could not be written to one file.
+    """
+    px, py = _to_display_pixels(df["x"].to_numpy(), df["y"].to_numpy(), transform)
+    tile_ids = grid.assign(px, py)
+    codes = catalog.encode(df[feature_key])
+
+    # Re-tiling an already-tiled element must replace the render columns, not append
+    # duplicates: a duplicated name makes projected reads fail ("Multiple matches for
+    # FieldRef"), and a pandas round-trip degrades fixed_size_list to a variable list.
+    stale = [c for c in (POSITION_COLUMN, FEATURE_COLUMN, _TILE_ID) if c in df.columns]
+    if df.attrs or stale or categories is not None:
+        df = df.copy(deep=False)
+        # The transform is not JSON-serializable; spatialdata's own points writer drops it
+        # the same way. It is persisted in the element's zarr attributes, not the parquet.
+        df.attrs = {}
+        if stale:
+            df = df.drop(columns=stale)
+        if categories is not None and isinstance(df[feature_key].dtype, pd.CategoricalDtype):
+            df[feature_key] = df[feature_key].cat.set_categories(categories)
+
+    table = pa.Table.from_pandas(df, preserve_index=True)
+    table = table.append_column(POSITION_COLUMN, _interleaved_positions(px, py))
+    table = table.append_column(FEATURE_COLUMN, pa.array(codes))
+    return table, tile_ids
+
+
+def _sorted_by_tile(table: pa.Table, tile_ids: NDArray[np.int64]) -> tuple[pa.Table, NDArray[np.int64]]:
+    """Group rows by tile. The sort is stable, so the rewrite is deterministic."""
+    order = np.argsort(tile_ids, kind="stable")
+    return table.take(pa.array(order)), tile_ids[order]
+
+
+def _write_tile_row_groups(
+    writer: pq.ParquetWriter,
+    table: pa.Table,
+    sorted_tile_ids: NDArray[np.int64],
+    tile_range: range,
+    schema: pa.Schema,
+) -> None:
+    """Write one row group per tile in ``tile_range``, empty tiles included.
+
+    Empty tiles must still occupy a row group, since that is what makes
+    ``row_group_index == tile_id`` hold without a lookup table.
+    """
+    offsets = np.searchsorted(sorted_tile_ids, np.array([*tile_range, tile_range.stop]), side="left")
+    for i in range(len(tile_range)):
+        start, end = int(offsets[i]), int(offsets[i + 1])
+        writer.write_table(table.slice(start, end - start) if end > start else schema.empty_table())
+
+
+def _iter_chunks(points: Any) -> Any:
+    """Yield the element one partition at a time, or once if it is already in memory."""
+    if hasattr(points, "npartitions"):
+        for i in range(points.npartitions):
+            yield points.partitions[i].compute()
+    else:
+        yield points
+
+
+def _known_categories(points: Any, feature_key: str) -> Any | None:
+    """Return the element's full category list, so every chunk shares one dictionary."""
+    col = points[feature_key]
+    if not hasattr(col, "cat"):
+        return None
+    try:
+        return list(col.cat.categories)
+    except (NotImplementedError, AttributeError):
+        return list(col.cat.as_known().cat.categories)
+
+
 def write_points_regular_grid(
     points: Any,
     output_dir: str | Path,
@@ -141,6 +228,7 @@ def write_points_regular_grid(
     tile_size_px: float = 250.0,
     max_row_groups_per_file: int = DEFAULT_MAX_ROW_GROUPS_PER_FILE,
     compression: str = "zstd",
+    streaming: bool | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Write a Points element as regular-grid row groups.
@@ -178,53 +266,48 @@ def write_points_regular_grid(
     if output_dir.exists() and not overwrite:
         raise FileExistsError(f"{output_dir} exists; pass overwrite=True to replace it")
 
-    df = points.compute() if hasattr(points, "compute") else points
-    if not isinstance(df, pd.DataFrame):
-        raise TypeError(f"expected a DataFrame, got {type(df).__name__}")
-    if feature_key not in df.columns:
-        raise ValueError(f"feature column {feature_key!r} not found; have {list(df.columns)}")
+    columns = list(points.columns)
+    if feature_key not in columns:
+        raise ValueError(f"feature column {feature_key!r} not found; have {columns}")
     for axis in ("x", "y"):
-        if axis not in df.columns:
-            raise ValueError(f"points element has no {axis!r} column; have {list(df.columns)}")
+        if axis not in columns:
+            raise ValueError(f"points element has no {axis!r} column; have {columns}")
+
+    partitioned = hasattr(points, "npartitions") and points.npartitions > 1
+    if streaming is None:
+        streaming = partitioned
+    if streaming and not partitioned:
+        raise ValueError(
+            "streaming requires a partitioned (dask) points element; an in-memory frame cannot be read incrementally"
+        )
 
     # When called as a SpatialData ``points_writer`` hook the element arrives with its
     # transformations already stripped from attrs, so the caller must supply the transform.
     transform = display_transform or DisplayTransform.from_element(points, coordinate_system)
-    px, py = _to_display_pixels(df["x"].to_numpy(), df["y"].to_numpy(), transform)
 
     if grid is None:
-        grid = RegularGrid.from_bounds(0, 0, float(px.max()), float(py.max()), tile_size_px)
+        grid = _derive_grid(points, transform, tile_size_px)
 
-    tile_ids = grid.assign(px, py)
-    codes = catalog.encode(df[feature_key])
+    if streaming:
+        return _write_streaming(
+            points,
+            output_dir,
+            catalog=catalog,
+            grid=grid,
+            transform=transform,
+            feature_key=feature_key,
+            max_row_groups_per_file=max_row_groups_per_file,
+            compression=compression,
+        )
 
-    # Keep every canonical column and index; append the two render columns.
-    # The transform lives in .attrs and is not JSON-serializable, so drop it before the
-    # Arrow conversion exactly as spatialdata's own points writer does -- it is persisted
-    # in the element's zarr attributes, not in the parquet file.
-    stale = [c for c in (POSITION_COLUMN, FEATURE_COLUMN) if c in df.columns]
-    if df.attrs or stale:
-        df = df.copy(deep=False)
-        df.attrs = {}
-        # Re-running the optimizer on an already-optimized element must replace the render
-        # columns, not append duplicates. A duplicated name makes the file unreadable by
-        # column projection ("Multiple matches for FieldRef"), and pandas round-trips
-        # fixed_size_list back as a variable-length list, so the stale copy is also the
-        # wrong Arrow type. Both are recomputed below from the canonical coordinates.
-        if stale:
-            df = df.drop(columns=stale)
-    table = pa.Table.from_pandas(df, preserve_index=True)
-    table = table.append_column(POSITION_COLUMN, _interleaved_positions(px, py))
-    table = table.append_column(FEATURE_COLUMN, pa.array(codes))
+    df = points.compute() if hasattr(points, "compute") else points
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"expected a DataFrame, got {type(df).__name__}")
 
-    # Stable sort keeps the original relative order inside a tile, so the rewrite is
-    # deterministic and diffable.
-    order = np.argsort(tile_ids, kind="stable")
-    table = table.take(pa.array(order))
-    sorted_tile_ids = tile_ids[order]
-
-    # Row-group boundaries: offsets[t]..offsets[t+1] is tile t's slice.
-    offsets = np.searchsorted(sorted_tile_ids, np.arange(grid.num_tiles + 1), side="left")
+    table, tile_ids = _prepare_table(
+        df, transform=transform, catalog=catalog, feature_key=feature_key, grid=grid, categories=None
+    )
+    table, sorted_tile_ids = _sorted_by_tile(table, tile_ids)
 
     staging = output_dir.with_name(output_dir.name + ".tmp")
     if staging.exists():
@@ -243,31 +326,19 @@ def write_points_regular_grid(
     )
 
     try:
-        writer: pq.ParquetWriter | None = None
-        current_file = -1
-        for tile_id in range(grid.num_tiles):
-            file_index, _ = grid.chunk_location(tile_id, max_row_groups_per_file)
-            if file_index != current_file:
-                if writer is not None:
-                    writer.close()
-                writer = pq.ParquetWriter(
-                    staging / filenames[file_index],
-                    schema,
-                    compression=compression,
-                    # Statistics are dead weight here: the tile formula is the spatial
-                    # index, so no client ever consults per-column-chunk min/max, and
-                    # they inflate the footer the browser must download up front.
-                    write_statistics=False,
-                )
-                current_file = file_index
-
-            start, end = int(offsets[tile_id]), int(offsets[tile_id + 1])
-            assert writer is not None
-            # Empty tiles are written as zero-row row groups so that
-            # row_group_index == tile_id holds without a lookup table.
-            writer.write_table(table.slice(start, end - start) if end > start else schema.empty_table())
-        if writer is not None:
-            writer.close()
+        for file_index, name in enumerate(filenames):
+            lo = file_index * max_row_groups_per_file
+            tile_range = range(lo, min(lo + max_row_groups_per_file, grid.num_tiles))
+            with pq.ParquetWriter(
+                staging / name,
+                schema,
+                compression=compression,
+                # Statistics are dead weight here: the tile formula is the spatial index,
+                # so no client consults per-column-chunk min/max, and they inflate the
+                # footer the browser must download before its first read.
+                write_statistics=False,
+            ) as writer:
+                _write_tile_row_groups(writer, table, sorted_tile_ids, tile_range, schema)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -276,6 +347,30 @@ def write_points_regular_grid(
         shutil.rmtree(output_dir)
     staging.rename(output_dir)
 
+    return _manifest_fragment(
+        output_dir, filenames, grid, transform, catalog, max_row_groups_per_file, int(table.num_rows)
+    )
+
+
+def _derive_grid(points: Any, transform: DisplayTransform, tile_size_px: float) -> RegularGrid:
+    """Find the grid covering the element, reading only the coordinate columns."""
+    xmax = points["x"].max()
+    ymax = points["y"].max()
+    if hasattr(xmax, "compute"):
+        xmax, ymax = xmax.compute(), ymax.compute()
+    px, py = transform.apply(np.array([float(xmax)]), np.array([float(ymax)]))
+    return RegularGrid.from_bounds(0, 0, float(np.rint(px[0])), float(np.rint(py[0])), tile_size_px)
+
+
+def _manifest_fragment(
+    output_dir: Path,
+    filenames: list[str],
+    grid: RegularGrid,
+    transform: DisplayTransform,
+    catalog: FeatureCatalog,
+    max_row_groups_per_file: int,
+    n_rows: int,
+) -> dict[str, Any]:
     return {
         "directory": str(output_dir.name),
         "files": filenames,
@@ -289,8 +384,121 @@ def write_points_regular_grid(
         # Projected by the client, so canonical coordinates, ids and QC columns are never
         # decoded or transferred during ordinary rendering.
         "columns": [POSITION_COLUMN, FEATURE_COLUMN],
-        "n_rows": int(table.num_rows),
+        "n_rows": n_rows,
         "tile_grid": grid.to_manifest_dict(),
         "display_transform": transform.to_manifest_dict(),
         "feature_catalog": catalog.to_manifest_dict(),
     }
+
+
+def _write_streaming(
+    points: Any,
+    output_dir: Path,
+    *,
+    catalog: FeatureCatalog,
+    grid: RegularGrid,
+    transform: DisplayTransform,
+    feature_key: str,
+    max_row_groups_per_file: int,
+    compression: str,
+) -> dict[str, Any]:
+    """Write the tiled output without holding the whole element in memory.
+
+    Grouping rows by tile is a global sort -- a row at the end of the input can belong to
+    the first tile -- so streaming the read alone is not enough. This makes two passes:
+
+    1. Stream the input a partition at a time, and spill each row into a temporary file
+       chosen by its *destination chunk file*.
+    2. Sort each spill file independently and write its chunk.
+
+    Peak memory is then one input partition plus one spill file, rather than the dataset.
+    """
+    filenames = grid.chunk_filenames(max_row_groups_per_file)
+    categories = _known_categories(points, feature_key)
+
+    staging = output_dir.with_name(output_dir.name + ".tmp")
+    spill = output_dir.with_name(output_dir.name + ".spill")
+    for path in (staging, spill):
+        if path.exists():
+            shutil.rmtree(path)
+    staging.mkdir(parents=True)
+    spill.mkdir(parents=True)
+
+    schema: pa.Schema | None = None
+    n_rows = 0
+    try:
+        # -- pass 1: spill by destination file ---------------------------------
+        spill_writers: dict[int, pq.ParquetWriter] = {}
+        for chunk in _iter_chunks(points):
+            if len(chunk) == 0:
+                continue
+            table, tile_ids = _prepare_table(
+                chunk,
+                transform=transform,
+                catalog=catalog,
+                feature_key=feature_key,
+                grid=grid,
+                categories=categories,
+            )
+            n_rows += table.num_rows
+            if schema is None:
+                schema = table.schema
+            table = table.append_column(_TILE_ID, pa.array(tile_ids))
+
+            buckets = tile_ids // max_row_groups_per_file
+            for bucket in np.unique(buckets):
+                rows = np.flatnonzero(buckets == bucket)
+                part = table.take(pa.array(rows))
+                if bucket not in spill_writers:
+                    spill_writers[int(bucket)] = pq.ParquetWriter(
+                        spill / f"{int(bucket)}.parquet", table.schema, compression="zstd", write_statistics=False
+                    )
+                spill_writers[int(bucket)].write_table(part)
+        for writer in spill_writers.values():
+            writer.close()
+
+        if schema is None:
+            raise ValueError("points element is empty; nothing to tile")
+        schema = schema.with_metadata(
+            {
+                **(schema.metadata or {}),
+                b"profile": b"celldega_regular_grid_v1",
+                b"storage_mode": b"row_groups_chunked",
+                b"max_row_groups_per_file": str(max_row_groups_per_file).encode(),
+                b"tile_grid": json.dumps(grid.to_manifest_dict()).encode(),
+            }
+        )
+
+        # -- pass 2: sort each spill file and write its chunk -------------------
+        for file_index, name in enumerate(filenames):
+            lo = file_index * max_row_groups_per_file
+            tile_range = range(lo, min(lo + max_row_groups_per_file, grid.num_tiles))
+            spill_path = spill / f"{file_index}.parquet"
+
+            if spill_path.exists():
+                table = pq.read_table(spill_path)
+                tile_ids = table[_TILE_ID].to_numpy()
+                table = table.drop_columns([_TILE_ID]).cast(schema)
+                table, sorted_tile_ids = _sorted_by_tile(table, tile_ids)
+            else:
+                # No row landed in this chunk's tiles; it is still written, as all-empty
+                # row groups, so the global row-group numbering stays contiguous.
+                table, sorted_tile_ids = schema.empty_table(), np.empty(0, dtype=np.int64)
+
+            with pq.ParquetWriter(staging / name, schema, compression=compression, write_statistics=False) as writer:
+                _write_tile_row_groups(writer, table, sorted_tile_ids, tile_range, schema)
+
+            del table
+            spill_path.unlink(missing_ok=True)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(spill, ignore_errors=True)
+        raise
+    finally:
+        shutil.rmtree(spill, ignore_errors=True)
+
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    staging.rename(output_dir)
+
+    return _manifest_fragment(output_dir, filenames, grid, transform, catalog, max_row_groups_per_file, n_rows)

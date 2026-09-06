@@ -307,3 +307,60 @@ def test_rewrite_is_idempotent(tmp_path: Path, points: pd.DataFrame, catalog: Fe
     assert second.schema.field(POSITION_COLUMN).type == pa.list_(pa.uint32(), 2)
     assert second.num_rows == first.num_rows
     assert second[POSITION_COLUMN].to_pylist() == first[POSITION_COLUMN].to_pylist()
+
+
+def test_streaming_matches_in_memory(tmp_path: Path, points: pd.DataFrame, catalog: FeatureCatalog) -> None:
+    """The two write paths must be interchangeable, or large datasets would diverge.
+
+    Grouping by tile is a global sort, so the streaming path spills rows into per-output
+    -file buckets and sorts each independently. That must land every row in the same row
+    group as the single-pass path.
+    """
+    import dask.dataframe as dd
+    from spatialdata.transformations import Scale, set_transformation
+
+    set_transformation(points, Scale([2.0, 2.0], axes=("x", "y")), "global")
+    in_memory = tmp_path / "mem.parquet"
+    m1 = write_points_regular_grid(points, in_memory, catalog=catalog, grid=GRID, streaming=False)
+
+    # Several partitions, so the spill path is genuinely exercised.
+    chunked = dd.from_pandas(points.compute(), npartitions=3)
+    chunked.attrs["transform"] = {"global": Scale([2.0, 2.0], axes=("x", "y"))}
+    streamed = tmp_path / "stream.parquet"
+    m2 = write_points_regular_grid(
+        chunked, streamed, catalog=catalog, grid=GRID, streaming=True, max_row_groups_per_file=2
+    )
+
+    assert m1["total_row_groups"] == m2["total_row_groups"] == GRID.num_tiles
+    assert m1["n_rows"] == m2["n_rows"] == len(POINTS_SPEC)
+
+    # Every tile must hold exactly the same points in both.
+    for tile_id in range(GRID.num_tiles):
+        fi1, lo1 = GRID.chunk_location(tile_id, m1["max_row_groups_per_file"])
+        fi2, lo2 = GRID.chunk_location(tile_id, m2["max_row_groups_per_file"])
+        a = pq.ParquetFile(in_memory / m1["files"][fi1]).read_row_group(lo1, columns=[POSITION_COLUMN])
+        b = pq.ParquetFile(streamed / m2["files"][fi2]).read_row_group(lo2, columns=[POSITION_COLUMN])
+        assert a[POSITION_COLUMN].to_pylist() == b[POSITION_COLUMN].to_pylist(), f"tile {tile_id}"
+
+
+def test_streaming_preserves_canonical_columns(tmp_path: Path, points: pd.DataFrame, catalog: FeatureCatalog) -> None:
+    import dask.dataframe as dd
+    from spatialdata.transformations import Scale
+
+    original = points.compute()
+    chunked = dd.from_pandas(original, npartitions=3)
+    chunked.attrs["transform"] = {"global": Scale([2.0, 2.0], axes=("x", "y"))}
+    out = tmp_path / "s.parquet"
+    manifest = write_points_regular_grid(chunked, out, catalog=catalog, grid=GRID, streaming=True)
+
+    got = _read_all(out, manifest).to_pandas().set_index("transcript_id").loc[original["transcript_id"].to_numpy()]
+    for col in ("x", "y", "z", "cell_id", "qv"):
+        np.testing.assert_array_equal(got[col].to_numpy(), original[col].to_numpy(), err_msg=col)
+    assert list(got["feature_name"].astype(str)) == list(original["feature_name"].astype(str))
+
+
+def test_streaming_requires_a_partitioned_element(
+    tmp_path: Path, points: pd.DataFrame, catalog: FeatureCatalog
+) -> None:
+    with pytest.raises(ValueError, match="streaming requires a partitioned"):
+        write_points_regular_grid(points.compute(), tmp_path / "x.parquet", catalog=catalog, grid=GRID, streaming=True)
