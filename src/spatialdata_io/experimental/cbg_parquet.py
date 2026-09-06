@@ -40,7 +40,7 @@ def write_cbg_row_groups(
     cell_codes: dict[str, int] | None = None,
     layer: str | None = None,
     max_row_groups_per_file: int = DEFAULT_MAX_ROW_GROUPS_PER_FILE,
-    compression: str = "snappy",
+    compression: str = "zstd",
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Write an AnnData table as gene-major CBG row groups.

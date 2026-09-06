@@ -139,7 +139,7 @@ def write_points_regular_grid(
     feature_key: str = "feature_name",
     tile_size_px: float = 250.0,
     max_row_groups_per_file: int = DEFAULT_MAX_ROW_GROUPS_PER_FILE,
-    compression: str = "snappy",
+    compression: str = "zstd",
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Write a Points element as regular-grid row groups.

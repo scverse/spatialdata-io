@@ -124,7 +124,7 @@ def write_shapes_regular_grid(
     coordinate_system: str = "global",
     cell_index: Any | None = None,
     max_row_groups_per_file: int = DEFAULT_MAX_ROW_GROUPS_PER_FILE,
-    compression: str = "snappy",
+    compression: str = "zstd",
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Write a Shapes element as regular-grid row groups.
