@@ -241,6 +241,8 @@ def write_shapes_regular_grid(
     fragment: dict[str, Any] = {
         "geometry_column": GEOMETRY_COLUMN,
         "cell_id_column": CELL_CODE_COLUMN,
+        # Projected by the client: the canonical WKB geometry is never transferred.
+        "columns": [GEOMETRY_COLUMN, CELL_CODE_COLUMN],
         "max_row_groups_per_file": max_row_groups_per_file,
         "total_row_groups": grid.num_tiles,
         "n_shapes": int(table.num_rows),

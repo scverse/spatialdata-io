@@ -285,6 +285,9 @@ def write_points_regular_grid(
         "position_dtype": "uint32",
         "position_size": 2,
         "feature_column": FEATURE_COLUMN,
+        # Projected by the client, so canonical coordinates, ids and QC columns are never
+        # decoded or transferred during ordinary rendering.
+        "columns": [POSITION_COLUMN, FEATURE_COLUMN],
         "n_rows": int(table.num_rows),
         "tile_grid": grid.to_manifest_dict(),
         "display_transform": transform.to_manifest_dict(),
