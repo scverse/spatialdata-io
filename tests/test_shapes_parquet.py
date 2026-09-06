@@ -59,8 +59,17 @@ def shapes() -> gpd.GeoDataFrame:
 
 @pytest.fixture
 def written(tmp_path: Path, shapes: gpd.GeoDataFrame) -> tuple[Path, dict]:
+    """The canonical element: tile-ordered GeoParquet, no nested render column."""
     out = tmp_path / "shapes.parquet"
     manifest = write_shapes_regular_grid(shapes, out, grid=GRID, display_transform=XFORM)
+    return out, manifest
+
+
+@pytest.fixture
+def rendered(tmp_path: Path, shapes: gpd.GeoDataFrame) -> tuple[Path, dict]:
+    """The standalone render file: display_geometry and cell_code only."""
+    out = tmp_path / "cell_seg.parquet"
+    manifest = write_shapes_regular_grid(shapes, out, grid=GRID, display_transform=XFORM, render_only=True)
     return out, manifest
 
 
@@ -136,18 +145,18 @@ def test_non_geometry_columns_survive(written: tuple[Path, dict], shapes: gpd.Ge
 # -- display geometry ---------------------------------------------------------
 
 
-def test_display_geometry_has_the_nested_layout(written: tuple[Path, dict]) -> None:
+def test_display_geometry_has_the_nested_layout(rendered: tuple[Path, dict]) -> None:
     """polygon -> rings -> interleaved uint32 pairs, as get_polygon_data.js walks it."""
-    out, _ = written
+    out, _ = rendered
     t = pq.ParquetFile(out).schema_arrow.field(GEOMETRY_COLUMN).type
     assert pa.types.is_list(t)  # polygon level
     assert pa.types.is_list(t.value_type)  # ring level
     assert t.value_type.value_type == pa.list_(pa.uint32(), 2)  # interleaved vertices
 
 
-def test_display_geometry_offsets_resolve_like_the_js_reader(written: tuple[Path, dict]) -> None:
+def test_display_geometry_offsets_resolve_like_the_js_reader(rendered: tuple[Path, dict]) -> None:
     """Mirror of getPolygonDataFromChunk: polygon offset -> ring offset -> coord index."""
-    out, _ = written
+    out, _ = rendered
     col = pq.read_table(out)[GEOMETRY_COLUMN].combine_chunks()
     polygon_offsets = col.offsets.to_numpy()
     rings = col.values
@@ -161,14 +170,14 @@ def test_display_geometry_offsets_resolve_like_the_js_reader(written: tuple[Path
     assert first.tolist() == col.to_pylist()[0][0][0]
 
 
-def test_display_geometry_is_exterior_ring_only(written: tuple[Path, dict]) -> None:
-    out, _ = written
+def test_display_geometry_is_exterior_ring_only(rendered: tuple[Path, dict]) -> None:
+    out, _ = rendered
     for polygon in pq.read_table(out)[GEOMETRY_COLUMN].to_pylist():
         assert len(polygon) == 1, "expected exactly one ring per display polygon"
 
 
-def test_display_vertices_match_the_transform(written: tuple[Path, dict]) -> None:
-    out, _ = written
+def test_display_vertices_match_the_transform(rendered: tuple[Path, dict]) -> None:
+    out, _ = rendered
     table = pq.read_table(out)
     codes = table[CELL_CODE_COLUMN].to_pylist()
     geoms = table[GEOMETRY_COLUMN].to_pylist()
@@ -185,7 +194,7 @@ def test_multipolygon_reduces_to_largest_part(tmp_path: Path) -> None:
     big, small = _square(2.5, 2.5, 2.0), _square(8.0, 13.0, 0.5)
     gdf = gpd.GeoDataFrame(geometry=[MultiPolygon([big, small])], index=["multi"])
     out = tmp_path / "m.parquet"
-    write_shapes_regular_grid(ShapesModel.parse(gdf), out, grid=GRID, display_transform=XFORM)
+    write_shapes_regular_grid(ShapesModel.parse(gdf), out, grid=GRID, display_transform=XFORM, render_only=True)
     poly = pq.read_table(out)[GEOMETRY_COLUMN].to_pylist()[0]
     got = {tuple(v) for v in poly[0]}
     assert got == {(int(round(x * 2)), int(round(y * 2))) for x, y in big.exterior.coords}
@@ -215,3 +224,75 @@ def test_overwrite_guard(written: tuple[Path, dict], shapes: gpd.GeoDataFrame) -
     out, _ = written
     with pytest.raises(FileExistsError):
         write_shapes_regular_grid(shapes, out, grid=GRID, display_transform=XFORM)
+
+
+# -- cell metadata ------------------------------------------------------------
+
+
+def test_cell_metadata_schema_matches_celldega(tmp_path: Path, shapes: gpd.GeoDataFrame) -> None:
+    from spatialdata_io.experimental.shapes_parquet import write_cell_metadata
+
+    out = tmp_path / "cell_metadata.parquet"
+    info = write_cell_metadata(shapes, out, display_transform=XFORM)
+    t = pq.read_table(out)
+    assert t.schema.names == ["name", "geometry"]
+    assert pa.types.is_string(t.schema.field("name").type)
+    assert pa.types.is_list(t.schema.field("geometry").type)
+    assert info["n_cells"] == len(SHAPES_SPEC)
+
+
+def test_cell_metadata_holds_display_pixel_centroids(tmp_path: Path, shapes: gpd.GeoDataFrame) -> None:
+    from spatialdata_io.experimental.shapes_parquet import write_cell_metadata
+
+    out = tmp_path / "cm.parquet"
+    write_cell_metadata(shapes, out, display_transform=XFORM)
+    got = dict(zip(pq.read_table(out)["name"].to_pylist(), pq.read_table(out)["geometry"].to_pylist()))
+    for name, (geom, _) in SHAPES_SPEC.items():
+        c = geom.centroid
+        assert got[name] == pytest.approx([c.x * 2, c.y * 2], abs=0.5)
+
+
+def test_cell_metadata_row_order_is_the_cell_code(tmp_path: Path, shapes: gpd.GeoDataFrame) -> None:
+    """A client takes a cell's integer id from its position here, so order is the contract.
+
+    It must match the order used for cell_code in the tiled shapes, or colouring a cell
+    from an expression vector would address the wrong cell.
+    """
+    from spatialdata_io.experimental.shapes_parquet import write_cell_metadata
+
+    table_order = list(SHAPES_SPEC)[::-1]
+    meta = tmp_path / "cm.parquet"
+    write_cell_metadata(shapes, meta, display_transform=XFORM, cell_index=table_order)
+    assert pq.read_table(meta)["name"].to_pylist() == table_order
+
+    tiled = tmp_path / "s.parquet"
+    write_shapes_regular_grid(shapes, tiled, grid=GRID, display_transform=XFORM, cell_index=table_order)
+    back = gpd.read_parquet(tiled)
+    for position, name in enumerate(table_order):
+        assert back.loc[name, CELL_CODE_COLUMN] == position
+
+
+def test_cell_metadata_reports_a_cell_with_no_shape(tmp_path: Path, shapes: gpd.GeoDataFrame) -> None:
+    from spatialdata_io.experimental.shapes_parquet import write_cell_metadata
+
+    with pytest.raises(ValueError, match="have no shape"):
+        write_cell_metadata(
+            shapes, tmp_path / "cm.parquet", display_transform=XFORM, cell_index=[*SHAPES_SPEC, "ghost"]
+        )
+
+
+def test_canonical_shapes_have_no_render_columns(written: tuple[Path, dict]) -> None:
+    """The nested display column stays out of the GeoParquet so it still round-trips."""
+    out, manifest = written
+    names = pq.read_table(out).column_names
+    assert GEOMETRY_COLUMN not in names
+    assert manifest["render_only"] is False
+    # cell_code is a plain uint32 and is harmless to keep alongside the canonical geometry
+    assert CELL_CODE_COLUMN in names
+
+
+def test_render_shapes_hold_only_the_render_columns(rendered: tuple[Path, dict]) -> None:
+    """A viewer reads every column of this file, so no projection is needed."""
+    out, manifest = rendered
+    assert pq.read_table(out).column_names == [GEOMETRY_COLUMN, CELL_CODE_COLUMN]
+    assert manifest["render_only"] is True

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import geopandas as gpd
@@ -182,10 +183,12 @@ def test_tiled_store_still_reads_with_read_zarr(store: Path) -> None:
     after = spatialdata.read_zarr(store)
     assert len(after.points["transcripts"]) == n_points
     assert len(after.shapes["cell_boundaries"]) == n_shapes
-    assert "display_xy" in after.points["transcripts"].columns
-    assert "display_geometry" in after.shapes["cell_boundaries"].columns
     # canonical columns survive untouched
     assert {"x", "y", "feature_name", "cell_id"} <= set(after.points["transcripts"].columns)
+    # ... and the render columns are NOT here: they live in the profile's own files, so
+    # the canonical element keeps no nested Arrow column.
+    assert "display_xy" not in after.points["transcripts"].columns
+    assert "display_geometry" not in after.shapes["cell_boundaries"].columns
 
 
 def test_manifest_paths_resolve_from_the_profile_directory(store: Path) -> None:
@@ -227,8 +230,8 @@ def test_tiling_is_rerunnable(store: Path) -> None:
 
     after = spatialdata.read_zarr(store)
     cols = list(after.points["transcripts"].columns)
-    assert cols.count("display_xy") == 1
-    assert cols.count("feature_code") == 1
+    assert "display_xy" not in cols
+    assert "feature_code" not in cols
 
 
 def test_missing_element_is_reported(store: Path) -> None:
@@ -239,3 +242,91 @@ def test_missing_element_is_reported(store: Path) -> None:
 def test_cbg_can_be_skipped(store: Path) -> None:
     manifest = add_spatial_tiling(store, tile_size_px=10.0, include_cbg=False)
     assert "cbg" not in manifest["row_group_files"]
+
+
+# -- one-shot entry point -----------------------------------------------------
+
+XENIUM_DIR = os.environ.get("SPATIALDATA_IO_XENIUM_DIR")
+
+
+@pytest.mark.skipif(not XENIUM_DIR, reason="set SPATIALDATA_IO_XENIUM_DIR to a raw Xenium output directory")
+def test_xenium_spatially_tiled_end_to_end(tmp_path: Path) -> None:
+    """Raw Xenium to a tiled store in one call.
+
+    Gated on real data because there is no small raw Xenium bundle to ship: the format
+    needs experiment.xenium, transcripts.parquet, boundaries and a feature matrix that
+    all agree with each other.
+    """
+    import spatialdata
+
+    from spatialdata_io.experimental.tiled_access import xenium_spatially_tiled
+
+    out = tmp_path / "tiled.zarr"
+    manifest = xenium_spatially_tiled(
+        XENIUM_DIR,
+        out,
+        tile_size_px=250.0,
+        include_cbg=True,
+        nucleus_boundaries=False,
+        cells_labels=False,
+        nucleus_labels=False,
+        morphology_mip=False,
+        morphology_focus=False,
+        aligned_images=False,
+    )
+
+    profile = out / "visualization" / PROFILE_NAME
+    validate_manifest(manifest, base_path=profile)
+
+    grid = RegularGrid.from_manifest_dict(manifest["tile_grid"])
+    trx = manifest["row_group_files"]["transcripts"]
+    total = sum(pq.ParquetFile(profile / trx["directory"] / f).metadata.num_row_groups for f in trx["files"])
+    assert total == grid.num_tiles == trx["total_row_groups"]
+
+    # the store is still an ordinary SpatialData store
+    sdata = spatialdata.read_zarr(out)
+    points = sdata.points["transcripts"]
+    assert {"x", "y", "feature_name"} <= set(points.columns)
+    assert {"display_xy", "feature_code"} <= set(points.columns)
+    assert len(points) == trx["n_rows"]
+
+    # every fixed-path asset a client reads by convention exists
+    for asset in (
+        "landscape_parameters.json",
+        "cell_metadata.parquet",
+        "meta_gene.parquet",
+        "micron_to_image_transform.csv",
+        "cell_clusters/cluster.parquet",
+    ):
+        assert (profile / asset).exists(), asset
+
+
+def test_xenium_spatially_tiled_refuses_to_clobber(tmp_path: Path) -> None:
+    """Guard runs before any reading, so it is testable without raw data."""
+    from spatialdata_io.experimental.tiled_access import xenium_spatially_tiled
+
+    existing = tmp_path / "already.zarr"
+    existing.mkdir()
+    with pytest.raises(FileExistsError, match="pass overwrite=True"):
+        xenium_spatially_tiled(tmp_path / "nonexistent_raw", existing)
+
+
+def test_tiled_store_can_still_be_rewritten_with_spatialdata_write(store: Path, tmp_path: Path) -> None:
+    """The reason the render columns live in their own files.
+
+    A nested Arrow column in a Points element cannot survive dask's parquet round-trip:
+    SpatialData.write() either fails outright or silently returns the column as a string.
+    Keeping the canonical element free of one means an ordinary rewrite still works.
+    """
+    import spatialdata
+
+    add_spatial_tiling(store, tile_size_px=10.0)
+    sdata = spatialdata.read_zarr(store)
+
+    copy = tmp_path / "rewritten.zarr"
+    sdata.write(copy)
+
+    back = spatialdata.read_zarr(copy)
+    assert len(back.points["transcripts"]) == len(sdata.points["transcripts"])
+    assert set(back.points["transcripts"].columns) == set(sdata.points["transcripts"].columns)
+    assert len(back.shapes["cell_boundaries"]) == len(sdata.shapes["cell_boundaries"])

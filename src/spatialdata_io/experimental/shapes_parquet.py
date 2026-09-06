@@ -130,6 +130,7 @@ def write_shapes_regular_grid(
     cell_index: Any | None = None,
     max_row_groups_per_file: int = DEFAULT_MAX_ROW_GROUPS_PER_FILE,
     compression: str = "zstd",
+    render_only: bool = False,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Write a Shapes element as regular-grid row groups.
@@ -168,11 +169,11 @@ def write_shapes_regular_grid(
     transform = display_transform or DisplayTransform.from_element(shapes, coordinate_system)
     display, cx, cy = _display_geometry_array(shapes.geometry, transform)
 
-    # Re-tiling an already-tiled element must replace the render columns, not append
-    # duplicates: a duplicated name makes projected reads fail outright, and the stale
-    # copy is also mistyped because a pandas round-trip degrades fixed_size_list to list.
+    # Any render columns left by an earlier version are dropped, so re-tiling a store
+    # written before the split cleans it up instead of preserving them.
     stale = [c for c in (GEOMETRY_COLUMN, CELL_CODE_COLUMN) if c in shapes.columns]
-    table = _canonical_geoparquet_table(shapes.drop(columns=stale) if stale else shapes)
+    canonical = shapes.drop(columns=stale) if stale else shapes
+    table = None if render_only else _canonical_geoparquet_table(canonical)
 
     if cell_index is None:
         codes = np.arange(len(shapes), dtype=np.uint32)
@@ -186,8 +187,12 @@ def write_shapes_regular_grid(
             )
         codes = np.fromiter((positions[k] for k in shapes.index), dtype=np.uint32, count=len(shapes))
 
-    table = table.append_column(GEOMETRY_COLUMN, display)
-    table = table.append_column(CELL_CODE_COLUMN, pa.array(codes))
+    if render_only:
+        # Standalone render file: a viewer reads every column, so no projection is needed
+        # and the canonical GeoParquet keeps only its own WKB geometry.
+        table = pa.table({GEOMETRY_COLUMN: display, CELL_CODE_COLUMN: pa.array(codes)})
+    else:
+        table = table.append_column(CELL_CODE_COLUMN, pa.array(codes))
 
     tile_ids = grid.assign(cx, cy)
     order = np.argsort(tile_ids, kind="stable")
@@ -246,8 +251,7 @@ def write_shapes_regular_grid(
     fragment: dict[str, Any] = {
         "geometry_column": GEOMETRY_COLUMN,
         "cell_id_column": CELL_CODE_COLUMN,
-        # Projected by the client: the canonical WKB geometry is never transferred.
-        "columns": [GEOMETRY_COLUMN, CELL_CODE_COLUMN],
+        "render_only": render_only,
         "max_row_groups_per_file": max_row_groups_per_file,
         "total_row_groups": grid.num_tiles,
         "n_shapes": int(table.num_rows),

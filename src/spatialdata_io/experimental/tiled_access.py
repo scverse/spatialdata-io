@@ -50,6 +50,42 @@ __all__ = ["add_spatial_tiling", "xenium_spatially_tiled"]
 #: Directory inside the store holding derived (non-canonical) profile assets.
 PROFILE_DIR = "visualization"
 
+#: Display colours cycled through when a channel has none assigned. First is blue, which
+#: is the conventional nuclear stain colour and usually channel 0 (DAPI).
+_DEFAULT_CHANNEL_COLORS = [
+    (0, 0, 255),
+    (0, 255, 0),
+    (255, 0, 0),
+    (255, 255, 0),
+    (255, 0, 255),
+    (0, 255, 255),
+]
+
+
+def _channels_of(element: Any) -> list[Any]:
+    """List an image element's channel names, falling back to indices."""
+    level = element[next(iter(element.children))] if hasattr(element, "children") else element
+    array = level[next(iter(level.data_vars))] if hasattr(level, "data_vars") else level
+    coords = getattr(array, "coords", {})
+    if "c" in coords:
+        return [str(c) for c in coords["c"].values]
+    size = dict(zip(array.dims, array.shape, strict=True)).get("c", 1)
+    return list(range(size))
+
+
+def _channel_label(channel: Any, index: int) -> str:
+    """A filesystem- and URL-safe label for a channel.
+
+    Xenium channel names include slashes ('ATP1A1/CD45/E-Cadherin'), which would other-
+    wise create nested directories and break the manifest's relative paths.
+    """
+    if isinstance(channel, int):
+        return f"channel_{channel}"
+    safe = "".join(ch if ch.isalnum() else "_" for ch in str(channel)).strip("_").lower()
+    while "__" in safe:
+        safe = safe.replace("__", "_")
+    return safe or f"channel_{index}"
+
 
 def _grid_for(points: Any, transform: DisplayTransform, tile_size_px: float) -> RegularGrid:
     """Derive the grid covering the points element in display pixel space."""
@@ -72,10 +108,8 @@ def add_spatial_tiling(
     technology: str = "Xenium",
     include_cbg: bool = True,
     image_element: str | None = None,
-    image_channel: int | str | None = None,
-    image_name: str = "dapi",
-    image_button_name: str = "DAPI",
-    image_color: tuple[int, int, int] = (0, 0, 255),
+    image_channels: list[int | str] | None = None,
+    image_colors: dict[str, tuple[int, int, int]] | None = None,
     image_tile_size: int = 512,
     compression: str = "zstd",
 ) -> dict[str, Any]:
@@ -111,10 +145,11 @@ def add_spatial_tiling(
     image_element
         Name of an image element to render into a WebP display pyramid, or ``None`` to
         skip images. The canonical OME-Zarr image is left untouched either way.
-    image_channel
-        Channel index or name to render. Defaults to the first channel.
-    image_name, image_button_name, image_color
-        Celldega channel descriptor recorded in ``image_info``.
+    image_channels
+        Channels to render, by name or index. Defaults to every channel in the element.
+    image_colors
+        Optional display colour per channel name. Channels without an entry get a colour
+        from a default palette.
     image_tile_size
         Image tile edge length in pixels.
     compression
@@ -147,7 +182,24 @@ def add_spatial_tiling(
     profile_dir = store / PROFILE_DIR / PROFILE_NAME
     profile_dir.mkdir(parents=True, exist_ok=True)
 
+    # The render columns go to a standalone file inside the profile directory. A viewer
+    # reads every column of it, so it needs no column projection, and the canonical
+    # element is left free of nested Arrow columns.
     transcripts = write_points_regular_grid(
+        points,
+        profile_dir / "trx",
+        catalog=catalog,
+        grid=grid,
+        display_transform=transform,
+        feature_key=feature_key,
+        max_row_groups_per_file=max_row_groups_per_file,
+        compression=compression,
+        render_only=True,
+        overwrite=True,
+    )
+    # The canonical element is re-ordered into tile row groups but keeps only its own
+    # columns, so it still round-trips through SpatialData.write() and normal reads.
+    write_points_regular_grid(
         points,
         store / "points" / points_element / "points.parquet",
         catalog=catalog,
@@ -158,9 +210,6 @@ def add_spatial_tiling(
         compression=compression,
         overwrite=True,
     )
-    # Paths in the manifest are relative to the profile directory, so Celldega can be
-    # pointed at that directory as its base_url with no reader change.
-    transcripts["directory"] = f"../../points/{points_element}/points.parquet"
 
     cell_segmentation = None
     cell_metadata = None
@@ -183,6 +232,17 @@ def add_spatial_tiling(
         cell_names = [str(k) for k in (table.obs_names if table is not None else shapes.index)]
         cell_segmentation = write_shapes_regular_grid(
             shapes,
+            profile_dir / "cell_seg",
+            grid=grid,
+            display_transform=shapes_transform,
+            cell_index=list(table.obs_names) if table is not None else None,
+            max_row_groups_per_file=max_row_groups_per_file,
+            compression=compression,
+            render_only=True,
+            overwrite=True,
+        )
+        write_shapes_regular_grid(
+            shapes,
             store / "shapes" / shapes_element / "shapes.parquet",
             grid=grid,
             display_transform=shapes_transform,
@@ -191,11 +251,6 @@ def add_spatial_tiling(
             compression=compression,
             overwrite=True,
         )
-        prefix = f"../../shapes/{shapes_element}"
-        if "path" in cell_segmentation:
-            cell_segmentation["path"] = f"{prefix}/{cell_segmentation['path']}"
-        else:
-            cell_segmentation["directory"] = f"{prefix}/{cell_segmentation['directory']}"
 
     cbg = None
     if include_cbg and table is not None:
@@ -217,25 +272,36 @@ def add_spatial_tiling(
 
         if image_element not in sdata.images:
             raise ValueError(f"image element {image_element!r} not found; have {list(sdata.images)}")
-        pyramid = write_webp_pyramid(
-            sdata.images[image_element],
-            profile_dir / "images" / image_name,
-            channel=image_channel,
-            tile_size=image_tile_size,
-            source_element=image_element,
-            overwrite=True,
-        )
-        # ImageRowGroupReader resolves files as baseUrl/directory/file and reads the
-        # per-zoom grid from the entry's zoom_info.
-        pyramid["directory"] = f"images/{image_name}"
-        images[image_name] = pyramid
-        image_info = [{"name": image_name, "button_name": image_button_name, "color": list(image_color)}]
-        image_dimensions = {
-            "width": pyramid["source_width"],
-            "height": pyramid["source_height"],
-            "tile_size": image_tile_size,
-        }
-        max_pyramid_zoom = pyramid["max_zoom"]
+        element = sdata.images[image_element]
+        channels = image_channels if image_channels is not None else _channels_of(element)
+
+        for index, channel in enumerate(channels):
+            label = _channel_label(channel, index)
+            pyramid = write_webp_pyramid(
+                element,
+                profile_dir / "images" / label,
+                channel=channel,
+                tile_size=image_tile_size,
+                source_element=image_element,
+                overwrite=True,
+            )
+            # ImageRowGroupReader resolves files as baseUrl/directory/file and reads the
+            # per-zoom grid from the entry's zoom_info.
+            pyramid["directory"] = f"images/{label}"
+            images[label] = pyramid
+            colour = (image_colors or {}).get(label) or _DEFAULT_CHANNEL_COLORS[
+                index % len(_DEFAULT_CHANNEL_COLORS)
+            ]
+            image_info.append(
+                {"name": label, "button_name": str(channel), "color": list(colour)}
+            )
+            # Every channel of one element shares its dimensions and pyramid depth.
+            image_dimensions = {
+                "width": pyramid["source_width"],
+                "height": pyramid["source_height"],
+                "tile_size": image_tile_size,
+            }
+            max_pyramid_zoom = pyramid["max_zoom"]
 
     catalog.to_frame().to_parquet(profile_dir / "meta_gene.parquet", index=False)
 

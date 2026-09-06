@@ -141,8 +141,13 @@ def _prepare_table(
     feature_key: str,
     grid: RegularGrid,
     categories: Any | None,
+    render_only: bool = False,
 ) -> tuple[pa.Table, NDArray[np.int64]]:
-    """Add the render columns to one chunk and return it with its tile assignment.
+    """Build one chunk's output table and return it with its tile assignment.
+
+    With ``render_only`` the table holds just the render columns, for the standalone file
+    a viewer reads. Otherwise it is the canonical columns, tile-ordered but otherwise
+    untouched.
 
     ``categories`` pins the categorical dictionary so that every chunk converts to an
     identical Arrow schema; without it, partitions observing different feature subsets
@@ -150,11 +155,27 @@ def _prepare_table(
     """
     px, py = _to_display_pixels(df["x"].to_numpy(), df["y"].to_numpy(), transform)
     tile_ids = grid.assign(px, py)
-    codes = catalog.encode(df[feature_key])
 
-    # Re-tiling an already-tiled element must replace the render columns, not append
-    # duplicates: a duplicated name makes projected reads fail ("Multiple matches for
-    # FieldRef"), and a pandas round-trip degrades fixed_size_list to a variable list.
+    if render_only:
+        # Only the render columns. A viewer reads every column of this file, which is
+        # why no column projection is needed -- and parquet-wasm's projection is broken
+        # anyway (any `columns` argument corrupts the IPC stream it emits).
+        table = pa.table(
+            {
+                POSITION_COLUMN: _interleaved_positions(px, py),
+                FEATURE_COLUMN: pa.array(catalog.encode(df[feature_key])),
+            }
+        )
+        return table, tile_ids
+
+    # The canonical element keeps only its own columns. The render columns live in a
+    # separate file, for two reasons: a nested Arrow column cannot survive dask's parquet
+    # round-trip (SpatialData.write() either fails or silently returns it as a string),
+    # and a standalone render file means a viewer reads every column of it, so no column
+    # projection is needed -- which matters because parquet-wasm's projection is broken.
+    #
+    # Any render columns left by an earlier version are dropped, so re-tiling a store
+    # written before this change cleans it up rather than preserving them.
     stale = [c for c in (POSITION_COLUMN, FEATURE_COLUMN, _TILE_ID) if c in df.columns]
     if df.attrs or stale or categories is not None:
         df = df.copy(deep=False)
@@ -166,10 +187,7 @@ def _prepare_table(
         if categories is not None and isinstance(df[feature_key].dtype, pd.CategoricalDtype):
             df[feature_key] = df[feature_key].cat.set_categories(categories)
 
-    table = pa.Table.from_pandas(df, preserve_index=True)
-    table = table.append_column(POSITION_COLUMN, _interleaved_positions(px, py))
-    table = table.append_column(FEATURE_COLUMN, pa.array(codes))
-    return table, tile_ids
+    return pa.Table.from_pandas(df, preserve_index=True), tile_ids
 
 
 def _sorted_by_tile(table: pa.Table, tile_ids: NDArray[np.int64]) -> tuple[pa.Table, NDArray[np.int64]]:
@@ -229,6 +247,7 @@ def write_points_regular_grid(
     max_row_groups_per_file: int = DEFAULT_MAX_ROW_GROUPS_PER_FILE,
     compression: str = "zstd",
     streaming: bool | None = None,
+    render_only: bool = False,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Write a Points element as regular-grid row groups.
@@ -298,6 +317,7 @@ def write_points_regular_grid(
             feature_key=feature_key,
             max_row_groups_per_file=max_row_groups_per_file,
             compression=compression,
+            render_only=render_only,
         )
 
     df = points.compute() if hasattr(points, "compute") else points
@@ -305,7 +325,13 @@ def write_points_regular_grid(
         raise TypeError(f"expected a DataFrame, got {type(df).__name__}")
 
     table, tile_ids = _prepare_table(
-        df, transform=transform, catalog=catalog, feature_key=feature_key, grid=grid, categories=None
+        df,
+        transform=transform,
+        catalog=catalog,
+        feature_key=feature_key,
+        grid=grid,
+        categories=None,
+        render_only=render_only,
     )
     table, sorted_tile_ids = _sorted_by_tile(table, tile_ids)
 
@@ -348,7 +374,14 @@ def write_points_regular_grid(
     staging.rename(output_dir)
 
     return _manifest_fragment(
-        output_dir, filenames, grid, transform, catalog, max_row_groups_per_file, int(table.num_rows)
+        output_dir,
+        filenames,
+        grid,
+        transform,
+        catalog,
+        max_row_groups_per_file,
+        int(table.num_rows),
+        render_only=render_only,
     )
 
 
@@ -370,8 +403,9 @@ def _manifest_fragment(
     catalog: FeatureCatalog,
     max_row_groups_per_file: int,
     n_rows: int,
+    render_only: bool = False,
 ) -> dict[str, Any]:
-    return {
+    fragment: dict[str, Any] = {
         "directory": str(output_dir.name),
         "files": filenames,
         "max_row_groups_per_file": max_row_groups_per_file,
@@ -381,14 +415,13 @@ def _manifest_fragment(
         "position_dtype": "uint32",
         "position_size": 2,
         "feature_column": FEATURE_COLUMN,
-        # Projected by the client, so canonical coordinates, ids and QC columns are never
-        # decoded or transferred during ordinary rendering.
-        "columns": [POSITION_COLUMN, FEATURE_COLUMN],
         "n_rows": n_rows,
         "tile_grid": grid.to_manifest_dict(),
         "display_transform": transform.to_manifest_dict(),
         "feature_catalog": catalog.to_manifest_dict(),
+        "render_only": render_only,
     }
+    return fragment
 
 
 def _write_streaming(
@@ -401,6 +434,7 @@ def _write_streaming(
     feature_key: str,
     max_row_groups_per_file: int,
     compression: str,
+    render_only: bool = False,
 ) -> dict[str, Any]:
     """Write the tiled output without holding the whole element in memory.
 
@@ -439,6 +473,7 @@ def _write_streaming(
                 feature_key=feature_key,
                 grid=grid,
                 categories=categories,
+                render_only=render_only,
             )
             n_rows += table.num_rows
             if schema is None:
@@ -501,4 +536,6 @@ def _write_streaming(
         shutil.rmtree(output_dir)
     staging.rename(output_dir)
 
-    return _manifest_fragment(output_dir, filenames, grid, transform, catalog, max_row_groups_per_file, n_rows)
+    return _manifest_fragment(
+        output_dir, filenames, grid, transform, catalog, max_row_groups_per_file, n_rows, render_only=render_only
+    )
