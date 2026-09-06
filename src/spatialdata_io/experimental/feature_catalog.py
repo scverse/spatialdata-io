@@ -222,7 +222,11 @@ class FeatureCatalog:
             # index becomes a column of that name instead, and the gene list reads empty.
             index=pd.Index(list(self.names)),
         )
-        return frame.sort_index()
+        # Deliberately NOT sorted. A client builds its integer gene id from a feature's
+        # *row position* in this file, and colours transcripts by indexing an array built
+        # the same way. Sorting would break the correspondence with feature_code, so most
+        # colour lookups would miss and the transcripts would render transparent.
+        return frame
 
     def to_manifest_dict(self) -> dict[str, Any]:
         """Summary for the profile manifest. The full mapping lives in ``meta_gene.parquet``."""

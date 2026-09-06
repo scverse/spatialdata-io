@@ -252,3 +252,28 @@ def test_meta_gene_index_is_unnamed_so_it_serializes_as_index_level_0(tmp_path) 
     assert "color" in names
     for stat in ("mean", "std", "max", "non-zero"):
         assert stat in names
+
+
+def test_meta_gene_row_order_is_the_feature_code(tmp_path) -> None:
+    """A client derives its integer gene id from row position in this file.
+
+    It then colours transcripts by indexing an array built from that position, so the
+    order must match feature_code exactly. Sorting the frame breaks the correspondence
+    and the transcripts render transparent rather than erroring.
+    """
+    import pyarrow.parquet as pq
+
+    from spatialdata_io.experimental.feature_catalog import FeatureCatalog
+
+    # var_names order is deliberately NOT alphabetical, and a control sorts in the middle.
+    catalog = FeatureCatalog.from_features_and_table(
+        ["ZED", "ABC", "MID_Control"], var_names=["ZED", "ABC"]
+    )
+    path = tmp_path / "meta_gene.parquet"
+    catalog.to_frame().to_parquet(path)
+
+    df = pq.read_table(path).to_pandas()
+    order = list(df["__index_level_0__"]) if "__index_level_0__" in df.columns else list(df.index)
+    assert order == list(catalog.names)
+    for position, name in enumerate(order):
+        assert catalog.names.index(name) == position
