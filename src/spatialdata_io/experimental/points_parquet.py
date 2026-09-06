@@ -134,6 +134,7 @@ def write_points_regular_grid(
     *,
     catalog: FeatureCatalog,
     grid: RegularGrid | None = None,
+    display_transform: DisplayTransform | None = None,
     coordinate_system: str = "global",
     feature_key: str = "feature_name",
     tile_size_px: float = 250.0,
@@ -185,7 +186,9 @@ def write_points_regular_grid(
         if axis not in df.columns:
             raise ValueError(f"points element has no {axis!r} column; have {list(df.columns)}")
 
-    transform = DisplayTransform.from_element(points, coordinate_system)
+    # When called as a SpatialData ``points_writer`` hook the element arrives with its
+    # transformations already stripped from attrs, so the caller must supply the transform.
+    transform = display_transform or DisplayTransform.from_element(points, coordinate_system)
     px, py = _to_display_pixels(df["x"].to_numpy(), df["y"].to_numpy(), transform)
 
     if grid is None:
