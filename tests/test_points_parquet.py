@@ -221,7 +221,9 @@ def test_display_xy_matches_the_transform(rendered: tuple[Path, dict]) -> None:
 
 def _codes_by_position(directory: Path, manifest: dict) -> dict[tuple[int, int], int]:
     table = _read_all(directory, manifest)
-    return {tuple(v): c for v, c in zip(table[POSITION_COLUMN].to_pylist(), table[FEATURE_COLUMN].to_pylist())}
+    return {
+        tuple(v): c for v, c in zip(table[POSITION_COLUMN].to_pylist(), table[FEATURE_COLUMN].to_pylist(), strict=True)
+    }
 
 
 def test_feature_codes_match_catalog(rendered: tuple[Path, dict], catalog: FeatureCatalog) -> None:
@@ -383,8 +385,12 @@ def test_manifest_reports_which_flavour_was_written(
         points, tmp_path / "mem", catalog=catalog, grid=GRID, streaming=False, render_only=render_only
     )
     streamed = write_points_regular_grid(
-        _as_partitioned(points), tmp_path / "str", catalog=catalog, grid=GRID,
-        streaming=True, render_only=render_only,
+        _as_partitioned(points),
+        tmp_path / "str",
+        catalog=catalog,
+        grid=GRID,
+        streaming=True,
+        render_only=render_only,
     )
     assert in_memory["render_only"] is render_only
     assert streamed["render_only"] is render_only

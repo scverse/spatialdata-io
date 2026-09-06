@@ -142,7 +142,7 @@ def store(tmp_path: Path) -> Path:
     gdf = gpd.GeoDataFrame(
         geometry=[
             Polygon([(x, y), (x + 0.5, y), (x + 0.5, y + 0.5), (x, y + 0.5)])
-            for x, y in zip(rng.uniform(0.5, 9, 12), rng.uniform(0.5, 14, 12))
+            for x, y in zip(rng.uniform(0.5, 9, 12), rng.uniform(0.5, 14, 12), strict=True)
         ],
         index=cells,
     )

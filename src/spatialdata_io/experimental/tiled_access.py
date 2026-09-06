@@ -289,12 +289,8 @@ def add_spatial_tiling(
             # per-zoom grid from the entry's zoom_info.
             pyramid["directory"] = f"images/{label}"
             images[label] = pyramid
-            colour = (image_colors or {}).get(label) or _DEFAULT_CHANNEL_COLORS[
-                index % len(_DEFAULT_CHANNEL_COLORS)
-            ]
-            image_info.append(
-                {"name": label, "button_name": str(channel), "color": list(colour)}
-            )
+            colour = (image_colors or {}).get(label) or _DEFAULT_CHANNEL_COLORS[index % len(_DEFAULT_CHANNEL_COLORS)]
+            image_info.append({"name": label, "button_name": str(channel), "color": list(colour)})
             # Every channel of one element shares its dimensions and pyramid depth.
             image_dimensions = {
                 "width": pyramid["source_width"],
@@ -303,7 +299,9 @@ def add_spatial_tiling(
             }
             max_pyramid_zoom = pyramid["max_zoom"]
 
-    catalog.to_frame().to_parquet(profile_dir / "meta_gene.parquet", index=False)
+    # The gene name is the index and must be preserved: a client reads the gene list from
+    # it, and without it the viewer simply shows no transcript controls at all.
+    catalog.to_frame(table.X if table is not None else None).to_parquet(profile_dir / "meta_gene.parquet")
 
     # Files a client reads at fixed paths rather than through the manifest. Writing them
     # is what lets the profile directory stand in for a DegaFiles root, so no client needs

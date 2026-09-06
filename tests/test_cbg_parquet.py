@@ -98,7 +98,7 @@ def test_sparse_values_match_the_source_matrix(written: tuple[Path, dict]) -> No
     for col, gene in enumerate(GENES):
         rg = _row_group_for(directory, manifest, gene).to_pandas()
         expected = {i: DENSE[i, col] for i in range(len(CELLS)) if DENSE[i, col] != 0}
-        assert dict(zip(rg["cell_id"], rg["expression"])) == expected
+        assert dict(zip(rg["cell_id"], rg["expression"], strict=True)) == expected
         assert set(rg["gene"]) <= {gene}
 
 
@@ -132,7 +132,7 @@ def test_dense_matrix_is_supported(tmp_path: Path, catalog: FeatureCatalog) -> N
     out = tmp_path / "cbg"
     manifest = write_cbg_row_groups(adata, out, catalog=catalog)
     rg = _row_group_for(out, manifest, "GENEB").to_pandas()
-    assert dict(zip(rg["cell_id"], rg["expression"])) == {1: 2.0, 2: 7.0}
+    assert dict(zip(rg["cell_id"], rg["expression"], strict=True)) == {1: 2.0, 2: 7.0}
 
 
 def test_layer_can_be_selected(tmp_path: Path, table: AnnData, catalog: FeatureCatalog) -> None:
@@ -140,7 +140,7 @@ def test_layer_can_be_selected(tmp_path: Path, table: AnnData, catalog: FeatureC
     out = tmp_path / "cbg"
     manifest = write_cbg_row_groups(table, out, catalog=catalog, layer="scaled")
     rg = _row_group_for(out, manifest, "GENEA").to_pandas()
-    assert dict(zip(rg["cell_id"], rg["expression"])) == {0: 50.0, 2: 30.0}
+    assert dict(zip(rg["cell_id"], rg["expression"], strict=True)) == {0: 50.0, 2: 30.0}
 
 
 # -- cell codes ---------------------------------------------------------------

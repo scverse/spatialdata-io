@@ -137,10 +137,25 @@ def test_one_tile_per_row_group(written: tuple[Path, dict]) -> None:
 
 
 def test_channel_can_be_selected_by_name(tmp_path: Path) -> None:
-    a = write_webp_pyramid(_image(), tmp_path / "a", tile_size=TILE, channel="ch0")
-    b = write_webp_pyramid(_image(), tmp_path / "b", tile_size=TILE, channel="ch1")
-    # ch1 is twice ch0, so its auto window differs.
-    assert b["display_max"] > a["display_max"]
+    a_dir = tmp_path / "a"
+    b_dir = tmp_path / "b"
+    a = write_webp_pyramid(_image(), a_dir, tile_size=TILE, channel="ch0")
+    b = write_webp_pyramid(_image(), b_dir, tile_size=TILE, channel="ch1")
+    assert a["channel"] == "ch0" and b["channel"] == "ch1"
+    # ch1 is twice ch0, so the encoded pixels must differ even though the window matches.
+    pa_bytes = _tile(a_dir, a, a["max_zoom"], 0, 0)["image_data"][0].as_py()
+    pb_bytes = _tile(b_dir, b, b["max_zoom"], 0, 0)["image_data"][0].as_py()
+    assert pa_bytes != pb_bytes
+
+
+def test_default_window_is_the_full_dtype_range(tmp_path: Path) -> None:
+    """No stretch by default, matching Celldega's pipeline.
+
+    The viewer applies its own intensity slider; a percentile stretch here would be
+    applied on top of it and blow out the mid-tones.
+    """
+    m = write_webp_pyramid(_image(), tmp_path / "d", tile_size=TILE)
+    assert (m["display_min"], m["display_max"]) == (0.0, float(np.iinfo(np.uint16).max))
 
 
 def test_explicit_window_is_recorded_and_used(tmp_path: Path) -> None:

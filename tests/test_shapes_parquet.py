@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import geopandas as gpd
-import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -182,7 +181,7 @@ def test_display_vertices_match_the_transform(rendered: tuple[Path, dict]) -> No
     codes = table[CELL_CODE_COLUMN].to_pylist()
     geoms = table[GEOMETRY_COLUMN].to_pylist()
     names = list(SHAPES_SPEC)
-    for code, poly in zip(codes, geoms):
+    for code, poly in zip(codes, geoms, strict=True):
         canonical = SHAPES_SPEC[names[code]][0]
         expected = [[int(round(x * 2)), int(round(y * 2))] for x, y in canonical.exterior.coords]
         assert [list(v) for v in poly[0]] == expected
@@ -246,7 +245,7 @@ def test_cell_metadata_holds_display_pixel_centroids(tmp_path: Path, shapes: gpd
 
     out = tmp_path / "cm.parquet"
     write_cell_metadata(shapes, out, display_transform=XFORM)
-    got = dict(zip(pq.read_table(out)["name"].to_pylist(), pq.read_table(out)["geometry"].to_pylist()))
+    got = dict(zip(pq.read_table(out)["name"].to_pylist(), pq.read_table(out)["geometry"].to_pylist(), strict=True))
     for name, (geom, _) in SHAPES_SPEC.items():
         c = geom.centroid
         assert got[name] == pytest.approx([c.x * 2, c.y * 2], abs=0.5)

@@ -175,15 +175,51 @@ class FeatureCatalog:
 
     # -- serialization --------------------------------------------------------
 
-    def to_frame(self) -> pd.DataFrame:
-        """Return the catalog as the ``meta_gene.parquet`` table."""
-        return pd.DataFrame(
+    def to_frame(self, expression: Any | None = None) -> pd.DataFrame:
+        """Return the catalog as the ``meta_gene.parquet`` table.
+
+        The layout follows Celldega's own ``meta_gene.parquet``, because a client reads it
+        by convention rather than through the manifest: the **index** is the gene name,
+        and the columns are ``mean``, ``std``, ``max``, ``non-zero`` and ``color``. A
+        client with no ``color`` column or no index finds no genes at all, which shows up
+        as a viewer with no transcript controls rather than as an error.
+
+        ``feature_code`` and ``is_gene`` are carried alongside as profile additions.
+
+        Parameters
+        ----------
+        expression
+            Optional cell-by-gene matrix (cells x features, in catalog order) used to
+            compute the per-gene statistics. Without it the statistics are zero, which is
+            valid but leaves the viewer's gene ranking flat.
+        """
+        import colorsys
+
+        n = len(self.names)
+        stats = {k: np.zeros(n, dtype=np.float64) for k in ("mean", "std", "max", "non-zero")}
+        if expression is not None:
+            stats.update(_expression_stats(expression, n))
+
+        # A hue sweep, matching the look of Celldega's generated palette. Blank/control
+        # features are white so they read as "not a gene" in the UI.
+        colors = []
+        for i, name in enumerate(self.names):
+            if i >= self.n_genes or "Blank" in name:
+                colors.append("#FFFFFF")
+            else:
+                r, g, b = colorsys.hsv_to_rgb(i / max(1, self.n_genes), 0.7, 0.9)
+                colors.append(f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}")
+
+        frame = pd.DataFrame(
             {
-                "name": list(self.names),
-                "feature_code": np.arange(len(self.names), dtype=self.dtype),
-                "is_gene": np.arange(len(self.names)) < self.n_genes,
-            }
+                **stats,
+                "color": colors,
+                "feature_code": np.arange(n, dtype=self.dtype),
+                "is_gene": np.arange(n) < self.n_genes,
+            },
+            index=pd.Index(list(self.names), name="name"),
         )
+        return frame.sort_index()
 
     def to_manifest_dict(self) -> dict[str, Any]:
         """Summary for the profile manifest. The full mapping lives in ``meta_gene.parquet``."""
@@ -193,3 +229,34 @@ class FeatureCatalog:
             "feature_code_dtype": self.dtype.name,
             "gene_codes_match_cbg_row_groups": True,
         }
+
+
+def _expression_stats(matrix: Any, n_features: int) -> dict[str, NDArray[np.float64]]:
+    """Per-feature mean, std, max and non-zero fraction from a cells x features matrix.
+
+    Computed column-wise on the sparse matrix rather than densifying it, which for a
+    5,000-gene panel would otherwise be several GB.
+    """
+    import scipy.sparse as sp
+
+    stats = {k: np.zeros(n_features, dtype=np.float64) for k in ("mean", "std", "max", "non-zero")}
+    if matrix is None:
+        return stats
+
+    csc = matrix.tocsc() if sp.issparse(matrix) else sp.csc_matrix(np.asarray(matrix))
+    n_cells = csc.shape[0]
+    if n_cells == 0:
+        return stats
+
+    for col in range(min(n_features, csc.shape[1])):
+        values = csc.data[csc.indptr[col] : csc.indptr[col + 1]]
+        values = values[values != 0].astype(np.float64)
+        if values.size == 0:
+            continue
+        mean = float(values.sum()) / n_cells
+        # Variance over all cells, counting the implicit zeros.
+        stats["mean"][col] = mean
+        stats["std"][col] = float(np.sqrt(max(0.0, (values**2).sum() / n_cells - mean**2)))
+        stats["max"][col] = float(values.max())
+        stats["non-zero"][col] = values.size / n_cells
+    return stats

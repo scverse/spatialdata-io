@@ -84,18 +84,30 @@ def _as_2d(image: Any, channel: int | str | None) -> tuple[Any, Any]:
 
 
 def _display_window(sample_source: Any, display_min: float | None, display_max: float | None) -> tuple[float, float]:
-    """Choose the intensity window from a (possibly coarse) sample of the image.
+    """Choose the intensity window.
 
-    The window is a display choice, so it is taken from a downsampled level rather than by
-    scanning a 500-megapixel full-resolution plane.
+    The default is the *full dtype range* for integer images, which is a linear mapping
+    and no stretch at all. That deliberately matches Celldega's own image pipeline, which
+    saves raw values and leaves brightening to the viewer's intensity slider. A percentile
+    stretch here would be applied on top of that slider and blow out the mid-tones -- on
+    Xenium DAPI it took a tile from mean 1.3 to mean 37.4 with 1.2% of pixels saturated.
+
+    Pass ``display_min``/``display_max`` to window explicitly; both are recorded in the
+    manifest so the choice is reproducible and invalidatable.
     """
     if display_min is not None and display_max is not None:
         lo, hi = float(display_min), float(display_max)
     else:
         sample = np.asarray(sample_source)
-        sample = sample[np.isfinite(sample)] if sample.dtype.kind == "f" else sample.ravel()
-        lo = float(display_min) if display_min is not None else float(np.percentile(sample, 1.0))
-        hi = float(display_max) if display_max is not None else float(np.percentile(sample, 99.9))
+        if sample.dtype.kind in "ui":
+            info = np.iinfo(sample.dtype)
+            default_lo, default_hi = float(info.min), float(info.max)
+        else:
+            finite = sample[np.isfinite(sample)]
+            default_lo = float(finite.min()) if finite.size else 0.0
+            default_hi = float(finite.max()) if finite.size else 1.0
+        lo = float(display_min) if display_min is not None else default_lo
+        hi = float(display_max) if display_max is not None else default_hi
     return (lo, hi if hi > lo else lo + 1.0)
 
 
