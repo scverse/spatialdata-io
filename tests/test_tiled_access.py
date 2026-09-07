@@ -330,3 +330,103 @@ def test_tiled_store_can_still_be_rewritten_with_spatialdata_write(store: Path, 
     assert len(back.points["transcripts"]) == len(sdata.points["transcripts"])
     assert set(back.points["transcripts"].columns) == set(sdata.points["transcripts"].columns)
     assert len(back.shapes["cell_boundaries"]) == len(sdata.shapes["cell_boundaries"])
+
+
+# -- instrument independence --------------------------------------------------
+
+
+@pytest.fixture
+def merscope_like_store(tmp_path: Path) -> Path:
+    """A store shaped like a different platform: other element names, other transform.
+
+    Nothing in the profile is Xenium-specific except defaults, so tiling has to work on
+    any SpatialData store regardless of which reader produced it.
+    """
+    import geopandas as gpd
+    import scipy.sparse as sp
+    from anndata import AnnData
+    from shapely.geometry import Polygon
+    from spatialdata import SpatialData
+    from spatialdata.models import PointsModel, ShapesModel, TableModel
+    from spatialdata.transformations import Scale, set_transformation
+
+    rng = np.random.default_rng(3)
+    cells = [f"c{i}" for i in range(9)]
+    genes = ["Gad1", "Slc17a7", "Pvalb"]
+
+    pts = pd.DataFrame(
+        {
+            "x": rng.uniform(0, 19.9, 150),
+            "y": rng.uniform(0, 29.9, 150),
+            "gene": pd.Categorical(rng.choice([*genes, "Blank-1"], 150)),
+        }
+    )
+    # A different micron-to-pixel scale from Xenium's 1/0.2125.
+    points = PointsModel.parse(pts, coordinates={"x": "x", "y": "y"}, feature_key="gene")
+    set_transformation(points, Scale([5.0, 5.0], axes=("x", "y")), "global")
+
+    gdf = gpd.GeoDataFrame(
+        geometry=[
+            Polygon([(x, y), (x + 0.4, y), (x + 0.4, y + 0.4), (x, y + 0.4)])
+            for x, y in zip(rng.uniform(1, 18, 9), rng.uniform(1, 28, 9), strict=True)
+        ],
+        index=cells,
+    )
+    shapes = ShapesModel.parse(gdf)
+    set_transformation(shapes, Scale([5.0, 5.0], axes=("x", "y")), "global")
+
+    obs = pd.DataFrame({"region": pd.Categorical(["cell_polygons"] * 9), "instance_id": range(9)}, index=cells)
+    table = TableModel.parse(
+        AnnData(
+            X=sp.csr_matrix(rng.integers(0, 6, (9, 3)).astype(np.float32)),
+            obs=obs,
+            var=pd.DataFrame(index=genes),
+        ),
+        region="cell_polygons",
+        region_key="region",
+        instance_key="instance_id",
+    )
+
+    path = tmp_path / "merscope_like.zarr"
+    SpatialData(
+        points={"detected_transcripts": points},
+        shapes={"cell_polygons": shapes},
+        tables={"table": table},
+    ).write(path)
+    return path
+
+
+def test_tiling_works_on_a_non_xenium_store(merscope_like_store: Path) -> None:
+    """Only the defaults are Xenium; the profile itself reads generic SpatialData."""
+    import spatialdata
+
+    manifest = add_spatial_tiling(
+        merscope_like_store,
+        points_element="detected_transcripts",
+        shapes_element="cell_polygons",
+        feature_key="gene",
+        technology="MERSCOPE",
+        tile_size_px=25.0,
+    )
+
+    profile = merscope_like_store / "visualization" / PROFILE_NAME
+    validate_manifest(manifest, base_path=profile)
+    assert manifest["technology"] == "MERSCOPE"
+
+    grid = RegularGrid.from_manifest_dict(manifest["tile_grid"])
+    trx = manifest["row_group_files"]["transcripts"]
+    total = sum(pq.ParquetFile(profile / trx["directory"] / f).metadata.num_row_groups for f in trx["files"])
+    assert total == grid.num_tiles
+
+    # the transform is the element's own, not a hardcoded Xenium pixel size
+    assert manifest["row_group_files"]["transcripts"]["display_transform"]["affine_matrix"][0][0] == 5.0
+
+    # Blank-1 is absent from var_names, so it is a control coded above every gene
+    cbg = manifest["row_group_files"]["cbg"]
+    assert set(cbg["gene_to_row_group"]) == {"Gad1", "Slc17a7", "Pvalb"}
+    assert "Blank-1" not in cbg["gene_to_row_group"]
+
+    # and the store still reads normally
+    sdata = spatialdata.read_zarr(merscope_like_store)
+    assert len(sdata.points["detected_transcripts"]) == 150
+    assert len(sdata.shapes["cell_polygons"]) == 9
