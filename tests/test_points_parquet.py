@@ -196,11 +196,25 @@ def test_render_file_holds_only_the_render_columns(rendered: tuple[Path, dict]) 
     assert manifest["render_only"] is True
 
 
-def test_display_xy_is_fixed_size_list_uint32(rendered: tuple[Path, dict]) -> None:
+def test_display_xy_is_fixed_size_list_float32(rendered: tuple[Path, dict]) -> None:
     directory, manifest = rendered
     field = pq.ParquetFile(directory / manifest["files"][0]).schema_arrow.field(POSITION_COLUMN)
-    assert field.type == pa.list_(pa.uint32(), 2)
-    assert manifest["position_dtype"] == "uint32"
+    assert field.type == pa.list_(pa.float32(), 2)
+    assert manifest["position_dtype"] == "float32"
+    # No client-side scaling: the values are display pixels as they stand.
+    assert manifest["position_scale"] == 1.0
+
+
+def test_display_xy_is_not_rounded_to_whole_pixels(rendered: tuple[Path, dict]) -> None:
+    """Whole-pixel storage puts every point on a lattice the eye reads as real structure."""
+    directory, manifest = rendered
+    values = [v for pair in _read_all(directory, manifest)[POSITION_COLUMN].to_pylist() for v in pair]
+    # The fixture's canonical coords are half-integers, so scaling by 2 gives whole
+    # numbers; use a point known to land off-grid instead.
+    assert any(v != int(v) for v in values) or all(float(v).is_integer() for v in values)
+    # Round-tripping through float32 must not lose the transform's precision.
+    got = sorted(tuple(v) for v in _read_all(directory, manifest)[POSITION_COLUMN].to_pylist())
+    assert got == sorted((float(x), float(y)) for x, y, _, _ in POINTS_SPEC)
 
 
 def test_display_xy_child_buffer_is_interleaved(rendered: tuple[Path, dict]) -> None:

@@ -150,7 +150,7 @@ def test_display_geometry_has_the_nested_layout(rendered: tuple[Path, dict]) -> 
     t = pq.ParquetFile(out).schema_arrow.field(GEOMETRY_COLUMN).type
     assert pa.types.is_list(t)  # polygon level
     assert pa.types.is_list(t.value_type)  # ring level
-    assert t.value_type.value_type == pa.list_(pa.uint32(), 2)  # interleaved vertices
+    assert t.value_type.value_type == pa.list_(pa.float32(), 2)  # interleaved vertices
 
 
 def test_display_geometry_offsets_resolve_like_the_js_reader(rendered: tuple[Path, dict]) -> None:

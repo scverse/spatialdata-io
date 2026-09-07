@@ -3,7 +3,7 @@
 Adds two render-oriented columns beside the canonical geometry:
 
 ``display_geometry``
-    ``list<list<fixed_size_list<uint32>[2]>>`` -- polygon -> rings -> interleaved integer
+    ``list<list<fixed_size_list<float32>[2]>>`` -- polygon -> rings -> interleaved integer
     pixel vertices. The nesting is chosen so a client can lift deck.gl's ``getPolygon``
     straight out of the flat coordinate child buffer and ``startIndices`` out of the list
     offsets, with no WKB parsing and no per-vertex JavaScript objects.
@@ -84,7 +84,7 @@ def _display_geometry_array(
     ring_offsets, polygon_offsets = offsets
 
     px, py = _to_display_pixels(coords[:, 0], coords[:, 1], transform)
-    flat = np.empty(px.size * 2, dtype=np.uint32)
+    flat = np.empty(px.size * 2, dtype=np.float32)
     flat[0::2] = px
     flat[1::2] = py
 

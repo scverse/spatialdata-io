@@ -266,9 +266,7 @@ def test_meta_gene_row_order_is_the_feature_code(tmp_path) -> None:
     from spatialdata_io.experimental.feature_catalog import FeatureCatalog
 
     # var_names order is deliberately NOT alphabetical, and a control sorts in the middle.
-    catalog = FeatureCatalog.from_features_and_table(
-        ["ZED", "ABC", "MID_Control"], var_names=["ZED", "ABC"]
-    )
+    catalog = FeatureCatalog.from_features_and_table(["ZED", "ABC", "MID_Control"], var_names=["ZED", "ABC"])
     path = tmp_path / "meta_gene.parquet"
     catalog.to_frame().to_parquet(path)
 
