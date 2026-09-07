@@ -309,8 +309,8 @@ def write_points_regular_grid(
             "streaming requires a partitioned (dask) points element; an in-memory frame cannot be read incrementally"
         )
 
-    # When called as a SpatialData ``points_writer`` hook the element arrives with its
-    # transformations already stripped from attrs, so the caller must supply the transform.
+    # ``display_transform`` lets a caller supply the transform directly, for elements whose
+    # transformations are not reachable from the object itself.
     transform = display_transform or DisplayTransform.from_element(points, coordinate_system)
 
     if grid is None:
