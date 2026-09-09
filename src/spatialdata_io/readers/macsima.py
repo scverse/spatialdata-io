@@ -83,7 +83,10 @@ class MultiChannelImage:
         for p in path_files:
             try:
                 metadata = parse_metadata(p)
-            except ValueError as e:
+            # `path_files` may contain any file the user left in the folder, and the failure modes
+            # of `from_tiff()` are not enumerable (e.g. `struct.error` for a truncated header), so
+            # every file whose metadata cannot be parsed is skipped
+            except Exception as e:  # noqa: BLE001
                 warnings.warn(
                     f"Cannot parse OME metadata from {p}. Error: {e}. Skipping this file.",
                     UserWarning,
@@ -494,7 +497,9 @@ def _get_translations(ome: OME) -> dict[str, int]:
             logger.debug(f"No translation found for {ome.images[0].name}, defaulting to (0, 0)")
             translations = {"translation_x": 0, "translation_y": 0}
         else:
-            translations = {"translation_x": int(position_x), "translation_y": int(position_y)}
+            # the translations are used as `da.pad` widths, so they have to be integers; round
+            # instead of truncating, otherwise the offsets are biased towards the origin
+            translations = {"translation_x": round(position_x), "translation_y": round(position_y)}
 
     # In case the ome is faulty, also default to (0,0)
     except AttributeError:
@@ -798,7 +803,10 @@ def create_sdata(
         for p in path_files:
             try:
                 pixels_to_microns = parse_physical_size(p)
-            except (OSError, ValueError, IndexError, NotImplementedError):
+            # `path_files` may contain anything, including truncated or non-OME files: the failure
+            # modes of `from_tiff()` are not enumerable (e.g. `struct.error` for a truncated
+            # header), so every file that cannot be parsed is skipped
+            except Exception:  # noqa: BLE001
                 logger.debug(f"Could not parse physical size from {p}. Trying next file.")
                 continue
         if pixels_to_microns is None:

@@ -842,6 +842,29 @@ def test_get_translations_returns_correct_values() -> None:
     assert translations == expected
 
 
+def test_get_translations_rounds_fractional_positions() -> None:
+    """The translations are used as `da.pad` widths, so they must be rounded, not truncated."""
+    ome = OME(
+        images=[
+            Image(
+                pixels=Pixels(
+                    dimension_order=Pixels_DimensionOrder("XYZCT"),
+                    type=PixelType.UINT16,
+                    size_x=1,
+                    size_y=1,
+                    size_z=1,
+                    size_c=1,
+                    size_t=1,
+                    planes=[Plane(position_x=10.7, position_y=0.9, the_z=0, the_t=0, the_c=0)],
+                )
+            )
+        ]
+    )
+
+    translations = _get_translations(ome)
+    assert translations == {"translation_x": 11, "translation_y": 1}
+
+
 def test_get_translations_defaults_to_0_on_missing_data() -> None:
     ome = OME(
         images=[
@@ -913,3 +936,21 @@ def test_parse_ome_metadata_unknown_major_raises() -> None:
 
     with pytest.raises(ValueError, match="Unknown software version"):
         _parse_ome_metadata(ome)
+
+
+def test_macsima_skips_files_whose_physical_size_cannot_be_parsed(tmp_path: Path) -> None:
+    """A single unreadable file in the folder must not abort the reader.
+
+    `path_files` can contain anything the user left in the folder, and the failure modes of
+    `ome_types.from_tiff()` are not enumerable: a truncated TIFF header raises `struct.error`.
+    """
+    dataset = tmp_path / "OMAP10_small"
+    shutil.copytree("./data/OMAP10_small", dataset)
+    reference = sorted(dataset.glob("*.tif"))[0]
+    # a TIFF with a valid header but truncated before the metadata
+    truncated = dataset / "C-099_S-000_S_APC_R-01_W-C-1_ROI-01_A-Junk_C-JUNK.tif"
+    truncated.write_bytes(reference.read_bytes()[:200])
+
+    sdata = macsima(dataset, subset=32, c_subset=4, multiscale=False)
+
+    assert "OMAP10_small_image" in sdata.images
