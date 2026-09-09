@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import re
 import warnings
 from pathlib import Path
@@ -236,9 +236,13 @@ def merscope(
 def _get_reader(backend: str | None) -> Callable[..., Image2DModel]:
     if backend is not None:
         return _rioxarray_load_merscope if backend == "rioxarray" else _dask_image_load_merscope
-    if importlib.util.find_spec("rioxarray") is not None:
-        return _rioxarray_load_merscope
-    return _dask_image_load_merscope
+    # `find_spec` only reports whether the module can be *found*: importing it can still fail,
+    # e.g. when `rasterio` is broken, and in that case we want the `dask_image` backend
+    try:
+        importlib.import_module("rioxarray")
+    except ImportError:
+        return _dask_image_load_merscope
+    return _rioxarray_load_merscope
 
 
 def _rioxarray_load_merscope(
