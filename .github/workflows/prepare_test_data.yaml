@@ -53,6 +53,23 @@ jobs:
           curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip
 
           # -------
+          # the Visium dataset is licensed as CC BY 4.0, as shown here
+          # https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-example-data
+
+          # 10x Genomics Space Ranger 2.0.0 CytAssist FFPE Human Breast Cancer.
+          # The full-resolution tissue image is deliberately not downloaded (~2 GB): `fullres_image_file`
+          # is optional and the reader path it exercises is shared with the other readers.
+          VISIUM_DIR=CytAssist_FFPE_Human_Breast_Cancer
+          VISIUM_URL=https://cf.10xgenomics.com/samples/spatial-exp/2.0.0/CytAssist_FFPE_Human_Breast_Cancer
+          mkdir -p "$VISIUM_DIR"
+          curl -o "$VISIUM_DIR/CytAssist_FFPE_Human_Breast_Cancer_filtered_feature_bc_matrix.h5" \
+            "$VISIUM_URL/CytAssist_FFPE_Human_Breast_Cancer_filtered_feature_bc_matrix.h5"
+          # the archive contains a single `spatial/` directory
+          curl -o spatial.tar.gz "$VISIUM_URL/CytAssist_FFPE_Human_Breast_Cancer_spatial.tar.gz"
+          tar -xzf spatial.tar.gz -C "$VISIUM_DIR"
+          rm spatial.tar.gz
+
+          # -------
           # the Visium HD dataset is licensed as CC BY 4.0, as shown here
           # https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-hd-example-data
 
