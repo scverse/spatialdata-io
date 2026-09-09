@@ -174,7 +174,10 @@ def visium(
 
     assert isinstance(adata.obs, pd.DataFrame)
     adata.obs = pd.merge(adata.obs, coords, how="left", left_index=True, right_index=True)
-    adata.obsm["spatial"] = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].values
+    # `coords` above is the raw `tissue_positions` table; the circles are built from the
+    # spot coordinates in the order of `adata`, so keep them in a separate variable
+    spot_coords = adata.obs[[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].to_numpy()
+    adata.obsm["spatial"] = spot_coords
     adata.obs = pd.DataFrame(adata.obs)
     adata.obs.drop(columns=[VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y], inplace=True)
     adata.obs["spot_id"] = np.arange(len(adata))
@@ -204,7 +207,7 @@ def visium(
     )
     shapes = {}
     circles = ShapesModel.parse(
-        coords,
+        spot_coords,
         geometry=0,
         radius=scalefactors["spot_diameter_fullres"] / 2.0,
         index=adata.obs["spot_id"].copy(),
