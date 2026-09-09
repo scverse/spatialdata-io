@@ -146,6 +146,11 @@ lint.per-file-ignores."docs/*" = [ "I" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
+[tool.mypy]
+# `/tests/data/` is one of the gitignored locations the test datasets are downloaded to; it is
+# not source of ours, and it can hold whatever scripts were used to prepare the data.
+exclude = "^tests/data/"
+
 # Dependencies that ship neither inline types nor stubs. Listed explicitly rather than
 # globally, so that a newly added untyped dependency is still reported.
 [[tool.mypy.overrides]]

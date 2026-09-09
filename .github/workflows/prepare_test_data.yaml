@@ -53,6 +53,19 @@ jobs:
           curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip
 
           # -------
+          # the Visium dataset is licensed as CC BY 4.0, as shown here
+          # https://www.10xgenomics.com/datasets/gene-and-protein-expression-library-of-human-breast-cancer-cytassist-ffpe-2-standard
+
+          # 10x Genomics Visium CytAssist Gene and Protein Expression Library of Human Breast Cancer, IF, 6.5mm (FFPE)
+          mkdir -p CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer
+          cd CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer
+          # The full-resolution tissue image is deliberately not downloaded (~2 GB): `fullres_image_file`
+          # is optional and the reader path it exercises is shared with the other readers.
+          curl -O https://cf.10xgenomics.com/samples/spatial-exp/2.1.0/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer_filtered_feature_bc_matrix.h5
+          curl -O https://cf.10xgenomics.com/samples/spatial-exp/2.1.0/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer_spatial.tar.gz
+          cd ..
+
+          # -------
           # the Visium HD dataset is licensed as CC BY 4.0, as shown here
           # https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-hd-example-data
 
@@ -79,6 +92,11 @@ jobs:
               dir="${file%.zip}"
               mkdir -p "$dir"
               unzip "$file" -d "$dir"
+              rm "$file"
+          done
+          # the Visium archive contains a single `spatial/` directory, extracted next to the `.h5`
+          for file in */*.tar.gz; do
+              tar -xzf "$file" -C "$(dirname "$file")"
               rm "$file"
           done
 

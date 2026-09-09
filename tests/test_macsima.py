@@ -1,6 +1,7 @@
 import contextlib
 import math
 import os
+import re
 import shutil
 from copy import deepcopy
 from pathlib import Path
@@ -913,3 +914,22 @@ def test_parse_ome_metadata_unknown_major_raises() -> None:
 
     with pytest.raises(ValueError, match="Unknown software version"):
         _parse_ome_metadata(ome)
+
+
+def test_macsima_skips_files_whose_physical_size_cannot_be_parsed(tmp_path: Path) -> None:
+    """A single unreadable file in the folder must not abort the reader.
+
+    `path_files` can contain anything the user left in the folder, and the failure modes of
+    `ome_types.from_tiff()` are not enumerable: a truncated TIFF header raises `struct.error`.
+    """
+    dataset = tmp_path / "OMAP10_small"
+    shutil.copytree("./data/OMAP10_small", dataset)
+    reference = sorted(dataset.glob("*.tif"))[0]
+    # a TIFF with a valid header but truncated before the metadata
+    truncated = dataset / "C-099_S-000_S_APC_R-01_W-C-1_ROI-01_A-Junk_C-JUNK.tif"
+    truncated.write_bytes(reference.read_bytes()[:200])
+
+    with pytest.warns(UserWarning, match=re.escape(f"Cannot parse OME metadata from {truncated}")):
+        sdata = macsima(dataset, subset=32, c_subset=4, multiscale=False)
+
+    assert "OMAP10_small_image" in sdata.images

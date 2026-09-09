@@ -23,12 +23,6 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   documentation builds, `mypy` type checking of `src` and `tests`, `biome`/`pyproject-fmt`/`zizmor` pre-commit hooks,
   and Dependabot updates.
 
-### Fixed
-
-- `visium()`: the circles are built again from the spot coordinates instead of from the raw `tissue_positions` table,
-  which made the reader raise `TypeError: ShapesModel.parse() does not support the type
-  <class 'pandas.core.frame.DataFrame'>`.
-
 ### Removed
 
 - Support for Python 3.11.
