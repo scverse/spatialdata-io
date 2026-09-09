@@ -1,6 +1,7 @@
 import contextlib
 import math
 import os
+import re
 import shutil
 from copy import deepcopy
 from pathlib import Path
@@ -928,6 +929,7 @@ def test_macsima_skips_files_whose_physical_size_cannot_be_parsed(tmp_path: Path
     truncated = dataset / "C-099_S-000_S_APC_R-01_W-C-1_ROI-01_A-Junk_C-JUNK.tif"
     truncated.write_bytes(reference.read_bytes()[:200])
 
-    sdata = macsima(dataset, subset=32, c_subset=4, multiscale=False)
+    with pytest.warns(UserWarning, match=re.escape(f"Cannot parse OME metadata from {truncated}")):
+        sdata = macsima(dataset, subset=32, c_subset=4, multiscale=False)
 
     assert "OMAP10_small_image" in sdata.images
