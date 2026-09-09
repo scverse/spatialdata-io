@@ -53,23 +53,17 @@ jobs:
           curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip
 
           # -------
-          # the Visium dataset is licensed as CC BY 4.0, as stated on its page in the datasets portal
-          # https://www.10xgenomics.com/datasets
-          # (unlike Visium HD, non-HD Visium has no `*-example-data` page under the Space Ranger docs;
-          # those docs point to the datasets portal instead)
+          # the Visium dataset is licensed as CC BY 4.0, as shown here
+          # https://www.10xgenomics.com/datasets/gene-and-protein-expression-library-of-human-breast-cancer-cytassist-ffpe-2-standard
 
-          # 10x Genomics Space Ranger 2.0.0 CytAssist FFPE Human Breast Cancer.
+          # 10x Genomics Visium CytAssist Gene and Protein Expression Library of Human Breast Cancer, IF, 6.5mm (FFPE)
+          mkdir -p CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer
+          cd CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer
           # The full-resolution tissue image is deliberately not downloaded (~2 GB): `fullres_image_file`
           # is optional and the reader path it exercises is shared with the other readers.
-          VISIUM_DIR=CytAssist_FFPE_Human_Breast_Cancer
-          VISIUM_URL=https://cf.10xgenomics.com/samples/spatial-exp/2.0.0/CytAssist_FFPE_Human_Breast_Cancer
-          mkdir -p "$VISIUM_DIR"
-          curl -o "$VISIUM_DIR/CytAssist_FFPE_Human_Breast_Cancer_filtered_feature_bc_matrix.h5" \
-            "$VISIUM_URL/CytAssist_FFPE_Human_Breast_Cancer_filtered_feature_bc_matrix.h5"
-          # the archive contains a single `spatial/` directory
-          curl -o spatial.tar.gz "$VISIUM_URL/CytAssist_FFPE_Human_Breast_Cancer_spatial.tar.gz"
-          tar -xzf spatial.tar.gz -C "$VISIUM_DIR"
-          rm spatial.tar.gz
+          curl -O https://cf.10xgenomics.com/samples/spatial-exp/2.1.0/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer_filtered_feature_bc_matrix.h5
+          curl -O https://cf.10xgenomics.com/samples/spatial-exp/2.1.0/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer_spatial.tar.gz
+          cd ..
 
           # -------
           # the Visium HD dataset is licensed as CC BY 4.0, as shown here
@@ -98,6 +92,11 @@ jobs:
               dir="${file%.zip}"
               mkdir -p "$dir"
               unzip "$file" -d "$dir"
+              rm "$file"
+          done
+          # the Visium archive contains a single `spatial/` directory, extracted next to the `.h5`
+          for file in */*.tar.gz; do
+              tar -xzf "$file" -C "$(dirname "$file")"
               rm "$file"
           done
 
