@@ -497,9 +497,7 @@ def _get_translations(ome: OME) -> dict[str, int]:
             logger.debug(f"No translation found for {ome.images[0].name}, defaulting to (0, 0)")
             translations = {"translation_x": 0, "translation_y": 0}
         else:
-            # the translations are used as `da.pad` widths, so they have to be integers; round
-            # instead of truncating, otherwise the offsets are biased towards the origin
-            translations = {"translation_x": round(position_x), "translation_y": round(position_y)}
+            translations = {"translation_x": int(position_x), "translation_y": int(position_y)}
 
     # In case the ome is faulty, also default to (0,0)
     except AttributeError:

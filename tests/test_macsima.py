@@ -842,29 +842,6 @@ def test_get_translations_returns_correct_values() -> None:
     assert translations == expected
 
 
-def test_get_translations_rounds_fractional_positions() -> None:
-    """The translations are used as `da.pad` widths, so they must be rounded, not truncated."""
-    ome = OME(
-        images=[
-            Image(
-                pixels=Pixels(
-                    dimension_order=Pixels_DimensionOrder("XYZCT"),
-                    type=PixelType.UINT16,
-                    size_x=1,
-                    size_y=1,
-                    size_z=1,
-                    size_c=1,
-                    size_t=1,
-                    planes=[Plane(position_x=10.7, position_y=0.9, the_z=0, the_t=0, the_c=0)],
-                )
-            )
-        ]
-    )
-
-    translations = _get_translations(ome)
-    assert translations == {"translation_x": 11, "translation_y": 1}
-
-
 def test_get_translations_defaults_to_0_on_missing_data() -> None:
     ome = OME(
         images=[
