@@ -18,8 +18,10 @@ DATASET_ID = "visium_breast_cancer"
 
 if not (Path("./data") / DATASET_FOLDER).is_dir():
     pytest.skip(
-        f"Requires the {DATASET_FOLDER} dataset. It can be downloaded from "
-        "https://www.10xgenomics.com/datasets/human-breast-cancer-ductal-carcinoma-in-situ-invasive-carcinoma-ffpe-1-standard",
+        f"Requires the {DATASET_FOLDER} dataset (10x Genomics Space Ranger 2.0.0). The files and the "
+        "layout they are expected in are listed in .github/workflows/prepare_test_data.yaml; they are "
+        "downloaded from "
+        "https://cf.10xgenomics.com/samples/spatial-exp/2.0.0/CytAssist_FFPE_Human_Breast_Cancer/",
         allow_module_level=True,
     )
 

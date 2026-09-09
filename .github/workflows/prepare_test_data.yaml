@@ -53,8 +53,10 @@ jobs:
           curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip
 
           # -------
-          # the Visium dataset is licensed as CC BY 4.0, as shown here
-          # https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-example-data
+          # the Visium dataset is licensed as CC BY 4.0, as stated on its page in the datasets portal
+          # https://www.10xgenomics.com/datasets
+          # (unlike Visium HD, non-HD Visium has no `*-example-data` page under the Space Ranger docs;
+          # those docs point to the datasets portal instead)
 
           # 10x Genomics Space Ranger 2.0.0 CytAssist FFPE Human Breast Cancer.
           # The full-resolution tissue image is deliberately not downloaded (~2 GB): `fullres_image_file`
