@@ -14,7 +14,7 @@
 [badge-pypi]: https://badge.fury.io/py/spatialdata-io.svg
 [link-pypi]: https://pypi.org/project/spatialdata-io/
 
-_We encourage contributions from the community and from developers of spatial technologies. Please see the "How to Contribute" section below._
+_We encourage contributions from the community and from developers of spatial technologies: please read our [**contribution guide for readers and converters**](https://spatialdata.scverse.org/projects/io/en/latest/contributing_io.html) and see the "[How to Contribute](#how-to-contribute)" section below._
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
@@ -34,19 +34,19 @@ This package contains reader functions to load common spatial omics formats into
 
 Note: all mentioned technologies are registered trademarks of their respective companies.
 
-Please refer to the list of [open Pull Requests](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aopen) for readers that are currently being developed. The list of [closed but unmerged PRs](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aunmerged+is%3Aclosed) may also contain useful code from old drafts of readers. Please get in touch if you would like to [contribute](https://github.com/scverse/spatialdata-io/blob/main/docs/contributing.md) and iterate on a PR, or reopen a closed one.
+Please refer to the list of [open Pull Requests](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aopen) for readers that are currently being developed. The list of [closed but unmerged PRs](https://github.com/scverse/spatialdata-io/pulls?q=sort%3Aupdated-desc+is%3Apr+is%3Aunmerged+is%3Aclosed) may also contain useful code from old drafts of readers. Please get in touch if you would like to [contribute](https://spatialdata.scverse.org/projects/io/en/latest/contributing_io.html) and iterate on a PR, or reopen a closed one.
+
+## How to Contribute
+
+1. **Open a GitHub Issue**: Start by opening a new issue or commenting on an existing one in the repository. Clearly describe the problem and your proposed changes to avoid overlapping efforts with others.
+
+2. **Submit a Pull Request (PR)**: Once the issue is discussed, submit a PR to the `spatialdata-io` repository. If you are contributing a new reader, or extending the reader for a new versions of a technologies, please consult our [**spatialdata-io contribution guide**](https://spatialdata.scverse.org/projects/io/en/latest/contributing_io.html), which describes the steps to ensure that the pull request can be tested on suitable example data and reviewed efficiently.
 
 ## Known limitations
 
 Contributions for addressing the below limitations are very welcomed.
 
 - Only Stereo-seq 7.x is supported, 8.x is not currently supported. https://github.com/scverse/spatialdata-io/issues/161
-
-### How to Contribute
-
-1. **Open a GitHub Issue**: Start by opening a new issue or commenting on an existing one in the repository. Clearly describe the problem and your proposed changes to avoid overlapping efforts with others.
-
-2. **Submit a Pull Request (PR)**: Once the issue is discussed, submit a PR to the `spatialdata-io` repository. If you are contributing a new reader, or extending the reader for a new versions of a technologies, please consult our [contribution guide](https://spatialdata.scverse.org/projects/io/en/latest/contributing.html), which describes the steps to ensure that the pull request can be tested on suitable example data and reviewed efficiently.
 
 ## Getting started
 

@@ -9,6 +9,7 @@
 api.md
 cli.md
 changelog.md
-contributing.md
+contributing_io.md
+Generic development guide <contributing.md>
 references.md
 ```
