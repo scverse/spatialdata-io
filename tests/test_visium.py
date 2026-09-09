@@ -13,15 +13,13 @@ from spatialdata_io.readers.visium import visium
 # This dataset name is used to locate the test data in the './data/' directory.
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml
 # for instructions on how to download and place the data on disk.
-DATASET_FOLDER = "CytAssist_FFPE_Human_Breast_Cancer"
+DATASET_FOLDER = "CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer"
 DATASET_ID = "visium_breast_cancer"
 
 if not (Path("./data") / DATASET_FOLDER).is_dir():
     pytest.skip(
-        f"Requires the {DATASET_FOLDER} dataset (10x Genomics Space Ranger 2.0.0). The files and the "
-        "layout they are expected in are listed in .github/workflows/prepare_test_data.yaml; they are "
-        "downloaded from "
-        "https://cf.10xgenomics.com/samples/spatial-exp/2.0.0/CytAssist_FFPE_Human_Breast_Cancer/",
+        f"Requires the {DATASET_FOLDER} dataset (10x Genomics Space Ranger 2.1.0). The files and the "
+        "layout they are expected in are listed in .github/workflows/prepare_test_data.yaml.",
         allow_module_level=True,
     )
 
