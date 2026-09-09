@@ -8,7 +8,7 @@ from spatialdata_io.readers.dbit import _check_path
 
 
 def test_check_path_without_a_directory_raises() -> None:
-    """Without a directory to search, `_check_path` must not fall back to the current one."""
+    """Without a directory to search, `_check_path` should raise an exception."""
     with pytest.raises(ValueError, match="Either `path` or a specific path"):
         _check_path(
             path=None,
