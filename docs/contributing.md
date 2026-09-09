@@ -390,7 +390,7 @@ We recommend studying existing readers and reusing code from them. A few technic
 
 - Large raster or points data is usually loaded from disk lazily (e.g. with `dask_image.imread()`), which allows returning a `SpatialData` object quickly and defers computation when saving the object to disk in the SpatialData Zarr format, with `sdata.write()`.
 - When the raw data has multiple samples, we recommend adding a coordinate system for each sample, and if the samples are aligned in space, one common coordinate system. A single table containing the annotation for all samples is preferred. See an example in the [`cosmx()`](https://github.com/scverse/spatialdata-io/blob/main/src/spatialdata_io/readers/cosmx.py) reader.
-- Small images should be represented as single-scale images (`xarray.DataArray`), large images as multiscale images (`xarray.DataTree`). The scale factors and chunk shape (`chunks`) should lead to chunks that fit in memory. See an example in [`visium()`](https://github.com/scverse/spatialdata-io/blob/main/src/spatialdata_io/readers/visium.py).
+- Small images should be represented as single-scale images (`xarray.DataArray`), large images as multiscale images (`xarray.DataTree`). The scale factors and chunk shape (`chunks`) should lead to chunks that fit in memory. See an example in [`visium()`](https://github.com/scverse/spatialdata-io/blob/main/src/spatialdata_io/readers/visium/_reader.py).
 
 ##### Experimental readers
 
@@ -461,6 +461,47 @@ If the `download.py` and `to_zarr.py` scripts require Python imports for package
 ### What to test
 
 We encourage testing the reader function and any helper function.
+
+Tests are split by scope:
+
+- Unit tests live in `tests/unit/` and should not require downloaded test data.
+- Integration tests live in `tests/integration/` and cover reader workflows, CLI commands, file I/O, and zarr roundtrips.
+- Integration tests that require external datasets use dataset keys from `scripts/test_data_downloader/datasets.toml`.
+  They resolve data under `SPATIALDATA_IO_TEST_DATA_DIR` when set, otherwise `data/` in the repository root. If the required dataset is unavailable, the test should skip with a clear message.
+- Reader tests are marked by reader name. When modifying one reader, use `pytest -m <reader>` to run the tests
+  specific to that reader, including shared parametrized checks for that reader.
+
+Useful local commands:
+
+```bash
+pytest tests/unit
+pytest tests/integration
+pytest -m "integration and data"
+pytest -m xenium
+pytest -m "xenium and data"
+pytest -m "xenium and not slow"
+pytest -m "xenium and cli"
+uv run python scripts/test_data_downloader --group xenium
+SPATIALDATA_IO_TEST_DATA_DIR=/path/to/data pytest -m data
+```
+
+To download the same optional datasets used by CI, run:
+
+```bash
+uv run python scripts/test_data_downloader
+```
+
+By default, the downloader skips datasets that already exist. Use `--force` to redownload selected datasets, `--dataset` for a single dataset key, and `--list` to show the available keys.
+The downloader verifies every downloaded file with [Pooch](https://www.fatiando.org/pooch/). The dataset manifest lives in
+`scripts/test_data_downloader/datasets.toml`; append new entries there when adding or updating test datasets. This manifest
+stores project-specific metadata such as dataset keys, groups, output directories, and sources; it is not a separate Pooch
+registry. Prefer a stable repository DOI when one is available. For DOI entries, Pooch loads the repository's per-file hashes
+at runtime and verifies every downloaded file. Otherwise, register the archive URL and its SHA-256 hash as
+`known_hash = "sha256:..."`.
+
+The [optional test-data downloader guide](https://github.com/scverse/spatialdata-io/blob/main/scripts/test_data_downloader/README.md)
+extends this section with the downloader's installation model, all selection and output options, the ZIP/DOI/multi-asset
+manifest forms, checksum generation, and the complete process for adding a dataset or adding files to an existing dataset.
 
 #### Testing multiple versions
 

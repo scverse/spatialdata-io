@@ -52,7 +52,9 @@ urls.Source = "https://github.com/scverse/spatialdata-io"
 dev = [
   "mypy",
   "pandas-stubs",
+  "pooch>=1.9",
   "prek",
+  "requests",
   "scipy-stubs",
   "twine>=4.0.2",
   "types-geopandas",
@@ -150,9 +152,11 @@ lint.pydocstyle.convention = "numpy"
 # globally, so that a newly added untyped dependency is still reported.
 [[tool.mypy.overrides]]
 module = [
+  "anndata.*",
   "dask_image.*",
   "h5py.*",
   "multiscale_spatial_image.*",
+  "pooch.*",
   "pyarrow.*",
   "rasterio.*",
   "readfcs.*",
@@ -163,6 +167,15 @@ module = [
 ]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# PyArrow's generated compute functions are runtime attributes that are omitted
+# from the pyarrow 24 type information.
+module = [
+  "spatialdata_io.readers.cosmx",
+  "spatialdata_io.readers.xenium",
+]
+disable_error_code = [ "attr-defined" ]
+
 [tool.pytest]
 addopts = [
   "--import-mode=importlib", # allow using test files with same name
@@ -171,9 +184,28 @@ addopts = [
 # `spatialdata.testing` pull in, which strict marker checking would otherwise reject
 markers = [
   "array_api",
+  "cli: command-line interface tests",
+  "codex: tests for the codex reader",
+  "cosmx: tests for the cosmx reader",
+  "curio: tests for the curio reader",
+  "data: tests that require optional downloaded test datasets",
+  "dbit: tests for the dbit reader",
+  "generic: tests for the generic reader module",
   "gpu",
+  "integration: multi-component tests, file I/O tests, or reader workflow tests",
+  "iss: tests for the iss reader",
+  "macsima: tests for the macsima reader",
+  "mcmicro: tests for the mcmicro reader",
+  "merscope: tests for the merscope reader",
+  "seqfish: tests for the seqfish reader",
   "skip_with_pyarrow_strings",
-  "slow",
+  "slow: tests with comparatively high runtime",
+  "steinbock: tests for the steinbock reader",
+  "stereoseq: tests for the stereoseq reader",
+  "unit: fast isolated tests that do not require external datasets",
+  "visium: tests for the visium reader",
+  "visium_hd: tests for the visium_hd reader",
+  "xenium: tests for the xenium reader",
 ]
 strict = true
 testpaths = [ "tests" ]

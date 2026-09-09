@@ -1,0 +1,105 @@
+# -------
+# the Xenium datasets are licensed as CC BY 4.0, as shown here
+# https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/resources/xenium-example-data
+
+# 10x Genomics Xenium 2.0.0
+[[datasets]]
+key = "xenium_breast"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Breast_2fov/Xenium_V1_human_Breast_2fov_outs.zip"
+known_hash = "sha256:cc1e987b06aa748a6b24d3d6f51fc0d6765daa4836c483f14ec4f1bd18b1779b"
+extracted_dir = "Xenium_V1_human_Breast_2fov_outs"
+source = "10x Genomics Xenium 2.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 2.0.0
+[[datasets]]
+key = "xenium_lung"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Lung_2fov/Xenium_V1_human_Lung_2fov_outs.zip"
+known_hash = "sha256:acc353069871eeda9977fc80f0d11e81eef8b7a683212819cd892d983c4e4d91"
+extracted_dir = "Xenium_V1_human_Lung_2fov_outs"
+source = "10x Genomics Xenium 2.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, multimodal cell segmentation
+# this file seems to be corrupted; skipping it for now
+# https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny.zip
+
+# 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, nuclear expansion
+[[datasets]]
+key = "xenium_prime_mouse_ileum"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Mouse_Ileum_tiny/Xenium_Prime_Mouse_Ileum_tiny_outs.zip"
+known_hash = "sha256:72dc2353825f6049959fa85e3c0617abd2a7cfb1c19531a2bba2d246fa276cd3"
+extracted_dir = "Xenium_Prime_Mouse_Ileum_tiny_outs"
+source = "10x Genomics Xenium 3.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 4.0.0 (v1) Human ovary, nuclear expansion
+[[datasets]]
+key = "xenium_ovary"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Human_Ovary_tiny/Xenium_V1_Human_Ovary_tiny_outs.zip"
+known_hash = "sha256:72b9a6d73ec428dd823e9a0d1e3b70d6f0538ec79f67fa7591f034af0894c764"
+extracted_dir = "Xenium_V1_Human_Ovary_tiny_outs"
+source = "10x Genomics Xenium 4.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 4.0.0 (v1) Human ovary, multimodal cell segmentation
+[[datasets]]
+key = "xenium_multicell_ovary"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_MultiCellSeg_Human_Ovary_tiny/Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs.zip"
+known_hash = "sha256:9b154a3c08360fe690c83e0e6a6710d0c5656ec93a6e3ff969b3950d291479b0"
+extracted_dir = "Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs"
+source = "10x Genomics Xenium 4.0.0, CC BY 4.0"
+
+# 10x Genomics Xenium 4.0.0 (v1+Protein) Human kidney, multimodal cell segmentation
+[[datasets]]
+key = "xenium_protein_kidney"
+group = "xenium"
+url = "https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip"
+known_hash = "sha256:abd7e8f7fd047dcc6afdb1e9eece90d4533d3ead053c6f05c482be050bdf79d2"
+extracted_dir = "Xenium_V1_Protein_Human_Kidney_tiny_outs"
+source = "10x Genomics Xenium 4.0.0, CC BY 4.0"
+
+# -------
+# the Visium HD dataset is licensed as CC BY 4.0, as shown here
+# https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-hd-example-data
+
+# 10x Genomics Visium HD 4.0.1 3' Mouse Brain Chunk
+[[datasets]]
+key = "visium_hd_tiny"
+group = "visium_hd"
+url = "https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Tiny_3prime_Dataset/Visium_HD_Tiny_3prime_Dataset_outs.zip"
+known_hash = "sha256:38be766fc4fa077f083b74d9a6746ab6db985838dbbba3006b5a36c51a3c5a50"
+extracted_dir = "Visium_HD_Tiny_3prime_Dataset_outs"
+source = "10x Genomics Visium HD 4.0.1, CC BY 4.0"
+
+# -------
+# we received written permission to make the following dataset public and integrate it in the CI system of spatialdata-io
+# Spatial Genomics seqFISH v2
+[[datasets]]
+key = "seqfish"
+group = "seqfish"
+url = "https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip"
+known_hash = "sha256:553208b2bab71e45fe0fd3799478aa03894270c8e447cecc6366c0bd412256c0"
+extracted_dir = "seqfish-2-test-dataset"
+source = "Spatial Genomics seqFISH v2, public test data"
+test_path = "instrument 2 official"
+
+# -------
+# MACSima OMAP datasets are licensed as CC BY 4.0
+# Pooch loads and verifies the published per-file MD5 checksums from each stable DOI at runtime.
+# OMAP23 for format v1.x.x
+[[datasets]]
+key = "macsima_omap23"
+group = "macsima"
+doi = "10.5281/zenodo.18196452"
+extracted_dir = "OMAP23_small"
+source = "MACSima OMAP23, CC BY 4.0"
+
+# OMAP10 for format v0.x.x
+[[datasets]]
+key = "macsima_omap10"
+group = "macsima"
+doi = "10.5281/zenodo.18196366"
+extracted_dir = "OMAP10_small"
+source = "MACSima OMAP10, CC BY 4.0"
