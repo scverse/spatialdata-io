@@ -27,7 +27,7 @@ __all__ = ["dbit"]
 
 
 def _check_path(
-    path: Path,
+    path: Path | None,
     pattern: Pattern[str],
     key: DbitKeys,
     path_specific: str | Path | None = None,
@@ -85,6 +85,8 @@ def _check_path(
                 raise FileNotFoundError(f"{path_specific} is not a valid path for a {key} file.")
 
     else:
+        if path is None:
+            raise ValueError(f"Either `path` or a specific path for the {key} file must be provided.")
         # search for the pattern matching file in path
         matches = [i for i in os.listdir(path) if pattern.match(i)]
         if len(matches) > 1:
@@ -266,12 +268,13 @@ def dbit(
     -------
     :class:`spatialdata.SpatialData`.
     """
-    path = Path() if path is None else Path(path)
-    # if path is invalid, raise error
-    if not os.path.isdir(path):
-        raise FileNotFoundError(
-            f"The path you have passed: {path} has not been found. A correct path to the data directory is needed."
-        )
+    if path is not None:
+        path = Path(path)
+        # if path is invalid, raise error
+        if not os.path.isdir(path):
+            raise FileNotFoundError(
+                f"The path you have passed: {path} has not been found. A correct path to the data directory is needed."
+            )
 
     # compile regex pattern to find file name in path, according to _constants.DbitKeys()
     patt_h5ad = re.compile(f".*{DbitKeys.COUNTS_FILE}")
