@@ -362,6 +362,7 @@ class VisiumHDKeys(ModeEnum):
     TISSUE_POSITIONS_FILE = "tissue_positions.parquet"
     BARCODE_MAPPINGS_FILE = "barcode_mappings.parquet"
     FILTERED_CELL_COUNTS_FILE = "filtered_feature_cell_matrix.h5"
+    RAW_CELL_COUNTS_FILE = "raw_feature_cell_matrix.h5"
     CELL_SEGMENTATION_GEOJSON_PATH = "cell_segmentations.geojson"
     NUCLEUS_SEGMENTATION_GEOJSON_PATH = "nucleus_segmentations.geojson"
 

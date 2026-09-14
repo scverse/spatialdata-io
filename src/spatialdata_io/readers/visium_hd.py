@@ -72,8 +72,11 @@ def visium_hd(
         Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it is
         inferred from the file name of the feature slice file.
     filtered_counts_file
-        It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to
-        ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
+        Select filtered counts (when `True`) or raw counts (when `False`) for both binned and segmented cell data.
+        Binned data uses ``{vx.FILTERED_COUNTS_FILE!r}`` or ``{vx.RAW_COUNTS_FILE!r}``; segmented cell data uses
+        ``{vx.FILTERED_CELL_COUNTS_FILE!r}`` or ``{vx.RAW_CELL_COUNTS_FILE!r}``.
+        Cell tables retain only barcodes with matching segmentation polygons. Nucleus counts still use the
+        filtered 2 µm binned matrix, independently of this parameter.
     load_segmentations_only
         If `True`, only the segmented cell boundaries and their associated counts will be loaded. All binned data
         will be skipped. If `False`, only the binned data will be loaded (which is consistent with legacy behavior).
@@ -139,7 +142,10 @@ def visium_hd(
 
     # Check for segmentation files
     SEGMENTED_OUTPUTS_PATH = path / VisiumHDKeys.SEGMENTATION_OUTPUTS
-    COUNT_MATRIX_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.FILTERED_CELL_COUNTS_FILE
+    cell_counts_file = (
+        VisiumHDKeys.FILTERED_CELL_COUNTS_FILE if filtered_counts_file else VisiumHDKeys.RAW_CELL_COUNTS_FILE
+    )
+    COUNT_MATRIX_PATH = SEGMENTED_OUTPUTS_PATH / cell_counts_file
     CELL_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.CELL_SEGMENTATION_GEOJSON_PATH
     NUCLEUS_GEOJSON_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.NUCLEUS_SEGMENTATION_GEOJSON_PATH
     SCALE_FACTORS_PATH = SEGMENTED_OUTPUTS_PATH / VisiumHDKeys.SPATIAL / VisiumHDKeys.SCALEFACTORS_FILE

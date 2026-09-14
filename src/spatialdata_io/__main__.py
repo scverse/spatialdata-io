@@ -580,7 +580,7 @@ def visium_wrapper(
     "--filtered-counts-file",
     type=bool,
     default=True,
-    help="It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to``{vx.RAW_COUNTS_FILE!r}`` (when `False`). [default: True]",
+    help="Select filtered (True) or raw (False) counts for binned and segmented cell data. Nucleus counts still use the filtered 2 µm binned matrix. [default: True]",
 )
 @click.option(
     "--bin-size",
