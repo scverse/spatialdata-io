@@ -3,7 +3,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
+import pandas as pd
 import pytest
+from anndata import AnnData
 from click.testing import CliRunner
 from pytest_mock import MockerFixture
 from spatialdata import match_table_to_element, read_zarr
@@ -11,6 +13,7 @@ from spatialdata.models import get_table_keys
 
 from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
+    _add_cells_analysis,
     _cell_id_str_from_prefix_suffix_uint32_reference,
     cell_id_str_from_prefix_suffix_uint32,
     prefix_suffix_uint32_from_cell_id_str,
@@ -324,3 +327,78 @@ def test_cli_xenium_valid_json_forwarded(
     assert result.exit_code == 0, result.output
     call_kwargs = mock_xenium.call_args.kwargs
     assert call_kwargs[kwarg_param] == {"chunks": 512}
+
+
+def _write_clusters(folder: Path, barcodes: list[str], clusters: list[int]) -> None:
+    folder.mkdir(parents=True)
+    pd.DataFrame({"Barcode": barcodes, "Cluster": clusters}).to_csv(folder / "clusters.csv", index=False)
+
+
+def _write_projection(folder: Path, barcodes: list[str], cols: dict[str, list[float]]) -> None:
+    folder.mkdir(parents=True)
+    pd.DataFrame({"Barcode": barcodes, **cols}).to_csv(folder / "projection.csv", index=False)
+
+
+def test_xenium_cells_analysis(tmp_path: Path) -> None:
+    """``_add_cells_analysis`` joins onboard analysis to the table by ``cell_id``.
+
+    Covers: clustering -> categorical obs (joined by barcode, reordered, with a
+    cell absent from a clustering left missing), pca/umap -> obsm (aligned, missing
+    rows NaN), and diffexp -> uns.
+    """
+    obs_names = ["a-1", "b-1", "c-1", "d-1"]
+    adata = AnnData(X=np.zeros((4, 2), dtype=np.float32))
+    adata.obs_names = obs_names
+
+    analysis = tmp_path / "analysis"
+    # graphclust covers 3 of 4 cells (d-1 unclustered -> missing); rows scrambled.
+    _write_clusters(analysis / "clustering" / "gene_expression_graphclust", ["c-1", "a-1", "b-1"], [3, 1, 2])
+    _write_clusters(
+        analysis / "clustering" / "gene_expression_kmeans_2_clusters", ["a-1", "b-1", "c-1", "d-1"], [1, 2, 1, 2]
+    )
+    # pca covers 3 of 4 cells; umap covers all.
+    _write_projection(
+        analysis / "pca" / "gene_expression_2_components",
+        ["a-1", "b-1", "c-1"],
+        {"PC-1": [0.1, 0.2, 0.3], "PC-2": [1.0, 2.0, 3.0]},
+    )
+    _write_projection(
+        analysis / "umap" / "gene_expression_2_components",
+        ["a-1", "b-1", "c-1", "d-1"],
+        {"UMAP-1": [1.0, 2.0, 3.0, 4.0], "UMAP-2": [4.0, 3.0, 2.0, 1.0]},
+    )
+    de_dir = analysis / "diffexp" / "gene_expression_graphclust"
+    de_dir.mkdir(parents=True)
+    pd.DataFrame({"Feature ID": ["g1"], "Feature Name": ["G1"], "Cluster 1 Mean Counts": [0.5]}).to_csv(
+        de_dir / "differential_expression.csv", index=False
+    )
+
+    _add_cells_analysis(adata, tmp_path)
+
+    # clustering -> categorical obs, joined by barcode (NOT row position), missing -> NaN.
+    gc = adata.obs["gene_expression_graphclust"]
+    assert str(gc.dtype) == "category"
+    assert list(gc[:3]) == ["1", "2", "3"]
+    assert pd.isna(gc.iloc[3])
+    assert list(gc.cat.categories) == ["1", "2", "3"]  # string categories, no "1.0"
+    assert list(adata.obs["gene_expression_kmeans_2_clusters"]) == ["1", "2", "1", "2"]
+
+    # pca/umap -> obsm, aligned to obs order; cells absent from a projection are NaN.
+    assert adata.obsm["X_pca"].shape == (4, 2)
+    assert adata.obsm["X_pca"][0, 0] == np.float32(0.1)  # a-1 joined correctly
+    assert np.isnan(adata.obsm["X_pca"][3]).all()  # d-1 absent from pca
+    assert adata.obsm["X_umap"].shape == (4, 2)
+    assert not np.isnan(adata.obsm["X_umap"]).any()
+
+    # diffexp -> uns
+    assert "gene_expression_graphclust" in adata.uns["diffexp"]
+
+
+def test_xenium_cells_analysis_missing_folder_is_noop(tmp_path: Path) -> None:
+    adata = AnnData(X=np.zeros((2, 2), dtype=np.float32))
+    adata.obs_names = ["a-1", "b-1"]
+    _add_cells_analysis(adata, tmp_path)  # no analysis/ folder present
+    assert "X_pca" not in adata.obsm
+    assert "X_umap" not in adata.obsm
+    assert not any(c.startswith("gene_expression_") for c in adata.obs.columns)
+    assert "diffexp" not in adata.uns
