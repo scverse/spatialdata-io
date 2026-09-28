@@ -1,5 +1,6 @@
 import math
 import tempfile
+import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -331,13 +332,13 @@ def test_pyxa_reader_includes_image_when_given() -> None:
         zarr_path = Path(tmpdir) / "tiny.ome.zarr"
         _make_tiny_ome_zarr(zarr_path)
 
-        sdata = pyxa(FIXTURE_DIR, image_path=zarr_path)
+        sdata = pyxa(FIXTURE_DIR, image=zarr_path)
         assert "mosaic_image" in sdata.images
         assert sdata["mosaic_image"]["scale0"]["image"].shape == (1, 2, 4, 4)
 
 
 def test_pyxa_reader_example_mosaic() -> None:
-    sdata = pyxa(FIXTURE_DIR, image_path=MOSAIC_DIR)
+    sdata = pyxa(FIXTURE_DIR, image=MOSAIC_DIR)
     image = sdata["mosaic_image"]
     # all five precomputed pyramid levels are loaded
     assert [image[k]["image"].shape for k in image] == [
@@ -357,7 +358,51 @@ def test_pyxa_reader_example_mosaic() -> None:
 def test_pyxa_reader_missing_image_raises() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         with pytest.raises(FileNotFoundError):
-            pyxa(FIXTURE_DIR, image_path=Path(tmpdir) / "does_not_exist.ome.zarr")
+            pyxa(FIXTURE_DIR, image=Path(tmpdir) / "does_not_exist.ome.zarr")
+
+
+def _zip_dir(src: Path, zip_path: Path) -> Path:
+    """Zip ``src`` so the archive holds one top-level ``src.name/`` directory, as on the Hub."""
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
+        for f in sorted(src.rglob("*")):
+            if f.is_file():
+                zf.write(f, f.relative_to(src.parent).as_posix())
+    return zip_path
+
+
+def test_get_image_reads_zip_in_place(tmp_path: Path) -> None:
+    zipped = _zip_dir(MOSAIC_DIR, tmp_path / "mosaic_3d.ome.zarr.zip")
+    from_dir, from_zip = _get_image(MOSAIC_DIR), _get_image(zipped)
+    assert list(from_zip.keys()) == list(from_dir.keys())
+    for level in from_dir:
+        np.testing.assert_array_equal(from_zip[level]["image"].values, from_dir[level]["image"].values)
+    assert get_extent(from_zip) == get_extent(from_dir)
+
+
+def test_pyxa_reader_finds_mosaic(tmp_path: Path) -> None:
+    # the fixture holds the unzipped mosaic: found by default, skipped with image=False
+    assert "mosaic_image" in pyxa(FIXTURE_DIR, cell_assigned_gene=False).images
+    assert not pyxa(FIXTURE_DIR, cell_assigned_gene=False, image=False).images
+    # a directory holding only the zip, as downloaded from the Hub
+    hub = tmp_path / "hub"
+    hub.mkdir()
+    for name in ("cell_by_gene_v1.csv", "cell_metadata_v1.csv"):
+        (hub / name).write_bytes((FIXTURE_DIR / name).read_bytes())
+    _zip_dir(MOSAIC_DIR, hub / "mosaic_3d.ome.zarr.zip")
+    assert "mosaic_image" in pyxa(hub).images
+    with pytest.raises(FileNotFoundError, match="mosaic image not found"):
+        pyxa(hub, image=tmp_path / "nope.ome.zarr")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    for name in ("cell_by_gene_v1.csv", "cell_metadata_v1.csv"):
+        (empty / name).write_bytes((FIXTURE_DIR / name).read_bytes())
+    with pytest.raises(FileNotFoundError, match="mosaic_3d.ome.zarr"):
+        pyxa(empty, image=True)
+
+
+def test_pyxa_reader_has_no_image_path() -> None:
+    with pytest.raises(TypeError):
+        pyxa(FIXTURE_DIR, image_path=MOSAIC_DIR)  # type: ignore[call-arg]
 
 
 # See https://github.com/scverse/spatialdata-io/blob/main/.github/workflows/prepare_test_data.yaml for instructions on
@@ -369,7 +414,7 @@ def test_pyxa_reader_missing_image_raises() -> None:
 def test_example_data_data_extent(dataset: str, expected: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
-    sdata = pyxa(f, image_path=f / "mosaic_3d.ome.zarr")
+    sdata = pyxa(f, image=f / "mosaic_3d.ome.zarr")
 
     extent = get_extent(sdata, exact=False)
     extent = {ax: (math.floor(extent[ax][0]), math.ceil(extent[ax][1])) for ax in extent}
@@ -380,7 +425,7 @@ def test_example_data_data_extent(dataset: str, expected: str) -> None:
 def test_example_data_index_integrity(dataset: str) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
-    sdata = pyxa(f, image_path=f / "mosaic_3d.ome.zarr")
+    sdata = pyxa(f, image=f / "mosaic_3d.ome.zarr")
 
     if dataset == "pyxa_xsmall":
         # fmt: off
@@ -424,7 +469,7 @@ def test_cli_pyxa(dataset: str) -> None:
         output_zarr = Path(tmpdir) / "data.zarr"
         result = runner.invoke(
             pyxa_wrapper,
-            ["--input", str(f), "--output", str(output_zarr), "--image-path", str(f / "mosaic_3d.ome.zarr")],
+            ["--input", str(f), "--output", str(output_zarr), "--image", str(f / "mosaic_3d.ome.zarr")],
         )
         assert result.exit_code == 0, result.output
         sdata = read_zarr(output_zarr)
@@ -486,7 +531,9 @@ def test_pyxa_reader_optional_inputs(tmp_path: Path) -> None:
     studio_path = tmp_path / "pyxa_studio_v1.csv"
     _write_studio(studio_path)
 
-    table_only = pyxa(FIXTURE_DIR, cell_assigned_gene=False, segmentation_geometries=False, pyxa_studio=studio_path)
+    table_only = pyxa(
+        FIXTURE_DIR, cell_assigned_gene=False, segmentation_geometries=False, pyxa_studio=studio_path, image=False
+    )
     assert not table_only.points and not table_only.shapes and not table_only.images
     assert set(table_only.tables) == {"rna"}
     assert "Cluster" in table_only["rna"].obs and "X_umap" in table_only["rna"].obsm
@@ -496,7 +543,7 @@ def test_pyxa_reader_optional_inputs(tmp_path: Path) -> None:
     explicit = pyxa(
         cell_by_gene=FIXTURE_DIR / "cell_by_gene_v1.csv",
         cell_metadata=FIXTURE_DIR / "cell_metadata_v1.csv",
-        image_path=MOSAIC_DIR,
+        image=MOSAIC_DIR,
     )
     assert set(explicit.tables) == {"rna"} and set(explicit.images) == {"mosaic_image"}
     assert not explicit.points and not explicit.shapes
@@ -531,12 +578,13 @@ def test_cli_pyxa_skip(dataset: str, tmp_path: Path) -> None:
         [
             "--input", str(f), "--output", str(output_zarr),
             "--skip", "cell_assigned_gene", "--skip", "segmentation_geometries",
-            "--pyxa-studio", str(studio_path),
+            "--pyxa-studio", str(studio_path), "--no-image",
         ],
     )  # fmt: skip
     assert result.exit_code == 0, result.output
     sdata = read_zarr(output_zarr)
     assert not sdata.points and not sdata.shapes
+    assert not sdata.images
     assert "Cluster" in sdata["rna"].obs
 
 

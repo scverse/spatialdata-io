@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, cast
@@ -248,14 +249,28 @@ def _get_footprints(planes: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return footprints
 
 
+def _open_mosaic(path: Path) -> zarr.Group:
+    """Open a mosaic OME-Zarr read-only, from its directory or from a zip of it (read in place).
+
+    A zip holds either the group at its root or a single top-level ``<name>.ome.zarr/`` directory,
+    as in the Stellaromics/demo dataset.
+    """
+    if path.suffix != ".zip":
+        return zarr.open_group(store=str(path), mode="r")
+    with zipfile.ZipFile(path) as zf:
+        tops = {name.split("/", 1)[0] for name in zf.namelist()}
+    group_path = "" if "zarr.json" in tops or len(tops) != 1 else tops.pop()
+    return zarr.open_group(store=zarr.storage.ZipStore(path, mode="r"), mode="r", path=group_path)
+
+
 def _get_image(path: Path) -> DataTree:
-    """Load every level of an OME-Zarr (OME-NGFF v0.5) mosaic image as a multiscale image.
+    """Load every level of an OME-Zarr (OME-NGFF v0.5) mosaic, from a directory or a zip, as a multiscale image.
 
     The pyramid levels already in the store are opened lazily, not recomputed. As in spatialdata's
     own OME-Zarr reader, the ``global`` transformation comes from the full-resolution level and
     each coarser level is related to it by the ratio of the array shapes.
     """
-    group = zarr.open_group(store=str(path), mode="r")
+    group = _open_mosaic(path)
     ome = cast("dict[str, Any]", group.attrs.asdict()["ome"])
     multiscale = ome["multiscales"][0]
     datasets = multiscale["datasets"]
@@ -264,7 +279,7 @@ def _get_image(path: Path) -> DataTree:
     all_axes = [a["name"] for a in multiscale["axes"]]
     t_index = all_axes.index("t")
     axes = tuple(a for a in all_axes if a != "t")
-    arrays = [da.squeeze(da.from_zarr(str(path), component=d["path"]), axis=t_index) for d in datasets]
+    arrays = [da.squeeze(da.from_zarr(group[d["path"]]), axis=t_index) for d in datasets]
 
     coordinate_transformations = {ct["type"]: ct for ct in datasets[0]["coordinateTransformations"]}
     spatial_axes = tuple(a for a in axes if a != "c")
@@ -331,17 +346,38 @@ def _resolve_input(value: InputPath, path: Path | None, file_name: str) -> Path 
     return explicit
 
 
+def _resolve_image(value: InputPath, path: Path | None) -> Path | None:
+    """Where to read the mosaic from, or ``None`` to skip it.
+
+    Like :func:`_resolve_input`, looking in ``path`` for the unzipped ``mosaic_3d.ome.zarr`` first
+    and then for ``mosaic_3d.ome.zarr.zip``. An explicit path may be either.
+    """
+    if value is False:
+        return None
+    if value is None or value is True:
+        for name in (PyxaKeys.MOSAIC_FILE.value, PyxaKeys.MOSAIC_ZIP_FILE.value):
+            if path is not None and (path / name).exists():
+                return path / name
+        if value is True:
+            raise FileNotFoundError(f"Expected Pyxa mosaic image not found: {PyxaKeys.MOSAIC_FILE.value}(.zip)")
+        return None
+    explicit = Path(value)
+    if not explicit.exists():
+        raise FileNotFoundError(f"Expected Pyxa mosaic image not found: {explicit}")
+    return explicit
+
+
 @inject_docs(px=PyxaKeys)
 def pyxa(
     path: str | Path | None = None,
     dataset_id: str = "pyxa",
-    image_path: str | Path | None = None,
     *,
     cell_by_gene: RequiredPath = None,
     cell_metadata: RequiredPath = None,
     cell_assigned_gene: InputPath = None,
     segmentation_geometries: InputPath = None,
     pyxa_studio: InputPath = None,
+    image: InputPath = None,
 ) -> SpatialData:
     """
     Read *Pyxa* (Stellaromics) output.
@@ -361,7 +397,8 @@ def pyxa(
         - ``{px.PYXA_STUDIO_FILE!r}``: Pyxa Studio's export of the cells that passed its filters,
           adding ``{px.CLUSTER!r}`` (categorical) to the table's ``obs`` and the 3D UMAP as
           ``obsm[{px.UMAP_KEY!r}]``. Cells it filtered out keep missing values there.
-        - A mosaic OME-Zarr image, given as ``image_path``.
+        - ``{px.MOSAIC_FILE!r}`` (or ``{px.MOSAIC_ZIP_FILE!r}``, read in place): the mosaic
+          OME-Zarr (OME-NGFF v0.5) image, all pyramid levels, as ``{px.MOSAIC_IMAGE!r}``.
 
     Files are looked up in ``path`` by default. Pass a path for a file to read it from
     elsewhere, and for an optional file ``False`` to skip it even if present (e.g. the
@@ -401,17 +438,14 @@ def pyxa(
     dataset_id
         Dataset identifier, currently unused for element naming (reserved for
         future multi-sample support).
-    image_path
-        Optional path to a mosaic OME-Zarr (OME-NGFF v0.5) directory, e.g. a
-        DAPI mosaic. Not colocated with the other files in Pyxa's output
-        layout, so it must be given explicitly. All pyramid levels in the store
-        are loaded as a multiscale image (see :func:`_get_image`). If ``None``,
-        no image is included in the returned :class:`~spatialdata.SpatialData`.
     cell_by_gene, cell_metadata
         Required files: ``None`` (default) reads them from ``path``, a path reads that file.
-    cell_assigned_gene, segmentation_geometries, pyxa_studio
+    cell_assigned_gene, segmentation_geometries, pyxa_studio, image
         Optional files: ``None`` (default) reads one from ``path`` if present, a path reads
         that file, ``False`` skips it and ``True`` requires it in ``path``.
+
+        ``image`` may be the mosaic's directory or a zip of it; a zipped mosaic is read in place
+        with the threaded dask scheduler (a ``ZipStore`` is not shared across processes).
 
     Returns
     -------
@@ -428,10 +462,7 @@ def pyxa(
     if by_gene_path is None or metadata_path is None:  # unreachable: required inputs resolve or raise
         raise FileNotFoundError("cell_by_gene and cell_metadata are required")
 
-    if image_path is not None:
-        image_path = Path(image_path)
-        if not image_path.exists():
-            raise FileNotFoundError(f"Expected Pyxa mosaic image not found: {image_path}")
+    image_source = _resolve_image(image, directory)
     inputs = [p for p in (by_gene_path, metadata_path, assigned_gene_path, geometries_path, studio_path) if p]
     logger.info(f"Reading Pyxa {', '.join(p.name for p in inputs)}")
 
@@ -463,7 +494,7 @@ def pyxa(
         table = TableModel.parse(adata)
 
     images = {}
-    if image_path is not None:
-        images[PyxaKeys.MOSAIC_IMAGE.value] = _get_image(image_path)
+    if image_source is not None:
+        images[PyxaKeys.MOSAIC_IMAGE.value] = _get_image(image_source)
 
     return SpatialData(points=points, shapes=shapes, tables={"rna": table}, images=images)

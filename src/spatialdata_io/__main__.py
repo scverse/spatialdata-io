@@ -914,11 +914,12 @@ def macsima_wrapper(
 @_input_output_click_options
 @click.option("--dataset-id", type=str, default="pyxa", help="Dataset ID. [default: pyxa]")
 @click.option(
-    "--image-path",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    "--image",
+    type=click.Path(exists=True, file_okay=True, dir_okay=True),
     default=None,
-    help="Path to a mosaic OME-Zarr image directory (e.g. DAPI). [default: None]",
+    help="Mosaic OME-Zarr directory or zip, if not in the input directory. [default: found in the input]",
 )
+@click.option("--no-image", is_flag=True, default=False, help="Leave out the mosaic even if present.")
 @click.option(
     "--pyxa-studio",
     type=click.Path(exists=True, file_okay=True, dir_okay=False),
@@ -935,7 +936,8 @@ def pyxa_wrapper(
     input: str,
     output: str,
     dataset_id: str = "pyxa",
-    image_path: str | None = None,
+    image: str | None = None,
+    no_image: bool = False,
     pyxa_studio: str | None = None,
     skip: tuple[str, ...] = (),
 ) -> None:
@@ -945,7 +947,11 @@ def pyxa_wrapper(
     inputs: dict[str, str | bool] = dict.fromkeys(skip, False)
     if pyxa_studio is not None and "pyxa_studio" not in skip:
         inputs["pyxa_studio"] = pyxa_studio
-    sdata = pyxa(input, dataset_id=dataset_id, image_path=image_path, **inputs)  # type: ignore[arg-type]
+    if no_image:
+        inputs["image"] = False
+    elif image is not None:
+        inputs["image"] = image
+    sdata = pyxa(input, dataset_id=dataset_id, **inputs)  # type: ignore[arg-type]
     sdata.write(output)
 
 
