@@ -56,6 +56,7 @@ No stability guarantees are made for these.
 
 - Pyxa (Stellaromics): no public format specification yet; validated against
   the public [demo dataset](https://huggingface.co/datasets/Stellaromics/demo).
+  `labels=True` adds 3D cell labels on the mosaic grid.
 
 ## Getting started
 

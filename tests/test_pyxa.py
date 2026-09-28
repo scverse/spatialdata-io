@@ -884,3 +884,48 @@ def test_get_labels_raises_when_a_level_is_shorter_than_any_stride() -> None:
     grid = _MosaicGrid(shapes=((2, 4, 4), (2, 6, 6)), scale=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.0))
     with pytest.raises(ValueError, match="shorter than the mosaic"):
         _get_labels(_empty_rings(), grid)
+
+
+def test_pyxa_reader_labels(tmp_path: Path) -> None:
+    sdata = pyxa(FIXTURE_DIR, cell_assigned_gene=False, labels=True)
+    assert set(sdata.labels) == {"cell_labels"} and set(sdata.images) == {"mosaic_image"}
+    assert not sdata.shapes  # labels replace the shapes by default
+    table = sdata["rna"]
+    assert get_table_keys(table) == ("cell_labels", "region", "label_id")
+    assert table.obs["label_id"].dtype == np.uint32
+    assert "cell_id" in table.obs
+
+    sdata.write(tmp_path / "labels.zarr")
+    back = read_zarr(tmp_path / "labels.zarr")
+    drawn = set(np.unique(back["cell_labels"]["scale0"]["image"].values)) - {0}
+    assert drawn <= set(back["rna"].obs["label_id"])
+    assert get_table_keys(back["rna"])[0] == "cell_labels"
+
+
+def test_pyxa_reader_labels_and_shapes() -> None:
+    sdata = pyxa(FIXTURE_DIR, cell_assigned_gene=False, labels=True, shapes=True)
+    assert set(sdata.shapes) == {"cell_boundaries", "cell_boundaries_z"}
+    assert get_table_keys(sdata["rna"])[0] == "cell_labels"
+    assert not pyxa(FIXTURE_DIR, cell_assigned_gene=False, shapes=False).shapes
+
+
+def test_pyxa_reader_labels_need_image_and_geometries() -> None:
+    with pytest.raises(ValueError, match="missing: a mosaic image"):
+        pyxa(FIXTURE_DIR, labels=True, image=False)
+    with pytest.raises(ValueError, match="missing: segmentation_geometries"):
+        pyxa(FIXTURE_DIR, labels=True, segmentation_geometries=False)
+    with pytest.raises(FileNotFoundError, match="segmentation_geometries_v1.parquet"):
+        pyxa(FIXTURE_DIR, shapes=True, segmentation_geometries=False)
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_cli_pyxa_labels(dataset: str, tmp_path: Path) -> None:
+    output_zarr = tmp_path / "data.zarr"
+    result = CliRunner().invoke(
+        pyxa_wrapper,
+        ["--input", str(Path("./data") / dataset), "--output", str(output_zarr),
+         "--skip", "cell_assigned_gene", "--labels"],
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    sdata = read_zarr(output_zarr)
+    assert set(sdata.labels) == {"cell_labels"} and not sdata.shapes

@@ -932,6 +932,12 @@ def macsima_wrapper(
     multiple=True,
     help="Optional input file to leave out even if present; repeatable. [default: none]",
 )
+@click.option("--labels", is_flag=True, default=False, help="Rasterize 3D cell labels onto the mosaic's grid.")
+@click.option(
+    "--shapes/--no-shapes",
+    default=None,
+    help="Return the polygons as shapes. [default: when read and --labels is not set]",
+)
 def pyxa_wrapper(
     input: str,
     output: str,
@@ -940,6 +946,8 @@ def pyxa_wrapper(
     no_image: bool = False,
     pyxa_studio: str | None = None,
     skip: tuple[str, ...] = (),
+    labels: bool = False,
+    shapes: bool | None = None,
 ) -> None:
     """Pyxa (Stellaromics) conversion to SpatialData."""
     from spatialdata_io.experimental import pyxa
@@ -951,7 +959,7 @@ def pyxa_wrapper(
         inputs["image"] = False
     elif image is not None:
         inputs["image"] = image
-    sdata = pyxa(input, dataset_id=dataset_id, **inputs)  # type: ignore[arg-type]
+    sdata = pyxa(input, dataset_id=dataset_id, labels=labels, shapes=shapes, **inputs)  # type: ignore[arg-type]
     sdata.write(output)
 
 

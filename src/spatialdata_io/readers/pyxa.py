@@ -23,7 +23,7 @@ from xarray import DataArray, Dataset, DataTree
 
 from spatialdata_io._constants._constants import PyxaKeys
 from spatialdata_io._docs import inject_docs
-from spatialdata_io.readers._pyxa_labels import _MosaicGrid
+from spatialdata_io.readers._pyxa_labels import _get_labels, _label_ids, _MosaicGrid, _read_rings
 
 __all__ = ["pyxa"]
 
@@ -384,6 +384,8 @@ def pyxa(
     segmentation_geometries: InputPath = None,
     pyxa_studio: InputPath = None,
     image: InputPath = None,
+    shapes: bool | None = None,
+    labels: bool = False,
 ) -> SpatialData:
     """
     Read *Pyxa* (Stellaromics) output.
@@ -433,6 +435,18 @@ def pyxa(
         - ``{px.CELL_BOUNDARIES_Z!r}``: the per-cell, per-z-plane polygons, with
           ``cell_id``, ``ZIndex`` and ``Z_um`` columns.
 
+    With ``labels=True`` the polygons are instead rasterized into ``{px.CELL_LABELS!r}``, a 3D
+    labels element on the mosaic's voxel grid (same pyramid levels and transformation as
+    ``{px.MOSAIC_IMAGE!r}``), and the table annotates it through the integer
+    ``{px.LABEL_ID!r}``: the trailing integer of each ``cell_id`` (``Region_17`` -> 17) when
+    those are unique, positive and below 2^31, otherwise 1..n in table order. Holes are
+    filled, and where two cells overlap on a plane the higher label wins. The labels are
+    lazy: level 0 is drawn, one task per 32 x 1024 x 1024 tile, when computed or written, and
+    the coarser levels are strided views of it (nearest neighbour), so writing draws each
+    tile once, with dask's default threaded scheduler (a process scheduler is much slower
+    here, since every drawn tile is pickled back). Decoding the polygons is eager: for a full
+    Region (23M polygons) about a minute and ~6 GB of memory.
+
     Unassigned transcripts (``cell_id`` ending in ``"_-1"``) are kept in the
     points element, flagged via an ``assigned`` column, rather than dropped.
 
@@ -452,6 +466,12 @@ def pyxa(
 
         ``image`` may be the mosaic's directory or a zip of it; a zipped mosaic is read in place
         with the threaded dask scheduler (a ``ZipStore`` is not shared across processes).
+    shapes
+        Return the polygons as shapes. ``None`` (default): when the segmentation geometries are
+        read and ``labels`` is ``False``.
+    labels
+        Rasterize the polygons into 3D cell labels on the mosaic's grid (needs the segmentation
+        geometries and the mosaic); the table then annotates the labels.
 
     Returns
     -------
@@ -472,6 +492,22 @@ def pyxa(
     inputs = [p for p in (by_gene_path, metadata_path, assigned_gene_path, geometries_path, studio_path) if p]
     logger.info(f"Reading Pyxa {', '.join(p.name for p in inputs)}")
 
+    if labels:
+        missing = [
+            name
+            for name, found in (("segmentation_geometries", geometries_path), ("a mosaic image", image_source))
+            if found is None
+        ]
+        if missing:
+            raise ValueError(
+                f"labels=True needs segmentation_geometries and a mosaic image; missing: {', '.join(missing)}"
+            )
+    if shapes and geometries_path is None:
+        raise FileNotFoundError(
+            f"Expected Pyxa output file not found: {PyxaKeys.SEGMENTATION_GEOMETRIES_FILE.value} (shapes=True)"
+        )
+    read_shapes = geometries_path is not None and (shapes if shapes is not None else not labels)
+
     points = {}
     if assigned_gene_path is not None:
         points["transcripts"] = PointsModel.parse(
@@ -481,15 +517,38 @@ def pyxa(
             instance_key=PyxaKeys.CELL_ID.value,
         )
 
-    shapes = {}
-    if geometries_path is not None:
-        xy_size, z_size = _get_voxel_size(metadata_path)
-        planes = _get_shapes(geometries_path, xy_size, z_size)
-        shapes[PyxaKeys.REGION.value] = ShapesModel.parse(_get_footprints(planes))
-        shapes[PyxaKeys.CELL_BOUNDARIES_Z.value] = ShapesModel.parse(planes)
+    xy_size, z_size = _get_voxel_size(metadata_path) if (read_shapes or labels) else (1.0, 1.0)
+    shapes_elements = {}
+    if read_shapes:
+        planes = _get_shapes(geometries_path, xy_size, z_size)  # type: ignore[arg-type]
+        shapes_elements[PyxaKeys.REGION.value] = ShapesModel.parse(_get_footprints(planes))
+        shapes_elements[PyxaKeys.CELL_BOUNDARIES_Z.value] = ShapesModel.parse(planes)
 
     adata = _get_table(by_gene_path, metadata_path, studio_path)
-    if shapes:
+    labels_elements = {}
+    if labels:
+        ids, rule = _label_ids(adata.obs_names)
+        logger.info(f"{PyxaKeys.LABEL_ID.value}: {rule}")
+        adata.obs[PyxaKeys.LABEL_ID.value] = ids
+        adata.obs[PyxaKeys.REGION_KEY.value] = pd.Series(
+            PyxaKeys.CELL_LABELS.value, index=adata.obs_names, dtype="category"
+        )
+        grid = _mosaic_grid(image_source)  # type: ignore[arg-type]
+        rings = _read_rings(
+            geometries_path,  # type: ignore[arg-type]
+            pd.Series(ids, index=adata.obs_names),
+            grid,
+            xy_size,
+            z_size,
+        )
+        labels_elements[PyxaKeys.CELL_LABELS.value] = _get_labels(rings, grid)
+        table = TableModel.parse(
+            adata,
+            region=PyxaKeys.CELL_LABELS.value,
+            region_key=PyxaKeys.REGION_KEY.value,
+            instance_key=PyxaKeys.LABEL_ID.value,
+        )
+    elif shapes_elements:
         table = TableModel.parse(
             adata,
             region=PyxaKeys.REGION.value,
@@ -503,4 +562,6 @@ def pyxa(
     if image_source is not None:
         images[PyxaKeys.MOSAIC_IMAGE.value] = _get_image(image_source)
 
-    return SpatialData(points=points, shapes=shapes, tables={"rna": table}, images=images)
+    return SpatialData(
+        points=points, shapes=shapes_elements, labels=labels_elements, tables={"rna": table}, images=images
+    )
