@@ -538,3 +538,21 @@ def test_cli_pyxa_skip(dataset: str, tmp_path: Path) -> None:
     sdata = read_zarr(output_zarr)
     assert not sdata.points and not sdata.shapes
     assert "Cluster" in sdata["rna"].obs
+
+
+def test_pyxa_keys_labels() -> None:
+    assert PyxaKeys.MOSAIC_FILE.value == "mosaic_3d.ome.zarr"
+    assert PyxaKeys.MOSAIC_ZIP_FILE.value == "mosaic_3d.ome.zarr.zip"
+    assert PyxaKeys.CELL_LABELS.value == "cell_labels"
+    assert PyxaKeys.LABEL_ID.value == "label_id"
+
+
+def test_get_table_counts_are_sparse() -> None:
+    from scipy import sparse
+
+    adata = _get_table(FIXTURE_DIR / "cell_by_gene_v1.csv", FIXTURE_DIR / "cell_metadata_v1.csv")
+    raw = pd.read_csv(FIXTURE_DIR / "cell_by_gene_v1.csv", index_col="cell_id")
+    assert sparse.isspmatrix_csr(adata.X)
+    assert adata.X.dtype == raw.to_numpy().dtype
+    np.testing.assert_array_equal(adata.X.toarray(), raw.loc[adata.obs_names].to_numpy())
+    assert list(adata.var_names) == list(raw.columns)

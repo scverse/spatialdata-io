@@ -458,3 +458,10 @@ class PyxaKeys(ModeEnum):
     ASSIGNED = "assigned"
     MOSAIC_IMAGE = "mosaic_image"
     UMAP_KEY = "X_umap"
+
+    # mosaic image, looked up in the Pyxa directory (unzipped or zipped, as on the Hub)
+    MOSAIC_FILE = "mosaic_3d.ome.zarr"
+    MOSAIC_ZIP_FILE = "mosaic_3d.ome.zarr.zip"
+    # 3D cell labels rasterized from the segmentation polygons onto the mosaic's grid
+    CELL_LABELS = "cell_labels"
+    LABEL_ID = "label_id"

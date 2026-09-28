@@ -13,6 +13,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import shapely
 import zarr
+from scipy import sparse
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image3DModel, PointsModel, ShapesModel, TableModel
@@ -85,7 +86,12 @@ def _get_table(
     _validate_columns(metadata, set(spatial_cols), cell_metadata_path.name)
 
     metadata = metadata.loc[by_gene.index]
-    adata = ad.AnnData(by_gene, obs=metadata.drop(columns=spatial_cols))
+    # Pyxa counts are mostly zeros: a full Region's dense float64 table is several GB
+    adata = ad.AnnData(
+        sparse.csr_matrix(by_gene.to_numpy()),
+        obs=metadata.drop(columns=spatial_cols),
+        var=pd.DataFrame(index=by_gene.columns),
+    )
     adata.obsm["spatial"] = metadata[spatial_cols].values
 
     if pyxa_studio_path is not None:
