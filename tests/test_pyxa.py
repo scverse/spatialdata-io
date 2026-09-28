@@ -19,7 +19,7 @@ from xarray import DataTree
 
 from spatialdata_io.__main__ import pyxa_wrapper
 from spatialdata_io._constants._constants import PyxaKeys
-from spatialdata_io.readers._pyxa_labels import _MosaicGrid, _label_ids
+from spatialdata_io.readers._pyxa_labels import _label_ids
 from spatialdata_io.readers.pyxa import (
     _get_footprints,
     _get_image,
