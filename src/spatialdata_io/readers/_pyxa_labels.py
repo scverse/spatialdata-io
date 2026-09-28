@@ -157,7 +157,17 @@ def _read_rings(
     for _, d in results:
         for why, count in d.items():
             dropped[why] = dropped.get(why, 0) + count
-    rings = _Rings(**{k: np.concatenate([p[k] for p in parts]) for k in parts[0]})
+    if parts:
+        rings = _Rings(**{k: np.concatenate([p[k] for p in parts]) for k in parts[0]})
+    else:
+        # no row groups at all (e.g. a crop with no cells): nothing to concatenate over
+        rings = _Rings(
+            label=np.empty(0, dtype=np.uint32),
+            plane=np.empty(0, dtype=np.int32),
+            length=np.empty(0, dtype=np.int64),
+            coords=np.empty((0, 2), dtype=np.float32),
+            bounds=np.empty((0, 4), dtype=np.float32),
+        )
     summary = ", ".join(f"{count} {why}" for why, count in dropped.items() if count)
     logger.info(
         f"{path.name}: {len(rings)} polygon rings on the mosaic grid" + (f"; dropped {summary}" if summary else "")

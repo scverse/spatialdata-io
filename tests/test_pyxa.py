@@ -1,3 +1,4 @@
+import dataclasses
 import math
 import tempfile
 import zipfile
@@ -646,6 +647,39 @@ def test_read_rings_drops_cells_not_in_table() -> None:
     one = pd.Series(np.array([7], dtype=np.uint32), index=[cells.iloc[0]])
     rings = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", one, grid, xy_size, z_size)
     assert len(rings) > 0 and set(rings.label) == {7}
+
+
+def test_read_rings_empty_parquet_gives_empty_rings(tmp_path: Path) -> None:
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    ids, _ = _label_ids(pd.Index(cells))
+    labels = pd.Series(ids, index=cells)
+
+    empty_path = tmp_path / "segmentation_geometries_v1.parquet"
+    pq.ParquetWriter(empty_path, pq.read_schema(FIXTURE_DIR / "segmentation_geometries_v1.parquet")).close()
+
+    rings = _read_rings(empty_path, labels, grid, xy_size, z_size)
+    assert len(rings) == 0
+    assert rings.label.dtype == np.uint32 and rings.label.shape == (0,)
+    assert rings.plane.dtype == np.int32 and rings.plane.shape == (0,)
+    assert rings.length.dtype == np.int64 and rings.length.shape == (0,)
+    assert rings.coords.dtype == np.float32 and rings.coords.shape == (0, 2)
+    assert rings.bounds.dtype == np.float32 and rings.bounds.shape == (0, 4)
+
+
+def test_read_rings_drops_planes_off_the_mosaic_z_range(caplog: pytest.LogCaptureFixture) -> None:
+    grid = _mosaic_grid(MOSAIC_DIR)
+    shifted = dataclasses.replace(grid, translation=(grid.translation[0] + 1e6, *grid.translation[1:]))
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    ids, _ = _label_ids(pd.Index(cells))
+    labels = pd.Series(ids, index=cells)
+
+    with caplog.at_level("INFO"):
+        rings = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, shifted, xy_size, z_size)
+    assert len(rings) == 0
+    assert "off the mosaic's z range" in caplog.text
 
 
 def test_label_ids_trailing_integer() -> None:
