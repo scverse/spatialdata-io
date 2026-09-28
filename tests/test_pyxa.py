@@ -8,6 +8,7 @@ import dask.dataframe as dd
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 import shapely
 import zarr
@@ -19,7 +20,7 @@ from xarray import DataTree
 
 from spatialdata_io.__main__ import pyxa_wrapper
 from spatialdata_io._constants._constants import PyxaKeys
-from spatialdata_io.readers._pyxa_labels import _label_ids
+from spatialdata_io.readers._pyxa_labels import _label_ids, _read_rings
 from spatialdata_io.readers.pyxa import (
     _get_footprints,
     _get_image,
@@ -617,6 +618,34 @@ def test_mosaic_grid_matches_image() -> None:
     assert grid.step(4) == (17, 16, 17)
     affine = get_transformation(image, to_coordinate_system="global").to_affine_matrix(("z", "y", "x"), ("z", "y", "x"))
     np.testing.assert_allclose(grid.transformation.to_affine_matrix(("z", "y", "x"), ("z", "y", "x")), affine)
+
+
+def test_read_rings_on_mosaic_grid() -> None:
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    ids, _ = _label_ids(pd.Index(cells))
+    labels = pd.Series(ids, index=cells)
+    rings = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, grid, xy_size, z_size)
+
+    n_polygons = pq.ParquetFile(FIXTURE_DIR / "segmentation_geometries_v1.parquet").metadata.num_rows
+    assert 0 < len(rings) <= 2 * n_polygons  # multipolygons add parts; off-grid planes are dropped
+    assert rings.label.dtype == np.uint32 and set(rings.label) <= set(ids)
+    nz, ny, nx = grid.shapes[0]
+    assert rings.plane.min() >= 0 and rings.plane.max() < nz
+    assert rings.length.sum() == len(rings.coords)
+    # the fixture's cells lie inside its mosaic crop, up to a cell radius at the edges
+    assert rings.bounds[:, 0].min() > -50 and rings.bounds[:, 2].max() < nx + 50
+    assert rings.bounds[:, 1].min() > -50 and rings.bounds[:, 3].max() < ny + 50
+
+
+def test_read_rings_drops_cells_not_in_table() -> None:
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    one = pd.Series(np.array([7], dtype=np.uint32), index=[cells.iloc[0]])
+    rings = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", one, grid, xy_size, z_size)
+    assert len(rings) > 0 and set(rings.label) == {7}
 
 
 def test_label_ids_trailing_integer() -> None:
