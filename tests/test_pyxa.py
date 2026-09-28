@@ -848,5 +848,35 @@ def test_get_labels_levels_stride_level_zero() -> None:
         nz, ny, nx = grid.shapes[i]
         strided = level0[::dz, ::dy, ::dx][:nz, :ny, :nx]
         level = tree[f"scale{i}"]["image"].values
-        # identical except where PIL's edge rule differs between scales
-        assert (level == strided).mean() > 0.97
+        # coarse levels are strided views of level 0, so they must match it exactly
+        np.testing.assert_array_equal(level, strided)
+
+
+def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Writing the whole tree draws each level-0 tile once, shared by every coarser level."""
+    from spatialdata import SpatialData
+
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    ids, _ = _label_ids(pd.Index(cells))
+    labels = pd.Series(ids, index=cells)
+    rings = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, grid, xy_size, z_size)
+
+    calls: list[int] = []
+    real = _pyxa_labels._rasterize_tile
+    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", lambda tile: calls.append(1) or real(tile))
+
+    tree = _get_labels(rings, grid)
+    output = tmp_path / "data.zarr"
+    SpatialData(labels={"cell_labels": tree}).write(output)
+
+    n_tiles = len(_plan_tiles(rings, grid.shapes[0], (1, 1, 1)))
+    assert len(calls) == n_tiles
+
+    # compute the expected level 0 with the real (unpatched) drawing function, so this doesn't add calls
+    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", real)
+    level0_expected = _get_labels(rings, grid)["scale0"]["image"].values
+
+    written = read_zarr(output)
+    np.testing.assert_array_equal(written["cell_labels"]["scale0"]["image"].values, level0_expected)

@@ -1,8 +1,11 @@
 """3D cell labels for the Pyxa reader, rasterized lazily from the segmentation polygons.
 
-The polygons (one per cell per z-plane, in pixel units) are drawn onto the mosaic image's voxel grid,
-so labels and image overlay voxel for voxel at every pyramid level. Ring decoding is eager; drawing is
-one ``dask.delayed`` task per tile and runs only when the labels are computed or written.
+The polygons (one per cell per z-plane, in pixel units) are drawn onto the mosaic image's level-0 voxel
+grid, so labels and image overlay voxel for voxel at level 0. Ring decoding is eager; drawing is one
+``dask.delayed`` task per tile and runs only when the labels are computed or written. Coarser pyramid
+levels are not drawn separately: they are nearest-neighbour strided views of the level-0 array, so a
+level-0 tile is drawn once and shared by every level that needs it (as ``spatialdata`` does when it
+computes a whole multiscale labels element's pyramid in a single ``dask.compute`` call on write).
 """
 
 from __future__ import annotations
@@ -324,11 +327,29 @@ def _draw(tile: _Tile) -> np.ndarray:
 
 
 def _get_labels(rings: _Rings, grid: _MosaicGrid) -> DataTree:
-    """The cells as a lazy multiscale ``Labels3DModel`` on the mosaic's grid, one level per mosaic level."""
+    """The cells as a lazy multiscale ``Labels3DModel`` on the mosaic's grid, one level per mosaic level.
+
+    Level 0 is drawn from the rings, one ``dask.delayed`` tile at a time. Every coarser level is a
+    nearest-neighbour strided *view* of the level-0 array (matching ``grid.step``), not redrawn
+    independently, so a level-0 tile's drawing task is shared by every level that needs it: computing or
+    writing the whole tree draws each level-0 tile at most once.
+    """
     n0 = grid.shapes[0]
+    level0 = _labels_level(rings, n0, (1, 1, 1))
     levels = {}
     for i, shape in enumerate(grid.shapes):
-        array = _labels_level(rings, shape, grid.step(i))
+        if i == 0:
+            array = level0
+        else:
+            dz, dy, dx = grid.step(i)
+            strided = level0[::dz, ::dy, ::dx]
+            if any(a < b for a, b in zip(strided.shape, shape, strict=True)):
+                raise ValueError(
+                    f"scale{i}: level-0 stride {(dz, dy, dx)} gives shape {strided.shape}, "
+                    f"shorter than the mosaic's {shape} on some axis"
+                )
+            sz, sy, sx = shape
+            array = strided[:sz, :sy, :sx].rechunk(tuple(min(c, s) for c, s in zip(CHUNKS, shape, strict=True)))
         # coordinates of every level are pixel centres in scale0 pixel units, as spatialdata assigns them
         coords = {ax: np.linspace(0, a, b + 1)[:-1] + a / b / 2 for ax, a, b in zip("zyx", n0, shape, strict=True)}
         levels[f"scale{i}"] = Dataset({"image": DataArray(array, dims=("z", "y", "x"), coords=coords)})
