@@ -18,11 +18,12 @@ from scipy import sparse
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image3DModel, PointsModel, ShapesModel, TableModel
-from spatialdata.transformations import Scale, Sequence, Translation, set_transformation
+from spatialdata.transformations import set_transformation
 from xarray import DataArray, Dataset, DataTree
 
 from spatialdata_io._constants._constants import PyxaKeys
 from spatialdata_io._docs import inject_docs
+from spatialdata_io.readers._pyxa_labels import _MosaicGrid
 
 __all__ = ["pyxa"]
 
@@ -263,6 +264,22 @@ def _open_mosaic(path: Path) -> zarr.Group:
     return zarr.open_group(store=zarr.storage.ZipStore(path, mode="r"), mode="r", path=group_path)
 
 
+def _mosaic_grid(path: Path) -> _MosaicGrid:
+    """The mosaic's level shapes (z, y, x) and level-0 scale and translation, from its OME-NGFF metadata."""
+    group = _open_mosaic(path)
+    multiscale = cast("dict[str, Any]", group.attrs.asdict()["ome"])["multiscales"][0]
+    axes = [a["name"] for a in multiscale["axes"]]
+    zyx = [axes.index(a) for a in ("z", "y", "x")]
+    datasets = multiscale["datasets"]
+    shapes = tuple(tuple(int(cast("Any", group[d["path"]]).shape[i]) for i in zyx) for d in datasets)
+    transforms = {t["type"]: t for t in datasets[0]["coordinateTransformations"]}
+    return _MosaicGrid(
+        shapes=shapes,  # type: ignore[arg-type]
+        scale=tuple(float(transforms["scale"]["scale"][i]) for i in zyx),  # type: ignore[arg-type]
+        translation=tuple(float(transforms["translation"]["translation"][i]) for i in zyx),  # type: ignore[arg-type]
+    )
+
+
 def _get_image(path: Path) -> DataTree:
     """Load every level of an OME-Zarr (OME-NGFF v0.5) mosaic, from a directory or a zip, as a multiscale image.
 
@@ -281,19 +298,8 @@ def _get_image(path: Path) -> DataTree:
     axes = tuple(a for a in all_axes if a != "t")
     arrays = [da.squeeze(da.from_zarr(group[d["path"]]), axis=t_index) for d in datasets]
 
-    coordinate_transformations = {ct["type"]: ct for ct in datasets[0]["coordinateTransformations"]}
+    transformation = _mosaic_grid(path).transformation
     spatial_axes = tuple(a for a in axes if a != "c")
-    scale_values = [
-        v for v, a in zip(coordinate_transformations["scale"]["scale"], all_axes, strict=True) if a in spatial_axes
-    ]
-    translation_values = [
-        v
-        for v, a in zip(coordinate_transformations["translation"]["translation"], all_axes, strict=True)
-        if a in spatial_axes
-    ]
-    transformation = Sequence(
-        [Scale(scale_values, axes=spatial_axes), Translation(translation_values, axes=spatial_axes)]
-    )
 
     n_channels = arrays[0].shape[axes.index("c")]
     channel_labels = [c.get("label") for c in ome.get("omero", {}).get("channels", [])]

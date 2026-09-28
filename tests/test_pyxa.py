@@ -19,6 +19,7 @@ from xarray import DataTree
 
 from spatialdata_io.__main__ import pyxa_wrapper
 from spatialdata_io._constants._constants import PyxaKeys
+from spatialdata_io.readers._pyxa_labels import _MosaicGrid, _label_ids
 from spatialdata_io.readers.pyxa import (
     _get_footprints,
     _get_image,
@@ -27,6 +28,7 @@ from spatialdata_io.readers.pyxa import (
     _get_table,
     _get_voxel_size,
     _make_polygonal_valid,
+    _mosaic_grid,
     _validate_columns,
     pyxa,
 )
@@ -604,3 +606,35 @@ def test_get_table_counts_are_sparse() -> None:
     assert adata.X.dtype == raw.to_numpy().dtype
     np.testing.assert_array_equal(adata.X.toarray(), raw.loc[adata.obs_names].to_numpy())
     assert list(adata.var_names) == list(raw.columns)
+
+
+def test_mosaic_grid_matches_image() -> None:
+    grid = _mosaic_grid(MOSAIC_DIR)
+    image = _get_image(MOSAIC_DIR)
+    assert grid.shapes == tuple(image[k]["image"].shape[1:] for k in image)
+    assert grid.step(0) == (1, 1, 1)
+    # (200, 217, 218) -> (12, 14, 13): z 200/12, y 217/14, x 218/13, rounded
+    assert grid.step(4) == (17, 16, 17)
+    affine = get_transformation(image, to_coordinate_system="global").to_affine_matrix(("z", "y", "x"), ("z", "y", "x"))
+    np.testing.assert_allclose(grid.transformation.to_affine_matrix(("z", "y", "x"), ("z", "y", "x")), affine)
+
+
+def test_label_ids_trailing_integer() -> None:
+    ids, rule = _label_ids(pd.Index(["Region_17", "Region_3", "ROI2_40"]))
+    assert ids.dtype == np.uint32 and ids.tolist() == [17, 3, 40]
+    assert "trailing integer" in rule
+
+
+@pytest.mark.parametrize(
+    ("cell_ids", "why"),
+    [
+        (["A_1", "B_1"], "not unique"),
+        (["Region_1", "Region_x"], "no trailing integer"),
+        (["Region_0", "Region_2"], "is 0"),
+        (["Region_1", "Region_4294967296"], "2^31"),
+    ],
+)
+def test_label_ids_fallback(cell_ids: list[str], why: str) -> None:
+    ids, rule = _label_ids(pd.Index(cell_ids))
+    assert ids.tolist() == [1, 2]
+    assert why in rule
