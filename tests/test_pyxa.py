@@ -26,6 +26,7 @@ from spatialdata_io.readers._pyxa_labels import (
     _get_labels,
     _label_ids,
     _labels_level,
+    _MosaicGrid,
     _plan_tiles,
     _rasterize_tile,
     _read_rings,
@@ -790,18 +791,18 @@ def test_labels_level_empty_rings_is_all_zero() -> None:
     assert (block == 0).all()
 
 
-def _fixture_labels() -> tuple[DataTree, pd.Series]:
+def _fixture_labels() -> tuple[DataTree, pd.Series, _Rings]:
     grid = _mosaic_grid(MOSAIC_DIR)
     xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
     cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
     ids, _ = _label_ids(pd.Index(cells))
     labels = pd.Series(ids, index=cells)
     rings = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, grid, xy_size, z_size)
-    return _get_labels(rings, grid), labels
+    return _get_labels(rings, grid), labels, rings
 
 
 def test_get_labels_on_mosaic_grid() -> None:
-    tree, labels = _fixture_labels()
+    tree, labels, _ = _fixture_labels()
     image = _get_image(MOSAIC_DIR)
     assert list(tree.keys()) == list(image.keys())
     for level in image:
@@ -819,7 +820,7 @@ def test_get_labels_on_mosaic_grid() -> None:
 
 def test_get_labels_cell_voxels() -> None:
     """A cell's own polygon centre, on its plane, carries its label."""
-    tree, labels = _fixture_labels()
+    tree, labels, _ = _fixture_labels()
     level0 = tree["scale0"]["image"].values
     grid = _mosaic_grid(MOSAIC_DIR)
     xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
@@ -840,7 +841,7 @@ def test_get_labels_cell_voxels() -> None:
 
 
 def test_get_labels_levels_stride_level_zero() -> None:
-    tree, _ = _fixture_labels()
+    tree, _, _ = _fixture_labels()
     grid = _mosaic_grid(MOSAIC_DIR)
     level0 = tree["scale0"]["image"].values
     for i in range(1, len(grid.shapes)):
@@ -857,11 +858,7 @@ def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch
     from spatialdata import SpatialData
 
     grid = _mosaic_grid(MOSAIC_DIR)
-    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
-    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
-    ids, _ = _label_ids(pd.Index(cells))
-    labels = pd.Series(ids, index=cells)
-    rings = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, grid, xy_size, z_size)
+    _, _, rings = _fixture_labels()
 
     calls: list[int] = []
     real = _pyxa_labels._rasterize_tile
@@ -880,3 +877,10 @@ def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch
 
     written = read_zarr(output)
     np.testing.assert_array_equal(written["cell_labels"]["scale0"]["image"].values, level0_expected)
+
+
+def test_get_labels_raises_when_a_level_is_shorter_than_any_stride() -> None:
+    """No integer stride of a 4-voxel level 0 can reach a 6-voxel level 1: ``_get_labels`` must reject it."""
+    grid = _MosaicGrid(shapes=((2, 4, 4), (2, 6, 6)), scale=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.0))
+    with pytest.raises(ValueError, match="shorter than the mosaic"):
+        _get_labels(_empty_rings(), grid)
