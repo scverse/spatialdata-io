@@ -19,7 +19,9 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import shapely
 from spatialdata._logging import logger
-from spatialdata.transformations import Scale, Sequence, Translation
+from spatialdata.models import Labels3DModel
+from spatialdata.transformations import Scale, Sequence, Translation, set_transformation
+from xarray import DataArray, Dataset, DataTree
 
 from spatialdata_io._constants._constants import PyxaKeys
 
@@ -319,3 +321,19 @@ def _labels_level(
 
 def _draw(tile: _Tile) -> np.ndarray:
     return _rasterize_tile(tile)
+
+
+def _get_labels(rings: _Rings, grid: _MosaicGrid) -> DataTree:
+    """The cells as a lazy multiscale ``Labels3DModel`` on the mosaic's grid, one level per mosaic level."""
+    n0 = grid.shapes[0]
+    levels = {}
+    for i, shape in enumerate(grid.shapes):
+        array = _labels_level(rings, shape, grid.step(i))
+        # coordinates of every level are pixel centres in scale0 pixel units, as spatialdata assigns them
+        coords = {ax: np.linspace(0, a, b + 1)[:-1] + a / b / 2 for ax, a, b in zip("zyx", n0, shape, strict=True)}
+        levels[f"scale{i}"] = Dataset({"image": DataArray(array, dims=("z", "y", "x"), coords=coords)})
+    tree = DataTree.from_dict(levels)
+    set_transformation(tree, {"global": grid.transformation}, set_all=True)
+    Labels3DModel.validate(tree)
+    logger.info(f"{PyxaKeys.CELL_LABELS.value}: {len(grid.shapes)} levels planned; drawn when computed or written")
+    return tree

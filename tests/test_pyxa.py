@@ -23,6 +23,7 @@ from spatialdata_io.__main__ import pyxa_wrapper
 from spatialdata_io._constants._constants import PyxaKeys
 from spatialdata_io.readers import _pyxa_labels
 from spatialdata_io.readers._pyxa_labels import (
+    _get_labels,
     _label_ids,
     _labels_level,
     _plan_tiles,
@@ -787,3 +788,65 @@ def test_labels_level_empty_rings_is_all_zero() -> None:
     block = _labels_level(_empty_rings(), (2, 5, 5), (1, 1, 1)).compute()
     assert block.dtype == np.uint32 and block.shape == (2, 5, 5)
     assert (block == 0).all()
+
+
+def _fixture_labels() -> tuple[DataTree, pd.Series]:
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    ids, _ = _label_ids(pd.Index(cells))
+    labels = pd.Series(ids, index=cells)
+    rings = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, grid, xy_size, z_size)
+    return _get_labels(rings, grid), labels
+
+
+def test_get_labels_on_mosaic_grid() -> None:
+    tree, labels = _fixture_labels()
+    image = _get_image(MOSAIC_DIR)
+    assert list(tree.keys()) == list(image.keys())
+    for level in image:
+        assert tree[level]["image"].shape == image[level]["image"].shape[1:]
+        assert tree[level]["image"].dtype == np.uint32
+
+    def _affine(e):
+        return get_transformation(e, to_coordinate_system="global").to_affine_matrix(("z", "y", "x"), ("z", "y", "x"))
+
+    np.testing.assert_allclose(_affine(tree), _affine(image))
+    level0 = tree["scale0"]["image"].values
+    assert 0.05 < (level0 > 0).mean() < 0.95
+    assert set(np.unique(level0)) - {0} <= set(labels.to_numpy())
+
+
+def test_get_labels_cell_voxels() -> None:
+    """A cell's own polygon centre, on its plane, carries its label."""
+    tree, labels = _fixture_labels()
+    level0 = tree["scale0"]["image"].values
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    planes = _get_shapes(FIXTURE_DIR / "segmentation_geometries_v1.parquet", xy_size, z_size)
+    sz, sy, sx = grid.scale
+    tz, ty, tx = grid.translation
+    checked = 0
+    for _, row in planes.sort_values("cell_id").groupby("cell_id").head(1).head(40).iterrows():
+        p = row.geometry.representative_point()  # micrometers
+        if row.geometry.boundary.distance(p) < 0.5 * sx:
+            continue  # too close to the polygon boundary for a voxel-centre check to be unambiguous
+        z, y, x = (int(round((v - t) / s)) for v, t, s in ((row["Z_um"], tz, sz), (p.y, ty, sy), (p.x, tx, sx)))
+        same_plane = planes[(planes["ZIndex"] == row["ZIndex"]) & (planes["cell_id"] != row["cell_id"])]
+        if 0 <= z < level0.shape[0] and not same_plane.geometry.contains(p).any():
+            assert level0[z, y, x] == labels[row["cell_id"]]
+            checked += 1
+    assert checked >= 10
+
+
+def test_get_labels_levels_stride_level_zero() -> None:
+    tree, _ = _fixture_labels()
+    grid = _mosaic_grid(MOSAIC_DIR)
+    level0 = tree["scale0"]["image"].values
+    for i in range(1, len(grid.shapes)):
+        dz, dy, dx = grid.step(i)
+        nz, ny, nx = grid.shapes[i]
+        strided = level0[::dz, ::dy, ::dx][:nz, :ny, :nx]
+        level = tree[f"scale{i}"]["image"].values
+        # identical except where PIL's edge rule differs between scales
+        assert (level == strided).mean() > 0.97
