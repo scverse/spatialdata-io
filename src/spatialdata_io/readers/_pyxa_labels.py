@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+import dask
+import dask.array as da
 import numpy as np
 import pandas as pd
 import pyarrow.compute as pc
@@ -173,3 +175,147 @@ def _read_rings(
         f"{path.name}: {len(rings)} polygon rings on the mosaic grid" + (f"; dropped {summary}" if summary else "")
     )
     return rings
+
+
+# one drawing task: a whole number of storage chunks, so tiles never share a chunk
+TILE = (32, 1024, 1024)
+# storage chunks, as the mosaic's: an inspect window reads only the chunks it covers
+CHUNKS = (32, 256, 256)
+
+
+@dataclass(frozen=True)
+class _Tile:
+    """The rings to draw into one tile of one pyramid level."""
+
+    origin: tuple[int, int, int]
+    shape: tuple[int, int, int]
+    step: tuple[int, int]
+    label: np.ndarray
+    plane: np.ndarray
+    offsets: np.ndarray
+    coords: np.ndarray
+
+
+def _ragged_gather(starts: np.ndarray, lengths: np.ndarray) -> np.ndarray:
+    """Indices of the concatenated slices ``[s, s + n)`` for each (s, n), in order."""
+    new_starts = np.cumsum(lengths) - lengths
+    return np.arange(int(lengths.sum())) - np.repeat(new_starts, lengths) + np.repeat(starts, lengths)
+
+
+def _plan_tiles(
+    rings: _Rings,
+    shape: tuple[int, int, int],
+    step: tuple[int, int, int],
+    tile: tuple[int, int, int] = TILE,
+) -> list[_Tile]:
+    """Group the rings of one level (``shape``, ``step`` from level 0) by tile.
+
+    The level keeps the planes a nearest-neighbour stride of level 0 keeps; a ring crossing tiles goes
+    to each. Within a tile, rings are ordered by label, so where they overlap the higher label wins.
+    """
+    nz, ny, nx = shape
+    dz, dy, dx = step
+    tz, ty, tx = tile
+    keep = np.flatnonzero(rings.plane % dz == 0)
+    plane = rings.plane[keep] // dz
+    on = plane < nz
+    keep, plane = keep[on], plane[on]
+    # bounds in level-voxel index space; a voxel v is drawn when its centre lies in the ring
+    bounds = rings.bounds[keep] / np.array([dx, dy, dx, dy], dtype=np.float32)
+    n_ty, n_tx = -(-ny // ty), -(-nx // tx)
+    y_lo = np.clip(np.floor(bounds[:, 1] / ty), 0, n_ty - 1).astype(np.int64)
+    y_hi = np.clip(np.floor(bounds[:, 3] / ty), 0, n_ty - 1).astype(np.int64)
+    x_lo = np.clip(np.floor(bounds[:, 0] / tx), 0, n_tx - 1).astype(np.int64)
+    x_hi = np.clip(np.floor(bounds[:, 2] / tx), 0, n_tx - 1).astype(np.int64)
+    idx, keys = [], []
+    for oy in range(int((y_hi - y_lo).max(initial=0)) + 1):
+        for ox in range(int((x_hi - x_lo).max(initial=0)) + 1):
+            hit = np.flatnonzero((y_lo + oy <= y_hi) & (x_lo + ox <= x_hi))
+            idx.append(hit)
+            keys.append(((plane[hit] // tz) * n_ty + y_lo[hit] + oy) * n_tx + x_lo[hit] + ox)
+    if not idx:
+        return []
+    idx_arr, keys_arr = np.concatenate(idx), np.concatenate(keys)
+    if keys_arr.size == 0:
+        # no ring falls in this level at all (e.g. an empty _Rings): nothing to draw, no tiles
+        return []
+    order = np.lexsort((rings.label[keep][idx_arr], keys_arr))
+    idx_arr, keys_arr = idx_arr[order], keys_arr[order]
+
+    ring = keep[idx_arr]
+    starts = np.cumsum(rings.length) - rings.length
+    lengths = rings.length[ring]
+    coords = rings.coords[_ragged_gather(starts[ring], lengths)]
+    offsets = np.concatenate([[0], np.cumsum(lengths)])
+    tiles = []
+    edges = np.flatnonzero(np.diff(keys_arr)) + 1
+    for lo, hi in zip(np.concatenate([[0], edges]), np.concatenate([edges, [len(keys_arr)]]), strict=True):
+        kz, rest = divmod(int(keys_arr[lo]), n_ty * n_tx)
+        ky, kx = divmod(rest, n_tx)
+        origin = (kz * tz, ky * ty, kx * tx)
+        c0, c1 = int(offsets[lo]), int(offsets[hi])
+        tiles.append(
+            _Tile(
+                origin=origin,
+                shape=(min(tz, nz - origin[0]), min(ty, ny - origin[1]), min(tx, nx - origin[2])),
+                step=(dy, dx),
+                label=rings.label[ring[lo:hi]],
+                plane=plane[idx_arr[lo:hi]] - origin[0],
+                offsets=offsets[lo : hi + 1] - c0,
+                coords=coords[c0:c1],
+            )
+        )
+    return tiles
+
+
+def _rasterize_tile(tile: _Tile) -> np.ndarray:
+    """Fill the tile's rings plane by plane into a ``uint32`` block (0 = background)."""
+    from PIL import Image, ImageDraw
+
+    depth, height, width = tile.shape
+    block = np.zeros(tile.shape, dtype=np.uint32)
+    dy, dx = tile.step
+    _, y0, x0 = tile.origin
+    # level voxel index space, then PIL pixel space: pixel p's centre is at p + 0.5
+    xy = np.column_stack((tile.coords[:, 0] / dx + 0.5 - x0, tile.coords[:, 1] / dy + 0.5 - y0))
+    for plane in np.unique(tile.plane):
+        image = Image.new("I", (width, height))
+        draw = ImageDraw.Draw(image)
+        for r in np.flatnonzero(tile.plane == plane):
+            draw.polygon(xy[tile.offsets[r] : tile.offsets[r + 1]].ravel().tolist(), fill=int(tile.label[r]))
+        block[plane] = np.asarray(image, dtype=np.int32)
+    return block
+
+
+def _labels_level(
+    rings: _Rings,
+    shape: tuple[int, int, int],
+    step: tuple[int, int, int],
+    *,
+    tile: tuple[int, int, int] = TILE,
+    chunks: tuple[int, int, int] = CHUNKS,
+) -> da.Array:
+    """One pyramid level as a lazy array: a ``dask.delayed`` drawing task per tile, zeros where no ring falls."""
+    by_origin = {t.origin: t for t in _plan_tiles(rings, shape, step, tile)}
+    nz, ny, nx = shape
+    tz, ty, tx = tile
+    blocks = []
+    for z in range(0, nz, tz):
+        rows = []
+        for y in range(0, ny, ty):
+            row = []
+            for x in range(0, nx, tx):
+                size = (min(tz, nz - z), min(ty, ny - y), min(tx, nx - x))
+                t = by_origin.get((z, y, x))
+                if t is None:
+                    row.append(da.zeros(size, dtype=np.uint32, chunks=size))
+                else:
+                    # looked up at call time, so the drawing function can be patched in tests
+                    row.append(da.from_delayed(dask.delayed(_draw)(t), shape=size, dtype=np.uint32))
+            rows.append(row)
+        blocks.append(rows)
+    return da.block(blocks).rechunk(tuple(min(c, s) for c, s in zip(chunks, shape, strict=True)))
+
+
+def _draw(tile: _Tile) -> np.ndarray:
+    return _rasterize_tile(tile)

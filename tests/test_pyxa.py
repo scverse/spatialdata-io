@@ -21,7 +21,15 @@ from xarray import DataTree
 
 from spatialdata_io.__main__ import pyxa_wrapper
 from spatialdata_io._constants._constants import PyxaKeys
-from spatialdata_io.readers._pyxa_labels import _label_ids, _read_rings
+from spatialdata_io.readers import _pyxa_labels
+from spatialdata_io.readers._pyxa_labels import (
+    _label_ids,
+    _labels_level,
+    _plan_tiles,
+    _rasterize_tile,
+    _read_rings,
+    _Rings,
+)
 from spatialdata_io.readers.pyxa import (
     _get_footprints,
     _get_image,
@@ -701,3 +709,81 @@ def test_label_ids_fallback(cell_ids: list[str], why: str) -> None:
     ids, rule = _label_ids(pd.Index(cell_ids))
     assert ids.tolist() == [1, 2]
     assert why in rule
+
+
+def _empty_rings() -> _Rings:
+    return _Rings(
+        label=np.empty(0, dtype=np.uint32),
+        plane=np.empty(0, dtype=np.int32),
+        length=np.empty(0, dtype=np.int64),
+        coords=np.empty((0, 2), dtype=np.float32),
+        bounds=np.empty((0, 4), dtype=np.float32),
+    )
+
+
+def _square_rings(squares: list[tuple[int, int, float, float, float, float]]) -> _Rings:
+    """Rings from (label, plane, x0, y0, x1, y1) axis-aligned squares in level-0 voxel index space."""
+    coords, bounds = [], []
+    for _, _, x0, y0, x1, y1 in squares:
+        coords.append(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]], dtype=np.float32))
+        bounds.append([x0, y0, x1, y1])
+    return _Rings(
+        label=np.array([s[0] for s in squares], dtype=np.uint32),
+        plane=np.array([s[1] for s in squares], dtype=np.int32),
+        length=np.full(len(squares), 5, dtype=np.int64),
+        coords=np.concatenate(coords),
+        bounds=np.array(bounds, dtype=np.float32),
+    )
+
+
+def test_rasterize_square() -> None:
+    rings = _square_rings([(5, 1, 2.0, 2.0, 5.0, 5.0)])
+    (tile,) = _plan_tiles(rings, (4, 10, 10), (1, 1, 1))
+    block = _rasterize_tile(tile)
+    assert block.dtype == np.uint32 and block.shape == (4, 10, 10)
+    assert (block[1, 2:6, 2:6] == 5).all()  # voxel centres 2..5 lie on or inside the square
+    assert block[1, 0, 0] == 0 and block[1, 8, 8] == 0
+    assert block[0].max() == 0 and block[2].max() == 0
+
+
+def test_rasterize_higher_label_wins() -> None:
+    for order in ([(3, 0, 0.0, 0.0, 5.0, 5.0), (7, 0, 3.0, 3.0, 8.0, 8.0)],
+                  [(7, 0, 3.0, 3.0, 8.0, 8.0), (3, 0, 0.0, 0.0, 5.0, 5.0)]):  # fmt: skip
+        (tile,) = _plan_tiles(_square_rings(order), (1, 10, 10), (1, 1, 1))
+        block = _rasterize_tile(tile)
+        assert block[0, 4, 4] == 7 and block[0, 1, 1] == 3
+
+
+def test_labels_level_tiles_join_seamlessly() -> None:
+    rings = _square_rings([(5, 1, 2.0, 2.0, 7.0, 7.0), (9, 3, 0.0, 6.0, 9.0, 9.0)])
+    whole = _rasterize_tile(_plan_tiles(rings, (4, 10, 10), (1, 1, 1))[0])
+    tiled = _labels_level(rings, (4, 10, 10), (1, 1, 1), tile=(2, 4, 4), chunks=(2, 3, 3))
+    assert tiled.chunksize == (2, 3, 3)
+    np.testing.assert_array_equal(tiled.compute(), whole)
+
+
+def test_labels_level_strides_level_zero() -> None:
+    rings = _square_rings([(5, 2, 1.0, 1.0, 12.0, 12.0), (6, 3, 4.0, 4.0, 9.0, 9.0)])
+    level0 = _labels_level(rings, (4, 16, 16), (1, 1, 1)).compute()
+    level1 = _labels_level(rings, (2, 8, 8), (2, 2, 2)).compute()
+    np.testing.assert_array_equal(level1, level0[::2, ::2, ::2])
+
+
+def test_labels_level_is_lazy(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    real = _pyxa_labels._rasterize_tile
+    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", lambda tile: calls.append(1) or real(tile))
+    array = _labels_level(_square_rings([(5, 0, 1.0, 1.0, 3.0, 3.0)]), (1, 8, 8), (1, 1, 1))
+    assert calls == []
+    array.compute()
+    assert calls == [1]
+
+
+def test_plan_tiles_empty_rings_returns_no_tiles() -> None:
+    assert _plan_tiles(_empty_rings(), (2, 5, 5), (1, 1, 1)) == []
+
+
+def test_labels_level_empty_rings_is_all_zero() -> None:
+    block = _labels_level(_empty_rings(), (2, 5, 5), (1, 1, 1)).compute()
+    assert block.dtype == np.uint32 and block.shape == (2, 5, 5)
+    assert (block == 0).all()
