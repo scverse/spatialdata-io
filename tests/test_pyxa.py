@@ -21,26 +21,24 @@ from xarray import DataTree
 
 from spatialdata_io.__main__ import pyxa_wrapper
 from spatialdata_io._constants._constants import PyxaKeys
-from spatialdata_io.readers import _pyxa_labels
-from spatialdata_io.readers._pyxa_labels import (
+from spatialdata_io.readers import pyxa as pyxa_module
+from spatialdata_io.readers.pyxa import (
+    _get_footprints,
+    _get_image,
     _get_labels,
+    _get_points,
+    _get_shapes,
+    _get_table,
+    _get_voxel_size,
     _label_ids,
     _labels_level,
+    _make_polygonal_valid,
+    _mosaic_grid,
     _MosaicGrid,
     _plan_tiles,
     _rasterize_tile,
     _read_rings,
     _Rings,
-)
-from spatialdata_io.readers.pyxa import (
-    _get_footprints,
-    _get_image,
-    _get_points,
-    _get_shapes,
-    _get_table,
-    _get_voxel_size,
-    _make_polygonal_valid,
-    _mosaic_grid,
     _validate_columns,
     pyxa,
 )
@@ -751,13 +749,13 @@ def test_read_rings_follows_joblib_parallel_config(tmp_path: Path, monkeypatch: 
 
     path, labels, grid, xy_size, z_size = _multi_row_group_inputs(tmp_path)
     pids: list[int] = []
-    real = _pyxa_labels._rings_from_row_group
+    real = pyxa_module._rings_from_row_group
 
     def recording(*args: object) -> tuple[dict[str, np.ndarray], dict[str, int]]:
         pids.append(os.getpid())
         return real(*args)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(_pyxa_labels, "_rings_from_row_group", recording)
+    monkeypatch.setattr(pyxa_module, "_rings_from_row_group", recording)
     with joblib.parallel_config(backend="threading"):
         rings = _read_rings(path, labels, grid, xy_size, z_size)
     assert len(rings) > 0
@@ -767,7 +765,7 @@ def test_read_rings_follows_joblib_parallel_config(tmp_path: Path, monkeypatch: 
 def test_read_rings_matches_with_a_smaller_decode_batch(monkeypatch: pytest.MonkeyPatch) -> None:
     # a batch size smaller than the fixture's single row group forces multiple batches per row group;
     # the concatenated result must be identical to decoding the whole row group in one batch
-    monkeypatch.setattr("spatialdata_io.readers._pyxa_labels._DECODE_BATCH_ROWS", 50)
+    monkeypatch.setattr("spatialdata_io.readers.pyxa._DECODE_BATCH_ROWS", 50)
     grid = _mosaic_grid(MOSAIC_DIR)
     xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
     cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
@@ -911,13 +909,13 @@ def test_labels_level_strides_level_zero() -> None:
 
 def test_labels_level_is_lazy(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
-    real = _pyxa_labels._rasterize_tile
+    real = pyxa_module._rasterize_tile
 
-    def counting(tile: _pyxa_labels._Tile) -> np.ndarray:
+    def counting(tile: pyxa_module._Tile) -> np.ndarray:
         calls.append(1)
         return real(tile)
 
-    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", counting)
+    monkeypatch.setattr(pyxa_module, "_rasterize_tile", counting)
     array = _labels_level(_square_rings([(5, 0, 1.0, 1.0, 3.0, 3.0)]), (1, 8, 8), (1, 1, 1))
     assert calls == []
     array.compute()
@@ -1033,13 +1031,13 @@ def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch
     _, _, rings = _fixture_labels()
 
     calls: list[int] = []
-    real = _pyxa_labels._rasterize_tile
+    real = pyxa_module._rasterize_tile
 
-    def counting(tile: _pyxa_labels._Tile) -> np.ndarray:
+    def counting(tile: pyxa_module._Tile) -> np.ndarray:
         calls.append(1)
         return real(tile)
 
-    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", counting)
+    monkeypatch.setattr(pyxa_module, "_rasterize_tile", counting)
 
     tree = _get_labels(rings, grid)
     output = tmp_path / "data.zarr"
@@ -1049,7 +1047,7 @@ def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch
     assert len(calls) == n_tiles
 
     # compute the expected level 0 with the real (unpatched) drawing function, so this doesn't add calls
-    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", real)
+    monkeypatch.setattr(pyxa_module, "_rasterize_tile", real)
     level0_expected = _level_values(_get_labels(rings, grid), "scale0")
 
     written = read_zarr(output)
