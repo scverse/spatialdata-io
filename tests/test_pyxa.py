@@ -1,6 +1,10 @@
 import dataclasses
 import math
+import os
+import shutil
 import tempfile
+import urllib.request
+import uuid
 import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -49,6 +53,45 @@ from spatialdata_io.readers.pyxa import (
 DATASETS = ["pyxa_xsmall"]
 FIXTURE_DIR = Path("./data") / DATASETS[0]
 MOSAIC_DIR = FIXTURE_DIR / "mosaic_3d.ome.zarr"
+
+
+def _ensure_pyxa_xsmall_fixture() -> None:
+    """Download the xsmall Pyxa fixture if the CI test-data artifact doesn't have it yet.
+
+    Mirrors the `pyxa_xsmall` step of `.github/workflows/prepare_test_data.yaml`. Downloads and
+    extracts into a uniquely named temp directory, then swaps it into place, so this is safe when
+    several `pytest -n auto` workers import this module at once. Remove once the shared CI artifact
+    includes `pyxa_xsmall`.
+    """
+    if FIXTURE_DIR.exists():
+        return
+    base_url = "https://huggingface.co/datasets/Stellaromics/demo/resolve/main/xsmall/"
+    files = [
+        "cell_assigned_gene_v1.csv",
+        "cell_by_gene_v1.csv",
+        "cell_metadata_v1.csv",
+        "segmentation_geometries_v1.parquet",
+        "mosaic_3d.ome.zarr.zip",
+    ]
+    tmp_dir = FIXTURE_DIR.parent / f".{FIXTURE_DIR.name}.tmp-{uuid.uuid4().hex}"
+    try:
+        tmp_dir.mkdir(parents=True)
+        for name in files:
+            with urllib.request.urlopen(base_url + name, timeout=60) as response, open(tmp_dir / name, "wb") as f:
+                shutil.copyfileobj(response, f)
+        zip_path = tmp_dir / "mosaic_3d.ome.zarr.zip"
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(tmp_dir)
+        zip_path.unlink()
+        os.replace(tmp_dir, FIXTURE_DIR)
+    except OSError as err:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if FIXTURE_DIR.exists():
+            return  # another worker downloaded it first
+        pytest.skip(f"Could not download the pyxa_xsmall fixture: {err}", allow_module_level=True)
+
+
+_ensure_pyxa_xsmall_fixture()
 
 
 TINY_SCALE0 = np.arange(2 * 4 * 4, dtype="uint8").reshape(1, 1, 2, 4, 4)
@@ -555,7 +598,7 @@ def test_get_table_joins_pyxa_studio(tmp_path: Path) -> None:
     cell = adata.obs_names[in_studio][0]
     assert cluster[cell] == str(studio.loc[cell, "Cluster"])
 
-    umap = adata.obsm["X_umap"]
+    umap = np.asarray(adata.obsm["X_umap"])
     assert umap.shape == (adata.n_obs, 3)
     assert np.isnan(umap[~in_studio]).all()
     np.testing.assert_allclose(umap[in_studio][0], studio.loc[cell, ["X_UMAP", "Y_UMAP", "Z_UMAP"]])
