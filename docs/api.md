@@ -18,6 +18,7 @@ I/O for the `spatialdata` project.
 .. autosummary::
     :toctree: generated
 
+    atera
     codex
     cosmx
     curio

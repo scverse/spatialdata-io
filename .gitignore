@@ -34,3 +34,7 @@ uv.lock
 /.asv/
 *.bin
 profile.speedscope.json
+
+# scratch notebooks
+/notebooks/atera_exploration.ipynb
+/notebooks/resource_monitor.py

@@ -164,6 +164,73 @@ class XeniumKeys(ModeEnum):
 
 
 @unique
+class AteraKeys(ModeEnum):
+    """Keys for *10x Genomics Atera* formatted dataset."""
+
+    # specifications
+    SPECS_FILE = "experiment.spatial"
+    PIXEL_SIZE = "pixel_size"
+    PANEL_CONFIG_FILE = "panel_config.json"
+
+    # zarr files
+    CELL_FEATURE_MATRIX_FILE = "cell_feature_matrix.zarr.zip"
+    CSC_CELL_FEATURE_MATRIX_FILE = "csc_cell_feature_matrix.zarr.zip"
+    CELLS_FILE = "cells.zarr.zip"
+    TRANSCRIPTS_FILE = "transcripts.zarr.zip"
+
+    # cell_feature_matrix.zarr.zip groups/keys
+    X_GROUP = "X"
+    X_DATA = "data"
+    X_INDICES = "indices"
+    X_INDPTR = "indptr"
+    OBS_GROUP = "obs"
+    VAR_GROUP = "var"
+    OBSM_GROUP = "obsm"
+    CATEGORIES = "categories"
+    CODES = "codes"
+
+    # obs / cell identifiers
+    CELL_ID = "cell_id"
+    CENTROID_X = "centroid_column"
+    CENTROID_Y = "centroid_row"
+    CELL_AREA = "cell_area"
+
+    # var / features
+    FEATURE_ID = "feature_id"
+    FEATURE_NAME = "feature_name"
+    VAR_FILTERED = "filtered"
+    VAR_HIGHLY_VARIABLE = "highly_variable"
+    VAR_FEATURE_TYPE = "feature_type"
+    VAR_GENOME = "genome"
+
+    # cells.zarr.zip groups
+    MASKS_GROUP = "masks"
+    POLYGON_SETS_GROUP = "polygon_sets"
+    POLYGON_VERTICES = "vertices"
+    POLYGON_NUM_VERTICES = "num_vertices"
+    POLYGON_CELL_INDEX = "cell_index"
+    GRIDDED_POLYGON_SETS_GROUP = "gridded_polygon_sets"
+    RELATIVE_VERTICES = "relative_vertices"
+    BBOXES = "bboxes"
+    GRID_SIZE = "grid_size"
+
+    # transcripts.zarr.zip groups/keys
+    GRID_GROUP = "grid"
+    TRANSCRIPTS_LOCATION = "location"
+    TRANSCRIPTS_GENE_OFFSET = "gene_offset"
+    TRANSCRIPTS_OVERLAPS_NUCLEUS = "overlaps_nucleus"
+    TRANSCRIPTS_QUALITY_SCORE = "quality_score"
+    TRANSCRIPTS_X = "x"
+    TRANSCRIPTS_Y = "y"
+    TRANSCRIPTS_Z = "z"
+    CODEWORD_IDENTITY = "codeword_identity"
+
+    # morphology images
+    MORPHOLOGY_2D_DIR = "morphology_2d"
+    MORPHOLOGY_3D_DIR = "morphology_3d"
+
+
+@unique
 class VisiumKeys(ModeEnum):
     """Keys for *10X Genomics Visium* formatted dataset."""
 
