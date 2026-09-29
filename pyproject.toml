@@ -33,6 +33,7 @@ dependencies = [
   "joblib",
   "numpy",
   "ome-types",
+  "pillow",
   "pyarrow",
   "readfcs",
   "scanpy",

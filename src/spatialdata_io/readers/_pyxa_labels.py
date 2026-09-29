@@ -352,7 +352,18 @@ def _labels_level(
     chunks: tuple[int, int, int] = CHUNKS,
 ) -> da.Array:
     """One pyramid level as a lazy array: a ``dask.delayed`` drawing task per tile, zeros where no ring falls."""
-    by_origin = {t.origin: t for t in _plan_tiles(rings, shape, step, tile)}
+    return _tiles_array(_plan_tiles(rings, shape, step, tile), shape, tile=tile, chunks=chunks)
+
+
+def _tiles_array(
+    tiles: list[_Tile],
+    shape: tuple[int, int, int],
+    *,
+    tile: tuple[int, int, int] = TILE,
+    chunks: tuple[int, int, int] = CHUNKS,
+) -> da.Array:
+    """A level's planned tiles as a lazy array, zeros where no tile is planned."""
+    by_origin = {t.origin: t for t in tiles}
     nz, ny, nx = shape
     tz, ty, tx = tile
     blocks = []
@@ -388,7 +399,8 @@ def _get_labels(rings: _Rings, grid: _MosaicGrid) -> DataTree:
     the mosaic's own pyramid is a smoothed block average, so centre samples track it best.
     """
     n0 = grid.shapes[0]
-    level0 = _labels_level(rings, n0, (1, 1, 1))
+    tiles = _plan_tiles(rings, n0, (1, 1, 1))
+    level0 = _tiles_array(tiles, n0)
     levels = {}
     for i, shape in enumerate(grid.shapes):
         if i == 0:
@@ -413,5 +425,8 @@ def _get_labels(rings: _Rings, grid: _MosaicGrid) -> DataTree:
     tree = DataTree.from_dict(levels)
     set_transformation(tree, {"global": grid.transformation}, set_all=True)
     Labels3DModel.validate(tree)
-    logger.info(f"{PyxaKeys.CELL_LABELS.value}: {len(grid.shapes)} levels planned; drawn when computed or written")
+    logger.info(
+        f"{PyxaKeys.CELL_LABELS.value}: {len(rings)} rings in {len(tiles)} level-0 tiles, "
+        f"{len(grid.shapes)} levels planned; drawn when computed or written"
+    )
     return tree

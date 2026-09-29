@@ -393,6 +393,29 @@ def test_get_image_reads_zip_in_place(tmp_path: Path) -> None:
     assert get_extent(from_zip) == get_extent(from_dir)
 
 
+def test_get_image_reads_zip_with_group_at_root(tmp_path: Path) -> None:
+    """A zip of the mosaic's contents (``zarr.json`` at its top level) reads the same image as the directory."""
+    zip_path = tmp_path / "mosaic_3d.ome.zarr.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
+        for f in sorted(MOSAIC_DIR.rglob("*")):
+            if f.is_file():
+                zf.write(f, f.relative_to(MOSAIC_DIR).as_posix())
+    from_dir, from_zip = _get_image(MOSAIC_DIR), _get_image(zip_path)
+    assert list(from_zip.keys()) == list(from_dir.keys())
+    for level in from_dir:
+        np.testing.assert_array_equal(from_zip[level]["image"].values, from_dir[level]["image"].values)
+
+
+def test_get_image_ignores_macosx_entries_in_zip(tmp_path: Path) -> None:
+    """A zip made on macOS carries a ``__MACOSX/`` tree beside the mosaic's directory; it is not the mosaic."""
+    zip_path = _zip_dir(MOSAIC_DIR, tmp_path / "mosaic_3d.ome.zarr.zip")
+    with zipfile.ZipFile(zip_path, "a") as zf:
+        zf.writestr(f"__MACOSX/{MOSAIC_DIR.name}/._zarr.json", b"\x00\x05\x16\x07")
+    from_dir, from_zip = _get_image(MOSAIC_DIR), _get_image(zip_path)
+    assert list(from_zip.keys()) == list(from_dir.keys())
+    np.testing.assert_array_equal(from_zip["scale0"]["image"].values, from_dir["scale0"]["image"].values)
+
+
 def test_pyxa_reader_finds_mosaic(tmp_path: Path) -> None:
     # the fixture holds the unzipped mosaic: found by default, skipped with image=False
     assert "mosaic_image" in pyxa(FIXTURE_DIR, cell_assigned_gene=False).images
@@ -943,6 +966,13 @@ def test_get_labels_on_mosaic_grid() -> None:
     assert set(np.unique(level0)) - {0} <= set(labels.to_numpy())
 
 
+def test_get_labels_logs_rings_tiles_and_levels(caplog: pytest.LogCaptureFixture) -> None:
+    grid = _MosaicGrid(shapes=((1, 8, 8), (1, 4, 4)), scale=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.0))
+    with caplog.at_level("INFO"):
+        _get_labels(_square_rings([(5, 0, 1.0, 1.0, 3.0, 3.0), (6, 0, 4.0, 4.0, 6.0, 6.0)]), grid)
+    assert "2 rings in 1 level-0 tiles, 2 levels planned" in caplog.text
+
+
 def test_get_labels_cell_voxels() -> None:
     """A cell's own polygon centre, on its plane, carries its label."""
     tree, labels, _ = _fixture_labels()
@@ -1076,3 +1106,30 @@ def test_cli_pyxa_labels(dataset: str, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     sdata = read_zarr(output_zarr)
     assert set(sdata.labels) == {"cell_labels"} and not sdata.shapes
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_cli_pyxa_no_shapes(dataset: str, tmp_path: Path) -> None:
+    output_zarr = tmp_path / "data.zarr"
+    result = CliRunner().invoke(
+        pyxa_wrapper,
+        ["--input", str(Path("./data") / dataset), "--output", str(output_zarr),
+         "--skip", "cell_assigned_gene", "--no-image", "--no-shapes"],
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    sdata = read_zarr(output_zarr)
+    assert not sdata.shapes and not sdata.labels and not sdata.images
+    assert "rna" in sdata.tables
+
+
+@pytest.mark.parametrize("dataset", DATASETS)
+def test_cli_pyxa_image_and_no_image_conflict(dataset: str, tmp_path: Path) -> None:
+    output_zarr = tmp_path / "data.zarr"
+    result = CliRunner().invoke(
+        pyxa_wrapper,
+        ["--input", str(Path("./data") / dataset), "--output", str(output_zarr),
+         "--image", str(MOSAIC_DIR), "--no-image"],
+    )  # fmt: skip
+    assert result.exit_code == 2, result.output  # click's usage error
+    assert "--image" in result.output and "--no-image" in result.output
+    assert not output_zarr.exists()

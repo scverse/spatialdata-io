@@ -952,6 +952,8 @@ def pyxa_wrapper(
     """Pyxa (Stellaromics) conversion to SpatialData."""
     from spatialdata_io.experimental import pyxa
 
+    if no_image and image is not None:
+        raise click.UsageError("--image and --no-image are mutually exclusive")
     inputs: dict[str, str | bool] = dict.fromkeys(skip, False)
     if pyxa_studio is not None and "pyxa_studio" not in skip:
         inputs["pyxa_studio"] = pyxa_studio

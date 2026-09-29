@@ -254,12 +254,13 @@ def _open_mosaic(path: Path) -> zarr.Group:
     """Open a mosaic OME-Zarr read-only, from its directory or from a zip of it (read in place).
 
     A zip holds either the group at its root or a single top-level ``<name>.ome.zarr/`` directory,
-    as in the Stellaromics/demo dataset.
+    as in the Stellaromics/demo dataset. Top-level entries starting with ``__`` (e.g. the
+    ``__MACOSX/`` tree of a zip made on macOS) are not the mosaic and are ignored.
     """
     if path.suffix != ".zip":
         return zarr.open_group(store=str(path), mode="r")
     with zipfile.ZipFile(path) as zf:
-        tops = {name.split("/", 1)[0] for name in zf.namelist()}
+        tops = {top for name in zf.namelist() if not (top := name.split("/", 1)[0]).startswith("__")}
     group_path = "" if "zarr.json" in tops or len(tops) != 1 else tops.pop()
     return zarr.open_group(store=zarr.storage.ZipStore(path, mode="r"), mode="r", path=group_path)
 
@@ -400,8 +401,9 @@ def pyxa(
 
         - ``{px.CELL_ASSIGNED_GENE_FILE!r}``: Transcript-level gene assignments, as the
           ``transcripts`` points.
-        - ``{px.SEGMENTATION_GEOMETRIES_FILE!r}``: Per-cell segmentation polygons, as shapes. The
-          table annotates the cell footprints only when these are read.
+        - ``{px.SEGMENTATION_GEOMETRIES_FILE!r}``: Per-cell segmentation polygons, as shapes, or
+          with ``labels=True`` as 3D cell labels. With ``labels=False`` the table annotates the
+          cell footprints only when these are read.
         - ``{px.PYXA_STUDIO_FILE!r}``: Pyxa Studio's export of the cells that passed its filters,
           adding ``{px.CLUSTER!r}`` (categorical) to the table's ``obs`` and the 3D UMAP as
           ``obsm[{px.UMAP_KEY!r}]``. Cells it filtered out keep missing values there.
@@ -425,10 +427,10 @@ def pyxa(
     whose per-cell centroids are the area-weighted centroids of each cell's
     polygons in both units.
 
-    The polygons are returned as two shapes elements:
+    As shapes (by default only with ``labels=False``; see ``shapes``), the polygons are two elements:
 
         - ``{px.REGION!r}``: one 2D footprint per cell (the union of its z-plane
-          polygons), indexed by ``cell_id`` and annotated by the ``rna`` table.
+          polygons), indexed by ``cell_id`` and, with ``labels=False``, annotated by the ``rna`` table.
           Cells stacked in z have overlapping footprints, so use these for 2D
           display and table annotation, not for 2D spatial aggregation (the
           transcripts' ``cell_id`` already gives each transcript's cell).
@@ -442,13 +444,17 @@ def pyxa(
     those are unique, positive and below 2^31, otherwise 1..n in table order. Holes are
     filled, and where two cells overlap on a plane the higher label wins. The labels are
     lazy: level 0 is drawn, one task per 32 x 1024 x 1024 tile, when computed or written, and
-    the coarser levels are strided views of it (nearest neighbour), so writing draws each
-    tile once, with dask's default threaded scheduler (a process scheduler is much slower
-    here, since every drawn tile is pickled back). Decoding the polygons is eager, one worker
-    process per parquet row group (threads contend badly on the allocator with this many large
-    shapely/numpy arrays), each row group itself streamed in small batches so a worker never
-    holds more than one batch's geometries at once: for a full Region (23M polygons, 17 row
-    groups) about 35 s and a peak of roughly 30 GB across the main process and its workers.
+    the coarser levels are strided views of it (nearest neighbour, sampled at each coarse
+    voxel's block centre), so writing draws each tile once, with dask's default threaded
+    scheduler (a process scheduler is much slower here, since every drawn tile is pickled
+    back). The lazy labels' dask graph holds every ring's coordinates (GBs for a full Region)
+    for as long as the element is alive, and would ship them all to a distributed scheduler.
+    Decoding the polygons is eager, in worker processes: one task per parquet row group,
+    across up to the CPU count of workers (threads contend badly on the allocator with this
+    many large shapely/numpy arrays; ``joblib.parallel_config(backend=...)`` can choose another
+    backend), each row group streamed in small batches so a worker never holds more than one
+    batch's geometries at once. That takes about a minute and tens of GB for a full Region of
+    ~20M polygons.
 
     Unassigned transcripts (``cell_id`` ending in ``"_-1"``) are kept in the
     points element, flagged via an ``assigned`` column, rather than dropped.
@@ -467,8 +473,9 @@ def pyxa(
         Optional files: ``None`` (default) reads one from ``path`` if present, a path reads
         that file, ``False`` skips it and ``True`` requires it in ``path``.
 
-        ``image`` may be the mosaic's directory or a zip of it; a zipped mosaic is read in place
-        with the threaded dask scheduler (a ``ZipStore`` is not shared across processes).
+        ``image`` may be the mosaic's directory or a zip of it; a zipped mosaic is read in place.
+        Compute a zipped mosaic with dask's threaded scheduler (the default): a process scheduler
+        pickles its ``ZipStore``, which reopens the zip in every worker.
     shapes
         Return the polygons as shapes. ``None`` (default): when the segmentation geometries are
         read and ``labels`` is ``False``.

@@ -16,7 +16,7 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
 ### Added
 
 - `spatialdata_io` ships a `py.typed` marker, so downstream type checkers use its annotations.
-- `pyxa`: `labels=True` rasterizes the segmentation polygons into lazy 3D `cell_labels` on the mosaic's grid, annotated by the table; `shapes=` controls the shapes; the mosaic is found in the Pyxa directory (`mosaic_3d.ome.zarr`, or its `.zip` read in place) via `image=`, which replaces `image_path`; counts are sparse.
+- Experimental `pyxa` reader (Stellaromics Pyxa): table (sparse counts, Pyxa Studio clusters/UMAP), transcripts, segmentation shapes, mosaic image (directory or zip), and with `labels=True` 3D cell labels on the mosaic grid.
 
 ### Changed
 
