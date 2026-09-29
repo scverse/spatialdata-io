@@ -701,6 +701,28 @@ def test_read_rings_matches_across_row_group_counts(tmp_path: Path) -> None:
     np.testing.assert_allclose(single.bounds, multi.bounds)
 
 
+def test_read_rings_matches_with_a_smaller_decode_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    # a batch size smaller than the fixture's single row group forces multiple batches per row group;
+    # the concatenated result must be identical to decoding the whole row group in one batch
+    monkeypatch.setattr("spatialdata_io.readers._pyxa_labels._DECODE_BATCH_ROWS", 50)
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    ids, _ = _label_ids(pd.Index(cells))
+    labels = pd.Series(ids, index=cells)
+    batched = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, grid, xy_size, z_size)
+
+    monkeypatch.undo()
+    unbatched = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, grid, xy_size, z_size)
+
+    assert len(batched) == len(unbatched) > 0
+    np.testing.assert_array_equal(batched.label, unbatched.label)
+    np.testing.assert_array_equal(batched.plane, unbatched.plane)
+    np.testing.assert_array_equal(batched.length, unbatched.length)
+    np.testing.assert_allclose(batched.coords, unbatched.coords)
+    np.testing.assert_allclose(batched.bounds, unbatched.bounds)
+
+
 def test_read_rings_drops_planes_off_the_mosaic_z_range(caplog: pytest.LogCaptureFixture) -> None:
     grid = _mosaic_grid(MOSAIC_DIR)
     shifted = dataclasses.replace(grid, translation=(grid.translation[0] + 1e6, *grid.translation[1:]))

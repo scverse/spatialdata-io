@@ -87,6 +87,12 @@ class _Rings:
         return len(self.label)
 
 
+# Rows decoded to shapely at once, per row group: bounds a worker's peak memory to one batch's
+# geometries and their transformed/simplified copies, instead of a whole row group's (up to ~1.36M
+# polygons for the largest Region measured), at a small cost in per-batch overhead.
+_DECODE_BATCH_ROWS = 65_536
+
+
 def _rings_from_row_group(
     path: Path,
     row_group: int,
@@ -96,44 +102,66 @@ def _rings_from_row_group(
     z_size: float,
     simplify: float,
 ) -> tuple[dict[str, np.ndarray], dict[str, int]]:
-    """One parquet row group's rings on the grid, and how many polygon parts were dropped and why."""
+    """One parquet row group's rings on the grid, and how many polygon parts were dropped and why.
+
+    Streamed in ``_DECODE_BATCH_ROWS``-row batches, so only one batch's shapely geometries (and their
+    transformed/simplified copies) are held in memory at a time, not the whole row group's.
+    """
     sz, sy, sx = grid.scale
     tz, ty, tx = grid.translation
     nz = grid.shapes[0][0]
-    table = pq.ParquetFile(path).read_row_group(
-        row_group, columns=[PyxaKeys.CELL_ID.value, PyxaKeys.Z_INDEX.value, "geometry"]
+    batches = pq.ParquetFile(path).iter_batches(
+        batch_size=_DECODE_BATCH_ROWS,
+        row_groups=[row_group],
+        columns=[PyxaKeys.CELL_ID.value, PyxaKeys.Z_INDEX.value, "geometry"],
     )
-    cell_id = pc.cast(table.column(PyxaKeys.CELL_ID.value), "string").to_numpy(zero_copy_only=False)
-    row = labels.index.get_indexer(cell_id)
-    zindex = table.column(PyxaKeys.Z_INDEX.value).to_numpy()
-    geoms = shapely.from_wkb(table.column("geometry").to_numpy(zero_copy_only=False))
-    parts, part_of = shapely.get_parts(geoms, return_index=True)
-    rings = shapely.get_exterior_ring(parts)
-    rings = shapely.transform(
-        rings,
-        lambda c: np.column_stack(((c[:, 0] * xy_size - tx) / sx, (c[:, 1] * xy_size - ty) / sy)),
-    )
-    rings = shapely.simplify(rings, simplify)
-    # plane k holds Z_um = (ZIndex + 0.5) * z_size, the reader's plane centre
-    plane = np.rint(((zindex[part_of] + 0.5) * z_size - tz) / sz).astype(np.int32)
-    in_table = row[part_of] >= 0
-    on_grid = (plane >= 0) & (plane < nz)
-    empty = shapely.is_empty(rings) | (shapely.get_num_coordinates(rings) < 3)
-    keep = in_table & on_grid & ~empty
-    rings = rings[keep]
-    coords, ring_of = shapely.get_coordinates(rings, return_index=True)
-    out = {
-        "label": labels.to_numpy(dtype=np.uint32)[row[part_of][keep]],
-        "plane": plane[keep],
-        "length": np.bincount(ring_of, minlength=len(rings)).astype(np.int64),
-        "coords": coords.astype(np.float32),
-        "bounds": shapely.bounds(rings).astype(np.float32).reshape(-1, 4),
-    }
-    dropped = {
-        "not in the table": int((~in_table).sum()),
-        "off the mosaic's z range": int((in_table & ~on_grid).sum()),
-        "empty": int((in_table & on_grid & empty).sum()),
-    }
+    batch_arrays: list[dict[str, np.ndarray]] = []
+    dropped = {"not in the table": 0, "off the mosaic's z range": 0, "empty": 0}
+    for batch in batches:
+        cell_id = pc.cast(batch.column(PyxaKeys.CELL_ID.value), "string").to_numpy(zero_copy_only=False)
+        row = labels.index.get_indexer(cell_id)
+        zindex = batch.column(PyxaKeys.Z_INDEX.value).to_numpy()
+        geoms = shapely.from_wkb(batch.column("geometry").to_numpy(zero_copy_only=False))
+        poly_parts, part_of = shapely.get_parts(geoms, return_index=True)
+        rings = shapely.get_exterior_ring(poly_parts)
+        rings = shapely.transform(
+            rings,
+            lambda c: np.column_stack(((c[:, 0] * xy_size - tx) / sx, (c[:, 1] * xy_size - ty) / sy)),
+        )
+        rings = shapely.simplify(rings, simplify)
+        # plane k holds Z_um = (ZIndex + 0.5) * z_size, the reader's plane centre
+        plane = np.rint(((zindex[part_of] + 0.5) * z_size - tz) / sz).astype(np.int32)
+        in_table = row[part_of] >= 0
+        on_grid = (plane >= 0) & (plane < nz)
+        empty = shapely.is_empty(rings) | (shapely.get_num_coordinates(rings) < 3)
+        keep = in_table & on_grid & ~empty
+        rings = rings[keep]
+        coords, ring_of = shapely.get_coordinates(rings, return_index=True)
+        batch_arrays.append(
+            {
+                "label": labels.to_numpy(dtype=np.uint32)[row[part_of][keep]],
+                "plane": plane[keep],
+                "length": np.bincount(ring_of, minlength=len(rings)).astype(np.int64),
+                "coords": coords.astype(np.float32),
+                "bounds": shapely.bounds(rings).astype(np.float32).reshape(-1, 4),
+            }
+        )
+        dropped["not in the table"] += int((~in_table).sum())
+        dropped["off the mosaic's z range"] += int((in_table & ~on_grid).sum())
+        dropped["empty"] += int((in_table & on_grid & empty).sum())
+        # drop this batch's shapely/numpy arrays before decoding the next one
+        del geoms, poly_parts, part_of, rings, plane, in_table, on_grid, empty, keep, coords, ring_of
+    if batch_arrays:
+        out = {k: np.concatenate([b[k] for b in batch_arrays]) for k in batch_arrays[0]}
+    else:
+        # the row group's batches kept nothing (every polygon filtered out, or no batches at all)
+        out = {
+            "label": np.empty(0, dtype=np.uint32),
+            "plane": np.empty(0, dtype=np.int32),
+            "length": np.empty(0, dtype=np.int64),
+            "coords": np.empty((0, 2), dtype=np.float32),
+            "bounds": np.empty((0, 4), dtype=np.float32),
+        }
     return out, dropped
 
 

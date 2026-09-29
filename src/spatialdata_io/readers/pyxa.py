@@ -446,9 +446,9 @@ def pyxa(
     tile once, with dask's default threaded scheduler (a process scheduler is much slower
     here, since every drawn tile is pickled back). Decoding the polygons is eager, one worker
     process per parquet row group (threads contend badly on the allocator with this many large
-    shapely/numpy arrays): for a full Region (23M polygons, 17 row groups) about 36 s, with a
-    peak of roughly 150 GB across the worker processes while decoding, settling to a few GB
-    once the rings are concatenated.
+    shapely/numpy arrays), each row group itself streamed in small batches so a worker never
+    holds more than one batch's geometries at once: for a full Region (23M polygons, 17 row
+    groups) about 35 s and a peak of roughly 30 GB across the main process and its workers.
 
     Unassigned transcripts (``cell_id`` ending in ``"_-1"``) are kept in the
     points element, flagged via an ``assigned`` column, rather than dropped.
