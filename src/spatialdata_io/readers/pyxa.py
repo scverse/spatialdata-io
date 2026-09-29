@@ -271,11 +271,16 @@ def _open_mosaic(path: Path) -> zarr.Group:
 
 @dataclass(frozen=True)
 class _MosaicGrid:
-    """The mosaic's voxel grid: every level's (z, y, x) shape and level 0's frame in micrometers."""
+    """The mosaic's voxel grid.
+
+    Every level's (z, y, x) shape and OME-NGFF scale, and level 0's frame (scale and translation) in
+    micrometers.
+    """
 
     shapes: tuple[tuple[int, int, int], ...]
     scale: tuple[float, float, float]
     translation: tuple[float, float, float]
+    scales: tuple[tuple[float, float, float], ...]
 
     @property
     def transformation(self) -> Sequence:
@@ -283,24 +288,38 @@ class _MosaicGrid:
         return Sequence([Scale(list(self.scale), axes=axes), Translation(list(self.translation), axes=axes)])
 
     def step(self, level: int) -> tuple[int, int, int]:
-        """Level-0 voxels per voxel of ``level``, per axis (nearest-neighbour stride)."""
-        n0, n = self.shapes[0], self.shapes[level]
-        return tuple(max(1, round(a / b)) for a, b in zip(n0, n, strict=True))  # type: ignore[return-value]
+        """Level-0 voxels per voxel of ``level``, per axis: the OME-NGFF scale ratio to level 0.
+
+        Each axis's ratio must be within ``1e-6`` of a positive integer (nearest-neighbour stride);
+        the ratio of the array *shapes* is not used, since a cropped or oddly-sized level can round
+        that ratio to the wrong integer even where the scale ratio itself is exact.
+        """
+        ratios = tuple(s / s0 for s0, s in zip(self.scales[0], self.scales[level], strict=True))
+        steps = tuple(round(r) for r in ratios)
+        for axis, (ratio, step) in enumerate(zip(ratios, steps, strict=True)):
+            if step < 1 or abs(ratio - step) > 1e-6:
+                raise ValueError(f"scale{level} axis {axis}: scale ratio to scale0 ({ratio}) is not a positive integer")
+        return steps  # type: ignore[return-value]
 
 
 def _mosaic_grid(path: Path) -> _MosaicGrid:
-    """The mosaic's level shapes (z, y, x) and level-0 scale and translation, from its OME-NGFF metadata."""
+    """The mosaic's level shapes and OME-NGFF scales, and level 0's scale and translation, from its OME-NGFF metadata."""
     group = _open_mosaic(path)
     multiscale = cast("dict[str, Any]", group.attrs.asdict()["ome"])["multiscales"][0]
     axes = [a["name"] for a in multiscale["axes"]]
     zyx = [axes.index(a) for a in ("z", "y", "x")]
     datasets = multiscale["datasets"]
     shapes = tuple(tuple(int(cast("Any", group[d["path"]]).shape[i]) for i in zyx) for d in datasets)
-    transforms = {t["type"]: t for t in datasets[0]["coordinateTransformations"]}
+    scales = tuple(
+        tuple(float(next(t for t in d["coordinateTransformations"] if t["type"] == "scale")["scale"][i]) for i in zyx)
+        for d in datasets
+    )
+    transforms0 = {t["type"]: t for t in datasets[0]["coordinateTransformations"]}
     return _MosaicGrid(
         shapes=shapes,  # type: ignore[arg-type]
-        scale=tuple(float(transforms["scale"]["scale"][i]) for i in zyx),  # type: ignore[arg-type]
-        translation=tuple(float(transforms["translation"]["translation"][i]) for i in zyx),  # type: ignore[arg-type]
+        scale=scales[0],  # type: ignore[arg-type]
+        translation=tuple(float(transforms0["translation"]["translation"][i]) for i in zyx),  # type: ignore[arg-type]
+        scales=scales,  # type: ignore[arg-type]
     )
 
 
@@ -697,7 +716,9 @@ def _get_labels(rings: _Rings, grid: _MosaicGrid) -> DataTree:
     independently, so a level-0 tile's drawing task is shared by every level that needs it: computing or
     writing the whole tree draws each level-0 tile at most once. The stride starts at each block's centre
     (offset ``step // 2`` per axis, less where that would leave the level short of the mosaic's shape):
-    the mosaic's own pyramid is a smoothed block average, so centre samples track it best.
+    the mosaic's own pyramid is a smoothed block average, so centre samples track it best. ``grid.step``
+    is the OME-NGFF scale ratio to level 0 (not the array-shape ratio, which a cropped or odd-sized level
+    can round to the wrong integer).
     """
     n0 = grid.shapes[0]
     tiles = _plan_tiles(rings, n0, (1, 1, 1))

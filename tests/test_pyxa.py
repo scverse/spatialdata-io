@@ -4,6 +4,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any, cast
 
 import dask.dataframe as dd
 import geopandas as gpd
@@ -646,10 +647,64 @@ def test_mosaic_grid_matches_image() -> None:
     image = _get_image(MOSAIC_DIR)
     assert grid.shapes == tuple(image[k]["image"].shape[1:] for k in image)
     assert grid.step(0) == (1, 1, 1)
-    # (200, 217, 218) -> (12, 14, 13): z 200/12, y 217/14, x 218/13, rounded
-    assert grid.step(4) == (17, 16, 17)
+
+    # step must come from the levels' OME-NGFF scale ratio to level 0, not the array-shape ratio: read
+    # the fixture's own scales and check every level's step against them directly.
+    group = zarr.open_group(store=str(MOSAIC_DIR), mode="r")
+    multiscale = cast("dict[str, Any]", group.attrs.asdict()["ome"])["multiscales"][0]
+    axes = [a["name"] for a in multiscale["axes"]]
+    zyx = [axes.index(a) for a in ("z", "y", "x")]
+    datasets = multiscale["datasets"]
+    scale0 = next(t for t in datasets[0]["coordinateTransformations"] if t["type"] == "scale")["scale"]
+    for i, dataset in enumerate(datasets):
+        scale_i = next(t for t in dataset["coordinateTransformations"] if t["type"] == "scale")["scale"]
+        assert grid.step(i) == tuple(round(scale_i[a] / scale0[a]) for a in zyx)
+    # the fixture's coarse levels are cropped with their own origins, so the array-shape ratio at
+    # scale4 ((200, 217, 218) -> (12, 14, 13), rounding to (17, 16, 17)) is *not* the right stride;
+    # the OME scale ratio is exactly 16x on every axis
+    assert grid.step(4) == (16, 16, 16)
+
     affine = get_transformation(image, to_coordinate_system="global").to_affine_matrix(("z", "y", "x"), ("z", "y", "x"))
     np.testing.assert_allclose(grid.transformation.to_affine_matrix(("z", "y", "x"), ("z", "y", "x")), affine)
+
+
+def test_mosaic_grid_step_from_colon_like_scales() -> None:
+    """A synthetic grid reproducing the colon Region's mosaic: the array-shape ratio rounds z at
+    levels 4-6 to 17 (284/17 = 16.7), one plane off; the OME scale ratios are the correct steps.
+    """
+    shapes = (
+        (284, 9786, 11889),
+        (142, 4893, 5944),
+        (71, 2446, 2972),
+        (35, 1223, 1486),
+        (17, 611, 743),
+        (17, 305, 371),
+        (17, 152, 185),
+    )
+    scales = (
+        (1.0, 1.0, 1.0),
+        (2.0, 2.0, 2.0),
+        (4.0, 4.0, 4.0),
+        (8.0, 8.0, 8.0),
+        (16.0, 16.0, 16.0),
+        (16.0, 32.0, 32.0),
+        (16.0, 64.0, 64.0),
+    )
+    grid = _MosaicGrid(shapes=shapes, scale=scales[0], translation=(0.0, 0.0, 0.0), scales=scales)
+    assert round(shapes[0][0] / shapes[4][0]) == 17  # the shape ratio would give the wrong stride
+    assert grid.step(4) == (16, 16, 16)
+    assert grid.step(6) == (16, 64, 64)
+
+
+def test_mosaic_grid_step_raises_on_non_integer_scale_ratio() -> None:
+    grid = _MosaicGrid(
+        shapes=((10, 10, 10), (3, 3, 3)),
+        scale=(1.0, 1.0, 1.0),
+        translation=(0.0, 0.0, 0.0),
+        scales=((1.0, 1.0, 1.0), (3.3, 3.3, 3.3)),
+    )
+    with pytest.raises(ValueError, match="not a positive integer"):
+        grid.step(1)
 
 
 def test_read_rings_on_mosaic_grid() -> None:
@@ -965,7 +1020,12 @@ def test_get_labels_on_mosaic_grid() -> None:
 
 
 def test_get_labels_logs_rings_tiles_and_levels(caplog: pytest.LogCaptureFixture) -> None:
-    grid = _MosaicGrid(shapes=((1, 8, 8), (1, 4, 4)), scale=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.0))
+    grid = _MosaicGrid(
+        shapes=((1, 8, 8), (1, 4, 4)),
+        scale=(1.0, 1.0, 1.0),
+        translation=(0.0, 0.0, 0.0),
+        scales=((1.0, 1.0, 1.0), (2.0, 2.0, 2.0)),
+    )
     with caplog.at_level("INFO"):
         _get_labels(_square_rings([(5, 0, 1.0, 1.0, 3.0, 3.0), (6, 0, 4.0, 4.0, 6.0, 6.0)]), grid)
     assert "2 rings in 1 level-0 tiles, 2 levels planned" in caplog.text
@@ -1016,7 +1076,12 @@ def test_get_labels_levels_stride_level_zero() -> None:
 
 def test_get_labels_levels_clamp_the_centre_offset_to_fit() -> None:
     """Where a centre offset would run a coarse level off level 0's end, the offset shrinks until it fits."""
-    grid = _MosaicGrid(shapes=((1, 5, 5), (1, 3, 3)), scale=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.0))
+    grid = _MosaicGrid(
+        shapes=((1, 5, 5), (1, 3, 3)),
+        scale=(1.0, 1.0, 1.0),
+        translation=(0.0, 0.0, 0.0),
+        scales=((1.0, 1.0, 1.0), (2.0, 2.0, 2.0)),
+    )
     tree = _get_labels(_square_rings([(4, 0, 0.0, 0.0, 0.2, 4.0), (9, 0, 2.0, 0.0, 2.2, 4.0)]), grid)
     level0 = _level_values(tree, "scale0")
     assert set(np.unique(level0[0, :, [0, 2]])) == {4, 9} and not level0[0, :, 1].any()
@@ -1056,7 +1121,12 @@ def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch
 
 def test_get_labels_raises_when_a_level_is_shorter_than_any_stride() -> None:
     """No integer stride of a 4-voxel level 0 can reach a 6-voxel level 1: ``_get_labels`` must reject it."""
-    grid = _MosaicGrid(shapes=((2, 4, 4), (2, 6, 6)), scale=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.0))
+    grid = _MosaicGrid(
+        shapes=((2, 4, 4), (2, 6, 6)),
+        scale=(1.0, 1.0, 1.0),
+        translation=(0.0, 0.0, 0.0),
+        scales=((1.0, 1.0, 1.0), (1.0, 1.0, 1.0)),
+    )
     with pytest.raises(ValueError, match="shorter than the mosaic"):
         _get_labels(_empty_rings(), grid)
 
