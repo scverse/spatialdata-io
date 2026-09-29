@@ -259,21 +259,22 @@ def _plan_tiles(
     plane = rings.plane[keep] // dz
     on = plane < nz
     keep, plane = keep[on], plane[on]
-    # bounds in level-voxel index space; a voxel v is drawn when its centre lies in the ring
+    # bounds in level-voxel index space. Drawing snaps each vertex to its nearest voxel, so a ring fills
+    # voxels floor(lo + 0.5)..floor(hi + 0.5): its high side can reach the next tile's first voxel.
+    # Tiles are assigned from bounds padded by one voxel on the high side (the low side needs none); a
+    # tile that the ring does not actually reach draws nothing for it.
     bounds = rings.bounds[keep] / np.array([dx, dy, dx, dy], dtype=np.float32)
     n_ty, n_tx = -(-ny // ty), -(-nx // tx)
     y_lo = np.clip(np.floor(bounds[:, 1] / ty), 0, n_ty - 1).astype(np.int64)
-    y_hi = np.clip(np.floor(bounds[:, 3] / ty), 0, n_ty - 1).astype(np.int64)
+    y_hi = np.clip(np.floor((bounds[:, 3] + 1) / ty), 0, n_ty - 1).astype(np.int64)
     x_lo = np.clip(np.floor(bounds[:, 0] / tx), 0, n_tx - 1).astype(np.int64)
-    x_hi = np.clip(np.floor(bounds[:, 2] / tx), 0, n_tx - 1).astype(np.int64)
+    x_hi = np.clip(np.floor((bounds[:, 2] + 1) / tx), 0, n_tx - 1).astype(np.int64)
     idx, keys = [], []
     for oy in range(int((y_hi - y_lo).max(initial=0)) + 1):
         for ox in range(int((x_hi - x_lo).max(initial=0)) + 1):
             hit = np.flatnonzero((y_lo + oy <= y_hi) & (x_lo + ox <= x_hi))
             idx.append(hit)
             keys.append(((plane[hit] // tz) * n_ty + y_lo[hit] + oy) * n_tx + x_lo[hit] + ox)
-    if not idx:
-        return []
     idx_arr, keys_arr = np.concatenate(idx), np.concatenate(keys)
     if keys_arr.size == 0:
         # no ring falls in this level at all (e.g. an empty _Rings): nothing to draw, no tiles
@@ -315,14 +316,21 @@ def _rasterize_tile(tile: _Tile) -> np.ndarray:
     block = np.zeros(tile.shape, dtype=np.uint32)
     dy, dx = tile.step
     _, y0, x0 = tile.origin
-    # level voxel index space, then PIL pixel space: pixel p's centre is at p + 0.5
-    xy = np.column_stack((tile.coords[:, 0] / dx + 0.5 - x0, tile.coords[:, 1] / dy + 0.5 - y0))
+    # Snap each vertex to the voxel whose centre is nearest (PIL fills the pixels of an integer polygon,
+    # vertices included), in level voxel index space, so the snap does not depend on the tile. PIL draws
+    # a polygon differently when some vertices are negative (it truncates toward zero and clips), so the
+    # canvas starts at the lowest vertex, not the tile's origin, and is cropped to the tile after drawing:
+    # a tile then draws exactly what one whole-level draw would, and neighbouring tiles join seamlessly.
+    xs = np.floor(tile.coords[:, 0] / dx + 0.5).astype(np.int64)
+    ys = np.floor(tile.coords[:, 1] / dy + 0.5).astype(np.int64)
+    cx, cy = min(x0, int(xs.min(initial=x0))), min(y0, int(ys.min(initial=y0)))
+    xy = np.column_stack((xs - cx, ys - cy))
     for plane in np.unique(tile.plane):
-        image = Image.new("I", (width, height))
+        image = Image.new("I", (x0 + width - cx, y0 + height - cy))
         draw = ImageDraw.Draw(image)
         for r in np.flatnonzero(tile.plane == plane):
             draw.polygon(xy[tile.offsets[r] : tile.offsets[r + 1]].ravel().tolist(), fill=int(tile.label[r]))
-        block[plane] = np.asarray(image, dtype=np.int32)
+        block[plane] = np.asarray(image, dtype=np.int32)[y0 - cy :, x0 - cx :]
     return block
 
 

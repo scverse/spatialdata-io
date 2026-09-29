@@ -808,6 +808,36 @@ def test_labels_level_tiles_join_seamlessly() -> None:
     assert tiled.chunksize == (2, 3, 3)
     np.testing.assert_array_equal(tiled.compute(), whole)
 
+    # rings ending (or starting) a fraction of a voxel from the tile edge at 4
+    for edge in (3.2, 3.5, 3.7, 3.9, 4.0, 4.3, 4.5, 4.7):
+        rings = _square_rings([(5, 0, 1.0, 1.0, edge, edge), (6, 0, edge, 5.0, 7.0, 7.0), (7, 0, 5.0, edge, 7.0, 4.9)])
+        whole = _labels_level(rings, (1, 8, 8), (1, 1, 1), tile=(1, 8, 8), chunks=(1, 8, 8)).compute()
+        tiled = _labels_level(rings, (1, 8, 8), (1, 1, 1), tile=(1, 4, 4), chunks=(1, 8, 8)).compute()
+        np.testing.assert_array_equal(tiled, whole, err_msg=f"edge {edge}")
+
+
+def test_labels_level_tiles_join_seamlessly_for_random_rings() -> None:
+    """Arbitrary polygons with fractional vertices, on tiles of several sizes, draw as one whole tile does."""
+    rng = np.random.default_rng(0)
+    coords, lengths = [], []
+    for _ in range(200):
+        n = int(rng.integers(3, 9))
+        centre, angle, radius = rng.uniform(-1, 41, 2), np.sort(rng.uniform(0, 2 * np.pi, n)), rng.uniform(0.1, 4, n)
+        ring = np.column_stack((centre[0] + radius * np.cos(angle), centre[1] + radius * np.sin(angle)))
+        coords.append(np.vstack([ring, ring[:1]]).astype(np.float32))
+        lengths.append(n + 1)
+    rings = _Rings(
+        label=np.arange(1, 201, dtype=np.uint32),
+        plane=np.zeros(200, dtype=np.int32),
+        length=np.array(lengths, dtype=np.int64),
+        coords=np.concatenate(coords),
+        bounds=np.array([[c[:, 0].min(), c[:, 1].min(), c[:, 0].max(), c[:, 1].max()] for c in coords]),
+    )
+    whole = _labels_level(rings, (1, 40, 40), (1, 1, 1), tile=(1, 40, 40), chunks=(1, 40, 40)).compute()
+    for size in (4, 5, 8):
+        tiled = _labels_level(rings, (1, 40, 40), (1, 1, 1), tile=(1, size, size), chunks=(1, 40, 40))
+        np.testing.assert_array_equal(tiled.compute(), whole)
+
 
 def test_labels_level_strides_level_zero() -> None:
     rings = _square_rings([(5, 2, 1.0, 1.0, 12.0, 12.0), (6, 3, 4.0, 4.0, 9.0, 9.0)])
