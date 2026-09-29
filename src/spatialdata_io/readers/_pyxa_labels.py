@@ -10,7 +10,6 @@ computes a whole multiscale labels element's pyramid in a single ``dask.compute`
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +21,7 @@ import pandas as pd
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import shapely
+from joblib.externals.loky import get_reusable_executor
 from spatialdata._logging import logger
 from spatialdata.models import Labels3DModel
 from spatialdata.transformations import Scale, Sequence, Translation, set_transformation
@@ -176,8 +176,10 @@ def _read_rings(
 ) -> _Rings:
     """Every segmentation polygon's exterior ring on the mosaic's level-0 grid, with its label and plane.
 
-    ``labels`` maps ``cell_id`` to the cell's label. Row groups are decoded in worker processes
-    (``joblib``'s ``loky`` backend): although pyarrow and shapely release the GIL, decoding a full
+    ``labels`` maps ``cell_id`` to the cell's label. Row groups are decoded in worker processes, one
+    task per row group across up to the CPU count of workers (``joblib``, preferring processes, so
+    ``joblib.parallel_config(backend=...)`` can choose another backend); the default ``loky`` workers
+    are shut down once decoding ends. Although pyarrow and shapely release the GIL, decoding a full
     Region's row groups concurrently on threads was measured to contend badly on the allocator (one
     process, many threads each doing large shapely/numpy malloc/free traffic) rather than the GIL,
     taking ~24x longer wall time and ~3x the peak memory of the same work split across processes.
@@ -189,10 +191,16 @@ def _read_rings(
     if n_groups <= 1:
         results = [_rings_from_row_group(path, i, labels, grid, xy_size, z_size, simplify) for i in range(n_groups)]
     else:
-        results = joblib.Parallel(n_jobs=min(n_groups, os.cpu_count() or 1), backend="loky")(
+        n_jobs = min(n_groups, joblib.cpu_count())
+        backend, _ = joblib.parallel.get_active_backend(prefer="processes")
+        results = joblib.Parallel(n_jobs=n_jobs, prefer="processes")(
             joblib.delayed(_rings_from_row_group)(path, i, labels, grid, xy_size, z_size, simplify)
             for i in range(n_groups)
         )
+        if n_jobs > 1 and isinstance(backend, joblib.parallel.BACKENDS["loky"]):
+            # loky keeps its workers (hundreds of MB each after a decode) alive for reuse; nothing else
+            # here needs them, so release them now rather than holding that memory through the write
+            get_reusable_executor(reuse=True).shutdown(wait=True)
     parts = [r[0] for r in results]
     dropped: dict[str, int] = {}
     for _, d in results:

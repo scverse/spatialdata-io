@@ -701,6 +701,46 @@ def test_read_rings_matches_across_row_group_counts(tmp_path: Path) -> None:
     np.testing.assert_allclose(single.bounds, multi.bounds)
 
 
+def _multi_row_group_inputs(tmp_path: Path) -> tuple[Path, pd.Series, _MosaicGrid, float, float]:
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    ids, _ = _label_ids(pd.Index(cells))
+    multi_path = tmp_path / "multi.parquet"
+    pq.write_table(pq.read_table(FIXTURE_DIR / "segmentation_geometries_v1.parquet"), multi_path, row_group_size=2000)
+    return multi_path, pd.Series(ids, index=cells), grid, xy_size, z_size
+
+
+def test_read_rings_shuts_worker_processes_down(tmp_path: Path) -> None:
+    """The decode's worker processes do not linger (holding memory) once the rings are read."""
+    import multiprocessing
+
+    path, labels, grid, xy_size, z_size = _multi_row_group_inputs(tmp_path)
+    assert len(_read_rings(path, labels, grid, xy_size, z_size)) > 0
+    assert multiprocessing.active_children() == []
+
+
+def test_read_rings_follows_joblib_parallel_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``joblib.parallel_config(backend=...)`` chooses where row groups are decoded."""
+    import os
+
+    import joblib
+
+    path, labels, grid, xy_size, z_size = _multi_row_group_inputs(tmp_path)
+    pids: list[int] = []
+    real = _pyxa_labels._rings_from_row_group
+
+    def recording(*args: object) -> tuple[dict[str, np.ndarray], dict[str, int]]:
+        pids.append(os.getpid())
+        return real(*args)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(_pyxa_labels, "_rings_from_row_group", recording)
+    with joblib.parallel_config(backend="threading"):
+        rings = _read_rings(path, labels, grid, xy_size, z_size)
+    assert len(rings) > 0
+    assert pids == [os.getpid()] * pq.ParquetFile(path).metadata.num_row_groups
+
+
 def test_read_rings_matches_with_a_smaller_decode_batch(monkeypatch: pytest.MonkeyPatch) -> None:
     # a batch size smaller than the fixture's single row group forces multiple batches per row group;
     # the concatenated result must be identical to decoding the whole row group in one batch
