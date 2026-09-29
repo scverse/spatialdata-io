@@ -85,6 +85,17 @@ jobs:
           # OMAP10 for format v0.x.x
           curl -o OMAP10_small.zip "https://zenodo.org/api/records/18196366/files-archive"
 
+          # -------
+          # Stellaromics Pyxa, 100 um cube cropped from the public demo dataset
+          # https://huggingface.co/datasets/Stellaromics/demo
+          mkdir -p pyxa_xsmall
+          for file in cell_assigned_gene_v1.csv cell_by_gene_v1.csv cell_metadata_v1.csv segmentation_geometries_v1.parquet mosaic_3d.ome.zarr.zip; do
+              curl -L -o "pyxa_xsmall/$file" "https://huggingface.co/datasets/Stellaromics/demo/resolve/main/xsmall/$file"
+          done
+          # the zipped OME-Zarr mosaic is extracted in place (it contains a single `mosaic_3d.ome.zarr/` directory)
+          unzip -q pyxa_xsmall/mosaic_3d.ome.zarr.zip -d pyxa_xsmall
+          rm pyxa_xsmall/mosaic_3d.ome.zarr.zip
+
       - name: Unzip files
         run: |
           cd ./data

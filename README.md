@@ -48,6 +48,16 @@ Contributions for addressing the below limitations are very welcomed.
 
 - Only Stereo-seq 7.x is supported, 8.x is not currently supported. https://github.com/scverse/spatialdata-io/issues/161
 
+## Experimental readers
+
+Readers without (yet) a public specification for their raw data format live
+in `spatialdata_io.experimental` rather than the main technology list above.
+No stability guarantees are made for these.
+
+- Pyxa (Stellaromics): no public format specification yet; validated against
+  the public [demo dataset](https://huggingface.co/datasets/Stellaromics/demo).
+  `labels=True` adds 3D cell labels on the mosaic grid.
+
 ## Getting started
 
 Please refer to the [documentation][link-docs]. In particular, the

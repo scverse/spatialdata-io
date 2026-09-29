@@ -910,6 +910,61 @@ def macsima_wrapper(
     sdata.write(output)
 
 
+@cli.command(name="pyxa")
+@_input_output_click_options
+@click.option("--dataset-id", type=str, default="pyxa", help="Dataset ID. [default: pyxa]")
+@click.option(
+    "--image",
+    type=click.Path(exists=True, file_okay=True, dir_okay=True),
+    default=None,
+    help="Mosaic OME-Zarr directory or zip, if not in the input directory. [default: found in the input]",
+)
+@click.option("--no-image", is_flag=True, default=False, help="Leave out the mosaic even if present.")
+@click.option(
+    "--pyxa-studio",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Path to a Pyxa Studio export (cluster labels, UMAP) outside the input directory. [default: None]",
+)
+@click.option(
+    "--skip",
+    type=click.Choice(["cell_assigned_gene", "segmentation_geometries", "pyxa_studio"]),
+    multiple=True,
+    help="Optional input file to leave out even if present; repeatable. [default: none]",
+)
+@click.option("--labels", is_flag=True, default=False, help="Rasterize 3D cell labels onto the mosaic's grid.")
+@click.option(
+    "--shapes/--no-shapes",
+    default=None,
+    help="Return the polygons as shapes. [default: when read and --labels is not set]",
+)
+def pyxa_wrapper(
+    input: str,
+    output: str,
+    dataset_id: str = "pyxa",
+    image: str | None = None,
+    no_image: bool = False,
+    pyxa_studio: str | None = None,
+    skip: tuple[str, ...] = (),
+    labels: bool = False,
+    shapes: bool | None = None,
+) -> None:
+    """Pyxa (Stellaromics) conversion to SpatialData."""
+    from spatialdata_io.experimental import pyxa
+
+    if no_image and image is not None:
+        raise click.UsageError("--image and --no-image are mutually exclusive")
+    inputs: dict[str, str | bool] = dict.fromkeys(skip, False)
+    if pyxa_studio is not None and "pyxa_studio" not in skip:
+        inputs["pyxa_studio"] = pyxa_studio
+    if no_image:
+        inputs["image"] = False
+    elif image is not None:
+        inputs["image"] = image
+    sdata = pyxa(input, dataset_id=dataset_id, labels=labels, shapes=shapes, **inputs)  # type: ignore[arg-type]
+    sdata.write(output)
+
+
 @cli.command(name="generic")
 @click.option(
     "--input",

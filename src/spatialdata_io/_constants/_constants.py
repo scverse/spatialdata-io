@@ -409,3 +409,59 @@ class VisiumHDKeys(ModeEnum):
     # Cell Segmentation keys
     CELL_SEG_KEY_HD = "cell_segmentations"
     NUCLEUS_SEG_KEY_HD = "nucleus_segmentations"
+
+
+class PyxaKeys(ModeEnum):
+    """Keys for *Pyxa* (Stellaromics) output.
+
+    No public specification exists yet; keys are validated against the public
+    demo dataset at https://huggingface.co/datasets/Stellaromics/demo.
+    """
+
+    # files
+    CELL_ASSIGNED_GENE_FILE = "cell_assigned_gene_v1.csv"
+    CELL_BY_GENE_FILE = "cell_by_gene_v1.csv"
+    CELL_METADATA_FILE = "cell_metadata_v1.csv"
+    SEGMENTATION_GEOMETRIES_FILE = "segmentation_geometries_v1.parquet"
+    # Pyxa Studio export: cells that passed Pyxa's filters, with cluster labels and a 3D UMAP
+    PYXA_STUDIO_FILE = "pyxa_studio_v1.csv"
+
+    # shared columns
+    CELL_ID = "cell_id"
+    GENE = "Gene"
+    X_UM = "X_um"
+    Y_UM = "Y_um"
+    Z_UM = "Z_um"
+    X_PIXELS = "X_pixels"
+    Y_PIXELS = "Y_pixels"
+    Z_PIXELS = "Z_pixels"
+    VOLUME_UM3 = "Volume_um3"
+    ROI = "ROI"
+    Z_INDEX = "ZIndex"
+    BORDER = "Border"
+    FOV = "FOV"
+    CLUSTER = "Cluster"
+    X_UMAP = "X_UMAP"
+    Y_UMAP = "Y_UMAP"
+    Z_UMAP = "Z_UMAP"
+
+    # unassigned transcripts have cell_id ending in this suffix, e.g. "Region_-1"
+    UNASSIGNED_SUFFIX = "_-1"
+
+    # constructed metadata
+    REGION_KEY = "region"
+    # per-cell footprint (union of the cell's z-plane polygons), annotated by the table
+    REGION = "cell_boundaries"
+    # per-cell, per-z-plane polygons, as stored on disk
+    CELL_BOUNDARIES_Z = "cell_boundaries_z"
+    INSTANCE_KEY = "cell_id"
+    ASSIGNED = "assigned"
+    MOSAIC_IMAGE = "mosaic_image"
+    UMAP_KEY = "X_umap"
+
+    # mosaic image, looked up in the Pyxa directory (unzipped or zipped, as on the Hub)
+    MOSAIC_FILE = "mosaic_3d.ome.zarr"
+    MOSAIC_ZIP_FILE = "mosaic_3d.ome.zarr.zip"
+    # 3D cell labels rasterized from the segmentation polygons onto the mosaic's grid
+    CELL_LABELS = "cell_labels"
+    LABEL_ID = "label_id"

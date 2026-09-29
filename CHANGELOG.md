@@ -16,6 +16,7 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
 ### Added
 
 - `spatialdata_io` ships a `py.typed` marker, so downstream type checkers use its annotations.
+- Experimental `pyxa` reader (Stellaromics Pyxa): table (sparse counts, Pyxa Studio clusters/UMAP), transcripts, segmentation shapes, mosaic image (directory or zip), and with `labels=True` 3D cell labels on the mosaic grid.
 
 ### Changed
 
