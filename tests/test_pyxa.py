@@ -849,7 +849,12 @@ def test_labels_level_strides_level_zero() -> None:
 def test_labels_level_is_lazy(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
     real = _pyxa_labels._rasterize_tile
-    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", lambda tile: calls.append(1) or real(tile))
+
+    def counting(tile: _pyxa_labels._Tile) -> np.ndarray:
+        calls.append(1)
+        return real(tile)
+
+    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", counting)
     array = _labels_level(_square_rings([(5, 0, 1.0, 1.0, 3.0, 3.0)]), (1, 8, 8), (1, 1, 1))
     assert calls == []
     array.compute()
@@ -876,6 +881,11 @@ def _fixture_labels() -> tuple[DataTree, pd.Series, _Rings]:
     return _get_labels(rings, grid), labels, rings
 
 
+def _level_values(tree: DataTree, level: str) -> np.ndarray:
+    """One level of a multiscale labels element, computed to a NumPy array."""
+    return np.asarray(tree[level]["image"].data)
+
+
 def test_get_labels_on_mosaic_grid() -> None:
     tree, labels, _ = _fixture_labels()
     image = _get_image(MOSAIC_DIR)
@@ -888,7 +898,7 @@ def test_get_labels_on_mosaic_grid() -> None:
         return get_transformation(e, to_coordinate_system="global").to_affine_matrix(("z", "y", "x"), ("z", "y", "x"))
 
     np.testing.assert_allclose(_affine(tree), _affine(image))
-    level0 = tree["scale0"]["image"].values
+    level0 = _level_values(tree, "scale0")
     assert 0.05 < (level0 > 0).mean() < 0.95
     assert set(np.unique(level0)) - {0} <= set(labels.to_numpy())
 
@@ -896,7 +906,7 @@ def test_get_labels_on_mosaic_grid() -> None:
 def test_get_labels_cell_voxels() -> None:
     """A cell's own polygon centre, on its plane, carries its label."""
     tree, labels, _ = _fixture_labels()
-    level0 = tree["scale0"]["image"].values
+    level0 = _level_values(tree, "scale0")
     grid = _mosaic_grid(MOSAIC_DIR)
     xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
     planes = _get_shapes(FIXTURE_DIR / "segmentation_geometries_v1.parquet", xy_size, z_size)
@@ -918,12 +928,12 @@ def test_get_labels_cell_voxels() -> None:
 def test_get_labels_levels_stride_level_zero() -> None:
     tree, _, _ = _fixture_labels()
     grid = _mosaic_grid(MOSAIC_DIR)
-    level0 = tree["scale0"]["image"].values
+    level0 = _level_values(tree, "scale0")
     for i in range(1, len(grid.shapes)):
         dz, dy, dx = grid.step(i)
         nz, ny, nx = grid.shapes[i]
         strided = level0[::dz, ::dy, ::dx][:nz, :ny, :nx]
-        level = tree[f"scale{i}"]["image"].values
+        level = _level_values(tree, f"scale{i}")
         # coarse levels are strided views of level 0, so they must match it exactly
         np.testing.assert_array_equal(level, strided)
 
@@ -937,7 +947,12 @@ def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch
 
     calls: list[int] = []
     real = _pyxa_labels._rasterize_tile
-    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", lambda tile: calls.append(1) or real(tile))
+
+    def counting(tile: _pyxa_labels._Tile) -> np.ndarray:
+        calls.append(1)
+        return real(tile)
+
+    monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", counting)
 
     tree = _get_labels(rings, grid)
     output = tmp_path / "data.zarr"
@@ -948,7 +963,7 @@ def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch
 
     # compute the expected level 0 with the real (unpatched) drawing function, so this doesn't add calls
     monkeypatch.setattr(_pyxa_labels, "_rasterize_tile", real)
-    level0_expected = _get_labels(rings, grid)["scale0"]["image"].values
+    level0_expected = _level_values(_get_labels(rings, grid), "scale0")
 
     written = read_zarr(output)
     np.testing.assert_array_equal(written["cell_labels"]["scale0"]["image"].values, level0_expected)
