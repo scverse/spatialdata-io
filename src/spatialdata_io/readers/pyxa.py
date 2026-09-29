@@ -444,8 +444,11 @@ def pyxa(
     lazy: level 0 is drawn, one task per 32 x 1024 x 1024 tile, when computed or written, and
     the coarser levels are strided views of it (nearest neighbour), so writing draws each
     tile once, with dask's default threaded scheduler (a process scheduler is much slower
-    here, since every drawn tile is pickled back). Decoding the polygons is eager: for a full
-    Region (23M polygons) about a minute and ~6 GB of memory.
+    here, since every drawn tile is pickled back). Decoding the polygons is eager, one worker
+    process per parquet row group (threads contend badly on the allocator with this many large
+    shapely/numpy arrays): for a full Region (23M polygons, 17 row groups) about 36 s, with a
+    peak of roughly 150 GB across the worker processes while decoding, settling to a few GB
+    once the rings are concatenated.
 
     Unassigned transcripts (``cell_id`` ending in ``"_-1"``) are kept in the
     points element, flagged via an ``assigned`` column, rather than dropped.

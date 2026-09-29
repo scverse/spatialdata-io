@@ -678,6 +678,29 @@ def test_read_rings_empty_parquet_gives_empty_rings(tmp_path: Path) -> None:
     assert rings.bounds.dtype == np.float32 and rings.bounds.shape == (0, 4)
 
 
+def test_read_rings_matches_across_row_group_counts(tmp_path: Path) -> None:
+    # the pool path (joblib/loky) kicks in only above one row group; split the fixture into several
+    # to exercise it, and check it gives the exact same rings as the single-row-group fixture file
+    grid = _mosaic_grid(MOSAIC_DIR)
+    xy_size, z_size = _get_voxel_size(FIXTURE_DIR / "cell_metadata_v1.csv")
+    cells = pd.read_csv(FIXTURE_DIR / "cell_metadata_v1.csv", usecols=["cell_id"])["cell_id"]
+    ids, _ = _label_ids(pd.Index(cells))
+    labels = pd.Series(ids, index=cells)
+
+    multi_path = tmp_path / "multi.parquet"
+    pq.write_table(pq.read_table(FIXTURE_DIR / "segmentation_geometries_v1.parquet"), multi_path, row_group_size=200)
+    assert pq.ParquetFile(multi_path).metadata.num_row_groups > 1
+
+    single = _read_rings(FIXTURE_DIR / "segmentation_geometries_v1.parquet", labels, grid, xy_size, z_size)
+    multi = _read_rings(multi_path, labels, grid, xy_size, z_size)
+    assert len(single) == len(multi) > 0
+    np.testing.assert_array_equal(single.label, multi.label)
+    np.testing.assert_array_equal(single.plane, multi.plane)
+    np.testing.assert_array_equal(single.length, multi.length)
+    np.testing.assert_allclose(single.coords, multi.coords)
+    np.testing.assert_allclose(single.bounds, multi.bounds)
+
+
 def test_read_rings_drops_planes_off_the_mosaic_z_range(caplog: pytest.LogCaptureFixture) -> None:
     grid = _mosaic_grid(MOSAIC_DIR)
     shifted = dataclasses.replace(grid, translation=(grid.translation[0] + 1e6, *grid.translation[1:]))

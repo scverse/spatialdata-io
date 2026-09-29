@@ -157,6 +157,7 @@ exclude = "^tests/data/"
 module = [
   "dask_image.*",
   "h5py.*",
+  "joblib.*",
   "multiscale_spatial_image.*",
   "pyarrow.*",
   "rasterio.*",

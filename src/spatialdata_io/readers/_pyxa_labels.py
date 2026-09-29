@@ -10,12 +10,13 @@ computes a whole multiscale labels element's pyramid in a single ``dask.compute`
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import dask
 import dask.array as da
+import joblib
 import numpy as np
 import pandas as pd
 import pyarrow.compute as pc
@@ -147,17 +148,22 @@ def _read_rings(
 ) -> _Rings:
     """Every segmentation polygon's exterior ring on the mosaic's level-0 grid, with its label and plane.
 
-    ``labels`` maps ``cell_id`` to the cell's label. Row groups are decoded in a thread pool (pyarrow
-    and shapely release the GIL). Rings are simplified to ``simplify`` voxels: the polygons are traced
-    on a finer pixel grid than the mosaic's, and the staircase vertices add nothing at its resolution.
-    Holes are ignored (exteriors are filled).
+    ``labels`` maps ``cell_id`` to the cell's label. Row groups are decoded in worker processes
+    (``joblib``'s ``loky`` backend): although pyarrow and shapely release the GIL, decoding a full
+    Region's row groups concurrently on threads was measured to contend badly on the allocator (one
+    process, many threads each doing large shapely/numpy malloc/free traffic) rather than the GIL,
+    taking ~24x longer wall time and ~3x the peak memory of the same work split across processes.
+    A single row group runs directly, with no pool. Rings are simplified to ``simplify`` voxels: the
+    polygons are traced on a finer pixel grid than the mosaic's, and the staircase vertices add
+    nothing at its resolution. Holes are ignored (exteriors are filled).
     """
     n_groups = pq.ParquetFile(path).metadata.num_row_groups
-    with ThreadPoolExecutor() as executor:
-        results = list(
-            executor.map(
-                lambda i: _rings_from_row_group(path, i, labels, grid, xy_size, z_size, simplify), range(n_groups)
-            )
+    if n_groups <= 1:
+        results = [_rings_from_row_group(path, i, labels, grid, xy_size, z_size, simplify) for i in range(n_groups)]
+    else:
+        results = joblib.Parallel(n_jobs=min(n_groups, os.cpu_count() or 1), backend="loky")(
+            joblib.delayed(_rings_from_row_group)(path, i, labels, grid, xy_size, z_size, simplify)
+            for i in range(n_groups)
         )
     parts = [r[0] for r in results]
     dropped: dict[str, int] = {}
