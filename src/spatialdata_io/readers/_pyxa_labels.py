@@ -3,9 +3,10 @@
 The polygons (one per cell per z-plane, in pixel units) are drawn onto the mosaic image's level-0 voxel
 grid, so labels and image overlay voxel for voxel at level 0. Ring decoding is eager; drawing is one
 ``dask.delayed`` task per tile and runs only when the labels are computed or written. Coarser pyramid
-levels are not drawn separately: they are nearest-neighbour strided views of the level-0 array, so a
-level-0 tile is drawn once and shared by every level that needs it (as ``spatialdata`` does when it
-computes a whole multiscale labels element's pyramid in a single ``dask.compute`` call on write).
+levels are not drawn separately: they are nearest-neighbour strided views of the level-0 array, sampled
+at each coarse voxel's block centre, so a level-0 tile is drawn once and shared by every level that
+needs it (as ``spatialdata`` does when it computes a whole multiscale labels element's pyramid in a
+single ``dask.compute`` call on write).
 """
 
 from __future__ import annotations
@@ -382,7 +383,9 @@ def _get_labels(rings: _Rings, grid: _MosaicGrid) -> DataTree:
     Level 0 is drawn from the rings, one ``dask.delayed`` tile at a time. Every coarser level is a
     nearest-neighbour strided *view* of the level-0 array (matching ``grid.step``), not redrawn
     independently, so a level-0 tile's drawing task is shared by every level that needs it: computing or
-    writing the whole tree draws each level-0 tile at most once.
+    writing the whole tree draws each level-0 tile at most once. The stride starts at each block's centre
+    (offset ``step // 2`` per axis, less where that would leave the level short of the mosaic's shape):
+    the mosaic's own pyramid is a smoothed block average, so centre samples track it best.
     """
     n0 = grid.shapes[0]
     level0 = _labels_level(rings, n0, (1, 1, 1))
@@ -391,11 +394,15 @@ def _get_labels(rings: _Rings, grid: _MosaicGrid) -> DataTree:
         if i == 0:
             array = level0
         else:
-            dz, dy, dx = grid.step(i)
-            strided = level0[::dz, ::dy, ::dx]
+            step = grid.step(i)
+            # each coarse voxel takes the level-0 voxel at its block's centre, as the mosaic's pyramid
+            # (a smoothed block average) centres it there; the offset shrinks where it would run off the end
+            oz, oy, ox = (max(0, min(d // 2, a - 1 - (b - 1) * d)) for a, b, d in zip(n0, shape, step, strict=True))
+            dz, dy, dx = step
+            strided = level0[oz::dz, oy::dy, ox::dx]
             if any(a < b for a, b in zip(strided.shape, shape, strict=True)):
                 raise ValueError(
-                    f"scale{i}: level-0 stride {(dz, dy, dx)} gives shape {strided.shape}, "
+                    f"scale{i}: level-0 stride {step} gives shape {strided.shape}, "
                     f"shorter than the mosaic's {shape} on some axis"
                 )
             sz, sy, sx = shape

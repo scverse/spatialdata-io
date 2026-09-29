@@ -972,10 +972,27 @@ def test_get_labels_levels_stride_level_zero() -> None:
     for i in range(1, len(grid.shapes)):
         dz, dy, dx = grid.step(i)
         nz, ny, nx = grid.shapes[i]
-        strided = level0[::dz, ::dy, ::dx][:nz, :ny, :nx]
+        # sampled at each coarse voxel's centre, as the mosaic's pyramid averages the block around it,
+        # unless that would run off level 0's end (here only y at scale1: 217 voxels, 109 at stride 2)
+        oz, oy, ox = (
+            min(d // 2, a - 1 - (b - 1) * d)
+            for a, b, d in zip(grid.shapes[0], grid.shapes[i], (dz, dy, dx), strict=True)
+        )
+        assert min(oz, oy, ox) >= 0
+        strided = level0[oz::dz, oy::dy, ox::dx][:nz, :ny, :nx]
+        assert strided.shape == (nz, ny, nx)
         level = _level_values(tree, f"scale{i}")
         # coarse levels are strided views of level 0, so they must match it exactly
         np.testing.assert_array_equal(level, strided)
+
+
+def test_get_labels_levels_clamp_the_centre_offset_to_fit() -> None:
+    """Where a centre offset would run a coarse level off level 0's end, the offset shrinks until it fits."""
+    grid = _MosaicGrid(shapes=((1, 5, 5), (1, 3, 3)), scale=(1.0, 1.0, 1.0), translation=(0.0, 0.0, 0.0))
+    tree = _get_labels(_square_rings([(4, 0, 0.0, 0.0, 0.2, 4.0), (9, 0, 2.0, 0.0, 2.2, 4.0)]), grid)
+    level0 = _level_values(tree, "scale0")
+    assert set(np.unique(level0[0, :, [0, 2]])) == {4, 9} and not level0[0, :, 1].any()
+    np.testing.assert_array_equal(_level_values(tree, "scale1"), level0[:, ::2, ::2])
 
 
 def test_get_labels_writes_each_level_zero_tile_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
