@@ -446,9 +446,7 @@ def _cell_row_positions_in_bbox(path: Path, bbox: tuple[float, float, float, flo
     ``cells.zarr.zip``'s top-level `bboxes`, which shares row order with the table/`obs` (the same
     fact `read_cell_boundaries` relies on for its own `bbox` filtering).
     """
-    with open(path / AteraKeys.SPECS_FILE) as f:
-        specs = json.load(f)
-    pixel_size = specs[str(AteraKeys.PIXEL_SIZE)]
+    pixel_size = _get_pixel_size(path)
     xmin, ymin, xmax, ymax = (v * pixel_size for v in bbox)
 
     store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
@@ -602,6 +600,35 @@ def _parse_morphology_channel_index(filename: str) -> int:
     if match is None:
         raise ValueError(f"Expected a morphology image filename of the form 'chNNNN_<name>.ome.tif', found {filename}")
     return int(match.group(1))
+
+
+def _get_pixel_size(path: Path) -> float:
+    """Return the dataset's pixel size (microns/pixel).
+
+    Prefers ``experiment.spatial`` when present, but some bundles omit it; in that case, fall back
+    to the ``PhysicalSizeX`` embedded in the OME-XML metadata of the first ``morphology_2d``
+    OME-TIFF (every morphology image in a bundle shares the same pixel size).
+    """
+    specs_file = path / AteraKeys.SPECS_FILE
+    if specs_file.exists():
+        with open(specs_file) as f:
+            specs = json.load(f)
+        return specs[str(AteraKeys.PIXEL_SIZE)]
+
+    from ome_types import from_tiff
+
+    morphology_dir = path / AteraKeys.MORPHOLOGY_2D_DIR
+    files = (
+        sorted(f for f in morphology_dir.iterdir() if f.name.endswith(".ome.tif") and not f.name.startswith("._"))
+        if morphology_dir.is_dir()
+        else []
+    )
+    if not files:
+        raise FileNotFoundError(
+            f"Found neither {AteraKeys.SPECS_FILE!s} nor any morphology OME-TIFF files in {morphology_dir!s} "
+            "to read the pixel size from."
+        )
+    return from_tiff(files[0]).images[0].pixels.physical_size_x
 
 
 def _tiled_imread(path: Path, imread_kwargs: Mapping[str, Any] = MappingProxyType({})) -> da.Array:

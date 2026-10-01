@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from types import MappingProxyType
@@ -23,6 +22,7 @@ from spatialdata_io.readers._atera_common import (
     _cell_row_positions_in_bbox,
     _get_labels,
     _get_morphology_images,
+    _get_pixel_size,
     _get_points,
     _get_polygons,
     _patched_ragged_vlen_chunk_decode,
@@ -77,7 +77,9 @@ def atera(
 
     This function reads the following files:
 
-        - ``{xx.SPECS_FILE!r}``: File containing specifications.
+        - ``{xx.SPECS_FILE!r}``: File containing specifications, including the pixel size. If absent, the
+          pixel size is instead read from the ``PhysicalSizeX`` OME-XML metadata of the first
+          ``{xx.MORPHOLOGY_2D_DIR!r}`` OME-TIFF.
         - ``{xx.CELL_FEATURE_MATRIX_FILE!r}``: Zipped zarr store with the cell-by-gene matrix and cell metadata.
         - ``{xx.CELLS_FILE!r}``: Zipped zarr store with cell/nucleus labels and boundary polygons.
         - ``{xx.TRANSCRIPTS_FILE!r}``: Zipped zarr store with per-transcript locations (optional, large).
@@ -139,9 +141,7 @@ def atera(
         image_models_kwargs, labels_models_kwargs
     )
 
-    with open(path / AteraKeys.SPECS_FILE) as f:
-        specs = json.load(f)
-    pixel_size = specs[str(AteraKeys.PIXEL_SIZE)]
+    pixel_size = _get_pixel_size(path)
 
     needs_cells_zarr = cells_boundaries or nucleus_boundaries or cells_labels or nucleus_labels
     if not cells_table and (needs_cells_zarr or transcripts):
