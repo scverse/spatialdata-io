@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import dask.array as da
 import numpy as np
@@ -216,12 +216,14 @@ def _read_x_chunk(zarr_path: Path, zarr_key: AteraKeys, start: int, stop: int) -
     store = zarr.storage.ZipStore(zarr_path / zarr_key, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
-        return sparse_dataset(group[str(AteraKeys.X_GROUP)])[start:stop]
+        return cast(csr_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[start:stop])
     finally:
         store.close()
 
 
-def _lazy_x(zarr_path: Path, zarr_key: AteraKeys, n_obs: int, n_var: int, dtype: np.dtype, row_chunk_size: int) -> da.Array:
+def _lazy_x(
+    zarr_path: Path, zarr_key: AteraKeys, n_obs: int, n_var: int, dtype: np.dtype, row_chunk_size: int
+) -> da.Array:
     """Build a `dask`-backed `n_obs x n_var` CSR array, delegating each chunk's read to `sparse_dataset`."""
     meta = csr_matrix((0, n_var), dtype=dtype)
     blocks = []
@@ -257,14 +259,18 @@ def _get_table(
         group = zarr.open_group(store, mode="r")
 
         with _patched_ragged_vlen_chunk_decode():
-            var_df = read_elem(group[str(AteraKeys.VAR_GROUP)])
+            var_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.VAR_GROUP)]))
             feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
             if var_columns != "all":
                 var_df = var_df[list(var_columns)]
 
-            obs_df = read_elem(group[str(AteraKeys.OBS_GROUP)])
+            obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
 
-            obsm = read_elem(group[str(AteraKeys.OBSM_GROUP)]) if str(AteraKeys.OBSM_GROUP) in group else {}
+            obsm = (
+                cast(dict[str, Any], read_elem(group[str(AteraKeys.OBSM_GROUP)]))
+                if str(AteraKeys.OBSM_GROUP) in group
+                else {}
+            )
 
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
         n_obs, n_var = x_ds.shape
@@ -275,7 +281,9 @@ def _get_table(
     x = _lazy_x(path, AteraKeys.CELL_FEATURE_MATRIX_FILE, n_obs, n_var, dtype, row_chunk_size)
 
     adata = AnnData(X=x, obs=obs_df, var=var_df, obsm=obsm)
-    adata.obsm["spatial"] = adata.obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()
+    adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
+        [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
+    ].to_numpy()
     adata.obs["region"] = pd.Categorical([region] * n_obs)
 
     table = TableModel.parse(
@@ -312,7 +320,7 @@ def read_var(path: str | Path) -> pd.DataFrame:
     try:
         group = zarr.open_group(store, mode="r")
         with _patched_ragged_vlen_chunk_decode():
-            var_df = read_elem(group[str(AteraKeys.VAR_GROUP)])
+            var_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.VAR_GROUP)]))
     finally:
         store.close()
     return var_df
@@ -360,29 +368,32 @@ def read_table_for_cells(
     try:
         group = zarr.open_group(store, mode="r")
         with _patched_ragged_vlen_chunk_decode():
-            var_df = read_elem(group[str(AteraKeys.VAR_GROUP)])
+            var_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.VAR_GROUP)]))
             if var_columns != "all":
                 var_df = var_df[list(var_columns)]
-            obs_df = read_elem(group[str(AteraKeys.OBS_GROUP)])
+            obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
 
         if cell_ids is not None:
             index = pd.Index(obs_df[str(AteraKeys.CELL_ID)].to_numpy())
-            row_positions = index.get_indexer(np.asarray(cell_ids))
+            row_positions = index.get_indexer(pd.Index(np.asarray(cell_ids)))
             missing = np.asarray(cell_ids)[row_positions == -1]
             if missing.size:
                 raise ValueError(f"cell_id(s) not found in {AteraKeys.CELL_FEATURE_MATRIX_FILE!s}: {missing.tolist()}")
         else:
+            assert bbox is not None
             row_positions = _cell_row_positions_in_bbox(path, bbox)
 
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
-        x = x_ds[row_positions]
+        x = cast(csr_matrix, x_ds[row_positions])
         obs_subset = obs_df.iloc[row_positions]
     finally:
         store.close()
 
     n_obs = len(obs_subset)
     adata = AnnData(X=x, obs=obs_subset, var=var_df)
-    adata.obsm["spatial"] = adata.obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()
+    adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
+        [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
+    ].to_numpy()
     adata.obs["region"] = pd.Categorical(["cell_labels"] * n_obs)
 
     return TableModel.parse(
@@ -425,12 +436,12 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
         group = zarr.open_group(store, mode="r")
 
         with _patched_ragged_vlen_chunk_decode():
-            var_df = read_elem(group[str(AteraKeys.VAR_GROUP)])[
+            var_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.VAR_GROUP)]))[
                 [str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME)]
             ]
             feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
             index = pd.Index(feature_names)
-            col_positions = index.get_indexer(np.asarray(genes))
+            col_positions = index.get_indexer(pd.Index(np.asarray(genes)))
             missing = np.asarray(genes)[col_positions == -1]
             if missing.size:
                 raise ValueError(
@@ -440,11 +451,11 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
             var_subset = var_df.iloc[col_positions]
             var_subset.index = pd.Index(np.asarray(genes), name=str(AteraKeys.FEATURE_NAME))
 
-            obs_df = read_elem(group[str(AteraKeys.OBS_GROUP)])
+            obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
             n_obs = len(obs_df)
 
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
-        x: csc_matrix = x_ds[:, col_positions]
+        x: csc_matrix = cast(csc_matrix, x_ds[:, col_positions])
     finally:
         store.close()
 

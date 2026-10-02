@@ -158,6 +158,7 @@ module = [
   "dask_image.*",
   "h5py.*",
   "multiscale_spatial_image.*",
+  "numcodecs.*",
   "pyarrow.*",
   "rasterio.*",
   "readfcs.*",
