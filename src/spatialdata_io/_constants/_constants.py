@@ -106,8 +106,14 @@ class XeniumKeys(ModeEnum):
     BOUNDARIES_VERTEX_X = "vertex_x"
     BOUNDARIES_VERTEX_Y = "vertex_y"
 
+    # CSV outputs of pre-1.3.0 (XOA < 1.3.0) bundles, used as a fallback when the parquet files
+    # (and cells.zarr.zip) are absent. Same columns as the parquet equivalents.
+    NUCLEUS_BOUNDARIES_FILE_CSV = "nucleus_boundaries.csv.gz"
+    CELL_BOUNDARIES_FILE_CSV = "cell_boundaries.csv.gz"
+
     # transcripts
     TRANSCRIPTS_FILE = "transcripts.parquet"
+    TRANSCRIPTS_FILE_CSV = "transcripts.csv.gz"
     TRANSCRIPTS_X = "x_location"
     TRANSCRIPTS_Y = "y_location"
     TRANSCRIPTS_Z = "z_location"
@@ -117,7 +123,11 @@ class XeniumKeys(ModeEnum):
 
     # cell features matrix
     CELL_FEATURE_MATRIX_FILE = "cell_feature_matrix.h5"
+    # MatrixMarket fallbacks for bundles without the HDF5 matrix (e.g. GEO deposits).
+    CELL_FEATURE_MATRIX_DIR = "cell_feature_matrix"
+    CELL_FEATURE_MATRIX_TAR = "cell_feature_matrix.tar.gz"
     CELL_METADATA_FILE = "cells.parquet"
+    CELL_METADATA_FILE_CSV = "cells.csv.gz"
     CELL_X = "x_centroid"
     CELL_Y = "y_centroid"
     CELL_AREA = "cell_area"

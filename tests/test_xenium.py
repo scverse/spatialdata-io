@@ -211,6 +211,118 @@ def test_cli_xenium(runner: CliRunner, dataset: str) -> None:
         _ = read_zarr(output_zarr)
 
 
+# A real pre-1.3.0 (XOA 1.0.2) bundle reduced to the CSV outputs a GEO deposit typically keeps:
+# cells.csv.gz, cell/nucleus_boundaries.csv.gz, transcripts.csv.gz, cell_feature_matrix.h5,
+# experiment.xenium -- no parquet and no cells.zarr.zip. Subset to 30 cells of the 10x Mouse Brain
+# dataset (sddb 104cz).
+XENIUM_CSV_ONLY = Path(__file__).parent / "fixtures" / "xenium-1.0.2-csv-tiny"
+
+
+def test_xenium_csv_only_bundle() -> None:
+    # defaults: cells_as_circles=False, cells_labels/nucleus_labels=True. The labels, which live only
+    # in cells.zarr.zip, are reconstructed by rasterizing the boundary polygons read from the CSVs.
+    sdata = xenium(
+        XENIUM_CSV_ONLY,
+        morphology_mip=False,
+        morphology_focus=False,
+        aligned_images=False,
+    )
+    assert sdata["table"].n_obs == 30
+    assert len(sdata["cell_boundaries"]) == 30
+    assert len(sdata["nucleus_boundaries"]) == 30
+    assert len(sdata["transcripts"]) > 0
+    # labels reconstructed from the boundaries, keyed by the 30 integer cell_ids
+    for name in ("cell_labels", "nucleus_labels"):
+        assert _label_ids(sdata[name]) == set(range(1, 31))
+
+
+def test_xenium_csv_only_circles() -> None:
+    sdata = xenium(
+        XENIUM_CSV_ONLY,
+        cells_as_circles=True,
+        morphology_mip=False,
+        morphology_focus=False,
+        aligned_images=False,
+    )
+    assert len(sdata["cell_circles"]) == 30
+
+
+def test_xenium_csv_only_uncompressed(tmp_path: Path) -> None:
+    # some GEO deposits ship uncompressed .csv rather than .csv.gz
+    import gzip
+    import shutil
+
+    for f in XENIUM_CSV_ONLY.iterdir():
+        if f.suffixes[-2:] == [".csv", ".gz"]:
+            with gzip.open(f, "rb") as src, open(tmp_path / f.stem, "wb") as dst:  # f.stem drops .gz
+                shutil.copyfileobj(src, dst)
+        else:
+            shutil.copy(f, tmp_path / f.name)
+
+    sdata = xenium(tmp_path, morphology_mip=False, morphology_focus=False, aligned_images=False)
+    assert sdata["table"].n_obs == 30
+    assert len(sdata["cell_boundaries"]) == 30
+
+
+def test_xenium_csv_only_mtx_matrix(tmp_path: Path) -> None:
+    # some GEO deposits ship the MatrixMarket cell_feature_matrix/ dir instead of the .h5
+    import gzip
+    import shutil
+
+    import scanpy as sc
+    from scipy.io import mmwrite
+
+    for f in XENIUM_CSV_ONLY.iterdir():
+        if f.name != "cell_feature_matrix.h5":
+            shutil.copy(f, tmp_path / f.name)
+    adata = sc.read_10x_h5(XENIUM_CSV_ONLY / "cell_feature_matrix.h5", gex_only=False)
+    mdir = tmp_path / "cell_feature_matrix"
+    mdir.mkdir()
+    with gzip.open(mdir / "matrix.mtx.gz", "wb") as fh:
+        mmwrite(fh, adata.X.T)  # type: ignore[arg-type]  # MatrixMarket is features x barcodes
+    with gzip.open(mdir / "features.tsv.gz", "wt") as fh:
+        for gid, name, ft in zip(adata.var["gene_ids"], adata.var_names, adata.var["feature_types"], strict=True):
+            fh.write(f"{gid}\t{name}\t{ft}\n")
+    with gzip.open(mdir / "barcodes.tsv.gz", "wt") as fh:
+        fh.writelines(f"{b}\n" for b in adata.obs_names)
+
+    sdata = xenium(tmp_path, morphology_mip=False, morphology_focus=False, aligned_images=False)
+    assert sdata["table"].n_obs == 30
+    assert "cell_labels" in sdata.labels
+
+
+# A v2/v3 (XOA 3.0.0) CSV-only bundle: hex cell_ids, and a label_id column in the boundary CSVs.
+# Subset to 12 cells of the 10x Xenium Prime Mouse Brain dataset (sddb efli2b4vhc).
+XENIUM_CSV_HEX = Path(__file__).parent / "fixtures" / "xenium-3.0.0-csv-hex-tiny"
+
+
+def _label_ids(element: object) -> set[int]:
+    import xarray as xr
+    from xarray import DataTree
+
+    if isinstance(element, DataTree):  # multiscale: take full-res scale0
+        node = element["scale0"]
+        element = node[str(next(iter(node.data_vars)))]
+    assert isinstance(element, xr.DataArray)
+    return set(np.unique(np.asarray(element.data)).tolist()) - {0}
+
+
+def test_xenium_csv_only_hex_labels() -> None:
+    # for hex cell_ids the integer raster label comes from the boundary CSVs' label_id column, and
+    # multinucleate cells yield more nucleus labels than cells
+    sdata = xenium(
+        XENIUM_CSV_HEX, morphology_mip=False, morphology_focus=False, aligned_images=False, transcripts=False
+    )
+    assert sdata["table"].n_obs == 12
+    assert isinstance(sdata["table"].obs["cell_id"].iloc[0], str)  # hex ids
+    # the raster labels must be the true (non-contiguous) label_id, and must match the table column
+    # the instance key resolves against -- not a 1..N rank (which would silently mis-join)
+    cell_label_ids = _label_ids(sdata["cell_labels"])
+    assert cell_label_ids == set(sdata["table"].obs["cell_labels"])
+    assert max(cell_label_ids) > 12  # genuine label_ids have gaps; a 1..12 rank would fail this
+    assert len(_label_ids(sdata["nucleus_labels"])) >= 12  # >= cells (multinucleate)
+
+
 @skip_if_below_python_version()
 @pytest.mark.parametrize(
     (

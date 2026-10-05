@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
+import tarfile
+import tempfile
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,15 +18,18 @@ import h5py
 import numpy as np
 import packaging.version
 import pandas as pd
+import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import scanpy as sc
 import tifffile
 import zarr
+from dask.dataframe import read_csv as dask_read_csv
 from dask.dataframe import read_parquet
 from dask_image.imread import imread
 from geopandas import GeoDataFrame
 from shapely import GeometryType, Polygon, from_ragged_array
+from skimage.draw import polygon
 from spatialdata import SpatialData
 from spatialdata.models import (
     Image2DModel,
@@ -32,7 +38,7 @@ from spatialdata.models import (
     ShapesModel,
     TableModel,
 )
-from spatialdata.transformations.transformations import Affine, Identity, Scale
+from spatialdata.transformations.transformations import Affine, Identity, Scale, Translation
 from xarray import DataArray, DataTree
 
 from spatialdata_io._constants._constants import XeniumKeys
@@ -43,7 +49,6 @@ from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwarg
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    import pyarrow as pa
     from anndata import AnnData
     from spatialdata._types import ArrayLike
 
@@ -59,11 +64,11 @@ def _zarr_array(group: zarr.Group, key: str) -> zarr.Array:
 
 @dataclass
 class _XeniumCells:
-    """Centralised cell-data context for a Xenium output folder.
+    """Centralised cell-data context for a ``cells.zarr.zip``-backed Xenium output folder.
 
-    All cell identity and mapping logic is handled here.  Information from
-    multiple on-disk sources is aggregated once so that no other part of the
-    reader parses cell IDs or resolves version-specific formats independently.
+    All cell identity and mapping logic for zarr bundles is handled here. CSV-only bundles
+    (no ``cells.zarr.zip``) have no context and are resolved by the module-level ``_csv_*``
+    helpers instead; ``xenium()`` branches on ``cells_zarr_ctx is None`` between the two.
 
     The layout of ``cells.zarr.zip`` looks like::
 
@@ -226,8 +231,7 @@ class _XeniumCells:
         -------
         DataFrame with the parquet contents; the ``cell_id`` column is already decoded to str.
         """
-        metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
-        metadata[XeniumKeys.CELL_ID] = _decode_cell_id_column(metadata[XeniumKeys.CELL_ID])
+        metadata = _read_cell_metadata(path)
         if self.cell_id_str is not None:
             try:
                 _assert_arrays_equal_sampled(metadata[XeniumKeys.CELL_ID].values, self.cell_id_str)
@@ -359,6 +363,14 @@ def xenium(
 
     Performance. You can improve visualization performance (at the cost of accuracy) by setting `cells_as_circles` to `True`.
 
+    CSV-only bundles. Pre-1.3.0 (XOA < 1.3.0) outputs, and GEO deposits reduced to the `.csv.gz`
+    files, ship no parquet and no `cells.zarr.zip`; these are read from the CSV outputs instead. The
+    raster labels normally stored in `cells.zarr.zip` are reconstructed by rasterizing the boundary
+    polygons. The cell feature matrix is read from `cell_feature_matrix.h5`, or, when that is absent,
+    from a `cell_feature_matrix/` MatrixMarket directory or `cell_feature_matrix.tar.gz`. Such
+    deposits usually also omit the morphology and aligned images, so set `morphology_mip=False`,
+    `morphology_focus=False` and `aligned_images=False` when they are absent.
+
     Examples
     --------
     This code shows how to change the annotation target of the table from the cell circles to the cell labels.
@@ -389,7 +401,31 @@ def xenium(
     specs["region"] = "cell_circles" if cells_as_circles else "cell_labels"
 
     # --- cells.zarr.zip (shared resource for labels, boundaries, and table enrichment) ---
-    cells_zarr_ctx = _XeniumCells.open(path, version)
+    # CSV-only bundles (pre-1.3.0 / stripped GEO deposits) ship no cells.zarr.zip, so we read
+    # everything from the .csv.gz files instead and leave the context unset; the raster labels are
+    # then reconstructed from the boundary polygons (see _get_labels_from_boundaries).
+    if (path / XeniumKeys.CELLS_ZARR).is_file():
+        cells_zarr_ctx: _XeniumCells | None = _XeniumCells.open(path, version)
+    else:
+        cells_zarr_ctx = None
+
+    # cell_id <-> label_index mappings. The zarr provides them; for CSV bundles the same information
+    # lives in the boundary CSVs' ``label_id`` column (v2/v3). Pre-1.3.0 CSVs have no ``label_id``,
+    # so the mappings stay None and labels are keyed directly by the integer cell_id.
+    if cells_zarr_ctx is not None:
+        cell_im = cells_zarr_ctx.cell_indices_mapping
+        nucleus_im = cells_zarr_ctx.nucleus_indices_mapping
+    else:
+        cell_im = (
+            _csv_indices_mapping(path, XeniumKeys.CELL_BOUNDARIES_FILE_CSV)
+            if (cells_boundaries or cells_labels)
+            else None
+        )
+        nucleus_im = (
+            _csv_indices_mapping(path, XeniumKeys.NUCLEUS_BOUNDARIES_FILE_CSV)
+            if (nucleus_boundaries or nucleus_labels)
+            else None
+        )
 
     # --- table (required when cells_as_circles or boundaries are requested) ---
     if not cells_table and (cells_as_circles or cells_boundaries or nucleus_boundaries):
@@ -400,26 +436,23 @@ def xenium(
     circles = None
     if cells_table:
         table, circles = _get_tables_and_circles(path, specs, gex_only, cells_zarr_ctx)
-        # Map the table to the cell_labels element when available, so that the
-        # instance key can be resolved against raster labels instead of circles.
-        if cells_labels and cells_zarr_ctx.cell_indices_mapping is not None:
-            try:
-                _assert_arrays_equal_sampled(
-                    cells_zarr_ctx.cell_indices_mapping["cell_id"].values,
-                    table.obs[str(XeniumKeys.CELL_ID)].values,
-                )
-            except AssertionError:
+        # Map the table to the cell_labels element when a label_index mapping exists, so the instance
+        # key resolves against the raster labels instead of the circles. If any table cell lacks a
+        # boundary (so has no label), warn and leave the table on circles rather than crash.
+        if cells_labels and cell_im is not None:
+            label_index = _cell_id_to_label_index(cell_im)
+            table_ids = table.obs[str(XeniumKeys.CELL_ID)].to_numpy()
+            if pd.Index(table_ids).isin(label_index.index).all():
+                table.obs["cell_labels"] = label_index.loc[table_ids].to_numpy()
+                if not cells_as_circles:
+                    table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
+            else:
                 warnings.warn(
-                    "The cell_id column in the cell_labels_table does not match the cell_id column derived from the "
-                    "cell labels data. This could be due to trying to read a new version that is not supported yet. "
-                    "Please report this issue.",
+                    "Some table cells have no boundary polygon, so the table could not be mapped to cell_labels. "
+                    "This may indicate an unsupported format version; please report it.",
                     UserWarning,
                     stacklevel=2,
                 )
-            else:
-                table.obs["cell_labels"] = cells_zarr_ctx.cell_indices_mapping["label_index"].values
-                if not cells_as_circles:
-                    table.uns[TableModel.ATTRS_KEY][TableModel.INSTANCE_KEY] = "cell_labels"
 
     # --- read elements ---
     polygons = {}
@@ -427,34 +460,44 @@ def xenium(
     points = {}
     images = {}
 
-    if nucleus_labels:
-        labels["nucleus_labels"] = _get_labels(
-            cells_zarr_ctx.group, mask_index=0, labels_models_kwargs=labels_models_kwargs
-        )
-    if cells_labels:
-        labels["cell_labels"] = _get_labels(
-            cells_zarr_ctx.group, mask_index=1, labels_models_kwargs=labels_models_kwargs
-        )
-
-    if nucleus_boundaries:
-        nuc_polys = _get_polygons(
-            path,
+    # Nucleus and cell share one pipeline, differing only by file, mapping and mask index. Boundary
+    # polygons also seed the CSV-reconstructed labels, so they are read whenever boundaries or the
+    # derived labels are requested.
+    for name, want_boundaries, want_labels, pq_file, csv_file, indices_mapping in (
+        (
+            "nucleus",
+            nucleus_boundaries,
+            nucleus_labels,
             XeniumKeys.NUCLEUS_BOUNDARIES_FILE,
-            specs,
-            indices_mapping=cells_zarr_ctx.nucleus_indices_mapping,
-            is_nucleus=True,
-        )
-        if nuc_polys is not None:
-            polygons["nucleus_boundaries"] = nuc_polys
-    if cells_boundaries:
-        cell_polys = _get_polygons(
-            path,
+            XeniumKeys.NUCLEUS_BOUNDARIES_FILE_CSV,
+            nucleus_im,
+        ),
+        (
+            "cell",
+            cells_boundaries,
+            cells_labels,
             XeniumKeys.CELL_BOUNDARIES_FILE,
-            specs,
-            indices_mapping=cells_zarr_ctx.cell_indices_mapping,
-        )
-        if cell_polys is not None:
-            polygons["cell_boundaries"] = cell_polys
+            XeniumKeys.CELL_BOUNDARIES_FILE_CSV,
+            cell_im,
+        ),
+    ):
+        is_nucleus = name == "nucleus"
+        polys = None
+        if want_boundaries or (want_labels and cells_zarr_ctx is None):
+            polys = _get_polygons(
+                path, pq_file, csv_file, specs, indices_mapping=indices_mapping, is_nucleus=is_nucleus
+            )
+        if want_labels:
+            if cells_zarr_ctx is not None:
+                labels[f"{name}_labels"] = _get_labels(
+                    cells_zarr_ctx.group, 0 if is_nucleus else 1, labels_models_kwargs
+                )
+            elif polys is not None:
+                labels[f"{name}_labels"] = _get_labels_from_boundaries(
+                    polys, specs, indices_mapping, labels_models_kwargs
+                )
+        if want_boundaries and polys is not None:
+            polygons[f"{name}_boundaries"] = polys
 
     if transcripts:
         points["transcripts"] = _get_points(path, specs)
@@ -488,14 +531,20 @@ def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 1000) -> N
 
 
 def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
-    if isinstance(cell_id_column.iloc[0], bytes):
+    if len(cell_id_column) and isinstance(cell_id_column.iloc[0], bytes):
         return cell_id_column.str.decode("utf-8")
     return cell_id_column
+
+
+def _cell_id_to_label_index(indices_mapping: pd.DataFrame) -> pd.Series:
+    """cell_id (str) -> label_index (int) lookup from an indices mapping."""
+    return indices_mapping.set_index("cell_id")["label_index"]
 
 
 def _get_polygons(
     path: Path,
     file: str,
+    csv_file: str,
     specs: dict[str, Any],
     indices_mapping: pd.DataFrame | None = None,
     is_nucleus: bool = False,
@@ -542,12 +591,24 @@ def _get_polygons(
     """
     # Check whether the parquet has a label_id column (v2.0+). When present, use it for
     # fast integer-based change detection. Otherwise fall back to cell_id strings.
-    parquet_schema = pq.read_schema(path / file)
-    has_label_id = "label_id" in parquet_schema.names
+    if (path / file).is_file():
+        parquet_schema = pq.read_schema(path / file)
+        has_label_id = "label_id" in parquet_schema.names
 
-    columns_to_read = [str(XeniumKeys.BOUNDARIES_VERTEX_X), str(XeniumKeys.BOUNDARIES_VERTEX_Y)]
-    columns_to_read.append("label_id" if has_label_id else str(XeniumKeys.CELL_ID))
-    table = pq.read_table(path / file, columns=columns_to_read)
+        columns_to_read = [str(XeniumKeys.BOUNDARIES_VERTEX_X), str(XeniumKeys.BOUNDARIES_VERTEX_Y)]
+        columns_to_read.append("label_id" if has_label_id else str(XeniumKeys.CELL_ID))
+        table = pq.read_table(path / file, columns=columns_to_read)
+    else:
+        # CSV-only export. v2/v3 CSVs carry label_id (as the parquet does); pre-1.3.0 CSVs do not,
+        # in which case rows are grouped by the integer cell_id.
+        csv_path = _resolve_csv(path, csv_file)
+        has_label_id = _has_label_id(csv_path)
+        id_column = "label_id" if has_label_id else str(XeniumKeys.CELL_ID)
+        df = pd.read_csv(
+            csv_path,
+            usecols=[id_column, str(XeniumKeys.BOUNDARIES_VERTEX_X), str(XeniumKeys.BOUNDARIES_VERTEX_Y)],
+        )
+        table = pa.Table.from_pandas(df, preserve_index=False)
 
     x = table.column(str(XeniumKeys.BOUNDARIES_VERTEX_X)).to_numpy()
     y = table.column(str(XeniumKeys.BOUNDARIES_VERTEX_Y)).to_numpy()
@@ -647,8 +708,43 @@ def _get_labels(
     return Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
 
+def _get_labels_from_boundaries(
+    shapes: GeoDataFrame,
+    specs: dict[str, Any],
+    indices_mapping: pd.DataFrame | None = None,
+    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
+) -> DataArray:
+    """Reconstruct a raster labels element from boundary polygons.
+
+    CSV-only bundles have no cells.zarr.zip mask arrays, so the labels are rebuilt by filling each
+    boundary polygon with its integer label into a ``uint32`` raster (as the zarr masks are). The
+    label is the integer ``cell_id`` (the GeoDataFrame index) for pre-1.3.0 bundles, or the
+    ``label_index`` that ``indices_mapping`` maps the string ``cell_id`` to for v2/v3 bundles. The
+    raster spans the polygons' bounding box with a transform that keeps it aligned in ``global``.
+    """
+    if indices_mapping is not None and not pd.api.types.is_integer_dtype(shapes.index):
+        label = _cell_id_to_label_index(indices_mapping).loc[shapes.index].to_numpy()
+    else:
+        label = shapes.index.to_numpy()
+    # geometry is in microns; global == pixels == microns / pixel_size
+    inv = 1.0 / specs["pixel_size"]
+    minx, miny, maxx, maxy = shapes.total_bounds * inv
+    x0, y0 = math.floor(minx), math.floor(miny)
+    raster = np.zeros((math.ceil(maxy) - y0, math.ceil(maxx) - x0), dtype=np.uint32)
+    for geom, value in zip(shapes.geometry.to_numpy(), label.astype(np.uint32), strict=True):
+        xs, ys = geom.exterior.coords.xy
+        rr, cc = polygon(np.asarray(ys) * inv - y0, np.asarray(xs) * inv - x0, shape=raster.shape)
+        raster[rr, cc] = value
+    transform = Translation([x0, y0], axes=("x", "y"))
+    return Labels2DModel.parse(raster, dims=("y", "x"), transformations={"global": transform}, **labels_models_kwargs)
+
+
 def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
-    table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
+    if (path / XeniumKeys.TRANSCRIPTS_FILE).is_file():
+        table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
+    else:
+        # pre-1.3.0 (XOA < 1.3.0) CSV-only export; gzip is not splittable, so read as one partition.
+        table = dask_read_csv(_resolve_csv(path, XeniumKeys.TRANSCRIPTS_FILE_CSV), blocksize=None)
 
     # check if we need to decode bytes
     sample = table[XeniumKeys.FEATURE_NAME].head(1)
@@ -684,21 +780,94 @@ def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     return points
 
 
+def _resolve_csv(path: Path, gz_name: str) -> Path:
+    """Return the ``.csv.gz`` file, or the uncompressed ``.csv`` a GEO deposit may ship instead."""
+    for name in (gz_name, gz_name.removesuffix(".gz")):
+        if (path / name).is_file():
+            return path / name
+    raise FileNotFoundError(f"Neither {gz_name} nor {gz_name.removesuffix('.gz')} found in {path}.")
+
+
+def _has_label_id(csv: Path) -> bool:
+    """Whether a boundary CSV carries the ``label_id`` column (present in v2/v3, absent pre-1.3.0)."""
+    return "label_id" in pd.read_csv(csv, nrows=0).columns
+
+
+def _csv_indices_mapping(path: Path, gz_name: str) -> pd.DataFrame | None:
+    """Build the cell_id <-> label_index mapping from a boundary CSV's ``label_id`` column.
+
+    v2/v3 boundary CSVs carry a ``label_id`` column (the same integer the zarr stores as
+    ``label_index``); pre-1.3.0 CSVs do not, in which case there is nothing to map and ``None`` is
+    returned so labels fall back to the integer ``cell_id``.
+    """
+    csv = _resolve_csv(path, gz_name)
+    if not _has_label_id(csv):
+        return None
+    df = pd.read_csv(csv, usecols=[str(XeniumKeys.CELL_ID), "label_id"]).drop_duplicates("label_id")
+    return pd.DataFrame(
+        {"cell_id": _decode_cell_id_column(df[XeniumKeys.CELL_ID]).to_numpy(), "label_index": df["label_id"].to_numpy()}
+    )
+
+
+def _read_cell_metadata(path: Path) -> pd.DataFrame:
+    """Read the cell metadata table, preferring parquet and falling back to CSV.
+
+    Pre-1.3.0 (XOA < 1.3.0) exports ship ``cells.csv[.gz]`` instead of ``cells.parquet``;
+    both carry identical columns.
+    """
+    if (path / XeniumKeys.CELL_METADATA_FILE).is_file():
+        metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
+    else:
+        metadata = pd.read_csv(_resolve_csv(path, XeniumKeys.CELL_METADATA_FILE_CSV))
+    metadata[XeniumKeys.CELL_ID] = _decode_cell_id_column(metadata[XeniumKeys.CELL_ID])
+    return metadata
+
+
+def _read_cell_feature_matrix(path: Path, gex_only: bool) -> AnnData:
+    """Read the cell feature matrix, preferring the HDF5 file.
+
+    CSV-only bundles (e.g. GEO deposits) often drop ``cell_feature_matrix.h5`` and keep only the
+    MatrixMarket form, as a ``cell_feature_matrix/`` directory or a ``cell_feature_matrix.tar.gz``.
+    """
+    h5 = path / XeniumKeys.CELL_FEATURE_MATRIX_FILE
+    if h5.is_file():
+        adata = sc.read_10x_h5(h5, gex_only=gex_only)
+        # Undo fixed-point scaling factor applied to Xenium Protein data stored in HDF5.
+        with h5py.File(h5, "r") as f:
+            if "protein_scaling_factor" in f.attrs:
+                protein_feats = np.flatnonzero(adata.var["feature_types"] == "Protein Expression")
+                if len(protein_feats) > 0:
+                    adata.X[:, protein_feats] /= f.attrs["protein_scaling_factor"]
+        return adata
+    if (path / XeniumKeys.CELL_FEATURE_MATRIX_DIR).is_dir():
+        return sc.read_10x_mtx(path / XeniumKeys.CELL_FEATURE_MATRIX_DIR, gex_only=gex_only)
+    if (path / XeniumKeys.CELL_FEATURE_MATRIX_TAR).is_file():
+        with tempfile.TemporaryDirectory() as tmp:
+            with tarfile.open(path / XeniumKeys.CELL_FEATURE_MATRIX_TAR) as tar:
+                tar.extractall(tmp, filter="data")
+            # the matrix trio may sit at the root or inside a single top-level directory
+            # (ignore archive cruft like __MACOSX/ and dotfiles)
+            inner = [p for p in Path(tmp).iterdir() if p.is_dir() and not p.name.startswith((".", "__"))]
+            return sc.read_10x_mtx(inner[0] if len(inner) == 1 else Path(tmp), gex_only=gex_only)
+    raise FileNotFoundError(
+        f"No cell feature matrix found in {path}: expected {XeniumKeys.CELL_FEATURE_MATRIX_FILE}, "
+        f"a {XeniumKeys.CELL_FEATURE_MATRIX_DIR}/ directory, or {XeniumKeys.CELL_FEATURE_MATRIX_TAR}."
+    )
+
+
 def _get_tables_and_circles(
     path: Path,
     specs: dict[str, Any],
     gex_only: bool,
-    cells_zarr_ctx: _XeniumCells,
+    cells_zarr_ctx: _XeniumCells | None,
 ) -> tuple[AnnData, GeoDataFrame]:
-    adata = sc.read_10x_h5(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, gex_only=gex_only)
-    # Undo fixed-point scaling factor applied to Xenium Protein data stored in HDF5.
-    with h5py.File(path / XeniumKeys.CELL_FEATURE_MATRIX_FILE, "r") as f:
-        if "protein_scaling_factor" in f.attrs:
-            protein_feats = np.flatnonzero(adata.var["feature_types"] == "Protein Expression")
-            if len(protein_feats) > 0:
-                adata.X[:, protein_feats] /= f.attrs["protein_scaling_factor"]
-    # get_cell_metadata decodes cell_id and cross-checks it against cells.zarr.zip
-    metadata = cells_zarr_ctx.get_cell_metadata(path)
+    adata = _read_cell_feature_matrix(path, gex_only)
+    # get_cell_metadata decodes cell_id and cross-checks it against cells.zarr.zip; without the
+    # zarr (pre-1.3.0 / CSV-only bundles) read the metadata directly from parquet or CSV.
+    if cells_zarr_ctx is not None:
+        metadata = cells_zarr_ctx.get_cell_metadata(path)
+    else:
+        metadata = _read_cell_metadata(path)
     _assert_arrays_equal_sampled(metadata[XeniumKeys.CELL_ID].astype(str).values, adata.obs_names.values)
     circ = metadata[[XeniumKeys.CELL_X, XeniumKeys.CELL_Y]].to_numpy()
     adata.obsm["spatial"] = circ
@@ -706,8 +875,7 @@ def _get_tables_and_circles(
     # avoids anndata's ImplicitModificationWarning
     metadata.index = adata.obs_names
     adata.obs = metadata
-    adata.obs["region"] = specs["region"]
-    adata.obs["region"] = adata.obs["region"].astype("category")
+    adata.obs["region"] = pd.Series(specs["region"], index=adata.obs_names, dtype="category")
     table = TableModel.parse(
         adata,
         region=specs["region"],
@@ -723,8 +891,8 @@ def _get_tables_and_circles(
         transformations={"global": transform},
         index=adata.obs[XeniumKeys.CELL_ID].copy(),
     )
-    # Add z_level and nucleus_count from cell_summary (unavailable for v < 1.3.0).
-    cell_summary = cells_zarr_ctx.get_cell_summary()
+    # Add z_level and nucleus_count from cell_summary (unavailable for v < 1.3.0 and CSV-only bundles).
+    cell_summary = cells_zarr_ctx.get_cell_summary() if cells_zarr_ctx is not None else None
     if cell_summary is not None:
         try:
             _assert_arrays_equal_sampled(cell_summary[XeniumKeys.CELL_ID].values, table.obs[XeniumKeys.CELL_ID].values)

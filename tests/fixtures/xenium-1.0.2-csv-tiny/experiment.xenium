@@ -1,0 +1,38 @@
+{
+    "run_name": "mouse_brain_ff",
+    "run_start_time": "2022-10-21T18:26:22Z",
+    "region_name": "Xenium_V1_FF_Mouse_Brain_Coronal_Subset_CTX+HP",
+    "preservation_method": "fresh_frozen",
+    "num_cells": 36602,
+    "transcripts_per_cell": 211.0,
+    "transcripts_per_100um": 79.86883303595566,
+    "cassette_name": "sim2",
+    "slide_id": "00002131",
+    "panel_design_id": "mBrain_v1",
+    "panel_name": "Xenium Mouse Brain GEX",
+    "panel_organism": "Mouse",
+    "panel_tissue_type": "Brain",
+    "panel_num_targets_predesigned": 248,
+    "panel_num_targets_custom": 0,
+    "pixel_size": 0.2125,
+    "instrument_sn": "XETG00001",
+    "instrument_sw_version": "1.0.0.3",
+    "analysis_sw_version": "xenium-1.0.2",
+    "experiment_uuid": "14d2c2b1-fe7b-4bc1-9c02-e7dabf91d5ec",
+    "cassette_uuid": "287f823e-665c-46de-81e7-149ed1c087b9",
+    "roi_uuid": "81aa6ae0-7648-4160-8f38-20d1cda7d4dd",
+    "z_step_size": 3.0,
+    "well_uuid": "def_60baf884_rec_7186106a",
+    "images": {
+        "morphology_filepath": "morphology.ome.tif",
+        "morphology_mip_filepath": "morphology_mip.ome.tif",
+        "morphology_focus_filepath": "morphology_focus.ome.tif"
+    },
+    "xenium_explorer_files": {
+        "transcripts_zarr_filepath": "transcripts.zarr.zip",
+        "cells_zarr_filepath": "cells.zarr.zip",
+        "cell_features_zarr_filepath": "cell_feature_matrix.zarr.zip",
+        "analysis_zarr_filepath": "analysis.zarr.zip",
+        "analysis_summary_filepath": "analysis_summary.html"
+    }
+}
