@@ -53,6 +53,7 @@ I/O for the `spatialdata` project.
 .. autosummary::
     :toctree: generated
 
+    atera_to_proseg
     experimental.from_legacy_anndata
     experimental.to_legacy_anndata
 ```

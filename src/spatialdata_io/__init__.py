@@ -27,6 +27,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "geojson": "spatialdata_io.readers.generic",
     "image": "spatialdata_io.readers.generic",
     # converters
+    "atera_to_proseg": "spatialdata_io.converters.atera_to_proseg",
     "generic_to_zarr": "spatialdata_io.converters.generic_to_zarr",
 }
 
@@ -53,6 +54,7 @@ __all__ = [
     "geojson",
     "image",
     # converters
+    "atera_to_proseg",
     "generic_to_zarr",
 ]
 
@@ -77,6 +79,7 @@ def __dir__() -> list[str]:
 
 if TYPE_CHECKING:
     # converters
+    from spatialdata_io.converters.atera_to_proseg import atera_to_proseg
     from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
 
     # readers
