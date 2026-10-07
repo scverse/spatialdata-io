@@ -11,7 +11,7 @@ from spatialdata_io._constants._constants import AteraKeys
 from spatialdata_io.readers._atera_common import _read_transcript_tile
 from spatialdata_io.readers.atera import read_var
 
-__all__ = ["atera_to_proseg"]
+__all__ = ["atera_to_parquet"]
 
 # Sentinel string for unassigned transcripts; matches `proseg`'s own `--xenium` preset default for
 # `--cell-id-unassigned` (see `set_xenium_presets` in `proseg`'s `main.rs`), so the output can be fed
@@ -38,7 +38,7 @@ _PROSEG_SCHEMA = pa.schema(
 )
 
 
-def atera_to_proseg(path: str | Path, output: str | Path) -> Path:
+def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
     """Convert a *10x Genomics Atera* ``transcripts.zarr.zip`` into a `proseg`-compatible parquet file.
 
     `currently, proseg <https://github.com/dcjones/proseg>`_ only supports reading a generic/custom-column-name
