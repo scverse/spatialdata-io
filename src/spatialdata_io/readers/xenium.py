@@ -404,6 +404,9 @@ def xenium(
     # CSV-only bundles (pre-1.3.0 / stripped GEO deposits) ship no cells.zarr.zip, so we read
     # everything from the .csv.gz files instead and leave the context unset; the raster labels are
     # then reconstructed from the boundary polygons (see _get_labels_from_boundaries).
+    # NOTE: a store with no zarr but with parquet-and-no-csv would fall through to the CSV readers and
+    # fail. Such a mix is not produced by XOA or GEO, and it already failed before this PR, so we read
+    # the CSVs directly rather than branch on every file combination.
     if (path / XeniumKeys.CELLS_ZARR).is_file():
         cells_zarr_ctx: _XeniumCells | None = _XeniumCells.open(path, version)
     else:
@@ -724,13 +727,25 @@ def _get_labels_from_boundaries(
     """
     if indices_mapping is not None and not pd.api.types.is_integer_dtype(shapes.index):
         label = _cell_id_to_label_index(indices_mapping).loc[shapes.index].to_numpy()
-    else:
+    elif pd.api.types.is_integer_dtype(shapes.index):
         label = shapes.index.to_numpy()
+    else:
+        # Non-integer (hex) cell_ids with no label_index mapping: we have no integer to fill the
+        # raster with. For CSV bundles this cannot happen (hex ids always ship a ``label_id`` column,
+        # so ``indices_mapping`` is set), but guard it rather than crash cryptically on ``astype``.
+        raise ValueError(
+            "Cannot build raster labels: boundary polygons have non-integer cell_ids but no "
+            "label_index mapping (missing 'label_id' column). Please report this at "
+            "https://github.com/scverse/spatialdata-io/issues."
+        )
     # geometry is in microns; global == pixels == microns / pixel_size
     inv = 1.0 / specs["pixel_size"]
     minx, miny, maxx, maxy = shapes.total_bounds * inv
     x0, y0 = math.floor(minx), math.floor(miny)
     raster = np.zeros((math.ceil(maxy) - y0, math.ceil(maxx) - x0), dtype=np.uint32)
+    # This explicit fill exploits the known Xenium geometry; spatialdata.rasterize() could replace it
+    # (dropping the Python loop) once scverse/spatialdata#987 lands. Only legacy/CSV bundles reach here,
+    # so the loop's performance is not a concern.
     for geom, value in zip(shapes.geometry.to_numpy(), label.astype(np.uint32), strict=True):
         xs, ys = geom.exterior.coords.xy
         rr, cc = polygon(np.asarray(ys) * inv - y0, np.asarray(xs) * inv - x0, shape=raster.shape)
@@ -823,6 +838,26 @@ def _read_cell_metadata(path: Path) -> pd.DataFrame:
     return metadata
 
 
+def _warn_if_scaled_protein(adata: AnnData) -> AnnData:
+    """Warn that protein counts read from a non-HDF5 matrix are left in raw (scaled) units.
+
+    Xenium stores Protein Expression counts multiplied by a ``protein_scaling_factor`` that only the
+    HDF5 file records (verified: the MatrixMarket export carries the same scaled integers, and neither
+    ``experiment.xenium`` nor ``protein_panel.json`` holds the factor). Without the HDF5 we cannot undo
+    it, so the values stay a constant factor too large; warn rather than return them silently.
+    """
+    if "feature_types" in adata.var and (adata.var["feature_types"] == "Protein Expression").any():
+        warnings.warn(
+            "Protein Expression counts were read from a non-HDF5 matrix (MatrixMarket) and are left in "
+            "raw, scaled units: the protein_scaling_factor needed to descale them is only stored in "
+            "cell_feature_matrix.h5, which this bundle lacks. Divide by the factor yourself if you have "
+            "it, or pass gex_only=True to drop protein features.",
+            UserWarning,
+            stacklevel=3,
+        )
+    return adata
+
+
 def _read_cell_feature_matrix(path: Path, gex_only: bool) -> AnnData:
     """Read the cell feature matrix, preferring the HDF5 file.
 
@@ -840,7 +875,7 @@ def _read_cell_feature_matrix(path: Path, gex_only: bool) -> AnnData:
                     adata.X[:, protein_feats] /= f.attrs["protein_scaling_factor"]
         return adata
     if (path / XeniumKeys.CELL_FEATURE_MATRIX_DIR).is_dir():
-        return sc.read_10x_mtx(path / XeniumKeys.CELL_FEATURE_MATRIX_DIR, gex_only=gex_only)
+        return _warn_if_scaled_protein(sc.read_10x_mtx(path / XeniumKeys.CELL_FEATURE_MATRIX_DIR, gex_only=gex_only))
     if (path / XeniumKeys.CELL_FEATURE_MATRIX_TAR).is_file():
         with tempfile.TemporaryDirectory() as tmp:
             with tarfile.open(path / XeniumKeys.CELL_FEATURE_MATRIX_TAR) as tar:
@@ -848,7 +883,7 @@ def _read_cell_feature_matrix(path: Path, gex_only: bool) -> AnnData:
             # the matrix trio may sit at the root or inside a single top-level directory
             # (ignore archive cruft like __MACOSX/ and dotfiles)
             inner = [p for p in Path(tmp).iterdir() if p.is_dir() and not p.name.startswith((".", "__"))]
-            return sc.read_10x_mtx(inner[0] if len(inner) == 1 else Path(tmp), gex_only=gex_only)
+            return _warn_if_scaled_protein(sc.read_10x_mtx(inner[0] if len(inner) == 1 else Path(tmp), gex_only=gex_only))
     raise FileNotFoundError(
         f"No cell feature matrix found in {path}: expected {XeniumKeys.CELL_FEATURE_MATRIX_FILE}, "
         f"a {XeniumKeys.CELL_FEATURE_MATRIX_DIR}/ directory, or {XeniumKeys.CELL_FEATURE_MATRIX_TAR}."

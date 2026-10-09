@@ -1,8 +1,10 @@
 import math
+import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
+import pandas as pd
 import pytest
 from click.testing import CliRunner
 from pytest_mock import MockerFixture
@@ -12,6 +14,7 @@ from spatialdata.models import get_table_keys
 from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
     _cell_id_str_from_prefix_suffix_uint32_reference,
+    _warn_if_scaled_protein,
     cell_id_str_from_prefix_suffix_uint32,
     prefix_suffix_uint32_from_cell_id_str,
     xenium,
@@ -289,6 +292,20 @@ def test_xenium_csv_only_mtx_matrix(tmp_path: Path) -> None:
     sdata = xenium(tmp_path, morphology_mip=False, morphology_focus=False, aligned_images=False)
     assert sdata["table"].n_obs == 30
     assert "cell_labels" in sdata.labels
+
+
+def test_warn_if_scaled_protein() -> None:
+    # protein counts read outside HDF5 cannot be descaled (the factor lives only in the .h5), so warn
+    from anndata import AnnData
+
+    gex = AnnData(np.zeros((2, 1)), var=pd.DataFrame({"feature_types": ["Gene Expression"]}))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _warn_if_scaled_protein(gex)  # no protein -> no warning
+
+    prot = AnnData(np.zeros((2, 1)), var=pd.DataFrame({"feature_types": ["Protein Expression"]}))
+    with pytest.warns(UserWarning, match="scaled units"):
+        _warn_if_scaled_protein(prot)
 
 
 # A v2/v3 (XOA 3.0.0) CSV-only bundle: hex cell_ids, and a label_id column in the boundary CSVs.
