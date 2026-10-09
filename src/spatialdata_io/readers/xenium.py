@@ -883,7 +883,9 @@ def _read_cell_feature_matrix(path: Path, gex_only: bool) -> AnnData:
             # the matrix trio may sit at the root or inside a single top-level directory
             # (ignore archive cruft like __MACOSX/ and dotfiles)
             inner = [p for p in Path(tmp).iterdir() if p.is_dir() and not p.name.startswith((".", "__"))]
-            return _warn_if_scaled_protein(sc.read_10x_mtx(inner[0] if len(inner) == 1 else Path(tmp), gex_only=gex_only))
+            return _warn_if_scaled_protein(
+                sc.read_10x_mtx(inner[0] if len(inner) == 1 else Path(tmp), gex_only=gex_only)
+            )
     raise FileNotFoundError(
         f"No cell feature matrix found in {path}: expected {XeniumKeys.CELL_FEATURE_MATRIX_FILE}, "
         f"a {XeniumKeys.CELL_FEATURE_MATRIX_DIR}/ directory, or {XeniumKeys.CELL_FEATURE_MATRIX_TAR}."
