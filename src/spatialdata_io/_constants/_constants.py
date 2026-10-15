@@ -216,6 +216,8 @@ class AteraKeys(ModeEnum):
 
     # transcripts.zarr.zip groups/keys
     GRID_GROUP = "grid"
+    GRID_KEYS = "grid_keys"
+    TRANSCRIPTS_ID = "id"
     TRANSCRIPTS_LOCATION = "location"
     TRANSCRIPTS_GENE_OFFSET = "gene_offset"
     TRANSCRIPTS_OVERLAPS_NUCLEUS = "overlaps_nucleus"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pyarrow as pa
@@ -53,6 +54,9 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
     ``x_location``/``y_location``/``z_location`` convention (*not* the pixel units of the "global"
     coordinate system `atera()` assembles its `SpatialData` elements into).
 
+    ``transcript_id`` is taken from each tile's stored ``id`` array when every tile has one, and is
+    otherwise assigned contiguously in the order of the grid group's ``grid_keys`` attribute.
+
     The input is read and written one spatial tile at a time (mirroring how `atera`'s own transcripts
     reader is built), so converting even a dataset with tens of millions of transcripts does not require
     holding the whole table in memory at once.
@@ -74,14 +78,14 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
     feature_names = read_var(path)[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
 
     store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        tile_keys = sorted(group.get_group(str(AteraKeys.GRID_GROUP)).group_keys())
-    finally:
-        store.close()
-
     writer = pq.ParquetWriter(output, _PROSEG_SCHEMA)
     try:
+        grid = zarr.open_group(store, mode="r").get_group(str(AteraKeys.GRID_GROUP))
+        tile_keys = [str(key) for key in cast("list[str]", grid.attrs[str(AteraKeys.GRID_KEYS)])]
+        # Stored IDs are used only if every tile has them; otherwise every transcript is numbered
+        # contiguously in `grid_keys` order, so stored and generated IDs never mix.
+        use_stored_ids = all(str(AteraKeys.TRANSCRIPTS_ID) in grid.get_group(key) for key in tile_keys)
+
         offset = 0
         for tile_key in tile_keys:
             tile_df = _read_transcript_tile(path, tile_key, feature_names)
@@ -89,12 +93,18 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
             if n == 0:
                 continue
 
+            if use_stored_ids:
+                stored_ids = grid.get_group(tile_key).get_array(str(AteraKeys.TRANSCRIPTS_ID))[...]
+                transcript_id = np.asarray(stored_ids, dtype=np.uint64).reshape(-1)
+            else:
+                transcript_id = np.arange(offset, offset + n, dtype=np.uint64)
+
             cell_id = tile_df[str(AteraKeys.CELL_ID)].to_numpy()
             cell_id_str = np.where(cell_id == -1, _CELL_ID_UNASSIGNED, cell_id.astype(str))
 
             table = pa.table(
                 {
-                    "transcript_id": np.arange(offset, offset + n, dtype=np.uint64),
+                    "transcript_id": transcript_id,
                     "cell_id": cell_id_str,
                     "overlaps_nucleus": tile_df["overlaps_nucleus"].to_numpy().astype(np.uint8),
                     "feature_name": tile_df[str(AteraKeys.FEATURE_NAME)].astype(str).to_numpy(),
@@ -110,5 +120,6 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
             offset += n
     finally:
         writer.close()
+        store.close()
 
     return output
