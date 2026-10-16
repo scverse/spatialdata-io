@@ -76,7 +76,7 @@ def phenocycler(
     Sidecar files are matched to a scan by file-name prefix and stored as metadata only: the channel names always
     come from the per-page XML of the qptiff. A sidecar whose number of markers differs from the number of channels
     raises a warning. Acquisition files (``*.raw.qptiff``, ``*.qptiff.raw``, ``*.qptiff.intermediate`` and anything
-    in ``raw/images/phenocycler/``) are ignored.
+    in a ``raw/images/phenocycler/`` folder below ``path``) are ignored. File suffixes are matched ignoring case.
 
     The region name is the file name without the ``{vx.ER_QPTIFF_SUFFIX!r}``/``{vx.QPTIFF_SUFFIX!r}`` suffix and
     without a trailing ``_Scan<N>``, unless that makes two regions share a name. Each region is stored as the image
@@ -228,8 +228,8 @@ def discover_qptiffs(path: Path) -> dict[str, Path]:
 
     # one scan per (directory, base name), preferring the extended-range `.er.qptiff`
     scans: dict[tuple[Path, str], Path] = {}
-    for qptiff in sorted(path.rglob(f"*{PhenocyclerKeys.QPTIFF_SUFFIX}")):
-        if not qptiff.is_file() or _is_acquisition_file(qptiff):
+    for qptiff in sorted(path.rglob(f"*{PhenocyclerKeys.QPTIFF_SUFFIX}", case_sensitive=False)):
+        if not qptiff.is_file() or _is_acquisition_file(qptiff.relative_to(path)):
             continue
         key = (qptiff.parent, _base_name(qptiff))
         if key not in scans or _is_extended_range(qptiff):
@@ -269,11 +269,12 @@ def _is_extended_range(path: Path) -> bool:
 
 
 def _is_acquisition_file(path: Path) -> bool:
+    """Whether ``path``, relative to the searched directory, is a per-cycle acquisition file of the Fusion."""
     if path.name.lower().endswith(".raw" + PhenocyclerKeys.QPTIFF_SUFFIX):
         return True
-    parts = path.parts
+    parts = tuple(part.casefold() for part in path.parent.parts)
     n = len(_ACQUISITION_DIR)
-    return any(parts[i : i + n] == _ACQUISITION_DIR for i in range(len(parts) - n))
+    return any(parts[i : i + n] == _ACQUISITION_DIR for i in range(len(parts) - n + 1))
 
 
 def _read_sidecars(scan: AkoyaScan) -> None:

@@ -125,6 +125,26 @@ def test_ignores_acquisition_files(tmp_path: Path) -> None:
     assert list(sdata.images) == ["S_image"]
 
 
+def test_discovery_ignores_suffix_case(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "A_Scan1.QPTIFF", biomarkers=["DAPI"])
+    write_qptiff(tmp_path / "B_Scan1.ER.QPTIFF", biomarkers=["DAPI"])
+
+    sdata = phenocycler(tmp_path, image_models_kwargs=_FAST)
+
+    assert sorted(sdata.images) == ["A_image", "B_image"]
+
+
+def test_dataset_below_an_acquisition_like_folder_is_read(tmp_path: Path) -> None:
+    # only the folders below `path` are checked for the HuBMAP acquisition folder `raw/images/phenocycler/`
+    root = tmp_path / "raw" / "images" / "phenocycler" / "project"
+    root.mkdir(parents=True)
+    write_qptiff(root / "S_Scan1.qptiff", biomarkers=["DAPI"])
+
+    sdata = phenocycler(root, image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["S_image"]
+
+
 def test_sidecars_hubmap_layout(tmp_path: Path) -> None:
     raw_images = tmp_path / "raw" / "images"
     processed = tmp_path / "lab_processed" / "images"
