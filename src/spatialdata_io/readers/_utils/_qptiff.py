@@ -26,6 +26,7 @@ __all__ = [
     "qpi_pixel_size_um",
     "qptiff_base_name",
     "qptiff_regions",
+    "qptiff_regions_with_duplicates",
     "read_qptiff_image",
     "read_qptiff_metadata",
 ]
@@ -246,6 +247,10 @@ def qptiff_base_name(path: Path) -> str:
     return path.stem
 
 
+def _is_extended_range(path: Path) -> bool:
+    return path.name.lower().endswith(PhenocyclerKeys.ER_QPTIFF_SUFFIX.value)
+
+
 def qptiff_regions(files: Sequence[Path]) -> dict[str, Path]:
     """The region id of every qptiff scan among ``files``, the same for both Akoya readers.
 
@@ -261,11 +266,31 @@ def qptiff_regions(files: Sequence[Path]) -> dict[str, Path]:
     -------
     The scan file of every region.
     """
+    return qptiff_regions_with_duplicates(files)[0]
+
+
+def qptiff_regions_with_duplicates(files: Sequence[Path]) -> tuple[dict[str, Path], dict[str, Path]]:
+    """Like :func:`qptiff_regions`, and the 8-bit ``.qptiff`` of every region that also has an ``.er.qptiff``.
+
+    Returns
+    -------
+    The scan file of every region (the ``.er.qptiff`` if there is one), and the 8-bit file of the same scan by
+    region id for the regions that have both.
+    """
     scans: dict[tuple[Path, str], Path] = {}
+    eight_bit: dict[tuple[Path, str], Path] = {}
     for file in files:
         key = (file.parent, qptiff_base_name(file))
-        if key not in scans or file.name.lower().endswith(PhenocyclerKeys.ER_QPTIFF_SUFFIX.value):
+        if _is_extended_range(file):
+            if key in scans and not _is_extended_range(scans[key]):
+                eight_bit.setdefault(key, scans[key])
             scans[key] = file
+        elif key not in scans:
+            scans[key] = file
+        else:
+            eight_bit.setdefault(key, file)
+    # an 8-bit file is only a duplicate if the scan is read from an extended-range file
+    eight_bit = {key: file for key, file in eight_bit.items() if _is_extended_range(scans[key])}
     bases = [base for _, base in scans]
     stripped = [_SCAN_SUFFIX.sub("", base) or base for base in bases]
     # stripping `_Scan<N>` must not merge two scans into one region
@@ -277,7 +302,8 @@ def qptiff_regions(files: Sequence[Path]) -> dict[str, Path]:
             f"Several qptiff files map to the same region(s) {duplicated}: {found}. Pass the path of a single qptiff "
             "file or of a directory that contains each region once."
         )
-    return dict(zip(regions, scans.values(), strict=True))
+    region_of = dict(zip(scans, regions, strict=True))
+    return dict(zip(regions, scans.values(), strict=True)), {region_of[key]: file for key, file in eight_bit.items()}
 
 
 def _generation(software: str | None, has_experiment_v4: bool) -> str:

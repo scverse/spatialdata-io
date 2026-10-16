@@ -1327,6 +1327,7 @@ def build_spatialdata(
     image_models_kwargs: Mapping[str, Any],
     labels_models_kwargs: Mapping[str, Any],
     cells_table_kwargs: Mapping[str, Any],
+    duplicate_scans: Mapping[str, AkoyaScan] | None = None,
 ) -> SpatialData:
     """Assemble the regions of an Akoya read into a `SpatialData` with their metadata in ``attrs["akoya"]``.
 
@@ -1357,6 +1358,10 @@ def build_spatialdata(
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
     cells_table_kwargs
         See :func:`read_labels` (``mask_channel``).
+    duplicate_scans
+        Further scans of the same physical scan as a region (e.g. its 8-bit file), by that region's id. Each is
+        stored as its own image ``<duplicate.region>_image`` with exactly the transformations of the region; their
+        images and channel names are looked up in ``images`` and ``channel_names`` by ``duplicate.region``.
 
     Returns
     -------
@@ -1370,6 +1375,14 @@ def build_spatialdata(
         )
         for scan in scans
     }
+    for region, duplicate in (duplicate_scans or {}).items():
+        image_elements[f"{duplicate.region}{PhenocyclerKeys.IMAGE_SUFFIX}"] = build_image_element(
+            images[duplicate.region],
+            duplicate,
+            channel_names[duplicate.region],
+            transformations[region],
+            image_models_kwargs,
+        )
     image_shapes = {
         scan.region: raster_shape(image_elements[f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}"]) for scan in scans
     }
@@ -1388,7 +1401,7 @@ def build_spatialdata(
         shapes=shapes,
         tables=tables,
     )
-    attrs = scans_to_attrs(scans, channel_names)
+    attrs = scans_to_attrs([*scans, *(duplicate_scans or {}).values()], channel_names)
     if table_paths is not None:
         attrs["cell_tables"] = dict(table_paths)
     if mask_files:

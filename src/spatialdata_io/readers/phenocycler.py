@@ -23,7 +23,7 @@ from spatialdata_io.readers._utils._qptiff import (
     _fusion_profile_records,
     _is_blank,
     qptiff_base_name,
-    qptiff_regions,
+    qptiff_regions_with_duplicates,
     read_qptiff_image,
     read_qptiff_metadata,
 )
@@ -38,6 +38,8 @@ __all__ = ["phenocycler"]
 
 # the Fusion writes per-cycle acquisition files to ``raw/images/phenocycler/`` (HuBMAP layout)
 _ACQUISITION_DIR = ("raw", "images", "phenocycler")
+# region id suffix of the 8-bit scan read next to its extended-range scan (``read_all_bit_depths``)
+_EIGHT_BIT_SUFFIX = "_8bit"
 
 
 @inject_docs(vx=PhenocyclerKeys)
@@ -49,6 +51,7 @@ def phenocycler(
     cells_table: str | Path | Mapping[str, str | Path] | None = None,
     cells_table_format: str = "auto",
     labels: str | Path | Mapping[str, str | Path] | None = None,
+    read_all_bit_depths: bool = False,
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     cells_table_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -59,7 +62,7 @@ def phenocycler(
 
         - ``*{vx.QPTIFF_SUFFIX!r}`` / ``*{vx.ER_QPTIFF_SUFFIX!r}``: the scans, one region each. The images are read
           lazily; when both ``X{vx.QPTIFF_SUFFIX}`` and ``X{vx.ER_QPTIFF_SUFFIX}`` exist, the extended-range
-          (higher bit depth) ``{vx.ER_QPTIFF_SUFFIX!r}`` is used.
+          (higher bit depth) ``{vx.ER_QPTIFF_SUFFIX!r}`` is used, unless ``read_all_bit_depths`` is set.
         - ``*{vx.XPD_SUFFIX!r}``: optional experiment protocol (JSON) next to a scan.
         - ``*{vx.CHANNELS_CSV_SUFFIX!r}``: optional channel list next to a scan or, in the HuBMAP layout, in
           ``lab_processed/images/``.
@@ -128,6 +131,12 @@ def phenocycler(
         circle radii are scaled by ``f`` to image pixels; the source columns in ``obs`` are kept as read (mask
         pixels). To avoid this for a generic table in image pixels, use ``coordinates_unit="um"`` or a
         full-resolution mask.
+    read_all_bit_depths
+        If `True`, a scan that exists as both ``X{vx.QPTIFF_SUFFIX}`` (8-bit) and ``X{vx.ER_QPTIFF_SUFFIX}``
+        (extended range, e.g. uint16) is read from both files: the extended-range file as region ``X`` and the
+        8-bit file as the image ``X_8bit{vx.IMAGE_SUFFIX}`` (region ``X_8bit`` in ``sdata.attrs[{vx.ATTRS_KEY!r}]``).
+        Both are the same physical scan, so the 8-bit image has exactly the transformations of region ``X``. Cell
+        tables and masks annotate region ``X`` only. If `False`, only the extended-range file is read.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
@@ -148,14 +157,24 @@ def phenocycler(
     regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
-    qptiffs = _discover_qptiffs(path)
+    qptiffs, eight_bit = _discover_qptiffs(path)
     selected = select_regions(list(qptiffs), regions)
     table_files = resolve_per_region(cells_table, selected, list(qptiffs))
     mask_files = resolve_per_region(labels, selected, list(qptiffs))
 
     scans = [read_qptiff_metadata(qptiffs[region], region=region) for region in selected]
+    duplicates: dict[str, AkoyaScan] = {}
+    if read_all_bit_depths:
+        for region in selected:
+            if region in eight_bit:
+                duplicates[region] = read_qptiff_metadata(eight_bit[region], region=f"{region}{_EIGHT_BIT_SUFFIX}")
+        if clash := sorted({scan.region for scan in duplicates.values()} & set(qptiffs)):
+            raise ValueError(
+                f"Cannot read the 8-bit scans as region(s) {clash}: a scan with that region id exists. Rename it or "
+                "pass read_all_bit_depths=False."
+            )
     names = {}
-    for scan in scans:
+    for scan in [*scans, *duplicates.values()]:
         names[scan.region] = apply_channel_names(scan, channel_names)
         _read_sidecars(scan)
     cell_tables = read_region_tables(
@@ -168,7 +187,7 @@ def phenocycler(
     )
     sdata = build_spatialdata(
         scans,
-        {scan.region: read_qptiff_image(scan.path) for scan in scans},
+        {scan.region: read_qptiff_image(scan.path) for scan in [*scans, *duplicates.values()]},
         names,
         cell_tables,
         mask_files,
@@ -176,19 +195,21 @@ def phenocycler(
         image_models_kwargs=image_models_kwargs,
         labels_models_kwargs=labels_models_kwargs,
         cells_table_kwargs=cells_table_kwargs,
+        duplicate_scans=duplicates,
     )
     return _set_reader_metadata(sdata, "phenocycler")
 
 
-def _discover_qptiffs(path: Path) -> dict[str, Path]:
+def _discover_qptiffs(path: Path) -> tuple[dict[str, Path], dict[str, Path]]:
     """Find the qptiff scans of a PhenoCycler-Fusion dataset: a ``.qptiff`` file, or a directory searched recursively.
 
-    Returns the scan file of every region, sorted by path; see :func:`qptiff_regions`.
+    Returns the scan file of every region, sorted by path, and the 8-bit file of the regions that also have an
+    extended-range one; see :func:`qptiff_regions_with_duplicates`.
     """
     if not path.exists():
         raise FileNotFoundError(f"{path} does not exist.")
     if path.is_file():
-        return qptiff_regions([path])
+        return qptiff_regions_with_duplicates([path])
     files = [
         qptiff
         for qptiff in sorted(path.rglob(f"*{PhenocyclerKeys.QPTIFF_SUFFIX}", case_sensitive=False))
@@ -198,7 +219,7 @@ def _discover_qptiffs(path: Path) -> dict[str, Path]:
         raise FileNotFoundError(
             f"No .qptiff files found in {path} (searched recursively for '*.qptiff', excluding acquisition files)."
         )
-    return qptiff_regions(files)
+    return qptiff_regions_with_duplicates(files)
 
 
 def _is_acquisition_file(path: Path) -> bool:

@@ -29,6 +29,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   inForm, CODEX Processor or generic CSV) with segmentation masks. The lazy images and masks can be pickled (e.g. for
   `dask.distributed`): they open their file in each process on the first chunk read. A cell table for several
   regions converts µm coordinates with each region's own pixel size.
+- `phenocycler(read_all_bit_depths=True)` (CLI `--read-all-bit-depths`) reads both the 8-bit `.qptiff` and the
+  extended-range `.er.qptiff` of a scan: the 8-bit one becomes the image `<region>_8bit_image` with the transformations
+  of the `.er` region. By default only the extended-range file is read.
 - The Akoya readers (`phenocycler()`, `codex()`) scale a segmentation mask downsampled from its region image by an
   integer factor (exactly, or rounded up) onto the image (a `Scale` before the region's transformation), and scale
   the centroids (`obsm["spatial"]`) and circle radii of `mcquant`, SPRM and generic pixel tables, taken to be in

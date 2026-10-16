@@ -110,6 +110,49 @@ def test_er_preferred(tmp_path: Path) -> None:
     assert sdata.attrs["akoya"]["regions"]["S"]["path"].endswith("S_Scan1.er.qptiff")
 
 
+def test_read_all_bit_depths(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI", "CD3"], dtype="uint8")
+    write_qptiff(tmp_path / "S_Scan1.er.qptiff", biomarkers=["DAPI", "CD3"], dtype="uint16")
+
+    sdata = phenocycler(tmp_path, read_all_bit_depths=True, image_models_kwargs=_FAST)
+
+    assert sorted(sdata.images) == ["S_8bit_image", "S_image"]
+    assert _level0(sdata, "S_image").dtype == np.uint16
+    assert _level0(sdata, "S_8bit_image").dtype == np.uint8
+    assert get_transformation(sdata["S_8bit_image"], get_all=True) == get_transformation(sdata["S_image"], get_all=True)
+    assert list(get_transformation(sdata["S_image"], get_all=True)) == ["global"]
+    assert sdata.attrs["akoya"]["regions"]["S"]["path"].endswith("S_Scan1.er.qptiff")
+    assert sdata.attrs["akoya"]["regions"]["S_8bit"]["path"].endswith("S_Scan1.qptiff")
+
+
+def test_read_all_bit_depths_shares_stage_placement(tmp_path: Path) -> None:
+    for name, pos in (("A", (0.0, 0.0)), ("B", (0.1, 0.0))):
+        write_qptiff(tmp_path / f"{name}.qptiff", biomarkers=["DAPI"], dtype="uint8", stage_position_cm=pos)
+        write_qptiff(tmp_path / f"{name}.er.qptiff", biomarkers=["DAPI"], dtype="uint16", stage_position_cm=pos)
+
+    sdata = phenocycler(tmp_path, read_all_bit_depths=True, regions=["B"], image_models_kwargs=_FAST)
+
+    assert sorted(sdata.images) == ["B_8bit_image", "B_image"]
+    assert get_transformation(sdata["B_8bit_image"], get_all=True) == get_transformation(sdata["B_image"], get_all=True)
+
+
+def test_read_all_bit_depths_without_pair_reads_one(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S.qptiff", biomarkers=["DAPI"], dtype="uint8")
+
+    sdata = phenocycler(tmp_path, read_all_bit_depths=True, image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["S_image"]
+
+
+def test_read_all_bit_depths_region_name_clash_raises(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S.qptiff", biomarkers=["DAPI"], dtype="uint8")
+    write_qptiff(tmp_path / "S.er.qptiff", biomarkers=["DAPI"], dtype="uint16")
+    write_qptiff(tmp_path / "S_8bit.qptiff", biomarkers=["DAPI"], dtype="uint8")
+
+    with pytest.raises(ValueError, match="S_8bit"):
+        phenocycler(tmp_path, read_all_bit_depths=True, image_models_kwargs=_FAST)
+
+
 def test_ignores_acquisition_files(tmp_path: Path) -> None:
     images = tmp_path / "raw" / "images"
     acquisition = images / "phenocycler"

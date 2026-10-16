@@ -470,6 +470,12 @@ def _parse_list_param(value: str | None) -> list[str] | None:
     help="Path to a segmentation mask, or a JSON mapping from region to path. [default: None]",
 )
 @click.option(
+    "--read-all-bit-depths/--no-read-all-bit-depths",
+    default=False,
+    help="Read both the 8-bit .qptiff and the extended-range .er.qptiff of a scan (the 8-bit one as region "
+    "'<region>_8bit'). [default: no-read-all-bit-depths]",
+)
+@click.option(
     "--image-models-kwargs",
     type=str,
     default="{}",
@@ -495,6 +501,7 @@ def phenocycler_wrapper(
     cells_table: str | None = None,
     cells_table_format: str = "auto",
     labels: str | None = None,
+    read_all_bit_depths: bool = False,
     image_models_kwargs: str = "{}",
     labels_models_kwargs: str = "{}",
     cells_table_kwargs: str = "{}",
@@ -509,6 +516,7 @@ def phenocycler_wrapper(
         cells_table=_parse_path_or_mapping_param(cells_table, "cells_table"),
         cells_table_format=cells_table_format,
         labels=_parse_path_or_mapping_param(labels, "labels"),
+        read_all_bit_depths=read_all_bit_depths,
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
         labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
         cells_table_kwargs=_parse_json_param(cells_table_kwargs, "cells_table_kwargs"),
