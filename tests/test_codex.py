@@ -199,6 +199,47 @@ def test_codex_labels_with_discovered_tables(tmp_path: Path) -> None:
     assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["reg001_labels"]
 
 
+def test_codex_qupath_geojson_labels(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path / "tree", regions=2, layout="per_marker", n_cells=5)
+    header = "Image\tObject ID\tCentroid X px\tCentroid Y px\tCD3: Cell: Mean"
+    rows = ["reg002.tif\tu1\t5\t5\t1", "reg002.tif\tu2\t25\t25\t2"]
+    (tmp_path / "q.tsv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+    features = [
+        {"type": "Feature", "id": oid, "geometry": {"type": "Polygon", "coordinates": [ring]}, "properties": {}}
+        for oid, ring in [
+            ("u2", [[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]),
+            ("u1", [[0, 0], [9, 0], [9, 9], [0, 0]]),
+        ]
+    ]
+    (tmp_path / "polygons.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+
+    sdata = codex(
+        tmp_path / "tree",
+        regions=["reg002"],
+        cells_table={"reg002": tmp_path / "q.tsv"},
+        image_models_kwargs=_FAST,
+        cells_table_kwargs={"geojson": {"reg002": tmp_path / "polygons.geojson"}},
+    )
+
+    assert list(sdata.labels) == ["reg002_labels"]
+    assert len(sdata.shapes) == 0
+    values = sdata.labels["reg002_labels"]["scale0"]["image"].values
+    assert values.shape == (128, 160)
+    assert values[2, 7] == 1  # the triangle below the diagonal
+    assert values[7, 2] == 0
+    assert values[25, 25] == 2
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["reg002_labels"]
+    assert sdata.attrs["akoya"]["geojson"] == {"reg002": str(tmp_path / "polygons.geojson")}
+
+    with pytest.raises(ValueError, match="same form as the tables"):
+        codex(
+            tmp_path / "tree",
+            cells_table=tmp_path / "q.tsv",
+            image_models_kwargs=_FAST,
+            cells_table_kwargs={"geojson": {"reg002": tmp_path / "polygons.geojson"}},
+        )
+
+
 def test_codex_str_regions_and_channel_names(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, regions=2, cycles=1, channels=1, layout="per_marker", n_cells=5)
 

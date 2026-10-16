@@ -22,6 +22,7 @@ from spatialdata_io.readers._utils._akoya import (
 )
 from spatialdata_io.readers._utils._cell_tables import (
     build_cells,
+    polygon_labels,
     raster_shape,
     read_region_labels,
     read_region_tables,
@@ -87,8 +88,12 @@ def phenocycler(
     ``obs[{vx.REGION_KEY!r}]`` the annotated element, ``obs[{vx.INSTANCE_KEY!r}]`` the instance key), or in one
     table ``<region>_table`` per region if the regions have different markers. Cells annotate the labels of their
     region, whose values must be their instance ids; without a mask they are stored as circles
-    ``<region>{vx.CELLS_SUFFIX}``, with a warning. The paths of the tables and masks are stored in
-    ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]`` and ``["labels"]``.
+    ``<region>{vx.CELLS_SUFFIX}``, with a warning. The cell outlines of a QuPath GeoJSON export (see
+    ``cells_table_kwargs``) are rasterised lazily, one chunk at a time, into the labels of a region without a
+    mask; a feature's ``id`` is matched to the table's ``Object ID`` (else features and rows are matched in order),
+    the labels hold the cells' instance ids, and where cells overlap the higher instance id wins. The paths of the
+    tables, masks and GeoJSON files are stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]``, ``["labels"]``
+    and ``["geojson"]``.
 
     .. seealso::
 
@@ -122,7 +127,11 @@ def phenocycler(
     cells_table_kwargs
         Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
         ``y``, ``instance_id``, ``markers`` (list or regular expression) and ``coordinates_unit`` (``"px"`` or
-        ``"um"``); ``mask_channel`` (index or OME channel name of the mask in a multi-channel ``labels`` file).
+        ``"um"``); ``mask_channel`` (index or OME channel name of the mask in a multi-channel ``labels`` file);
+        for QuPath tables ``geojson`` (the GeoJSON export of the cell outlines, a path or a mapping from region id
+        to path like ``cells_table``; default ``<table stem>.geojson`` or ``<table stem>_cells.geojson`` next to
+        the table) and ``geojson_units`` (``"px"`` of the full-resolution image, default and what QuPath writes,
+        or ``"um"``).
 
     Returns
     -------
@@ -165,6 +174,10 @@ def phenocycler(
         pixel_sizes={scan.region: scan.pixel_size_um for scan in scans},
         cells_table_kwargs=cells_table_kwargs,
     )
+    polygons, geojson_files = polygon_labels(
+        cell_tables, region_labels, image_shapes, transformations, labels_models_kwargs
+    )
+    region_labels |= polygons
     tables, shapes = build_cells(cell_tables, {}, region_labels, transformations) if cell_tables else ({}, {})
     sdata = SpatialData(
         images=images,
@@ -177,6 +190,8 @@ def phenocycler(
         attrs["cell_tables"] = {key: str(file) for key, file in table_files.items()}
     if mask_files:
         attrs["labels"] = {region: str(file) for region, file in mask_files.items()}
+    if geojson_files:
+        attrs["geojson"] = geojson_files
     sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = attrs
     return _set_reader_metadata(sdata, "phenocycler")
 

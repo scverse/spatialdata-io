@@ -30,6 +30,7 @@ from spatialdata_io.readers._utils._cell_tables import (
     CellTable,
     build_cells,
     detect_table_format,
+    polygon_labels,
     raster_shape,
     read_codex_table,
     read_region_labels,
@@ -121,8 +122,11 @@ def codex(
     as circles ``<region>_cells`` with the cells' area (``size`` column), annotated by one table ``"table"``
     (``obs["region"]`` names the circles, ``obs["cell_id"]`` is the instance key), or by one table
     ``<region>_table`` per region if the regions have different markers. A region with a segmentation mask in
-    ``labels`` gets the labels ``<region>_labels`` instead of circles, and its cells annotate them. The paths of the
-    tables and masks read are stored in ``sdata.attrs["akoya"]["cell_tables"]`` and ``["labels"]``.
+    ``labels`` gets the labels ``<region>_labels`` instead of circles, and its cells annotate them; so does a
+    region with the cell outlines of a QuPath GeoJSON export (see ``cells_table_kwargs``), rasterised lazily one
+    chunk at a time with the cells' instance ids (the higher id wins where cells overlap). The paths of the tables,
+    masks and GeoJSON files read are stored in ``sdata.attrs["akoya"]["cell_tables"]``, ``["labels"]`` and
+    ``["geojson"]``.
 
     .. seealso::
 
@@ -163,7 +167,11 @@ def codex(
     cells_table_kwargs
         Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
         ``y``, ``instance_id``, ``markers`` (list or regular expression) and ``coordinates_unit`` (``"px"`` or
-        ``"um"``); ``mask_channel`` (index or OME channel name of the mask in a multi-channel ``labels`` file).
+        ``"um"``); ``mask_channel`` (index or OME channel name of the mask in a multi-channel ``labels`` file);
+        for QuPath tables ``geojson`` (the GeoJSON export of the cell outlines, a path or a mapping from region id
+        to path like ``cells_table``; default ``<table stem>.geojson`` or ``<table stem>_cells.geojson`` next to
+        the table) and ``geojson_units`` (``"px"`` of the full-resolution image, default and what QuPath writes,
+        or ``"um"``).
 
     Returns
     -------
@@ -240,6 +248,10 @@ def codex(
         read = _read_tables(discovered, layout, selected if regions is not None else None, fcs)
         cell_tables = list(read.values())
         table_paths = {key: str(discovered[key]) for key in read}
+    polygons, geojson_files = polygon_labels(
+        cell_tables, region_labels, image_shapes, transformations, labels_models_kwargs
+    )
+    region_labels |= polygons
     tables, shapes = build_cells(cell_tables, {}, region_labels, transformations) if cell_tables else ({}, {})
     sdata = SpatialData(
         images=images,
@@ -251,6 +263,8 @@ def codex(
     attrs["cell_tables"] = table_paths
     if mask_files:
         attrs["labels"] = {region: str(file) for region, file in mask_files.items()}
+    if geojson_files:
+        attrs["geojson"] = geojson_files
     sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = attrs
     return _set_reader_metadata(sdata, "codex")
 

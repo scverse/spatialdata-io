@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import warnings
 from collections.abc import Mapping
@@ -10,9 +11,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import anndata as ad
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import readfcs
+import shapely
 import tifffile
 from spatialdata import sanitize_name, sanitize_table
 from spatialdata._logging import logger
@@ -22,6 +25,7 @@ from xarray import DataTree
 
 from spatialdata_io._constants._constants import CodexKeys, PhenocyclerKeys
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names, read_tiff, spatial_chunks
+from spatialdata_io.readers._utils._rasterize import rasterize_polygons_lazy
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
 if TYPE_CHECKING:
@@ -36,9 +40,11 @@ __all__ = [
     "raster_shape",
     "build_cells",
     "detect_table_format",
+    "polygon_labels",
     "read_cell_table",
     "read_codex_table",
     "read_labels",
+    "read_qupath_polygons",
     "read_region_labels",
     "read_region_tables",
     "resolve_per_region",
@@ -46,7 +52,17 @@ __all__ = [
 
 TABLE_FORMATS = ("codex", "qupath", "mcquant", "sprm", "inform", "generic")
 # the keys of `cells_table_kwargs`; see `read_cell_table` and `read_labels`
-CELLS_TABLE_KWARGS = ("x", "y", "instance_id", "region_column", "markers", "coordinates_unit", "mask_channel")
+CELLS_TABLE_KWARGS = (
+    "x",
+    "y",
+    "instance_id",
+    "region_column",
+    "markers",
+    "coordinates_unit",
+    "mask_channel",
+    "geojson",
+    "geojson_units",
+)
 
 # `cyc001_ch001` (FCS `$PnN`, plain CSV header) or the name part of the Processor CSV header `cyc001_ch001:DAPI1`
 _MARKER_COLUMN = re.compile(r"cyc(\d+)_ch(\d+)", re.IGNORECASE)
@@ -59,6 +75,8 @@ _QUPATH_MARKER = re.compile(r"(.+): (Cell|Nucleus|Cytoplasm|Membrane): Mean")
 _QUPATH_COMPARTMENTS = ("Cell", "Nucleus", "Cytoplasm", "Membrane")
 _QUPATH_IMAGE = "Image"
 _QUPATH_ID = "Object ID"
+# the QuPath object types of cells; other features of a GeoJSON export (e.g. annotations) are not cells
+_QUPATH_CELL_TYPES = frozenset({"cell", "detection", "PathCellObject", "PathDetectionObject"})
 
 
 @dataclass
@@ -84,6 +102,11 @@ class CellTable:
         The radius of a circle with the cell's area, or `None` if the table has no area.
     row_instance_ids
         Whether the instance ids are row numbers because the table has no instance id column.
+    polygons_px
+        The outline of every cell in level-0 pixels (`None` for a cell without one), or `None` if the table has no
+        polygons.
+    geojson
+        The file of ``polygons_px``.
     """
 
     obs: pd.DataFrame
@@ -94,6 +117,8 @@ class CellTable:
     centroids_px: np.ndarray
     radius_px: np.ndarray | None
     row_instance_ids: bool = False
+    polygons_px: np.ndarray | None = None
+    geojson: Path | None = None
 
     def take(self, rows: np.ndarray) -> CellTable:
         """The cells at the positional indices ``rows``."""
@@ -106,6 +131,8 @@ class CellTable:
             centroids_px=self.centroids_px[rows],
             radius_px=None if self.radius_px is None else self.radius_px[rows],
             row_instance_ids=self.row_instance_ids,
+            polygons_px=None if self.polygons_px is None else self.polygons_px[rows],
+            geojson=self.geojson,
         )
 
 
@@ -263,7 +290,9 @@ def read_cell_table(
               else the row number (from 1); the region from the ``Image`` column. The markers are the
               ``<marker>: <compartment>: Mean`` columns, one per marker from the first of the ``Cell``,
               ``Nucleus``, ``Cytoplasm`` and ``Membrane`` compartments (in ``var["compartment"]``). The radius
-              comes from ``Cell: Area µm^2`` (or ``px^2``).
+              comes from ``Cell: Area µm^2`` (or ``px^2``). The cell outlines are read from a QuPath GeoJSON
+              export, see :func:`read_qupath_polygons`: ``cells_table_kwargs["geojson"]``, else
+              ``<table stem>.geojson`` or ``<table stem>_cells.geojson`` next to the table, if it exists.
             - ``"mcquant"``: an MCMICRO ``mcquant`` table. Instance ids ``CellID``, pixel centroids
               ``X_centroid``/``Y_centroid``, the markers are the columns between ``CellID`` and ``X_centroid``, the
               radius comes from ``Area``.
@@ -278,8 +307,10 @@ def read_cell_table(
         Optional keys: ``region_column`` (the column holding the region of each cell; QuPath default ``Image``),
         and for ``"generic"`` tables ``x`` and ``y`` (required centroid columns), ``instance_id`` (else the row
         number, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
-        default: all other numeric columns) and ``coordinates_unit`` (``"px"``, default, or ``"um"``). The key
-        ``mask_channel`` is used by :func:`read_labels`.
+        default: all other numeric columns) and ``coordinates_unit`` (``"px"``, default, or ``"um"``); for
+        ``"qupath"`` tables ``geojson`` (the GeoJSON file of the cell outlines) and ``geojson_units`` (the unit of
+        its coordinates, ``"px"`` of the full-resolution image, default and what QuPath writes, or ``"um"``). The
+        key ``mask_channel`` is used by :func:`read_labels`.
 
     Returns
     -------
@@ -293,6 +324,8 @@ def read_cell_table(
         logger.info("Reading %s as a %r cell table.", path, fmt)
     if fmt in ("sprm", "inform"):
         raise NotImplementedError(f"Reading {fmt!r} cell tables ({path}) is added in a later release.")
+    if fmt != "qupath" and cells_table_kwargs.get("geojson") is not None:
+        raise ValueError(f"`cells_table_kwargs['geojson']` is only read with QuPath cell tables; {path} is {fmt!r}.")
     if fmt == "codex":
         return read_codex_table(path, region=default_region)
     if fmt not in TABLE_FORMATS:
@@ -310,7 +343,119 @@ def read_cell_table(
                 "pixel size is missing, or one table covers regions with different pixel sizes)."
             )
         roles["px_per_unit"] = 1 / pixel_size_um
-    return _from_frame(path, df, default_region=default_region, **roles)
+    table = _from_frame(path, df, default_region=default_region, **roles)
+    if fmt == "qupath":
+        geojson = cells_table_kwargs.get("geojson")
+        geojson = _find_geojson(path) if geojson is None else Path(geojson)
+        if geojson is not None:
+            units = cells_table_kwargs.get("geojson_units", "px")
+            table.polygons_px = read_qupath_polygons(geojson, table, path, units=units, pixel_size_um=pixel_size_um)
+            table.geojson = geojson
+    return table
+
+
+def _find_geojson(table_path: Path) -> Path | None:
+    """The GeoJSON next to a QuPath table: ``<stem>.geojson``, else ``<stem>_cells.geojson``.
+
+    Other GeoJSON files, e.g. HuBMAP's ``*tissue-boundary.geojson`` tissue outline, are not cells.
+    """
+    candidates = (table_path.with_name(f"{table_path.stem}{suffix}.geojson") for suffix in ("", "_cells"))
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def read_qupath_polygons(
+    geojson: Path, table: CellTable, table_path: Path, *, units: str = "px", pixel_size_um: float | None = None
+) -> np.ndarray:
+    """Read the cell outlines of a QuPath GeoJSON export and match them to the cells of its measurement table.
+
+    A feature belongs to the cell whose ``Object ID`` is the feature ``id`` (the object's UUID, QuPath >= 0.4);
+    features of other objects (e.g. annotations) are skipped. If the table has no ``Object ID`` column or the
+    features have no ids, the cell and detection features (``objectType``) are matched to the table rows in order,
+    and their number must equal the number of rows.
+
+    Parameters
+    ----------
+    geojson
+        A GeoJSON ``FeatureCollection`` or JSON array of features (QuPath *Export as GeoJSON*).
+    table
+        The cell table read from ``table_path``.
+    table_path
+        The QuPath measurement table, for error messages.
+    units
+        The unit of the coordinates: ``"px"`` (of the full-resolution image, what QuPath writes) or ``"um"``.
+    pixel_size_um
+        The pixel size, to convert ``"um"`` coordinates.
+
+    Returns
+    -------
+    The polygon of every row of ``table`` in pixels, `None` for rows without one.
+    """
+    if units not in ("px", "um"):
+        raise ValueError(f"`cells_table_kwargs['geojson_units']` must be 'px' or 'um', got {units!r}.")
+    px_per_unit = 1.0
+    if units == "um":
+        if pixel_size_um is None:
+            raise ValueError(f"{geojson} has coordinates in µm, but no pixel size is known to convert them to pixels.")
+        px_per_unit = 1 / pixel_size_um
+    if not geojson.is_file():
+        raise FileNotFoundError(f"{geojson} does not exist or is not a file.")
+    ids, geometries, kinds = _read_geojson(geojson)
+    if px_per_unit != 1.0:
+        geometries = shapely.transform(geometries, lambda xy: xy * px_per_unit)
+
+    polygons = np.full(len(table.obs), None, dtype=object)
+    if _QUPATH_ID in table.obs.columns and ids is not None:
+        object_ids = pd.Index(table.obs[_QUPATH_ID].astype(str))
+        if not object_ids.is_unique:
+            raise ValueError(f"The '{_QUPATH_ID}' column of {table_path} is not unique.")
+        rows = object_ids.get_indexer(pd.Index(ids).astype(str))
+        found = rows >= 0
+        if not found.any():
+            raise ValueError(
+                f"{geojson} does not hold the cells of {table_path}: none of the feature ids is an '{_QUPATH_ID}' "
+                "of the table."
+            )
+        polygons[rows[found]] = geometries[found]
+        logger.info("Matched %d of the %d features of %s to cells by id.", found.sum(), len(geometries), geojson)
+        return polygons
+
+    cells = geometries if kinds is None else geometries[np.isin(kinds, list(_QUPATH_CELL_TYPES))]
+    if len(cells) != len(polygons):
+        raise ValueError(
+            f"{geojson} has {len(cells)} cell polygons without ids, but {table_path} has {len(polygons)} rows; "
+            f"without ids ('{_QUPATH_ID}'), polygons are matched to cells in order."
+        )
+    polygons[:] = cells
+    return polygons
+
+
+def _read_geojson(path: Path) -> tuple[np.ndarray | None, np.ndarray, np.ndarray | None]:
+    """The ids (`None` if there are none), geometries and QuPath object types (`None` if unknown) of the features."""
+    with path.open("rb") as f:
+        is_array = f.read(1024).lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"[")
+    if is_array:
+        # QuPath's default export without the FeatureCollection option, which GDAL does not read
+        features = json.loads(path.read_text(encoding="utf-8-sig"))
+        geometries = np.array(
+            [shapely.geometry.shape(f["geometry"]) if f.get("geometry") else None for f in features], dtype=object
+        )
+        ids = [f.get("id") for f in features]
+        types = [(f.get("properties") or {}).get("objectType") for f in features]
+    else:
+        frame = gpd.read_file(path)
+        geometries = frame.geometry.to_numpy()
+        ids = list(frame["id"]) if "id" in frame.columns else [None] * len(frame)
+        types = list(frame["objectType"]) if "objectType" in frame.columns else [None] * len(frame)
+    if all(kind is None for kind in types) and any(i in _QUPATH_CELL_TYPES for i in ids):
+        # QuPath < 0.4 names the object type in the feature id, e.g. `PathCellObject`
+        types, ids = ids, [None] * len(ids)
+    has_ids = any(i is not None and not pd.isna(i) for i in ids)
+    has_types = any(kind is not None for kind in types)
+    return (
+        np.asarray(ids, dtype=object) if has_ids else None,
+        geometries,
+        np.asarray(types, dtype=object) if has_types else None,
+    )
 
 
 def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
@@ -525,12 +670,19 @@ def read_region_tables(
     pixel_sizes
         The pixel size in µm of each region with an image.
     cells_table_kwargs
-        See :func:`read_cell_table`.
+        See :func:`read_cell_table`; ``geojson`` may also be a mapping from region id to path, like ``files``.
 
     Returns
     -------
     The cell tables, one per file.
     """
+    geojson = cells_table_kwargs.get("geojson")
+    geojson_files = resolve_per_region(geojson, selected, available) if geojson is not None else {}
+    if unknown := sorted(geojson_files.keys() - files.keys()):
+        raise ValueError(
+            f"`cells_table_kwargs['geojson']` is given for {unknown}, but the cell tables are given for "
+            f"{list(files)}; pass the GeoJSON files in the same form as the tables."
+        )
     tables = []
     for key, path in files.items():
         covered = selected if key == "*" else [key]
@@ -540,7 +692,7 @@ def read_region_tables(
             fmt,
             pixel_size_um=sizes.pop() if len(sizes) == 1 else None,
             default_region=None if key == "*" else key,
-            cells_table_kwargs=cells_table_kwargs,
+            cells_table_kwargs={**cells_table_kwargs, "geojson": geojson_files.get(key)},
         )
         tables.append(_assign_regions(table, path, key, available, selected))
     return tables
@@ -603,9 +755,7 @@ def read_labels(
     -------
     The labels element.
     """
-    _, labels_models_kwargs = _initialize_raster_models_kwargs({}, labels_models_kwargs)
-    _, defaults = _initialize_raster_models_kwargs({}, {})
-    chunks = spatial_chunks(labels_models_kwargs["chunks"], defaults["chunks"])
+    labels_models_kwargs, chunks = _labels_models_kwargs(labels_models_kwargs)
     image, _, _, _ = read_tiff(path, {}, chunks)
     if not np.issubdtype(image.dtype, np.integer):
         raise ValueError(f"{path} has dtype {image.dtype}; a segmentation mask must have an integer dtype.")
@@ -625,6 +775,13 @@ def read_labels(
     return Labels2DModel.parse(
         image[index], dims=("y", "x"), transformations={"global": transformation}, **labels_models_kwargs
     )
+
+
+def _labels_models_kwargs(labels_models_kwargs: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[int, int]]:
+    """``labels_models_kwargs`` with the reader defaults, and their ``(y, x)`` chunk size."""
+    _, labels_models_kwargs = _initialize_raster_models_kwargs({}, labels_models_kwargs)
+    _, defaults = _initialize_raster_models_kwargs({}, {})
+    return labels_models_kwargs, spatial_chunks(labels_models_kwargs["chunks"], defaults["chunks"])
 
 
 def _ome_channel_names(path: Path) -> list[str]:
@@ -673,6 +830,68 @@ def read_region_labels(
     return labels
 
 
+def polygon_labels(
+    tables: Sequence[CellTable],
+    labels: Mapping[str, DataArray | DataTree],
+    image_shapes: Mapping[str, tuple[int, int]],
+    transformations: Mapping[str, BaseTransformation],
+    labels_models_kwargs: Mapping[str, Any],
+) -> tuple[dict[str, DataArray | DataTree], dict[str, str]]:
+    """Lazily rasterise the cell polygons of each region into labels whose values are the cells' instance ids.
+
+    Where cells overlap, the one with the higher instance id wins. Regions with a mask in ``labels`` keep it, with
+    a warning; regions without an image are skipped, their cells become circles.
+
+    Parameters
+    ----------
+    tables
+        The cell tables; those with ``polygons_px`` are rasterised.
+    labels
+        The labels read from masks, by region id.
+    image_shapes
+        The level-0 ``(y, x)`` shape of each region's image; the labels get the same shape.
+    transformations
+        The transformation to ``"global"`` of each region's image.
+    labels_models_kwargs
+        Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`; their ``chunks`` are the chunks
+        that are rasterised one at a time.
+
+    Returns
+    -------
+    The labels elements by region id, and the GeoJSON file of each.
+    """
+    labels_models_kwargs, chunks = _labels_models_kwargs(labels_models_kwargs)
+    elements, sources = {}, {}
+    for table in tables:
+        if table.polygons_px is None:
+            continue
+        for region, rows in _region_rows(table).items():
+            if region in labels:
+                row_ids = " Its cells' instance ids are row numbers and may not match the mask's values."
+                warnings.warn(
+                    f"Region '{region}' has both a segmentation mask and the cell polygons {table.geojson}; the mask "
+                    f"is used.{row_ids if table.row_instance_ids else ''}",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                continue
+            if region not in image_shapes:
+                logger.info("Region '%s' has no image, so its cell polygons are not rasterised.", region)
+                continue
+            rows = rows[pd.notna(table.polygons_px[rows])]
+            data = rasterize_polygons_lazy(
+                table.polygons_px[rows], table.instance_id.to_numpy()[rows], image_shapes[region], chunks
+            )
+            elements[region] = Labels2DModel.parse(
+                data,
+                dims=("y", "x"),
+                transformations={"global": transformations.get(region, Identity())},
+                **labels_models_kwargs,
+            )
+            sources[region] = str(table.geojson)
+    return elements, sources
+
+
 def raster_shape(element: DataArray | DataTree) -> tuple[int, int]:
     """The level-0 ``(y, x)`` shape of a raster element."""
     data = element["scale0"]["image"] if isinstance(element, DataTree) else element
@@ -706,7 +925,12 @@ def build_cells(
     """
     _check_disjoint_regions(tables)
     row_ids = sorted(
-        region for table in tables if table.row_instance_ids for region in table.region.unique() if region in labels
+        region
+        for table in tables
+        # labels rasterised from a table's polygons have its instance ids by construction
+        if table.row_instance_ids and table.polygons_px is None
+        for region in table.region.unique()
+        if region in labels
     )
     if row_ids:
         warnings.warn(
