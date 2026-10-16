@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
+import pandas as pd
 import tifffile
 import zarr
 from dask.base import tokenize
@@ -204,17 +205,21 @@ def codex(
     }
     table_files = {key: file for key, file in layout.tables.items() if key == "*" or key in selected}
     cell_tables = _read_tables(table_files, layout, selected if regions is not None else None, fcs)
-    tables, shapes = build_cells(cell_tables, {}, {}, transformations) if cell_tables else ({}, {})
+    tables, shapes = build_cells(list(cell_tables.values()), {}, {}, transformations) if cell_tables else ({}, {})
     sdata = SpatialData(images=images, shapes=shapes, tables=tables)
     sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = scans_to_attrs(scans, names)
-    sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value]["cell_tables"] = {key: str(file) for key, file in table_files.items()}
+    sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value]["cell_tables"] = {key: str(table_files[key]) for key in cell_tables}
     return _set_reader_metadata(sdata, "codex")
 
 
 def _read_tables(
     files: Mapping[str, Path], layout: LegacyLayout, regions: Sequence[str] | None, fcs: bool
-) -> list[CellTable]:
-    """Read the cell tables of ``files`` (by region, ``"*"`` for one without a region), keeping only ``regions``."""
+) -> dict[str, CellTable]:
+    """Read the cell tables of ``files`` (by region, ``"*"`` for one without a region), keeping only ``regions``.
+
+    Returns the tables that have cells of ``regions``. A table without a region in its file name that cannot be
+    read, or whose cells cannot be assigned to a region, is skipped with a warning.
+    """
     fallback = [str(file) for file in files.values() if file.suffix.lower() == CodexKeys.FCS_FILE.value]
     if not fcs and fallback:
         warnings.warn(
@@ -222,15 +227,26 @@ def _read_tables(
             UserWarning,
             stacklevel=3,
         )
-    # a table without a region column belongs to the region in its file name, else to the only image
     only_image = next(iter(layout.images)) if len(layout.images) == 1 else None
-    tables = []
+    tables = {}
     for key, file in files.items():
-        table = read_codex_table(file, region=key if key != "*" else only_image)
+        if key != "*":
+            table = read_codex_table(file, region=key)
+        else:
+            # a table without a region in its file name may be any CSV: skip it rather than fail the whole read
+            try:
+                table = read_codex_table(file, region=only_image)
+            except ValueError as e:
+                warnings.warn(f"Ignoring the cell table {file}: {e}", UserWarning, stacklevel=3)
+                continue
+            # next to a single image named after its file (e.g. `Kidney.tif`), its cells belong to that image
+            values = table.region.unique()
+            if only_image is not None and len(values) == 1 and values[0] not in layout.images:
+                table.region = pd.Series(only_image, index=table.region.index, name=table.region.name)
         if regions is not None:
             table = table.take(np.flatnonzero(table.region.isin(regions).to_numpy()))
         if len(table.region):
-            tables.append(table)
+            tables[key] = table
     return tables
 
 
@@ -524,8 +540,8 @@ def _discover_tables(files: Sequence[Path], fcs: bool) -> dict[str, Path]:
         paths = [path for path in paths if rank(path) == best]
         if region == "*" and len(paths) > 1:
             raise ValueError(
-                f"Found several cell tables without a region in their file name: {[str(p) for p in paths]}. "
-                "Pass the one to read as `cells_table=`."
+                f"Found several cell tables without a region in their file name: {[str(p) for p in paths]}; "
+                "the reader cannot choose between them. Pass the path of a directory that contains only one."
             )
         tables[region] = min(paths, key=lambda path: (len(path.parts), str(path)))
     return tables
@@ -537,11 +553,10 @@ def _is_cell_table(path: Path) -> bool:
         return True
     with path.open(encoding="utf-8-sig", errors="replace") as f:
         header = f.readline()
-    columns = [column.strip().strip('"').casefold() for column in header.split(",")]
-    return (
-        bool({"cell_id", "cellid"} & set(columns))
-        or any(_MARKER_COLUMN.match(column) for column in columns)
-        or {"x", "y"} <= set(columns)
+    # the name part of the Processor header form `cyc001_ch001:DAPI1`
+    columns = {column.strip().strip('"').partition(":")[0].casefold() for column in header.split(",")}
+    return {"x", "y"} <= columns and (
+        CodexKeys.INSTANCE_KEY.value in columns or any(_MARKER_COLUMN.fullmatch(column) for column in columns)
     )
 
 

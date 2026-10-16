@@ -140,3 +140,20 @@ def test_dedupe_matches_akoya_convention(tmp_path: Path) -> None:
     write_fcs(tmp_path / "reg001.fcs", _cells(), {"cyc001_ch001": "X", "cyc001_ch002": "X"})
 
     assert list(read_codex_table(tmp_path / "reg001.fcs").var.index) == dedupe_channel_names(["X", "X"])
+
+
+def test_read_codex_fcs_blank_pns_falls_back_to_pnn(tmp_path: Path) -> None:
+    write_fcs(tmp_path / "reg001.fcs", _cells(), {"cyc001_ch001": " ", "cyc001_ch002": "CD3"})
+
+    assert list(read_codex_table(tmp_path / "reg001.fcs").var.index) == ["cyc001_ch001", "CD3"]
+
+
+@pytest.mark.parametrize("different_panels", [False, True])
+def test_build_cells_overlapping_regions_raise(tmp_path: Path, different_panels: bool) -> None:
+    write_fcs(tmp_path / "a.fcs", _cells(region=1))
+    markers = ("cyc001_ch001",) if different_panels else ("cyc001_ch001", "cyc001_ch002")
+    write_fcs(tmp_path / "b.fcs", _cells(region=1, markers=markers))
+    tables = [read_codex_table(tmp_path / name) for name in ("a.fcs", "b.fcs")]
+
+    with pytest.raises(ValueError, match="Several cell tables"):
+        build_cells(tables, {}, {}, {})

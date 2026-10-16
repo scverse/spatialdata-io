@@ -111,7 +111,7 @@ def read_codex_table(path: Path, region: str | None = None) -> CellTable:
     # the Processor CSV header form `cyc001_ch001:DAPI1` (also `cell_id:cell_id`)
     split = [name.partition(":") for name in names]
     df.columns = pd.Index([name for name, _, _ in split])
-    displays = [label or display or name for (name, _, display), label in zip(split, labels, strict=True)]
+    displays = [label.strip() or display or name for (name, _, display), label in zip(split, labels, strict=True)]
 
     marker_matches = [_MARKER_COLUMN.fullmatch(column) for column in df.columns]
     if any(marker_matches):
@@ -199,6 +199,7 @@ def build_cells(
     The table elements, ``{"table": ...}`` if all tables have the same markers, else ``{"<region>_table": ...}``
     per region, and the circle shapes by element name. The circles have the cells' area (radius 1 px without one).
     """
+    _check_disjoint_regions(tables)
     pieces = _split_by_region(tables) if len({tuple(table.var.index) for table in tables}) > 1 else None
 
     def element(region: str) -> str:
@@ -240,14 +241,17 @@ def _region_rows(table: CellTable) -> dict[str, np.ndarray]:
     return {str(region): np.flatnonzero(codes == i) for i, region in enumerate(regions)}
 
 
-def _split_by_region(tables: Sequence[CellTable]) -> dict[str, CellTable]:
-    pieces = {}
+def _check_disjoint_regions(tables: Sequence[CellTable]) -> None:
+    seen: set[str] = set()
     for table in tables:
-        for region, rows in _region_rows(table).items():
-            if region in pieces:
-                raise ValueError(f"Several cell tables contain region '{region}'.")
-            pieces[region] = table.take(rows)
-    return pieces
+        regions = set(table.region.unique())
+        if overlap := seen & regions:
+            raise ValueError(f"Several cell tables contain the cells of region(s) {sorted(overlap)}.")
+        seen |= regions
+
+
+def _split_by_region(tables: Sequence[CellTable]) -> dict[str, CellTable]:
+    return {region: table.take(rows) for table in tables for region, rows in _region_rows(table).items()}
 
 
 def _to_anndata(tables: Sequence[CellTable], element: Callable[[str], str]) -> ad.AnnData:
