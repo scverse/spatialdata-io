@@ -81,7 +81,8 @@ def test_read_codex_csv_colon_header(tmp_path: Path) -> None:
     assert list(table.var.index) == ["DAPI1", "CD3"]
     assert list(table.var["source_column"]) == ["cyc001_ch001:DAPI1", "cyc001_ch002:CD3"]
     np.testing.assert_array_equal(table.X, np.array([[100.5, 7], [200.5, 8]], dtype=np.float32))
-    assert list(table.obs.columns) == ["cell_id", "region", "x", "y", "size"]
+    # the columns read as the instance ids and regions are replaced by the keys of the table element
+    assert list(table.obs.columns) == ["x", "y", "size"]
     assert list(table.region) == ["reg002", "reg002"]
     np.testing.assert_array_equal(table.centroids_px, [[10, 20], [11, 21]])
 
@@ -94,7 +95,7 @@ def test_read_codex_csv_marker_name_columns(tmp_path: Path) -> None:
 
     assert list(table.var.index) == ["CD3", "CD8"]
     assert "cycle" not in table.var.columns
-    assert list(table.obs.columns) == ["cell_id", "x", "y", "tile_num", "label"]
+    assert list(table.obs.columns) == ["x", "y", "tile_num", "label"]
     assert list(table.region) == ["Kidney"]
     assert table.radius_px is None
 

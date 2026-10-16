@@ -380,6 +380,44 @@ def test_generic_columns_clashing_with_reserved_keys(tmp_path: Path, header: str
     assert read_zarr(tmp_path / "x.zarr").tables["table"].n_obs == 2
 
 
+@pytest.mark.parametrize(
+    ("header", "row", "fmt", "kwargs"),
+    [
+        (
+            "CELL,X,Y,CD3,region,cell_id",
+            "{i},1,2,3,other,{source}",
+            "generic",
+            {"x": "X", "y": "Y", "instance_id": "CELL"},
+        ),
+        ("CellID,DAPI,CD3,X_centroid,Y_centroid,Area,region,cell_id", "{i},1,2,3,4,5,other,{source}", "mcquant", {}),
+    ],
+)
+def test_extra_region_and_cell_id_columns_are_kept(
+    tmp_path: Path, header: str, row: str, fmt: str, kwargs: dict[str, object]
+) -> None:
+    # columns named like the region and instance keys, but not read as them, keep their values as `source_<name>`
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    rows = "\n".join(row.format(i=i, source=100 + i) for i in (1, 2))
+    (tmp_path / "cells.csv").write_text(f"{header}\n{rows}\n")
+    if fmt == "generic":
+        kwargs = {**kwargs, "markers": ["CD3"]}
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(
+            tmp_path,
+            cells_table=tmp_path / "cells.csv",
+            cells_table_format=fmt,
+            image_models_kwargs=_FAST,
+            cells_table_kwargs=kwargs,
+        )
+
+    obs = sdata.tables["table"].obs
+    assert list(obs["region"]) == ["S_cells", "S_cells"]
+    assert list(obs["cell_id"]) == [1, 2]
+    assert list(obs["source_region"]) == ["other", "other"]
+    assert list(obs["source_cell_id"]) == [101, 102]
+
+
 def test_qupath_without_markers_warns(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
     (tmp_path / "cells.tsv").write_text("Object ID\tCentroid X px\tCentroid Y px\nu1\t1\t2\n", encoding="utf-8")

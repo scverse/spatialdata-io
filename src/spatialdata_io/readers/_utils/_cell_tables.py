@@ -236,7 +236,7 @@ def read_codex_table(path: Path, region: str | None = None) -> CellTable:
         )
     region_ids.name = region_key
     return CellTable(
-        obs=obs,
+        obs=_drop_key_columns(obs, columns.get(instance_key), columns.get(region_key)),
         X=X,
         var=var,
         region=region_ids,
@@ -728,7 +728,7 @@ def _from_frame(
         )
     region.name = CodexKeys.REGION_KEY.value
 
-    obs = df.drop(columns=markers)
+    obs = _drop_key_columns(df.drop(columns=markers), instance_column, region_column)
     obs.index = index
     radius = None
     if area_column is not None:
@@ -743,6 +743,15 @@ def _from_frame(
         radius_px=radius,
         row_instance_ids=instance_column is None,
     )
+
+
+def _drop_key_columns(obs: pd.DataFrame, instance_column: str | None, region_column: str | None) -> pd.DataFrame:
+    """Drop the instance id and region columns if they are named like the keys whose values replace them.
+
+    Any other column named like a key keeps its values as ``source_<name>`` in the table element.
+    """
+    consumed = {CodexKeys.INSTANCE_KEY.value: instance_column, CodexKeys.REGION_KEY.value: region_column}
+    return obs.drop(columns=[key for key, column in consumed.items() if column == key])
 
 
 def _read_header(path: Path) -> tuple[list[str], str]:
@@ -1196,10 +1205,10 @@ def _to_anndata(tables: Sequence[CellTable], element: Callable[[str], str]) -> a
     """Concatenate cell tables with the same markers into one table annotating the elements of their regions."""
     region_key, instance_key = CodexKeys.REGION_KEY.value, CodexKeys.INSTANCE_KEY.value
     obs = pd.concat([table.obs for table in tables]) if len(tables) > 1 else tables[0].obs.copy()
-    # the region and instance keys are set below; other columns that would clash with them (spatialdata names are
-    # case-insensitively unique, e.g. `Cell ID` -> `Cell_ID` vs `cell_id`) keep their values under `source_<name>`
+    # the region and instance keys are set below; the adapters dropped the columns they were read from, and other
+    # columns that would clash with them (also case-insensitively, as spatialdata requires, e.g. `Cell ID` ->
+    # `Cell_ID` vs `cell_id`) keep their values under `source_<name>`
     reserved = {region_key, instance_key}
-    obs = obs.drop(columns=[column for column in obs.columns if column in reserved])
     obs = obs.rename(
         columns={
             column: f"source_{column}"
