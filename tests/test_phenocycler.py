@@ -641,6 +641,32 @@ def test_single_qupath_table_many_regions(tmp_path: Path) -> None:
     assert read_zarr(tmp_path / "x.zarr").tables["table"].n_obs == 2
 
 
+@pytest.mark.parametrize("unit", ["px", "µm"])
+def test_single_qupath_table_matches_raw_names_of_sanitised_regions(tmp_path: Path, unit: str) -> None:
+    # the region ids are sanitised (`A_[1,2]` -> `A__1_2_`), the table's `Image` column holds the raw file names
+    for name in ("A_[1,2]", "B [3,4]"):
+        write_qptiff(tmp_path / f"{name}.qptiff", biomarkers=["DAPI"])
+    header = f"Image\tObject ID\tCentroid X {unit}\tCentroid Y {unit}\tCD3: Cell: Mean"
+    rows = ["A_[1,2].qptiff\tu1\t5\t5\t1", "B [3,4].qptiff\tu2\t10\t10\t2"]
+    (tmp_path / "cells.tsv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+    table = sdata.tables["table"]
+    assert list(table.obs["region"]) == ["A__1_2__cells", "B__3_4__cells"]
+    scale = 1 / 0.5069 if unit == "µm" else 1
+    np.testing.assert_allclose(np.asarray(table.obsm["spatial"]), np.array([[5, 5], [10, 10]]) * scale)
+
+
+def test_regions_colliding_after_sanitising_raise(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "A [1].qptiff", biomarkers=["DAPI"])
+    write_qptiff(tmp_path / "A_[1].qptiff", biomarkers=["DAPI"])
+
+    with pytest.raises(ValueError, match=r"same region\(s\) \['A__1_'\]"):
+        phenocycler(tmp_path, image_models_kwargs=_FAST)
+
+
 def test_single_qupath_table_regions_with_different_pixel_sizes(tmp_path: Path) -> None:
     # scans of the same instrument differ in the 4th decimal; each cell is converted with its own scan's pixel size
     sizes = {"A": 0.5069, "B": 0.5079}

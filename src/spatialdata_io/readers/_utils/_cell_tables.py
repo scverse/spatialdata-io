@@ -1104,10 +1104,15 @@ def _assign_regions(
 
 
 def _match_region(value: str, regions: Sequence[str]) -> str | None:
-    """The region named by ``value``: equal to it, else the longest one it starts with before a non-alphanumeric."""
-    if value in regions:
-        return value
-    prefixes = [r for r in regions if value.startswith(r) and not value[len(r)].isalnum()]
+    """The region named by ``value``: equal to it, else the longest one it starts with before a non-alphanumeric.
+
+    ``value`` is also matched after :func:`spatialdata.sanitize_name`, as the region ids are, so that e.g. the
+    QuPath ``Image`` value ``A_[1,2].qptiff`` names the region ``A__1_2_``.
+    """
+    candidates = list(dict.fromkeys((value, sanitize_name(value))))
+    if exact := next((candidate for candidate in candidates if candidate in regions), None):
+        return exact
+    prefixes = [r for r in regions for c in candidates if c.startswith(r) and not c[len(r)].isalnum()]
     return max(prefixes, key=len, default=None)
 
 

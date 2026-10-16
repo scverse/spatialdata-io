@@ -38,8 +38,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   mask pixels, by the same factor; the source columns in `obs` are kept as read. Other shape mismatches still warn.
 - `phenocycler()` officially supports the PerkinElmer/Akoya QPTIFFs of Vectra Polaris and PhenoImager HT (generation
   `"qpi_other"`): Opal and unmixed (uint16) scans, brightfield RGB scans (channels `r`, `g`, `b`) and inForm component
-  data (float32). A single `.tif` file is accepted if it is a QPI file. Characters of a file name that are not valid in
-  an element name (e.g. the `[x,y]` of inForm tiles) are replaced by `_` in the region id.
+  data (float32). A single `.tif` file is accepted if it is a QPI file. Region ids are made valid element names with
+  `spatialdata.sanitize_name` (e.g. the `[x,y]` of inForm tiles: `A_[1,2]` becomes `A__1_2_`); the region column of a
+  cell table may hold the raw file names.
 - The Akoya cell-table adapters read real QuPath, inForm and mcquant exports without column mapping: R-exported
   QuPath names (`Object.ID`, `Centroid.X.um`, `<marker>_<compartment>_Mean`), QuPath `X`/`Y` centroids (in the unit
   of the other measurements with a warning, or `cells_table_kwargs["coordinates_unit"]`) with bare marker names

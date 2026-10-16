@@ -78,8 +78,9 @@ def phenocycler(
     in a ``raw/images/phenocycler/`` folder below ``path``) are ignored. File suffixes are matched ignoring case.
 
     The region name is the file name without the ``{vx.ER_QPTIFF_SUFFIX!r}``/``{vx.QPTIFF_SUFFIX!r}`` suffix and
-    without a trailing ``_Scan<N>``, unless that makes two regions share a name; characters other than letters, digits,
-    ``_``, ``.`` and ``-`` are replaced by ``_``. Each region is stored as the image
+    without a trailing ``_Scan<N>``, unless that makes two regions share a name, made a valid element name by
+    :func:`spatialdata.sanitize_name` (characters other than letters, digits, ``_``, ``.`` and ``-`` are replaced by
+    ``_``, e.g. ``A_[1,2]`` becomes ``A__1_2_``). Each region is stored as the image
     ``<region>{vx.IMAGE_SUFFIX}``. A single region is stored in the ``"global"`` coordinate system. Several regions
     of the same sample space (scanned on the same slide, with stage positions and equal pixel sizes) are placed at
     their stage positions in ``"global"``; otherwise the regions are unrelated and each is stored in its own
@@ -122,8 +123,8 @@ def phenocycler(
     cells_table
         A cell table: a path, or a mapping from region id to path, e.g. ``{{"A": "A_cells.csv"}}``. A single path
         for several regions needs a region column (``Image`` for QuPath, ``region`` for CODEX tables, else
-        ``cells_table_kwargs["region_column"]``); its values are matched to the region ids, e.g.
-        ``A_Scan1.qptiff`` to ``A``.
+        ``cells_table_kwargs["region_column"]``); its values are matched to the region ids, also after
+        :func:`spatialdata.sanitize_name`, e.g. ``A_Scan1.qptiff`` to ``A`` and ``A_[1,2].qptiff`` to ``A__1_2_``.
     cells_table_format
         The format of ``cells_table``: ``"auto"`` (detected from the header), ``"codex"`` (CODEX Processor),
         ``"qupath"`` (QuPath measurements; µm centroids are converted with the region's pixel size), ``"mcquant"``
