@@ -622,7 +622,10 @@ def test_qupath_xy_centroids_and_bare_markers(tmp_path: Path) -> None:
     path.write_text("\r\n".join([_QUPATH_XY_HEADER, *rows]) + "\r\n", encoding="utf-8")
 
     assert detect_table_format(path) == "qupath"
-    with pytest.warns(UserWarning, match=r"reading the 3 other numeric columns \['CD44', 'HLA-DR-AF647', 'CD45RO'\]"):
+    with (
+        pytest.warns(UserWarning, match=r"reading the 3 other numeric columns \['CD44', 'HLA-DR-AF647', 'CD45RO'\]"),
+        pytest.warns(UserWarning, match=r"'X' and 'Y' .* name no unit; reading them in um.*coordinates_unit"),
+    ):
         table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
 
     # the other measurements are in µm, so the centroids are too
@@ -642,7 +645,7 @@ def test_qupath_xy_centroids_and_bare_markers(tmp_path: Path) -> None:
             "qupath",
             pixel_size_um=0.5,
             default_region=None,
-            cells_table_kwargs={"region_column": "Parent", "markers": ["CD44", "CD45RO"]},
+            cells_table_kwargs={"region_column": "Parent", "markers": ["CD44", "CD45RO"], "coordinates_unit": "um"},
         )
     assert list(table.region) == ["A-1", "A-2"]
     assert list(table.var.index) == ["CD44", "CD45RO"]
@@ -672,17 +675,19 @@ def test_cells_outside_the_image_warn(tmp_path: Path) -> None:
         )
 
 
-def _write_inform_seg_maps(path: Path, shape: tuple[int, int] = (16, 24)) -> np.ndarray:
+def _write_inform_seg_maps(
+    path: Path, shape: tuple[int, int] = (16, 24), first: str = "TissueClassMap", compartments: int = 3
+) -> np.ndarray:
     # inForm `*_binary_seg_maps.tif`: the tissue class map, then one page per compartment, each with its XML
-    pages = np.stack([np.full(shape, i, dtype=np.uint16) for i in range(4)])
     descriptions = [
-        '<?xml version="1.0" encoding="utf-16"?>\n<TissueClassMap>\n <Version>1</Version>\n</TissueClassMap>',
+        f'<?xml version="1.0" encoding="utf-16"?>\n<{first}>\n <Version>1</Version>\n</{first}>',
         *(
             '<?xml version="1.0" encoding="utf-16"?>\n<SegmentationImage>\n <Version>1</Version>\n'
             f" <CompartmentType>{compartment}</CompartmentType>\n</SegmentationImage>"
-            for compartment in ("Nucleus", "Cytoplasm", "Membrane")
+            for compartment in ("Nucleus", "Cytoplasm", "Membrane")[:compartments]
         ),
     ]
+    pages = np.stack([np.full(shape, i, dtype=np.uint16) for i in range(len(descriptions))])
     with tifffile.TiffWriter(path) as tw:
         for page, description in zip(pages, descriptions, strict=True):
             tw.write(page, description=description, metadata=None)
@@ -700,6 +705,56 @@ def test_read_labels_inform_seg_maps(tmp_path: Path, mask_channel: int | str | N
     np.testing.assert_array_equal(labels.values, pages[expected])
     with pytest.raises(ValueError, match=r"'Tissue', 'Nucleus', 'Cytoplasm', 'Membrane'"):
         read_labels(path, {}, {"global": Identity()}, mask_channel="cells")
+
+
+def test_read_labels_inform_seg_maps_other_pages(tmp_path: Path) -> None:
+    # pages are named by their XML root tag; the nuclei are the default without a tissue class map too
+    path = tmp_path / "S_binary_seg_maps.tif"
+    pages = _write_inform_seg_maps(path, first="ProcessRegionMap", compartments=2)
+
+    labels = read_labels(path, {"scale_factors": None}, {"global": Identity()})
+
+    np.testing.assert_array_equal(labels.values, pages[1])
+    with pytest.raises(ValueError, match=r"\['ProcessRegionMap', 'Nucleus', 'Cytoplasm'\]"):
+        read_labels(path, {}, {"global": Identity()}, mask_channel="Membrane")
+
+
+@pytest.mark.parametrize(
+    ("header", "x", "y"), [("object_id,x,y,CD3", "x", "y"), ("Object Id,XMin,XMax,cx,cy,CD3", "cx", "cy")]
+)
+def test_object_id_lookalikes_stay_generic(tmp_path: Path, header: str, x: str, y: str) -> None:
+    # only QuPath's own `Object ID` (or R's `Object.ID`) makes a QuPath table, e.g. not HALO's `Object Id`
+    path = tmp_path / "cells.csv"
+    row = "7,10,5,2" if header.startswith("object_id") else "7,0,20,10,5,2"
+    path.write_text(f"{header}\n{row}\n", encoding="utf-8")
+
+    assert detect_table_format(path) == "generic"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        table = read_cell_table(
+            path, "auto", pixel_size_um=0.5, default_region="S", cells_table_kwargs={"x": x, "y": y}
+        )
+
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[10, 5]])
+    assert "CD3" in table.var.index
+
+
+def test_auto_with_centroid_kwargs_is_generic(tmp_path: Path) -> None:
+    # user-given centroid columns win over the detected format
+    path = tmp_path / "measurements.tsv"
+    _write_qupath(path)
+
+    table = read_cell_table(
+        path,
+        "auto",
+        pixel_size_um=0.5,
+        default_region=None,
+        cells_table_kwargs={"x": "Centroid X µm", "y": "Centroid Y µm", "region_column": "Image", "markers": "CD.*"},
+    )
+
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[10, 5], [20, 15]])
 
 
 def test_unknown_format_raises(tmp_path: Path) -> None:

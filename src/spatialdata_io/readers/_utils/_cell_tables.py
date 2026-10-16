@@ -95,6 +95,8 @@ _QUPATH_MEASUREMENT = re.compile(r"(?:Cell|Nucleus|Cytoplasm|Membrane)\b|.*: ")
 _QUPATH_UNIT = re.compile(r" (µm|um|px)(?:\^2)?$")
 _QUPATH_IMAGE = "Image"
 _QUPATH_ID = "Object ID"
+# QuPath's centroid columns by unit; R's `make.names` writes `Centroid X µm` as `Centroid.X.um`
+_QUPATH_CENTROIDS = {"um": ("Centroid X µm", "Centroid Y µm"), "px": ("Centroid X px", "Centroid Y px")}
 # the QuPath object types of cells; other features of a GeoJSON export (e.g. annotations) are not cells
 _QUPATH_CELL_TYPES = frozenset({"cell", "detection", "PathCellObject", "PathDetectionObject"})
 # inForm `*_cell_seg_data.txt` columns: `Cell X Position (microns)`, `Entire Cell <marker> Mean (<unit>)`, ...
@@ -103,10 +105,12 @@ _INFORM_MARKER = re.compile(r"Entire Cell (.+) Mean(?: \(.*\))?")
 _INFORM_AREA = re.compile(r"Entire Cell Area \((.*)\)")
 # the unit of an inForm measurement, e.g. `Tissue Category Area (square microns)`
 _INFORM_UNIT = re.compile(r"\((?:square )?(microns|pixels)\)$")
-# the pages of an inForm `*_binary_seg_maps.tif`: the tissue class map, then one per compartment
-_INFORM_TISSUE_MAP = "<TissueClassMap>"
+# the pages of an inForm `*_binary_seg_maps.tif`, named by the root tag of their XML description: the tissue class
+# map `<TissueClassMap>` (named `Tissue`), and a `<SegmentationImage>` per compartment (named after the compartment)
+_INFORM_XML_ROOT = re.compile(r"<([A-Za-z][\w-]*)")
+_INFORM_SEGMENTATION = "SegmentationImage"
 _INFORM_COMPARTMENT = re.compile(r"<CompartmentType>\s*(\w+)\s*</CompartmentType>")
-_INFORM_TISSUE_PAGE = "Tissue"
+_INFORM_PAGE_NAMES = {"TissueClassMap": "Tissue"}
 # the default mask of an inForm segmentation map: the nuclei carry the `Cell ID` of every cell
 _INFORM_DEFAULT_MASK = "Nucleus"
 _INFORM_REGION = "Sample Name"
@@ -118,6 +122,8 @@ _SPRM_CENTERS_SUFFIX = "-cell_centers.csv"
 _CENTROID_TOLERANCE_PX = 1.0
 # the largest fraction of matched polygons that may be far from their centroids before the match is rejected
 _MAX_MISPLACED_FRACTION = 0.05
+# the largest fraction of a region's cells that may lie outside its image without a warning
+_MAX_OUTSIDE_FRACTION = 0.05
 
 
 @dataclass
@@ -292,9 +298,9 @@ def detect_table_format(path: Path) -> str:
     Returns
     -------
     ``"codex"`` (FCS, or ``x``/``y`` with ``cell_id`` or ``cycCCC_chHHH`` columns), ``"qupath"`` (``Centroid X µm``,
-    ``Centroid X px`` or ``Object ID``, ignoring case and punctuation as in R's ``Centroid.X.um``), ``"mcquant"`` (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``, optionally
-    followed by its unit in parentheses),
-    ``"sprm"`` (first column ``ID``), else ``"generic"``.
+    ``Centroid X px`` or ``Object ID``, also in R's ``make.names`` form, e.g. ``Centroid.X.um``), ``"mcquant"``
+    (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``, optionally followed by its unit in
+    parentheses), ``"sprm"`` (first column ``ID``), else ``"generic"``.
     """
     if path.suffix.lower() == CodexKeys.FCS_FILE.value:
         return "codex"
@@ -305,7 +311,8 @@ def detect_table_format(path: Path) -> str:
         CodexKeys.INSTANCE_KEY.value in names or any(_MARKER_COLUMN.fullmatch(name) for name in names)
     ):
         return "codex"
-    if {"centroidxum", "centroidxpx", _column_key(_QUPATH_ID)} & {_column_key(column) for column in columns}:
+    qupath = {_QUPATH_ID, *(name for names in _QUPATH_CENTROIDS.values() for name in names)}
+    if qupath & set(_qupath_names(columns)):
         return "qupath"
     if {"CellID", "X_centroid"} <= set(columns):
         return "mcquant"
@@ -331,15 +338,16 @@ def read_cell_table(
     path
         The cell table.
     fmt
-        One of ``"auto"`` (see :func:`detect_table_format`), ``"codex"``, ``"qupath"``, ``"mcquant"``,
+        One of ``"auto"`` (see :func:`detect_table_format`; ``"generic"`` if ``cells_table_kwargs`` has ``x`` and
+        ``y``), ``"codex"``, ``"qupath"``, ``"mcquant"``,
         ``"sprm"``, ``"inform"`` or ``"generic"``:
 
             - ``"codex"``: see :func:`read_codex_table`.
-            - ``"qupath"``: a QuPath measurement export. Column names are matched ignoring case, spaces and
-              punctuation, so R's ``make.names`` forms (``Centroid.X.um``, ``Object.ID``) are read too. Centroids
-              ``Centroid X µm``/``Centroid Y µm`` (divided by ``pixel_size_um``) or ``Centroid X px``/``Centroid Y
-              px``, else ``X``/``Y`` in ``coordinates_unit`` or, without it, in the unit of the other measurements
-              (e.g. ``Cell: Area µm^2``; QuPath writes all of them in one unit), raising if that is not unique.
+            - ``"qupath"``: a QuPath measurement export, also with R's ``make.names`` column names
+              (``Centroid.X.um``, ``Object.ID``). Centroids ``Centroid X µm``/``Centroid Y µm`` (divided by
+              ``pixel_size_um``) or ``Centroid X px``/``Centroid Y px``, else ``X``/``Y`` in ``coordinates_unit``
+              or, without it, in the unit of the other measurements (e.g. ``Cell: Area µm^2``) with a
+              `UserWarning`, raising if that is not unique.
               Instance ids from a numeric ``Object ID``, else the row number (from 1); the region from the
               ``Image`` column. The markers are ``markers``, else the ``<marker>: <compartment>: Mean`` columns
               (also ``<marker>..<compartment>..Mean`` and ``<marker>_<compartment>_Mean``), one per marker from
@@ -381,9 +389,9 @@ def read_cell_table(
         number, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
         default: all other numeric columns; also for ``"qupath"`` tables) and ``coordinates_unit`` (``"px"``,
         default, or ``"um"``; for ``"qupath"`` and ``"inform"`` tables the unit of centroid columns whose name
-        has none); for ``"qupath"`` tables ``geojson`` (the GeoJSON file of the cell outlines) and ``geojson_units`` (the unit of
-        its coordinates, ``"px"`` of the full-resolution image, default and what QuPath writes, or ``"um"``). The
-        key ``mask_channel`` is used by :func:`read_labels`.
+        has none); for ``"qupath"`` tables ``geojson`` (the GeoJSON file of the cell outlines) and
+        ``geojson_units`` (the unit of its coordinates, ``"px"`` of the full-resolution image, default and what
+        QuPath writes, or ``"um"``). The key ``mask_channel`` is used by :func:`read_labels`.
 
     Returns
     -------
@@ -393,7 +401,8 @@ def read_cell_table(
     if unknown:
         raise ValueError(f"`cells_table_kwargs` has unknown key(s) {unknown}; expected some of {CELLS_TABLE_KWARGS}.")
     if fmt == "auto":
-        fmt = detect_table_format(path)
+        # centroid columns given by the user make a generic table
+        fmt = "generic" if {"x", "y"} <= cells_table_kwargs.keys() else detect_table_format(path)
         logger.info("Reading %s as a %r cell table.", path, fmt)
     if fmt != "qupath" and cells_table_kwargs.get("geojson") is not None:
         raise ValueError(f"`cells_table_kwargs['geojson']` is only read with QuPath cell tables; {path} is {fmt!r}.")
@@ -464,15 +473,18 @@ def _row_pixel_sizes(
     return values.map(sizes_by_value).to_numpy(dtype=np.float64)
 
 
-def _column_key(column: str) -> str:
-    """``column`` without case, punctuation and spaces, ``µ`` as ``u``: QuPath's ``Centroid X µm`` is R's ``Centroid.X.um``."""
-    return re.sub(r"[^0-9a-z]", "", column.replace("µ", "u").replace("μ", "u").casefold())
+def _qupath_names(columns: Sequence[str]) -> dict[str, str]:
+    """The columns by their QuPath name: as written, or undoing R's ``make.names`` (``Centroid.X.um``)."""
+    names = {}
+    for column in columns:
+        name = column.replace(".", " ")
+        names[name.removesuffix(" um") + " µm" if name.endswith(" um") else name] = column
+    return names | {column: column for column in columns}
 
 
 def _object_id_column(columns: Sequence[str]) -> str | None:
     """The QuPath ``Object ID`` column (also R's ``Object.ID``), or `None`."""
-    key = _column_key(_QUPATH_ID)
-    return next((column for column in columns if _column_key(column) == key), None)
+    return _qupath_names(columns).get(_QUPATH_ID)
 
 
 def _find_geojson(table_path: Path) -> Path | None:
@@ -636,10 +648,10 @@ def _read_geojson(path: Path) -> tuple[np.ndarray | None, np.ndarray, np.ndarray
 
 
 def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
-    columns = {_column_key(column): column for column in df.columns}
-    unit = next((unit for unit in ("um", "px") if f"centroidx{unit}" in columns), None)
-    x_key, y_key = ("x", "y") if unit is None else (f"centroidx{unit}", f"centroidy{unit}")
-    x, y = columns.get(x_key), columns.get(y_key)
+    columns = _qupath_names(list(df.columns))
+    unit = next((unit for unit, (x_name, _) in _QUPATH_CENTROIDS.items() if x_name in columns), None)
+    x_name, y_name = ("X", "Y") if unit is None else _QUPATH_CENTROIDS[unit]
+    x, y = columns.get(x_name), columns.get(y_name)
     if x is None or y is None:
         raise ValueError(
             f"{path} has no centroid columns ('Centroid X µm' and 'Centroid Y µm', 'Centroid X px' and "
@@ -651,7 +663,7 @@ def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
     object_id = _object_id_column(list(df.columns))
     instance_column = object_id if object_id is not None and pd.api.types.is_integer_dtype(df[object_id]) else None
     region_column = kwargs.get("region_column", _QUPATH_IMAGE if _QUPATH_IMAGE in df.columns else None)
-    area = columns.get(f"cellarea{unit}2")
+    area = columns.get(f"Cell: Area {'µm' if unit == 'um' else 'px'}^2")
     roles = {x, y, object_id, region_column, area}
 
     compartments: dict[str, dict[str, str]] = {}
@@ -711,7 +723,12 @@ def _qupath_xy_unit(path: Path, columns: list[str], kwargs: Mapping[str, Any]) -
             "`cells_table_kwargs['coordinates_unit']` to 'px' or 'um'."
         )
     unit = units.pop()
-    logger.info("Reading the centroids 'X' and 'Y' of %s in %s, the unit of its other measurements.", path, unit)
+    warnings.warn(
+        f"The centroid columns 'X' and 'Y' of {path} name no unit; reading them in {unit}, the unit of its other "
+        "measurements. Set `cells_table_kwargs['coordinates_unit']` to 'px' or 'um' to choose it.",
+        UserWarning,
+        stacklevel=6,
+    )
     return unit
 
 
@@ -1124,12 +1141,12 @@ def read_labels(
         raise ValueError(f"{path} has dtype {image.dtype}; a segmentation mask must have an integer dtype.")
 
     n_masks = image.shape[0]
-    names = _mask_channel_names(path, n_masks)
+    names, inform = _mask_channel_names(path, n_masks)
     if isinstance(mask_channel, str):
         if mask_channel not in names:
             raise ValueError(f"{path} has no mask channel {mask_channel!r}; its channel names are {names}.")
         index = names.index(mask_channel)
-    elif mask_channel is None and _INFORM_TISSUE_PAGE in names and _INFORM_DEFAULT_MASK in names:
+    elif mask_channel is None and inform and _INFORM_DEFAULT_MASK in names:
         index = names.index(_INFORM_DEFAULT_MASK)
         logger.info(
             "%s is an inForm segmentation map %s; reading %r. Set `mask_channel` to choose another.",
@@ -1155,21 +1172,31 @@ def _labels_models_kwargs(labels_models_kwargs: Mapping[str, Any]) -> tuple[dict
     return labels_models_kwargs, spatial_chunks(labels_models_kwargs["chunks"], defaults["chunks"])
 
 
-def _mask_channel_names(path: Path, n_masks: int) -> list[str]:
-    """The OME channel names of a mask file, else the page names of an inForm segmentation map, else ``[]``."""
+def _mask_channel_names(path: Path, n_masks: int) -> tuple[list[str], bool]:
+    """The channel names of a mask file and whether it is an inForm segmentation map.
+
+    The names are the OME channel names, else for an inForm segmentation map (a file with a ``<SegmentationImage>``
+    page) the page names, see :func:`_inform_page_name`, else ``[]``.
+    """
     with tifffile.TiffFile(path) as tf:
         if tf.ome_metadata:
-            return _ome_channel_names(tf.ome_metadata)
+            return _ome_channel_names(tf.ome_metadata), False
         if len(tf.pages) != n_masks:
-            return []
-        descriptions = [str(tf.pages[i].description) for i in range(n_masks)]  # type: ignore[union-attr]
-    names = [
-        _INFORM_TISSUE_PAGE
-        if _INFORM_TISSUE_MAP in description
-        else (match.group(1) if (match := _INFORM_COMPARTMENT.search(description)) is not None else None)
-        for description in descriptions
-    ]
-    return [str(name) for name in names] if all(name is not None for name in names) else []
+            return [], False
+        descriptions = [str(tf.pages[i].description or "") for i in range(n_masks)]  # type: ignore[union-attr]
+    roots = [match.group(1) if (match := _INFORM_XML_ROOT.search(d)) else None for d in descriptions]
+    if _INFORM_SEGMENTATION not in roots:
+        return [], False
+    return [_inform_page_name(d, root, i) for i, (d, root) in enumerate(zip(descriptions, roots, strict=True))], True
+
+
+def _inform_page_name(description: str, root: str | None, index: int) -> str:
+    """The compartment of a ``<SegmentationImage>`` page, else its XML root tag (``Tissue`` for the tissue map)."""
+    if (compartment := _INFORM_COMPARTMENT.search(description)) is not None:
+        return compartment.group(1)
+    if root is not None:
+        return _INFORM_PAGE_NAMES.get(root, root)
+    return f"page {index}"
 
 
 def _ome_channel_names(ome_metadata: str) -> list[str]:
@@ -1574,14 +1601,14 @@ def _check_cells_in_images(tables: Sequence[CellTable], image_shapes: Mapping[st
             centroids = centroids[np.isfinite(centroids).all(axis=1)]
             height, width = image_shapes[region]
             outside = int(np.count_nonzero(((centroids < 0) | (centroids > [width, height])).any(axis=1)))
-            if outside > _MAX_MISPLACED_FRACTION * len(centroids):
+            if outside > _MAX_OUTSIDE_FRACTION * len(centroids):
                 warnings.warn(
                     f"{outside} of the {len(centroids)} cells of region '{region}' lie outside its image ({width} x "
                     f"{height} px): the table's coordinates are in another unit (see "
                     "`cells_table_kwargs['coordinates_unit']`) or relative to another origin (e.g. inForm positions "
                     "in microns, which may be relative to the slide).",
                     UserWarning,
-                    stacklevel=3,
+                    stacklevel=4,
                 )
 
 

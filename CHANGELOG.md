@@ -42,15 +42,19 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   an element name (e.g. the `[x,y]` of inForm tiles) are replaced by `_` in the region id.
 - The Akoya cell-table adapters read real QuPath, inForm and mcquant exports without column mapping: R-exported
   QuPath names (`Object.ID`, `Centroid.X.um`, `<marker>_<compartment>_Mean`), QuPath `X`/`Y` centroids (in the unit
-  of the other measurements, or `cells_table_kwargs["coordinates_unit"]`) with bare marker names (read with a
-  warning, or chosen with `cells_table_kwargs["markers"]`), and inForm tables whose `Cell X Position` names no unit
-  (read in the unit of the other columns, e.g. microns) or whose column names have trailing spaces. An inForm
-  `*_binary_seg_maps.tif` given as `labels` reads its nuclei page (the `Cell ID`s) by default, and `mask_channel`
-  accepts its page names (`"Tissue"`, `"Nucleus"`, `"Cytoplasm"`, `"Membrane"`). QuPath GeoJSON cells without a
-  table row are skipped with a warning, and a region whose cells lie mostly outside its image raises a warning.
+  of the other measurements with a warning, or `cells_table_kwargs["coordinates_unit"]`) with bare marker names
+  (read with a warning, or chosen with `cells_table_kwargs["markers"]`), and inForm column names with trailing
+  spaces. `mask_channel` accepts the page names of an inForm `*_binary_seg_maps.tif` (`"Tissue"`, `"Nucleus"`,
+  `"Cytoplasm"`, `"Membrane"`). QuPath GeoJSON cells without a table row are skipped with a warning, and a region
+  whose cells lie mostly outside its image raises a warning.
 
 ### Changed
 
+- inForm cell tables whose `Cell X Position` names no unit are read in the unit of their other columns (e.g.
+  microns, divided by the pixel size), no longer always in pixels; `cells_table_kwargs["coordinates_unit"]` sets it.
+- An inForm `*_binary_seg_maps.tif` given as `labels` reads its `Nucleus` page (whose labels are the `Cell ID`s) by
+  default, not its first page (the tissue class map).
+- With `x` and `y` in `cells_table_kwargs`, `cells_table_format="auto"` reads a generic table.
 - Adopted the current `cookiecutter-scverse` template: `hatch`-managed test environments, `uv`-based CI and
   documentation builds, `mypy` type checking of `src` and `tests`, `biome`/`pyproject-fmt`/`zizmor` pre-commit hooks,
   and Dependabot updates.

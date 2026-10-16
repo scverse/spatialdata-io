@@ -193,13 +193,14 @@ def codex(
         Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
         ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath tables) and
         ``coordinates_unit`` (``"px"`` or ``"um"``; for QuPath ``X``/``Y`` and inForm ``Cell X Position`` columns
-        without a unit, which are otherwise read in the unit of the table's other columns); ``mask_channel``
-        (index or channel name of the mask in a multi-channel ``labels`` file: an OME channel name, or for an
-        inForm ``*_binary_seg_maps.tif`` ``"Tissue"``, ``"Nucleus"`` (the default there, its labels are the
-        ``Cell ID`` of every cell), ``"Cytoplasm"`` or ``"Membrane"``); for QuPath tables ``geojson`` (the GeoJSON export of the cell outlines, a path or a mapping from region id
-        to path like ``cells_table``; default ``<table stem>.geojson`` or ``<table stem>_cells.geojson`` next to
-        the table) and ``geojson_units`` (``"px"`` of the full-resolution image, default and what QuPath writes,
-        or ``"um"``).
+        without a unit, which are otherwise read in the unit of the table's other columns); with ``x`` and ``y``,
+        ``cells_table_format="auto"`` reads a generic table. ``mask_channel`` (index or channel name of the mask in
+        a multi-channel ``labels`` file: an OME channel name, or for an inForm ``*_binary_seg_maps.tif``
+        ``"Tissue"``, ``"Nucleus"`` (the default there, its labels are the ``Cell ID`` of every cell),
+        ``"Cytoplasm"`` or ``"Membrane"``); for QuPath tables ``geojson`` (the GeoJSON export of the cell
+        outlines, a path or a mapping from region id to path like ``cells_table``; default ``<table stem>.geojson``
+        or ``<table stem>_cells.geojson`` next to the table) and ``geojson_units`` (``"px"`` of the
+        full-resolution image, default and what QuPath writes, or ``"um"``).
 
     Returns
     -------

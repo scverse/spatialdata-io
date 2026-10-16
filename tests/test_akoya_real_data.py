@@ -1,15 +1,17 @@
 """Tests of the Akoya readers on real public datasets.
 
 They run only when the environment variable ``AKOYA_TEST_DATA`` points to a directory holding the files below (paths
-relative to it). The files are public (Zenodo, Figshare, BioImage Archive, Dryad, GitHub, the MCMICRO bucket) but too large to download
-in CI.
+relative to it). The files are public (Zenodo, Figshare, BioImage Archive, Dryad, GitHub, the MCMICRO bucket) but
+too large to download in CI.
 """
 
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import dask.array as da
 import numpy as np
@@ -19,6 +21,9 @@ from spatialdata.models import get_channel_names
 
 from spatialdata_io import codex, phenocycler
 from spatialdata_io.readers._utils._cell_tables import detect_table_format, read_cell_table
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _ROOT = os.environ.get("AKOYA_TEST_DATA")
 
@@ -273,16 +278,23 @@ def _export(relative: str) -> Path:
     return path
 
 
+def _assert_cells_inside_images(caught: Iterable[warnings.WarningMessage]) -> None:
+    assert not [w for w in caught if "outside its image" in str(w.message)]
+
+
 def test_real_inform_table_with_seg_maps_and_component_data() -> None:
     # inForm 2.3 (github.com/akoyabio/phenoptr): positions in pixels, the `Cell ID`s are the labels of page 1 (nuclei)
     # of the segmentation map; page 0 is the tissue class map
     image = _export(f"{_PHENOPTR}_component_data.tif")
 
-    sdata = phenocycler(
-        image,
-        cells_table=_export(f"{_PHENOPTR}_cell_seg_data.txt"),
-        labels=_export(f"{_PHENOPTR}_binary_seg_maps.tif"),
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        sdata = phenocycler(
+            image,
+            cells_table=_export(f"{_PHENOPTR}_cell_seg_data.txt"),
+            labels=_export(f"{_PHENOPTR}_binary_seg_maps.tif"),
+        )
+    _assert_cells_inside_images(caught)
 
     region = "Set4_1-6plex__16142_55840__component_data"
     table = sdata.tables["table"]
@@ -334,8 +346,9 @@ def test_real_qupath_r_exported_coordinates_with_geojson(tmp_path: Path) -> None
     assert pd.notna(table.polygons_px).all()
     assert len(table.obs) == 9415
 
-    # joined on the object id, the measurements are the markers, from the `Cell` compartment (`DAPI_Cell_Mean`); the
-    # expression file alone has no centroids in QuPath's form (its `Y_coord` is negated)
+    # joined on the object id, the measurements are the markers: 30 markers in the `Cell` compartment (also 27
+    # `Cytoplasm`, 27 `Membrane`, 3 `Nucleus`), the first one taken; the expression file alone has no centroids in
+    # QuPath's form (its `X_coord`/`Y_coord` are µm, `Y_coord` negated)
     joined = tmp_path / "C-7.csv"
     pd.read_csv(coords).merge(pd.read_csv(expression), on="Object.ID", validate="1:1").to_csv(joined, index=False)
     with pytest.warns(UserWarning, match="116 of the 9531 cell features"):
@@ -370,8 +383,9 @@ def test_real_mcquant_table_with_ome_tiff() -> None:
     image = _export(f"{_EXPORTS}/s3_mcmicro_exemplar001/exemplar-001-cycle6.ome.tif")
     cells = _export(f"{_EXPORTS}/s3_mcmicro_exemplar001/unmicst-exemplar-001_cell.csv")
 
-    with pytest.warns(UserWarning, match="cells are represented as circles"):
+    with pytest.warns(UserWarning, match="cells are represented as circles") as caught:
         sdata = codex(image, cells_table=cells)
+    _assert_cells_inside_images(caught)
 
     table = sdata.tables["table"]
     assert table.shape == (11170, 12)
