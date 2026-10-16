@@ -277,7 +277,10 @@ def _is_acquisition_file(path: Path) -> bool:
 
 
 def _read_sidecars(scan: AkoyaScan) -> None:
-    """Store the ``.xpd`` and ``*channels.csv`` sidecars of ``scan`` in ``scan.raw`` and check their channel count."""
+    """Store the ``.xpd`` and ``*channels.csv`` sidecars of ``scan`` in ``scan.raw`` and check their channel count.
+
+    The sidecars are metadata only, so one that cannot be read is ignored with a warning.
+    """
     base = _base_name(scan.path)
     xpd = _find_sidecar(scan.path, base, PhenocyclerKeys.XPD_SUFFIX)
     protocol = read_json_object(xpd) if xpd is not None else None
@@ -285,14 +288,26 @@ def _read_sidecars(scan: AkoyaScan) -> None:
         scan.raw["xpd"] = protocol
         # an .xpd has the layout of the Fusion scan profile's `experimentDescription`
         markers = [marker for marker, _ in _fusion_profile_records({"experimentDescription": protocol})]
-        _check_channel_count(scan, xpd, markers)
+        if markers:
+            _check_channel_count(scan, xpd, markers)
+        elif protocol.get("wells") is not None:
+            warnings.warn(
+                f"{xpd.name} has no readable markers in its 'wells', so its channel count is not checked.",
+                UserWarning,
+                stacklevel=3,
+            )
 
     channels_csv = _find_sidecar(scan.path, base, PhenocyclerKeys.CHANNELS_CSV_SUFFIX)
     if channels_csv is not None:
-        with channels_csv.open(newline="") as f:
-            rows = list(csv.DictReader(f))
+        try:
+            with channels_csv.open(encoding="utf-8-sig", newline="") as f:
+                rows = list(csv.DictReader(f))
+        except (UnicodeDecodeError, csv.Error) as e:
+            warnings.warn(f"Ignoring {channels_csv}: it is not a UTF-8 CSV file ({e}).", UserWarning, stacklevel=3)
+            return
         scan.raw["channels_csv"] = rows
-        column = next((key for key in (rows[0] if rows else {}) if key.strip().casefold() == "marker"), None)
+        header = rows[0] if rows else {}
+        column = next((key for key in header if isinstance(key, str) and key.strip().casefold() == "marker"), None)
         if column is not None:
             markers = [row[column] for row in rows if row[column] and not _is_blank(row[column])]
             _check_channel_count(scan, channels_csv, markers)

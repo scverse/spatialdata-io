@@ -203,10 +203,13 @@ def select_regions(available: Sequence[str], regions: str | Sequence[str] | None
 
 
 def read_json_object(path: Path) -> dict[str, Any] | None:
-    """Read a JSON object from ``path``; warn and return ``None`` if the file is not valid JSON or not an object."""
+    """Read a JSON object from ``path``; warn and return ``None`` if the file is not valid UTF-8 JSON or not an object.
+
+    A UTF-8 byte order mark, as written by some Windows tools, is ignored.
+    """
     try:
-        content = json.loads(path.read_text())
-    except json.JSONDecodeError as e:
+        content = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
         warnings.warn(f"Ignoring {path}: it is not valid JSON ({e}).", UserWarning, stacklevel=2)
         return None
     if not isinstance(content, dict):

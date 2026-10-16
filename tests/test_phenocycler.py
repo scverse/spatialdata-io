@@ -182,6 +182,62 @@ def test_invalid_xpd_warns_and_is_ignored(tmp_path: Path) -> None:
     assert "xpd" not in sdata.attrs["akoya"]["regions"]["S"]["raw"]
 
 
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        (json.dumps({"wells": [{"items": ["DAPI"]}]}).encode(), "no readable markers"),
+        (json.dumps({"wells": "x"}).encode(), "no readable markers"),
+        (json.dumps({"wells": [{"items": [{"markerName": "DAPI"}]}]}).encode("utf-16"), "not valid"),
+    ],
+    ids=["items-not-objects", "wells-not-a-list", "utf-16"],
+)
+def test_malformed_xpd_warns_and_image_is_read(tmp_path: Path, content: bytes, match: str) -> None:
+    path = tmp_path / "S_Scan1.qptiff"
+    data = write_qptiff(path, biomarkers=["DAPI"])
+    (tmp_path / "S_Scan1.xpd").write_bytes(content)
+
+    with pytest.warns(UserWarning, match=match) as record:
+        sdata = phenocycler(path, image_models_kwargs=_FAST)
+
+    assert not any("distinct markers" in str(warning.message) for warning in record)
+    np.testing.assert_array_equal(_level0(sdata, "S_image").values, data)
+
+
+def test_xpd_without_wells_is_kept_without_warning(tmp_path: Path) -> None:
+    path = tmp_path / "S_Scan1.qptiff"
+    write_qptiff(path, biomarkers=["DAPI"])
+    # a UTF-8 byte order mark, as Windows tools write it
+    (tmp_path / "S_Scan1.xpd").write_text(json.dumps({"formatType": "Protein"}), encoding="utf-8-sig")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        sdata = phenocycler(path, image_models_kwargs=_FAST)
+
+    assert sdata.attrs["akoya"]["regions"]["S"]["raw"]["xpd"] == {"formatType": "Protein"}
+
+
+def test_channels_csv_with_byte_order_mark(tmp_path: Path) -> None:
+    path = tmp_path / "S_Scan1.qptiff"
+    write_qptiff(path, biomarkers=["DAPI", "CD3"])
+    (tmp_path / "S_Scan1.qptiff.channels.csv").write_text("Marker\nDAPI\nCD3\nCD8\n", encoding="utf-8-sig")
+
+    with pytest.warns(UserWarning, match="channels.csv lists 3 distinct markers"):
+        sdata = phenocycler(path, image_models_kwargs=_FAST)
+
+    assert sdata.attrs["akoya"]["regions"]["S"]["raw"]["channels_csv"][0] == {"Marker": "DAPI"}
+
+
+def test_unreadable_channels_csv_warns_and_is_ignored(tmp_path: Path) -> None:
+    path = tmp_path / "S_Scan1.qptiff"
+    write_qptiff(path, biomarkers=["DAPI"])
+    (tmp_path / "S_Scan1.qptiff.channels.csv").write_bytes("Marker\nDAPI\n".encode("utf-16"))
+
+    with pytest.warns(UserWarning, match="Ignoring"):
+        sdata = phenocycler(path, image_models_kwargs=_FAST)
+
+    assert "channels_csv" not in sdata.attrs["akoya"]["regions"]["S"]["raw"]
+
+
 def test_empty_dir_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="\\*.qptiff"):
         phenocycler(str(tmp_path))

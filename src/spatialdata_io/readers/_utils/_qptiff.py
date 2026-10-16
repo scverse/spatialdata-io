@@ -306,11 +306,15 @@ def _channel(xml: ET.Element, index: int, page_index: int) -> AkoyaChannel:
 
 
 def _fusion_profile_records(profile: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    """``(marker, fields)`` per item of the Fusion ``experimentDescription.wells``; one well per cycle."""
+    """``(marker, fields)`` per item of the Fusion ``experimentDescription.wells``; one well per cycle.
+
+    Wells and items that are not JSON objects, and ``wells``/``items`` that are not lists, are skipped.
+    """
     records = []
-    wells = profile.get("experimentDescription", {}).get("wells", [])
-    for cycle, well in enumerate(wells, start=1):
-        for channel, item in enumerate(well.get("items", []), start=1):
+    description = profile.get("experimentDescription")
+    wells = description.get("wells") if isinstance(description, dict) else None
+    for cycle, well in enumerate(_objects(wells), start=1):
+        for channel, item in enumerate(_objects(well.get("items")), start=1):
             marker = item.get("markerName")
             if not isinstance(marker, str) or _is_blank(marker):
                 continue
@@ -336,6 +340,14 @@ def _fusion_profile_records(profile: dict[str, Any]) -> list[tuple[str, dict[str
                 )
             )
     return records
+
+
+def _objects(value: Any) -> list[dict[str, Any]]:
+    """The entries of ``value`` if it is a list, else none; entries that are not objects become empty objects.
+
+    They are kept as empty objects so that the cycle and channel indices still count every entry.
+    """
+    return [entry if isinstance(entry, dict) else {} for entry in value] if isinstance(value, list) else []
 
 
 def _experiment_v4_records(experiment: ET.Element) -> list[tuple[str, dict[str, Any]]]:
