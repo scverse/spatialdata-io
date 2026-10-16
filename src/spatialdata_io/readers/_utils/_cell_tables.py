@@ -74,6 +74,7 @@ CELLS_TABLE_KWARGS = (
     "region_column",
     "markers",
     "coordinates_unit",
+    "coordinates_space",
     "mask_channel",
     "geojson",
     "geojson_units",
@@ -150,8 +151,9 @@ class CellTable:
         The radius of a circle with the cell's area, or `None` if the table has no area.
     mask_pixels
         Whether ``centroids_px`` and ``radius_px`` are in pixels of the segmentation mask (pixel coordinates of
-        mask-based pipelines: mcquant, SPRM, ``"generic"`` in ``"px"``) rather than of the image; they are scaled
-        to image pixels when the mask is a downsample of the image, see :func:`build_spatialdata`.
+        mask-based pipelines: mcquant, SPRM, ``"generic"`` with ``coordinates_space="mask"``) rather than of the
+        image; they are scaled to image pixels when the mask is a downsample of the image, see
+        :func:`build_spatialdata`.
     row_instance_ids
         Whether the instance ids are row numbers because the table has no instance id column.
     polygons_px
@@ -389,7 +391,9 @@ def read_cell_table(
         number, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
         default: all other numeric columns; also for ``"qupath"`` tables) and ``coordinates_unit`` (``"px"``,
         default, or ``"um"``; for ``"qupath"`` and ``"inform"`` tables the unit of centroid columns whose name
-        has none); for ``"qupath"`` tables ``geojson`` (the GeoJSON file of the cell outlines) and
+        has none) and ``coordinates_space`` (the pixels of ``"px"`` centroids: ``"image"``, default, those of the
+        full-resolution region image, or ``"mask"``, those of the region's mask, scaled to image pixels like the
+        ``"mcquant"`` and ``"sprm"`` centroids if the mask is downsampled); for ``"qupath"`` tables ``geojson`` (the GeoJSON file of the cell outlines) and
         ``geojson_units`` (the unit of its coordinates, ``"px"`` of the full-resolution image, default and what
         QuPath writes, or ``"um"``). The key ``mask_channel`` is used by :func:`read_labels`.
 
@@ -406,6 +410,10 @@ def read_cell_table(
         logger.info("Reading %s as a %r cell table.", path, fmt)
     if fmt != "qupath" and cells_table_kwargs.get("geojson") is not None:
         raise ValueError(f"`cells_table_kwargs['geojson']` is only read with QuPath cell tables; {path} is {fmt!r}.")
+    if fmt != "generic" and cells_table_kwargs.get("coordinates_space") is not None:
+        raise ValueError(
+            f"`cells_table_kwargs['coordinates_space']` is only used with generic cell tables; {path} is {fmt!r}."
+        )
     if fmt == "codex":
         return read_codex_table(path, region=default_region)
     if fmt not in TABLE_FORMATS:
@@ -423,7 +431,9 @@ def read_cell_table(
         "generic": _generic_roles,
     }[fmt]
     roles = reader(path, df, cells_table_kwargs)
-    mask_pixels = fmt in {"mcquant", "sprm"} or (fmt == "generic" and not roles["in_um"])
+    mask_pixels = fmt in {"mcquant", "sprm"}
+    if fmt == "generic":
+        mask_pixels = _coordinates_space(path, roles["in_um"], cells_table_kwargs) == "mask"
     units = cells_table_kwargs.get("geojson_units", "px")
     row_pixel_sizes = None
     if roles["in_um"] or (fmt == "qupath" and units == "um"):
@@ -742,6 +752,19 @@ def _coordinates_unit(kwargs: Mapping[str, Any]) -> str:
     if unit not in ("px", "um"):
         raise ValueError(f"`cells_table_kwargs['coordinates_unit']` must be 'px' or 'um', got {unit!r}.")
     return str(unit)
+
+
+def _coordinates_space(path: Path, in_um: bool, kwargs: Mapping[str, Any]) -> str:
+    """``cells_table_kwargs['coordinates_space']`` of a generic table: ``"image"`` (the default) or ``"mask"``."""
+    space = kwargs.get("coordinates_space", "image")
+    if space not in ("image", "mask"):
+        raise ValueError(f"`cells_table_kwargs['coordinates_space']` must be 'image' or 'mask', got {space!r}.")
+    if space == "mask" and in_um:
+        raise ValueError(
+            f"`cells_table_kwargs['coordinates_space']` is 'mask', but the centroids of {path} are in µm; mask "
+            "pixels need `cells_table_kwargs['coordinates_unit']` 'px'."
+        )
+    return str(space)
 
 
 def _select_markers(df: pd.DataFrame, selection: str | Sequence[str] | None, exclude: set[str | None]) -> list[str]:

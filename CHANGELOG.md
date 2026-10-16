@@ -34,8 +34,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   of the `.er` region. By default only the extended-range file is read.
 - The Akoya readers (`phenocycler()`, `codex()`) scale a segmentation mask downsampled from its region image by an
   integer factor (exactly, or rounded up) onto the image (a `Scale` before the region's transformation), and scale
-  the centroids (`obsm["spatial"]`) and circle radii of `mcquant`, SPRM and generic pixel tables, taken to be in
-  mask pixels, by the same factor; the source columns in `obs` are kept as read. Other shape mismatches still warn.
+  the centroids (`obsm["spatial"]`) and circle radii of `mcquant` and SPRM tables, which are in mask pixels, by the
+  same factor; the source columns in `obs` are kept as read. Generic pixel tables are in image pixels unless
+  `cells_table_kwargs["coordinates_space"]="mask"`. Other shape mismatches warn.
 - `phenocycler()` officially supports the PerkinElmer/Akoya QPTIFFs of Vectra Polaris and PhenoImager HT (generation
   `"qpi_other"`): Opal and unmixed (uint16) scans, brightfield RGB scans (channels `r`, `g`, `b`) and inForm component
   data (float32). A single `.tif` file is accepted if it is a QPI file. Region ids are made valid element names with
@@ -45,17 +46,15 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   QuPath names (`Object.ID`, `Centroid.X.um`, `<marker>_<compartment>_Mean`), QuPath `X`/`Y` centroids (in the unit
   of the other measurements with a warning, or `cells_table_kwargs["coordinates_unit"]`) with bare marker names
   (read with a warning, or chosen with `cells_table_kwargs["markers"]`), and inForm column names with trailing
-  spaces. `mask_channel` accepts the page names of an inForm `*_binary_seg_maps.tif` (`"Tissue"`, `"Nucleus"`,
-  `"Cytoplasm"`, `"Membrane"`). QuPath GeoJSON cells without a table row are skipped with a warning, and a region
-  whose cells lie mostly outside its image raises a warning.
+  spaces; an inForm `Cell X Position` that names no unit is read in the unit of the table's other columns (e.g.
+  microns, divided by the pixel size), or in `cells_table_kwargs["coordinates_unit"]`. `mask_channel` accepts the
+  page names of an inForm `*_binary_seg_maps.tif` (`"Tissue"`, `"Nucleus"`, `"Cytoplasm"`, `"Membrane"`); such a
+  file reads its `Nucleus` page (whose labels are the `Cell ID`s) by default. With `x` and `y` in
+  `cells_table_kwargs`, `cells_table_format="auto"` reads a generic table. QuPath GeoJSON cells without a table row
+  are skipped with a warning, and a region whose cells lie mostly outside its image raises a warning.
 
 ### Changed
 
-- inForm cell tables whose `Cell X Position` names no unit are read in the unit of their other columns (e.g.
-  microns, divided by the pixel size), no longer always in pixels; `cells_table_kwargs["coordinates_unit"]` sets it.
-- An inForm `*_binary_seg_maps.tif` given as `labels` reads its `Nucleus` page (whose labels are the `Cell ID`s) by
-  default, not its first page (the tissue class map).
-- With `x` and `y` in `cells_table_kwargs`, `cells_table_format="auto"` reads a generic table.
 - Adopted the current `cookiecutter-scverse` template: `hatch`-managed test environments, `uv`-based CI and
   documentation builds, `mypy` type checking of `src` and `tests`, `biome`/`pyproject-fmt`/`zizmor` pre-commit hooks,
   and Dependabot updates.
@@ -68,13 +67,11 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
     (previously `cycCCC_chHHH`); the image channels are named too.
   - The positional signature `codex(path, fcs, imread_kwargs)` is unchanged; all new parameters (`regions`,
     `channel_names`, `cells_table`, `cells_table_format`, `labels` and the `*_models_kwargs` / `cells_table_kwargs`)
-    are keyword-only. An empty `regions` raises a `ValueError`. `imread_kwargs` is only used by the
-    `dask_image.imread` fallback for TIFFs that `tifffile` cannot read lazily.
+    are keyword-only, and the `codex` CLI command exposes them. An empty `regions` raises a `ValueError`.
+    `imread_kwargs` is only used by the `dask_image.imread` fallback for TIFFs that `tifffile` cannot read lazily.
   - A single region is stored in `"global"`. Several regions are placed at their stage positions in `"global"` only
     when all of them share a sample space (same slide id, stage positions and pixel size); otherwise each region,
     including multi-region reads of unrelated regions, gets its own coordinate system named after the region.
-  - New parameters `channel_names`, `cells_table`, `cells_table_format`, `labels`, `image_models_kwargs`,
-    `labels_models_kwargs` and `cells_table_kwargs`; the `codex` CLI command exposes them.
   - `channelNames.txt` and `experiment.json` are found in any case (e.g. SPACEc's `channelnames.txt`); CSV files
     that are not CODEX Processor cell tables are ignored, also when their name holds a region id.
   - A CIM `.qptiff` without `regNNN` in its name is named as `phenocycler()` names it (without the suffix and a

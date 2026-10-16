@@ -927,6 +927,46 @@ def test_mask_downsample_keeps_image_pixel_centroids(tmp_path: Path) -> None:
     np.testing.assert_allclose(sdata.tables["table"].obsm["spatial"], [[100, 50], [200, 80]])
 
 
+@pytest.mark.parametrize(("space", "factor"), [(None, 1), ("image", 1), ("mask", 2)])
+def test_generic_px_table_coordinates_space(tmp_path: Path, space: str | None, factor: int) -> None:
+    # generic pixel centroids are in image pixels unless `coordinates_space="mask"`
+    write_qptiff(tmp_path / "S.qptiff", biomarkers=["DAPI"], shape=(64, 80))
+    mask = np.zeros((32, 40), dtype=np.uint32)
+    mask[2:4, 2:4], mask[5:7, 5:7] = 1, 2
+    tifffile.imwrite(tmp_path / "mask.tif", mask)
+    (tmp_path / "cells.csv").write_text("label,cx,cy,CD3\n1,6,6,1\n2,12,12,2\n")
+    kwargs = {"x": "cx", "y": "cy", "instance_id": "label"}
+    if space is not None:
+        kwargs["coordinates_space"] = space
+
+    sdata = phenocycler(
+        tmp_path,
+        cells_table=tmp_path / "cells.csv",
+        labels=tmp_path / "mask.tif",
+        image_models_kwargs={"scale_factors": [2]},
+        cells_table_kwargs=kwargs,
+    )
+
+    np.testing.assert_allclose(sdata.tables["table"].obsm["spatial"], np.array([[6, 6], [12, 12]]) * factor)
+
+
+@pytest.mark.parametrize(
+    ("fmt", "kwargs", "match"),
+    [
+        ("generic", {"coordinates_space": "labels"}, "must be 'image' or 'mask'"),
+        ("generic", {"coordinates_space": "mask", "coordinates_unit": "um"}, "in µm"),
+        ("mcquant", {"coordinates_space": "image"}, "only used with generic"),
+    ],
+)
+def test_bad_coordinates_space_raises(tmp_path: Path, fmt: str, kwargs: dict[str, str], match: str) -> None:
+    path = tmp_path / "cells.csv"
+    path.write_text("CellID,CD3,X_centroid,Y_centroid\n1,1,6,6\n")
+    kwargs = {"x": "X_centroid", "y": "Y_centroid", **kwargs} if fmt == "generic" else kwargs
+
+    with pytest.raises(ValueError, match=match):
+        read_cell_table(path, fmt, pixel_size_um=0.5, default_region="S", cells_table_kwargs=kwargs)
+
+
 def test_mask_non_integer_mismatch_warns(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"], shape=(64, 80))
     tifffile.imwrite(tmp_path / "mask.tif", np.zeros((48, 60), dtype=np.uint32))

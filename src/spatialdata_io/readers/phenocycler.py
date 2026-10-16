@@ -136,11 +136,11 @@ def phenocycler(
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
         mapping from region id to path. A mask whose shape is the region image's divided by an integer factor ``f``
         (exactly, or rounded up) is scaled onto the image (``Scale([f, f])`` before the region's transformation);
-        any other shape mismatch raises a warning. The pixel centroids of ``"mcquant"``, ``"sprm"`` and
-        ``"generic"`` (``"px"``) tables are taken to be in mask pixels, so their centroids (``obsm["spatial"]``) and
-        circle radii are scaled by ``f`` to image pixels; the source columns in ``obs`` are kept as read (mask
-        pixels). To avoid this for a generic table in image pixels, use ``coordinates_unit="um"`` or a
-        full-resolution mask.
+        any other shape mismatch raises a warning. The pixel centroids of ``"mcquant"`` and ``"sprm"`` tables
+        are taken to be in mask pixels, so their centroids (``obsm["spatial"]``) and circle radii are scaled by
+        ``f`` to image pixels; the source columns in ``obs`` are kept as read (mask pixels). The pixel centroids of
+        other tables are in image pixels and are not scaled; ``cells_table_kwargs["coordinates_space"]="mask"``
+        scales those of a ``"generic"`` table too.
     read_all_bit_depths
         If `True`, a scan that exists as both ``X{vx.QPTIFF_SUFFIX}`` (8-bit) and ``X{vx.ER_QPTIFF_SUFFIX}``
         (extended range, e.g. uint16) is read from both files: the extended-range file as region ``X`` and the
@@ -153,9 +153,11 @@ def phenocycler(
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
     cells_table_kwargs
         Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
-        ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath tables) and
+        ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath tables),
         ``coordinates_unit`` (``"px"`` or ``"um"``; for QuPath ``X``/``Y`` and inForm ``Cell X Position`` columns
-        without a unit, which are otherwise read in the unit of the table's other columns); with ``x`` and ``y``,
+        without a unit, which are otherwise read in the unit of the table's other columns) and
+        ``coordinates_space`` (``"image"``, default, or ``"mask"``: whether the pixel centroids of a generic table
+        are in pixels of the region image or of its mask, see ``labels``); with ``x`` and ``y``,
         ``cells_table_format="auto"`` reads a generic table. ``mask_channel`` (index or channel name of the mask in
         a multi-channel ``labels`` file: an OME channel name, or for an inForm ``*_binary_seg_maps.tif``
         ``"Tissue"``, ``"Nucleus"`` (the default there, its labels are the ``Cell ID`` of every cell),
