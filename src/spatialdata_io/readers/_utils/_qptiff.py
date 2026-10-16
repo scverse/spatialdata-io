@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import tifffile
-import zarr
 
 from spatialdata_io._constants._constants import PhenocyclerKeys
+from spatialdata_io.readers._utils._akoya import lazy_tiff_array
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -134,8 +134,8 @@ def read_qptiff_metadata(path: Path, region: str | None = None) -> AkoyaScan:
 def read_qptiff_image(path: Path) -> da.Array:
     """Lazily read the full-resolution image of a PerkinElmer/Akoya QPTIFF.
 
-    The array keeps the native tile chunks of the file. The underlying ``TiffFile`` stays open for as long as
-    the returned array (its zarr store holds the file handle), so it is intentionally not closed here.
+    The array keeps the native tile chunks of the file, opens the file only when its chunks are read and can be
+    pickled, e.g. for ``dask.distributed``.
 
     Parameters
     ----------
@@ -146,27 +146,27 @@ def read_qptiff_image(path: Path) -> da.Array:
     -------
     ``(c, y, x)`` array, or ``(y, x, 3)`` for a brightfield RGB scan.
     """
-    tf = _open_qpi(path)
-    full_res = [
-        i
-        for i in range(len(tf.pages))
-        if _text(_parse_description(_page(tf, i).description), "ImageType") == _FULL_RESOLUTION
-    ]
-    if not full_res:
-        tf.close()
-        raise ValueError(f"{path} has no page with <ImageType>{_FULL_RESOLUTION}</ImageType>.")
-    first = _page(tf, full_res[0])
-    if len(full_res) == 1 and first.samplesperpixel == 3:
-        expected_shape: tuple[int, ...] = first.shape
-    else:
-        expected_shape = (len(full_res), *first.shape)
+    with _open_qpi(path) as tf:
+        full_res = [
+            i
+            for i in range(len(tf.pages))
+            if _text(_parse_description(_page(tf, i).description), "ImageType") == _FULL_RESOLUTION
+        ]
+        if not full_res:
+            raise ValueError(f"{path} has no page with <ImageType>{_FULL_RESOLUTION}</ImageType>.")
+        first = _page(tf, full_res[0])
+        page_shape = first.shape
+        if len(full_res) == 1 and first.samplesperpixel == 3:
+            expected_shape: tuple[int, ...] = page_shape
+        else:
+            expected_shape = (len(full_res), *page_shape)
 
-    image = da.from_zarr(zarr.open(tf.series[0].aszarr(level=0), mode="r"))
+    image = lazy_tiff_array(path, series=0)
     if image.shape == expected_shape:
         return image
     # tifffile groups pages into series by shape heuristics; fall back to the pages the XML says are full-res
-    pages = [da.from_zarr(zarr.open(_page(tf, i).aszarr(), mode="r")) for i in full_res]
-    return pages[0] if len(expected_shape) == first.ndim else da.stack(pages)
+    pages = [lazy_tiff_array(path, page=i) for i in full_res]
+    return pages[0] if len(expected_shape) == len(page_shape) else da.stack(pages)
 
 
 def qpi_pixel_size_um(page: tifffile.TiffPage) -> float | None:

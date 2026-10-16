@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import json
+import pickle
 from pathlib import Path
 
 import dask.array as da
 import numpy as np
 import pytest
+import tifffile
 from spatialdata.transformations import Identity, Translation, get_transformation
 
 from spatialdata_io.readers._utils._akoya import (
     apply_channel_names,
     build_image_element,
     dedupe_channel_names,
+    read_tiff,
     region_transformations,
     scans_to_attrs,
     select_regions,
@@ -143,6 +146,21 @@ def test_select_regions_invalid_raises(regions: object, error: type[Exception], 
 def test_select_regions_unknown_raises():
     with pytest.raises(ValueError, match="'c'.*Available.*a.*b"):
         select_regions(["a", "b"], ["c"])
+
+
+@pytest.mark.parametrize("compression", [None, "zlib"])
+def test_read_tiff_is_picklable(tmp_path: Path, compression: str | None) -> None:
+    # compressed tiles are read through tifffile's zarr store, uncompressed data is memory-mapped
+    path = tmp_path / "x.tif"
+    data = np.arange(2 * 64 * 96, dtype=np.uint16).reshape(2, 64, 96)
+    tifffile.imwrite(path, data, compression=compression, tile=(32, 32) if compression else None)
+
+    image, _, _, read_by_tifffile = read_tiff(path, {}, (16, 16))
+
+    assert read_by_tifffile
+    restored = pickle.loads(pickle.dumps(image))
+    np.testing.assert_array_equal(restored[0, :8, :8].compute(), data[0, :8, :8])
+    np.testing.assert_array_equal(restored.compute(), data)
 
 
 def test_build_image_rgb_and_multiplex():

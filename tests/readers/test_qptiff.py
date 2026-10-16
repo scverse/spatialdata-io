@@ -1,4 +1,6 @@
+import gc
 import json
+import pickle
 import warnings
 from pathlib import Path
 
@@ -8,6 +10,7 @@ import pytest
 import tifffile
 from tests._akoya_data import cim_experiment_v4_xml, fusion_scan_profile_json, write_qptiff
 
+from spatialdata_io.readers._utils import _qptiff
 from spatialdata_io.readers._utils._qptiff import read_qptiff_image, read_qptiff_metadata
 
 
@@ -184,6 +187,36 @@ def test_image_is_lazy_and_correct(tmp_path: Path, dtype: str, name: str) -> Non
     assert arr.chunksize != arr.shape
     assert arr.dtype == np.dtype(dtype)
     assert np.array_equal(arr.compute(), written)
+
+
+def test_image_is_picklable_and_closes_its_file(tmp_path: Path) -> None:
+    # dask.distributed and process-based schedulers pickle the graph, so it must not hold open file handles
+    p = tmp_path / "x.qptiff"
+    written = write_qptiff(p, biomarkers=["DAPI", "CD3"])
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always", ResourceWarning)
+        arr = read_qptiff_image(p)
+        restored = pickle.loads(pickle.dumps(arr))
+        np.testing.assert_array_equal(restored[0, :8, :8].compute(), written[0, :8, :8])
+        np.testing.assert_array_equal(arr.compute(), written)
+        del arr, restored
+        gc.collect()
+    assert not [warning for warning in record if issubclass(warning.category, ResourceWarning)]
+
+
+def test_image_pages_are_picklable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # the per-page fallback, used when tifffile's series do not match the full-resolution pages of the XML
+    p = tmp_path / "x.qptiff"
+    written = write_qptiff(p, biomarkers=["DAPI", "CD3"])
+    real = _qptiff.lazy_tiff_array
+
+    def wrong_series(path: Path, *, series: int = 0, page: int | None = None) -> da.Array:
+        return real(path, series=series, page=page) if page is not None else da.zeros((1, 1, 1))
+
+    monkeypatch.setattr(_qptiff, "lazy_tiff_array", wrong_series)
+    arr = read_qptiff_image(p)
+    assert arr.shape == written.shape
+    np.testing.assert_array_equal(pickle.loads(pickle.dumps(arr))[1, :8, :8].compute(), written[1, :8, :8])
 
 
 def test_three_channel_not_rgb(tmp_path: Path) -> None:

@@ -20,8 +20,12 @@ _ROOT = os.environ.get("AKOYA_TEST_DATA")
 
 pytestmark = [
     pytest.mark.skipif(_ROOT is None, reason="set AKOYA_TEST_DATA to the directory of the real Akoya datasets"),
-    # upstream noise unrelated to the readers: the open TIFF handles of lazy images, ome-zarr's deprecated `Scaler`
-    pytest.mark.filterwarnings("ignore::ResourceWarning", "ignore:Call to deprecated class Scaler"),
+    # upstream noise unrelated to the readers: ome-zarr's deprecated `Scaler`; unclosed files must not be left behind
+    pytest.mark.filterwarnings(
+        "ignore:Call to deprecated class Scaler",
+        "error::ResourceWarning",
+        "error::pytest.PytestUnraisableExceptionWarning",
+    ),
 ]
 
 

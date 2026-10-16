@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 import warnings
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -33,6 +34,7 @@ __all__ = [
     "apply_channel_names",
     "build_image_element",
     "dedupe_channel_names",
+    "lazy_tiff_array",
     "normalize_regions",
     "read_json_object",
     "read_tiff",
@@ -227,24 +229,22 @@ def read_tiff(
     is memory-mapped and split into ``chunks``, so a chunk never needs a whole plane in memory; other layouts keep
     their native tiles via zarr. Returns the image, the shape of the flattened axes, the ImageJ ``Labels`` (if
     any) and whether tifffile, rather than the :func:`dask_image.imread.imread` fallback, read the file. The
-    file handle stays open for as long as the array needs it.
+    array opens the file only when its chunks are read and can be pickled, e.g. for ``dask.distributed``.
     """
-    tf = tifffile.TiffFile(path)
-    series = tf.series[0]
-    axes = series.axes
-    metadata = tf.imagej_metadata or {}
+    with tifffile.TiffFile(path) as tf:
+        series = tf.series[0]
+        axes, offset, shape, dtype = series.axes, series.dataoffset, series.shape, series.dtype
+        metadata = tf.imagej_metadata or {}
     labels = list(metadata["Labels"]) if isinstance(metadata.get("Labels"), list | tuple) else None
     read_by_tifffile = True
-    if series.dataoffset is not None:
-        tf.close()
-        source = _ContiguousTiff(path, series.dataoffset, series.shape, series.dtype)
+    if offset is not None:
+        source = _ContiguousTiff(path, offset, shape, dtype)
         tiles = dict.fromkeys(range(source.ndim), 1) | {axes.index("Y"): chunks[0], axes.index("X"): chunks[1]}
         image = da.from_array(source, chunks=tuple(tiles[i] for i in range(source.ndim)), name=source.name)
     else:
         try:
-            image = da.from_zarr(zarr.open(series.aszarr(level=0), mode="r"))
+            image = lazy_tiff_array(path, series=0)
         except ValueError as e:  # e.g. a compression tifffile cannot decode chunk-wise
-            tf.close()
             logger.info("Reading %s with dask_image.imread because tifffile cannot read it lazily: %s", path, e)
             image = imread(str(path), **imread_kwargs)
             axes = "Q" * (image.ndim - 2) + "YX"
@@ -274,6 +274,95 @@ class _ContiguousTiff:
     def __getitem__(self, key: Any) -> np.ndarray:
         data = np.memmap(self.path, dtype=self._file_dtype, mode="r", offset=self.offset, shape=self.shape)
         return np.asarray(data[key], dtype=self.dtype)
+
+
+def lazy_tiff_array(path: Path, *, series: int = 0, page: int | None = None) -> da.Array:
+    """Lazily read the level 0 of a tiff series, or one page, with the native tile chunks of the file.
+
+    The array can be pickled (e.g. for ``dask.distributed`` or process-based schedulers): its chunks are read by a
+    :class:`_TiffZarrSource`, which opens the file in each process that reads them.
+
+    Parameters
+    ----------
+    path
+        The tiff file.
+    series
+        The index of the series to read, if ``page`` is `None`.
+    page
+        The index of the page to read instead of a series.
+
+    Returns
+    -------
+    The array, with the shape of the series or page.
+    """
+    source = _TiffZarrSource(path, series=series, page=page)
+    return da.from_array(
+        source, chunks=source.chunks, name=source.name, meta=np.empty((0,) * source.ndim, dtype=source.dtype)
+    )
+
+
+class _TiffZarrSource:
+    """Picklable array-like view of a tiff series (level 0) or page, read chunk-wise through tifffile's zarr store.
+
+    Neither the ``TiffFile`` nor its zarr store are pickled: they are opened on the first read in each process and
+    closed with the object, so dask graphs built on it work across processes and leave no file handle unclosed.
+    """
+
+    def __init__(self, path: Path, *, series: int = 0, page: int | None = None) -> None:
+        self.path = path
+        self.series = series
+        self.page = page
+        self._lock = threading.Lock()
+        self._tiff: tifffile.TiffFile | None = None
+        self._array: zarr.Array | None = None
+        try:
+            array = self._open()
+            self.shape = tuple(array.shape)
+            self.chunks = tuple(array.chunks)
+            self.dtype = array.dtype
+        finally:
+            # the metadata is all a lazy read needs; the file is opened again once chunks are read
+            self.close()
+        self.ndim = len(self.shape)
+        token = tokenize(str(path), path.stat().st_mtime_ns, series, page, self.shape, str(self.dtype))
+        self.name = f"akoya-tiff-zarr-{token}"
+
+    def _open(self) -> zarr.Array:
+        with self._lock:
+            if self._array is not None:
+                return self._array
+            tiff = tifffile.TiffFile(self.path)
+            try:
+                if self.page is not None:
+                    store = tiff.pages[self.page].aszarr()
+                else:
+                    store = tiff.series[self.series].aszarr(level=0)
+                array = zarr.open_array(store, mode="r")
+            except BaseException:
+                tiff.close()
+                raise
+            self._tiff, self._array = tiff, array
+            return array
+
+    def __getitem__(self, key: Any) -> np.ndarray:
+        return np.asarray(self._open()[key])
+
+    def close(self) -> None:
+        """Close the file; it is opened again by the next read."""
+        with self._lock:
+            if self._tiff is not None:
+                self._tiff.close()
+            self._tiff, self._array = None, None
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {key: value for key, value in self.__dict__.items() if key not in ("_lock", "_tiff", "_array")}
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state, _lock=threading.Lock(), _tiff=None, _array=None)
+
+    def __del__(self) -> None:
+        if getattr(self, "_tiff", None) is not None:
+            self.close()
 
 
 def spatial_chunks(chunks: Any, default: Sequence[int]) -> tuple[int, int]:
