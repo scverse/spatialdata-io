@@ -4,14 +4,17 @@ import math
 import os
 import re
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import dask.array as da
+import numpy as np
 import tifffile
 import zarr
+from dask.base import tokenize
 from dask_image.imread import imread
 from spatialdata import SpatialData
 from spatialdata._logging import logger
@@ -27,10 +30,10 @@ from spatialdata_io.readers._utils._akoya import (
     select_regions,
 )
 from spatialdata_io.readers._utils._qptiff import AkoyaChannel, AkoyaScan, read_qptiff_image, read_qptiff_metadata
-from spatialdata_io.readers._utils._utils import _set_reader_metadata
+from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
 __all__ = ["LegacyLayout", "codex", "discover_legacy", "read_legacy_image"]
 
@@ -41,6 +44,8 @@ _TILE_STACK = re.compile(r"reg\d+_X\d+_Y\d+_Z\d+\.tiff?$", re.IGNORECASE)
 # raw Keyence acquisition folders, e.g. `cyc001_reg001/1_00001_Z001_CH1.tif`
 _RAW_CYCLE_DIR = re.compile(r"cyc\d+_reg\d+", re.IGNORECASE)
 _TIFF_SUFFIXES = (".tif", ".tiff")
+# marker columns of CODEX Processor tables: `cyc001_ch001` or `cyc001_ch001:DAPI1`
+_MARKER_COLUMN = re.compile(r"cyc\d+_ch\d+", re.IGNORECASE)
 _TABLE_SUFFIXES = (CodexKeys.FCS_FILE.value, CodexKeys.FCS_FILE_CSV.value)
 # deep enough for `<experiment>/processed_<date>/segm/segm-1/fcs/compensated/<table>`
 _MAX_DEPTH = 8
@@ -155,7 +160,9 @@ def codex(
             scans.append(read_qptiff_metadata(files[0], region=region))
             arrays[region] = read_qptiff_image(files[0])
             continue
-        arrays[region], channels = read_legacy_image(files, layout.channel_names_txt, imread_kwargs)
+        arrays[region], channels = read_legacy_image(
+            files, layout.channel_names_txt, imread_kwargs, image_models_kwargs=image_models_kwargs
+        )
         scans.append(
             AkoyaScan(
                 path=files[0] if len(files) == 1 else files[0].parent,
@@ -207,9 +214,10 @@ def discover_legacy(path: Path, fcs: bool) -> LegacyLayout:
         raise FileNotFoundError(f"{path} does not exist.")
     files = [path] if path.is_file() else _walk(path)
     images = _discover_images(files)
-    if not images and path.is_dir():
+    if not images:
         # the original (2019) layout: one stitched `.tif` next to its table, without a region in the file name
-        images = {file.stem: [file] for file in files if file.parent == path and _is_tiff(file)}
+        top_level = files if path.is_file() else [file for file in files if file.parent == path]
+        images = {file.stem: [file] for file in top_level if _is_tiff(file)}
     tables = _discover_tables(files, fcs)
     if not images and not tables:
         raise FileNotFoundError(f"No CODEX images or cell tables found in {path}. Expected: {'; '.join(_PATTERNS)}.")
@@ -222,7 +230,10 @@ def discover_legacy(path: Path, fcs: bool) -> LegacyLayout:
 
 
 def read_legacy_image(
-    files: list[Path], channel_names_txt: Path | None, imread_kwargs: Mapping[str, Any]
+    files: list[Path],
+    channel_names_txt: Path | None,
+    imread_kwargs: Mapping[str, Any],
+    image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> tuple[da.Array, list[AkoyaChannel]]:
     """Lazily read the image of one legacy CODEX region.
 
@@ -234,18 +245,25 @@ def read_legacy_image(
         Optional ``channelNames.txt`` naming the hyperstack channels when the file has no ImageJ ``Labels``.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread` for files :mod:`tifffile` cannot read lazily.
+    image_models_kwargs
+        Keyword arguments for :class:`spatialdata.models.Image2DModel`; their ``chunks`` set the spatial chunks of
+        uncompressed files, which are memory-mapped.
 
     Returns
     -------
     The ``(c, y, x)`` image and its channels.
     """
+    chunks = _spatial_chunks(image_models_kwargs)
     markers = [(match, file) for file in files if (match := _PER_MARKER.search(file.name)) is not None]
     if len(markers) == len(files):
-        return _read_per_marker(markers, imread_kwargs)
+        image, channels, read_by_tifffile = _read_per_marker(markers, imread_kwargs, chunks)
+        _warn_unused_imread_kwargs(imread_kwargs, read_by_tifffile)
+        return image, channels
     if len(files) != 1:
         raise ValueError(f"Expected per-marker images or a single hyperstack, got {[str(f) for f in files]}.")
 
-    image, leading_shape, labels = _read_tiff(files[0], imread_kwargs)
+    image, leading_shape, labels, read_by_tifffile = _read_tiff(files[0], imread_kwargs, chunks)
+    _warn_unused_imread_kwargs(imread_kwargs, read_by_tifffile)
     n_planes = image.shape[0]
     # the last non-spatial axis holds the channels of a cycle; ImageJ axis labels are unreliable (cycles as Z)
     n_channels = leading_shape[-1] if leading_shape else 1
@@ -269,13 +287,15 @@ def read_legacy_image(
 
 
 def _read_per_marker(
-    markers: list[tuple[re.Match[str], Path]], imread_kwargs: Mapping[str, Any]
-) -> tuple[da.Array, list[AkoyaChannel]]:
+    markers: list[tuple[re.Match[str], Path]], imread_kwargs: Mapping[str, Any], chunks: tuple[int, int]
+) -> tuple[da.Array, list[AkoyaChannel], bool]:
     parsed = sorted((int(match.group(2)), int(match.group(3)), match.group(4), file) for match, file in markers)
 
     planes = []
+    read_by_tifffile = False
     for _, _, _, file in parsed:
-        plane, _, _ = _read_tiff(file, imread_kwargs)
+        plane, _, _, lazy = _read_tiff(file, imread_kwargs, chunks)
+        read_by_tifffile |= lazy
         if plane.shape[0] != 1:
             raise ValueError(f"{file} holds {plane.shape[0]} planes; expected a single 2-D marker image.")
         planes.append(plane[0])
@@ -286,33 +306,88 @@ def _read_per_marker(
         AkoyaChannel(name=marker, cycle=cycle, channel=channel, extra={"file": file.name})
         for cycle, channel, marker, file in parsed
     ]
-    return da.stack(planes), channels
+    return da.stack(planes), channels, read_by_tifffile
 
 
-def _read_tiff(path: Path, imread_kwargs: Mapping[str, Any]) -> tuple[da.Array, tuple[int, ...], list[str] | None]:
+def _read_tiff(
+    path: Path, imread_kwargs: Mapping[str, Any], chunks: tuple[int, int]
+) -> tuple[da.Array, tuple[int, ...], list[str] | None, bool]:
     """Lazily read a tiff as ``(c, y, x)``, all non-spatial axes flattened into ``c``.
 
-    Returns the image, the shape of the flattened axes and the ImageJ ``Labels``, if any. The ``TiffFile`` stays
-    open for as long as the array (its zarr store holds the file handle).
+    Uncompressed contiguous data (e.g. ImageJ hyperstacks and per-marker images, often a single strip per plane)
+    is memory-mapped and split into ``chunks``, so a chunk never needs a whole plane in memory; other layouts keep
+    their native tiles via zarr. Returns the image, the shape of the flattened axes, the ImageJ ``Labels`` (if
+    any) and whether tifffile, rather than the :func:`dask_image.imread.imread` fallback, read the file. The
+    file handle stays open for as long as the array needs it.
     """
     tf = tifffile.TiffFile(path)
     series = tf.series[0]
-    try:
-        store = series.aszarr()
-    except ValueError as e:  # e.g. a compression tifffile cannot decode chunk-wise
+    axes = series.axes
+    metadata = tf.imagej_metadata or {}
+    labels = list(metadata["Labels"]) if isinstance(metadata.get("Labels"), list | tuple) else None
+    read_by_tifffile = True
+    if series.dataoffset is not None:
         tf.close()
-        logger.info("Reading %s with dask_image.imread because tifffile cannot read it lazily: %s", path, e)
-        image = imread(str(path), **imread_kwargs)
-        axes = "Q" * (image.ndim - 2) + "YX"
-        labels = None
+        source = _ContiguousTiff(path, series.dataoffset, series.shape, series.dtype)
+        tiles = dict.fromkeys(range(source.ndim), 1) | {axes.index("Y"): chunks[0], axes.index("X"): chunks[1]}
+        image = da.from_array(source, chunks=tuple(tiles[i] for i in range(source.ndim)), name=source.name)
     else:
-        image = da.from_zarr(zarr.open(store, mode="r"))
-        axes = series.axes
-        metadata = tf.imagej_metadata or {}
-        labels = list(metadata["Labels"]) if isinstance(metadata.get("Labels"), list | tuple) else None
+        try:
+            image = da.from_zarr(zarr.open(series.aszarr(), mode="r"))
+        except ValueError as e:  # e.g. a compression tifffile cannot decode chunk-wise
+            tf.close()
+            logger.info("Reading %s with dask_image.imread because tifffile cannot read it lazily: %s", path, e)
+            image = imread(str(path), **imread_kwargs)
+            axes = "Q" * (image.ndim - 2) + "YX"
+            labels = None
+            read_by_tifffile = False
     image = da.moveaxis(image, [axes.index("Y"), axes.index("X")], [-2, -1])
     leading_shape = tuple(image.shape[:-2])
-    return image.reshape((math.prod(leading_shape), *image.shape[-2:])), leading_shape, labels
+    return image.reshape((math.prod(leading_shape), *image.shape[-2:])), leading_shape, labels, read_by_tifffile
+
+
+class _ContiguousTiff:
+    """Array-like view of uncompressed contiguous tiff data, memory-mapped anew for every chunk.
+
+    Handing an ``np.memmap`` to :func:`dask.array.from_array` would read the whole file (dask hashes and slices
+    numpy arrays eagerly), so dask only gets this lightweight object and a name derived from the file.
+    """
+
+    def __init__(self, path: Path, offset: int, shape: tuple[int, ...], dtype: np.dtype[Any]) -> None:
+        self.path = path
+        self.offset = offset
+        self.shape = shape
+        self.ndim = len(shape)
+        self._file_dtype = dtype
+        self.dtype = dtype.newbyteorder("=")
+        self.name = f"codex-tiff-{tokenize(str(path), path.stat().st_mtime_ns, offset, shape, str(dtype))}"
+
+    def __getitem__(self, key: Any) -> np.ndarray:
+        data = np.memmap(self.path, dtype=self._file_dtype, mode="r", offset=self.offset, shape=self.shape)
+        return np.asarray(data[key], dtype=self.dtype)
+
+
+def _spatial_chunks(image_models_kwargs: Mapping[str, Any]) -> tuple[int, int]:
+    """The ``(y, x)`` chunk size requested in ``image_models_kwargs``, with the reader default when unspecified."""
+    default, _ = _initialize_raster_models_kwargs({}, {})
+    chunks = _initialize_raster_models_kwargs(image_models_kwargs, {})[0]["chunks"]
+    if isinstance(chunks, int):
+        return chunks, chunks
+    if isinstance(chunks, Mapping) and isinstance(chunks.get("y"), int) and isinstance(chunks.get("x"), int):
+        return chunks["y"], chunks["x"]
+    if isinstance(chunks, list | tuple) and len(chunks) >= 2 and all(isinstance(c, int) for c in chunks[-2:]):
+        return chunks[-2], chunks[-1]
+    return default["chunks"][-2], default["chunks"][-1]
+
+
+def _warn_unused_imread_kwargs(imread_kwargs: Mapping[str, Any], read_by_tifffile: bool) -> None:
+    if imread_kwargs and read_by_tifffile:
+        warnings.warn(
+            "`imread_kwargs` is ignored for files read lazily with tifffile; it is only used by the "
+            "dask_image.imread fallback for files tifffile cannot read lazily.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def _walk(root: Path) -> list[Path]:
@@ -393,15 +468,43 @@ def _discover_tables(files: Sequence[Path], fcs: bool) -> dict[str, Path]:
     preferred = CodexKeys.FCS_FILE.value if fcs else CodexKeys.FCS_FILE_CSV.value
     candidates: dict[str, list[Path]] = {}
     for file in files:
-        if file.suffix.lower() in _TABLE_SUFFIXES:
-            candidates.setdefault(_region_id(file.name) or "*", []).append(file)
+        if file.suffix.lower() not in _TABLE_SUFFIXES:
+            continue
+        region = _region_id(file.name)
+        # without a region in its name, a CSV may be any sidecar (e.g. an antibody list)
+        if region is None and not _is_cell_table(file):
+            continue
+        candidates.setdefault(region or "*", []).append(file)
 
-    def rank(file: Path) -> tuple[bool, bool, int, str]:
-        # the preferred format first, then compensated over uncompensated, then the shallowest
-        uncompensated = any("uncompensated" in part.casefold() for part in file.parts)
-        return file.suffix.lower() != preferred, uncompensated, len(file.parts), str(file)
+    def rank(file: Path) -> tuple[bool, bool]:
+        # the preferred format first, then compensated over uncompensated
+        return file.suffix.lower() != preferred, any("uncompensated" in part.casefold() for part in file.parts)
 
-    return {region: min(paths, key=rank) for region, paths in candidates.items()}
+    tables = {}
+    for region, paths in candidates.items():
+        best = min(rank(path) for path in paths)
+        paths = [path for path in paths if rank(path) == best]
+        if region == "*" and len(paths) > 1:
+            raise ValueError(
+                f"Found several cell tables without a region in their file name: {[str(p) for p in paths]}. "
+                "Pass the one to read as `cells_table=`."
+            )
+        tables[region] = min(paths, key=lambda path: (len(path.parts), str(path)))
+    return tables
+
+
+def _is_cell_table(path: Path) -> bool:
+    """Whether ``path`` is an FCS file or a CSV whose header has CODEX cell-table columns."""
+    if path.suffix.lower() == CodexKeys.FCS_FILE.value:
+        return True
+    with path.open(encoding="utf-8-sig", errors="replace") as f:
+        header = f.readline()
+    columns = [column.strip().strip('"').casefold() for column in header.split(",")]
+    return (
+        bool({"cell_id", "cellid"} & set(columns))
+        or any(_MARKER_COLUMN.match(column) for column in columns)
+        or {"x", "y"} <= set(columns)
+    )
 
 
 def _find_sidecar(path: Path, files: Sequence[Path], name: str) -> Path | None:

@@ -12,7 +12,7 @@ from spatialdata.models import get_channel_names
 
 from spatialdata_io import codex
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names
-from spatialdata_io.readers.codex import discover_legacy
+from spatialdata_io.readers.codex import discover_legacy, read_legacy_image
 from tests._akoya_data import cim_experiment_v4_xml, write_legacy_processor_tree, write_qptiff
 
 if TYPE_CHECKING:
@@ -165,3 +165,50 @@ def test_codex_not_implemented_cells_table(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, layout="per_marker")
     with pytest.raises(NotImplementedError):
         codex(tmp_path, cells_table=tmp_path / "x.csv")
+
+
+@pytest.mark.parametrize("imagej", [False, True])
+def test_read_legacy_image_tiles_uncompressed_planes(tmp_path: Path, imagej: bool) -> None:
+    # uncompressed single-strip planes are one zarr chunk each; they must be memory-mapped and tiled instead
+    stack = np.random.default_rng(0).integers(0, 2**16, (2, 100, 130), dtype=np.uint16)
+    files = [tmp_path / f"reg001_cyc001_ch{i + 1:03d}_M{i}.tif" for i in range(2)]
+    for file, plane in zip(files, stack, strict=True):
+        tifffile.imwrite(file, plane, imagej=imagej, rowsperstrip=plane.shape[0])
+    hyperstack = tmp_path / "reg002_montage.tif"
+    tifffile.imwrite(hyperstack, stack[None], imagej=True, metadata={"axes": "TCYX"})
+
+    for source in (files, [hyperstack]):
+        image, _ = read_legacy_image(source, None, {}, image_models_kwargs={"chunks": (1, 32, 64)})
+        assert max(image.chunks[-2]) <= 32
+        assert max(image.chunks[-1]) <= 64
+        np.testing.assert_array_equal(image.compute(), stack)
+
+
+def test_codex_single_tif_without_region(tmp_path: Path) -> None:
+    path = tmp_path / "Kidney.tif"
+    tifffile.imwrite(path, np.zeros((3, 32, 48), dtype=np.uint16), imagej=True, metadata={"axes": "CYX"})
+
+    sdata = codex(path, image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["Kidney_image"]
+    assert _level0(sdata, "Kidney_image").shape == (3, 32, 48)
+
+
+def test_discover_legacy_regionless_table_ignores_sidecar_csv(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path / "exp", layout="per_marker", fcs=False, csv=False)
+    (tmp_path / "antibody_list.csv").write_text("marker,clone\nCD3,UCHT1\n")
+    cells = tmp_path / "exp" / "results" / "cells.csv"
+    cells.parent.mkdir()
+    cells.write_text("cell_id,x,y,cyc001_ch001:DAPI\n1,2.0,3.0,4.0\n")
+
+    assert discover_legacy(tmp_path, fcs=True).tables == {"*": cells}
+
+    (tmp_path / "other_cells.csv").write_text("x,y\n1.0,2.0\n")
+    with pytest.raises(ValueError, match="cells_table"):
+        discover_legacy(tmp_path, fcs=True)
+
+
+def test_codex_imread_kwargs_warns_when_unused(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, layout="per_marker")
+    with pytest.warns(UserWarning, match="imread_kwargs"):
+        codex(tmp_path, imread_kwargs={"nframes": 1}, image_models_kwargs=_FAST)
