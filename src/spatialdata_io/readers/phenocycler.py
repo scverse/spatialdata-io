@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import re
 import warnings
 from pathlib import Path
@@ -16,6 +15,7 @@ from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._akoya import (
     apply_channel_names,
     build_image_element,
+    read_json_object,
     region_transformations,
     scans_to_attrs,
     select_regions,
@@ -204,7 +204,7 @@ def _read_sidecars(scan: AkoyaScan) -> None:
     """Store the ``.xpd`` and ``*channels.csv`` sidecars of ``scan`` in ``scan.raw`` and check their channel count."""
     base = _base_name(scan.path)
     xpd = _find_sidecar(scan.path, base, PhenocyclerKeys.XPD_SUFFIX)
-    protocol = _read_xpd(xpd) if xpd is not None else None
+    protocol = read_json_object(xpd) if xpd is not None else None
     if xpd is not None and protocol is not None:
         scan.raw["xpd"] = protocol
         # an .xpd has the layout of the Fusion scan profile's `experimentDescription`
@@ -220,18 +220,6 @@ def _read_sidecars(scan: AkoyaScan) -> None:
         if column is not None:
             markers = [row[column] for row in rows if row[column] and not _is_blank(row[column])]
             _check_channel_count(scan, channels_csv, markers)
-
-
-def _read_xpd(path: Path) -> dict[str, Any] | None:
-    try:
-        protocol = json.loads(path.read_text())
-    except json.JSONDecodeError as e:
-        warnings.warn(f"Ignoring {path}: it is not valid JSON ({e}).", UserWarning, stacklevel=2)
-        return None
-    if not isinstance(protocol, dict):
-        warnings.warn(f"Ignoring {path}: it is not a JSON object.", UserWarning, stacklevel=2)
-        return None
-    return protocol
 
 
 def _find_sidecar(qptiff: Path, base: str, suffix: str) -> Path | None:

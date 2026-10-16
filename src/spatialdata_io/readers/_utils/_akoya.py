@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import warnings
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
@@ -14,6 +16,8 @@ from spatialdata.transformations import BaseTransformation, Identity, Translatio
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import dask.array as da
     from xarray import DataArray, DataTree
 
@@ -23,6 +27,7 @@ __all__ = [
     "apply_channel_names",
     "build_image_element",
     "dedupe_channel_names",
+    "read_json_object",
     "region_transformations",
     "scans_to_attrs",
     "select_regions",
@@ -136,3 +141,16 @@ def select_regions(available: Sequence[str], regions: Sequence[str] | None) -> l
     if unknown:
         raise ValueError(f"Unknown region(s) {unknown}. Available regions: {list(available)}.")
     return list(regions)
+
+
+def read_json_object(path: Path) -> dict[str, Any] | None:
+    """Read a JSON object from ``path``; warn and return ``None`` if the file is not valid JSON or not an object."""
+    try:
+        content = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        warnings.warn(f"Ignoring {path}: it is not valid JSON ({e}).", UserWarning, stacklevel=2)
+        return None
+    if not isinstance(content, dict):
+        warnings.warn(f"Ignoring {path}: it is not a JSON object.", UserWarning, stacklevel=2)
+        return None
+    return content

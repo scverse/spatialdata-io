@@ -10,6 +10,9 @@ class CodexKeys(ModeEnum):
     # files and directories
     FCS_FILE = ".fcs"
     FCS_FILE_CSV = ".csv"
+    CHANNEL_NAMES_FILE = "channelNames.txt"
+    EXPERIMENT_FILE = "experiment.json"
+    QPTIFF = ".qptiff"
     # metadata
     REGION_KEY = "region"
     INSTANCE_KEY = "cell_id"
