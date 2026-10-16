@@ -78,6 +78,15 @@ _QUPATH_IMAGE = "Image"
 _QUPATH_ID = "Object ID"
 # the QuPath object types of cells; other features of a GeoJSON export (e.g. annotations) are not cells
 _QUPATH_CELL_TYPES = frozenset({"cell", "detection", "PathCellObject", "PathDetectionObject"})
+# inForm `*_cell_seg_data.txt` columns: `Cell X Position (microns)`, `Entire Cell <marker> Mean (<unit>)`, ...
+_INFORM_POSITION = re.compile(r"Cell X Position(?: \((.*)\))?")
+_INFORM_MARKER = re.compile(r"Entire Cell (.+) Mean(?: \(.*\))?")
+_INFORM_AREA = re.compile(r"Entire Cell Area \((.*)\)")
+_INFORM_REGION = "Sample Name"
+_INFORM_ID = "Cell ID"
+# HuBMAP SPRM outputs: `<image>-cell_channel_mean.csv` with the centroids in `<image>-cell_centers.csv`
+_SPRM_MEANS_SUFFIX = "-cell_channel_mean.csv"
+_SPRM_CENTERS_SUFFIX = "-cell_centers.csv"
 # a matched polygon must lie within this distance (px) of its cell's centroid, else the match is considered wrong
 _CENTROID_TOLERANCE_PX = 1.0
 # the largest fraction of matched polygons that may be far from their centroids before the match is rejected
@@ -102,7 +111,8 @@ class CellTable:
     instance_id
         The instance id of every cell (int64).
     centroids_px
-        The ``(x, y)`` centroids in level-0 pixels of the region image.
+        The ``(x, y)`` centroids in level-0 pixels of the region image, or `None` if the table has none (SPRM without
+        ``*-cell_centers.csv``).
     radius_px
         The radius of a circle with the cell's area, or `None` if the table has no area.
     row_instance_ids
@@ -119,7 +129,7 @@ class CellTable:
     var: pd.DataFrame
     region: pd.Series
     instance_id: pd.Series
-    centroids_px: np.ndarray
+    centroids_px: np.ndarray | None
     radius_px: np.ndarray | None
     row_instance_ids: bool = False
     polygons_px: np.ndarray | None = None
@@ -133,7 +143,7 @@ class CellTable:
             var=self.var,
             region=self.region.iloc[rows],
             instance_id=self.instance_id.iloc[rows],
-            centroids_px=self.centroids_px[rows],
+            centroids_px=None if self.centroids_px is None else self.centroids_px[rows],
             radius_px=None if self.radius_px is None else self.radius_px[rows],
             row_instance_ids=self.row_instance_ids,
             polygons_px=None if self.polygons_px is None else self.polygons_px[rows],
@@ -248,7 +258,8 @@ def detect_table_format(path: Path) -> str:
     Returns
     -------
     ``"codex"`` (FCS, or ``x``/``y`` with ``cell_id`` or ``cycCCC_chHHH`` columns), ``"qupath"`` (``Centroid X µm``
-    or ``Object ID``), ``"mcquant"`` (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``),
+    or ``Object ID``), ``"mcquant"`` (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``, optionally
+    followed by its unit in parentheses),
     ``"sprm"`` (first column ``ID``), else ``"generic"``.
     """
     if path.suffix.lower() == CodexKeys.FCS_FILE.value:
@@ -264,7 +275,7 @@ def detect_table_format(path: Path) -> str:
         return "qupath"
     if {"CellID", "X_centroid"} <= set(columns):
         return "mcquant"
-    if "Cell X Position" in columns:
+    if any(_INFORM_POSITION.fullmatch(column) for column in columns):
         return "inform"
     if columns[:1] == ["ID"]:
         return "sprm"
@@ -286,8 +297,8 @@ def read_cell_table(
     path
         The cell table.
     fmt
-        One of ``"auto"`` (see :func:`detect_table_format`), ``"codex"``, ``"qupath"``, ``"mcquant"`` or
-        ``"generic"``:
+        One of ``"auto"`` (see :func:`detect_table_format`), ``"codex"``, ``"qupath"``, ``"mcquant"``,
+        ``"sprm"``, ``"inform"`` or ``"generic"``:
 
             - ``"codex"``: see :func:`read_codex_table`.
             - ``"qupath"``: a QuPath measurement export. Centroids ``Centroid X µm``/``Centroid Y µm`` (divided by
@@ -301,9 +312,19 @@ def read_cell_table(
             - ``"mcquant"``: an MCMICRO ``mcquant`` table. Instance ids ``CellID``, pixel centroids
               ``X_centroid``/``Y_centroid``, the markers are the columns between ``CellID`` and ``X_centroid``, the
               radius comes from ``Area``.
+            - ``"sprm"``: a HuBMAP SPRM ``<image>-cell_channel_mean.csv`` (validated on synthetic data only). Instance
+              ids ``ID`` (the values of the mask, ``pipeline_output/mask/*.ome.tiff`` channel 0, passed as ``labels``),
+              one marker per remaining column. Pixel centroids come from ``<image>-cell_centers.csv`` (``ID,x,y``)
+              next to the table, which must hold every cell; without it a `UserWarning` is raised and the table has
+              no ``obsm["spatial"]`` (the centroids are never computed from the mask), so its region needs a mask.
+            - ``"inform"``: a PerkinElmer/Akoya inForm ``*_cell_seg_data.txt`` (tab-separated; validated on synthetic
+              data only). Instance ids ``Cell ID``, centroids ``Cell X Position``/``Cell Y Position`` in the unit
+              named in the header, ``(microns)`` (divided by ``pixel_size_um``) or ``(pixels)``; pixels if the
+              header names none. The region comes from ``Sample Name``. The markers are the
+              ``Entire Cell <marker> Mean (...)`` columns; the radius comes from ``Entire Cell Area (...)`` if its
+              unit equals that of the positions.
             - ``"generic"``: columns given by ``cells_table_kwargs``.
 
-        The ``"sprm"`` and ``"inform"`` formats are detected but not read yet.
     pixel_size_um
         The pixel size of the region image, to convert µm centroids to pixels.
     default_region
@@ -327,8 +348,6 @@ def read_cell_table(
     if fmt == "auto":
         fmt = detect_table_format(path)
         logger.info("Reading %s as a %r cell table.", path, fmt)
-    if fmt in ("sprm", "inform"):
-        raise NotImplementedError(f"Reading {fmt!r} cell tables ({path}) is added in a later release.")
     if fmt != "qupath" and cells_table_kwargs.get("geojson") is not None:
         raise ValueError(f"`cells_table_kwargs['geojson']` is only read with QuPath cell tables; {path} is {fmt!r}.")
     if fmt == "codex":
@@ -339,7 +358,13 @@ def read_cell_table(
     _, sep = _read_header(path)
     df = pd.read_csv(path, sep=sep, engine="pyarrow")
     df.columns = pd.Index([str(column) for column in df.columns])
-    reader = {"qupath": _qupath_roles, "mcquant": _mcquant_roles, "generic": _generic_roles}[fmt]
+    reader = {
+        "qupath": _qupath_roles,
+        "mcquant": _mcquant_roles,
+        "sprm": _sprm_roles,
+        "inform": _inform_roles,
+        "generic": _generic_roles,
+    }[fmt]
     roles = reader(path, df, cells_table_kwargs)
     if roles.pop("in_um"):
         if pixel_size_um is None:
@@ -349,6 +374,8 @@ def read_cell_table(
             )
         roles["px_per_unit"] = 1 / pixel_size_um
     table = _from_frame(path, df, default_region=default_region, **roles)
+    if fmt == "sprm":
+        table.centroids_px = _read_sprm_centers(path, table)
     if fmt == "qupath":
         geojson = cells_table_kwargs.get("geojson")
         geojson = _find_geojson(path) if geojson is None else Path(geojson)
@@ -442,7 +469,8 @@ def read_qupath_polygons(
                 f"without ids ('{_QUPATH_ID}'), polygons are matched to cells in order."
             )
         polygons[:] = cells
-    _check_centroids(polygons, table.centroids_px, geojson, table_path)
+    if table.centroids_px is not None:
+        _check_centroids(polygons, table.centroids_px, geojson, table_path)
     return polygons
 
 
@@ -548,6 +576,88 @@ def _mcquant_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> d
     }
 
 
+def _sprm_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    if "ID" not in df.columns:
+        raise ValueError(f"{path} has no 'ID' column; found {list(df.columns)}.")
+    if not pd.api.types.is_integer_dtype(df["ID"]):
+        raise ValueError(f"The 'ID' column of {path} must hold integer cell ids, got dtype {df['ID'].dtype}.")
+    region_column = kwargs.get("region_column")
+    markers = [c for c in df.columns if c not in ("ID", region_column)]
+    return {
+        "markers": markers,
+        "var": pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers))),
+        "x": None,
+        "y": None,
+        "in_um": False,
+        "instance_column": "ID",
+        "region_column": region_column,
+        "area_column": None,
+    }
+
+
+def _read_sprm_centers(path: Path, table: CellTable) -> np.ndarray | None:
+    """The ``(x, y)`` pixel centroids of the cells of an SPRM table from its ``*-cell_centers.csv``, if it exists."""
+    name = path.name
+    centers = path.with_name(
+        f"{name.removesuffix(_SPRM_MEANS_SUFFIX)}{_SPRM_CENTERS_SUFFIX}"
+        if name.endswith(_SPRM_MEANS_SUFFIX)
+        else f"{path.stem}{_SPRM_CENTERS_SUFFIX}"
+    )
+    if not centers.is_file():
+        warnings.warn(
+            f"No {centers.name} next to {path}, so the cells of this SPRM table have no centroids and the table has "
+            "no 'spatial' coordinates; the cells need a segmentation mask (`labels`).",
+            UserWarning,
+            stacklevel=4,
+        )
+        return None
+    frame = pd.read_csv(centers)
+    if not {"ID", "x", "y"} <= set(frame.columns):
+        raise ValueError(f"{centers} must have the columns 'ID', 'x' and 'y'; found {list(frame.columns)}.")
+    if not frame["ID"].is_unique:
+        raise ValueError(f"The 'ID' column of {centers} is not unique.")
+    rows = pd.Index(frame["ID"]).get_indexer(pd.Index(table.instance_id))
+    if (rows < 0).any():
+        raise ValueError(f"{centers} has no centroid for {int((rows < 0).sum())} of the {len(rows)} cells of {path}.")
+    return frame[["x", "y"]].to_numpy(dtype=np.float64)[rows]
+
+
+def _inform_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    positions = [m for column in df.columns if (m := _INFORM_POSITION.fullmatch(column)) is not None]
+    y = next((c for c in df.columns if c.startswith("Cell Y Position")), None)
+    if not positions or y is None:
+        raise ValueError(f"{path} has no 'Cell X Position' and 'Cell Y Position' columns; found {list(df.columns)}.")
+    x = positions[0].group(0)
+    unit = (positions[0].group(1) or "pixels").casefold()
+    if unit not in ("microns", "pixels"):
+        raise ValueError(f"The unit '{unit}' of the column '{x}' of {path} must be 'microns' or 'pixels'.")
+    markers, names = [], []
+    for column in df.columns:
+        if (match := _INFORM_MARKER.fullmatch(column)) is not None:
+            markers.append(column)
+            names.append(match.group(1))
+    if not markers:
+        warnings.warn(
+            f"{path} has no 'Entire Cell <marker> Mean' columns, so its table has no marker intensities.",
+            UserWarning,
+            stacklevel=5,
+        )
+    area = next((c for c in df.columns if (m := _INFORM_AREA.fullmatch(c)) is not None and m.group(1)), None)
+    if area is not None:
+        area_unit = "microns" if "micron" in area else "pixels"
+        area = area if area_unit == unit else None
+    return {
+        "markers": markers,
+        "var": pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(names))),
+        "x": x,
+        "y": y,
+        "in_um": unit == "microns",
+        "instance_column": _INFORM_ID if _INFORM_ID in df.columns else None,
+        "region_column": kwargs.get("region_column", _INFORM_REGION if _INFORM_REGION in df.columns else None),
+        "area_column": area,
+    }
+
+
 def _generic_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
     if "x" not in kwargs or "y" not in kwargs:
         raise ValueError(
@@ -583,8 +693,8 @@ def _from_frame(
     *,
     markers: list[str],
     var: pd.DataFrame,
-    x: str,
-    y: str,
+    x: str | None,
+    y: str | None,
     instance_column: str | None,
     region_column: str | None,
     area_column: str | None,
@@ -629,7 +739,7 @@ def _from_frame(
         var=var,
         region=region,
         instance_id=instance_id,
-        centroids_px=df[[x, y]].to_numpy(dtype=np.float64) * px_per_unit,
+        centroids_px=None if x is None or y is None else df[[x, y]].to_numpy(dtype=np.float64) * px_per_unit,
         radius_px=radius,
         row_instance_ids=instance_column is None,
     )
@@ -1035,6 +1145,11 @@ def build_cells(
         for region, rows in _region_rows(table).items():
             if region in labels:
                 continue
+            if table.centroids_px is None:
+                raise ValueError(
+                    f"The cells of region '{region}' have no centroids and no segmentation mask, so they cannot be "
+                    "placed; pass a mask as `labels` or a table with centroids."
+                )
             circle_regions.append(region)
             radius = 1.0 if table.radius_px is None else table.radius_px[rows]
             shapes[element(region)] = ShapesModel.parse(
@@ -1095,7 +1210,13 @@ def _to_anndata(tables: Sequence[CellTable], element: Callable[[str], str]) -> a
         obs.index = pd.Index(regions.to_numpy(dtype=object) + "_" + obs.index.to_numpy(dtype=object))
     X = np.concatenate([table.X for table in tables]) if len(tables) > 1 else tables[0].X
     adata = ad.AnnData(X=X, obs=obs, var=tables[0].var.copy())
-    adata.obsm[CodexKeys.SPATIAL_KEY.value] = np.concatenate([table.centroids_px for table in tables])
+    centroids = [table.centroids_px for table in tables if table.centroids_px is not None]
+    if len(centroids) == len(tables):
+        adata.obsm[CodexKeys.SPATIAL_KEY.value] = np.concatenate(centroids)
+    elif centroids:
+        warnings.warn(
+            "Some cell tables have no centroids, so the table has no 'spatial' coordinates.", UserWarning, stacklevel=4
+        )
     # e.g. QuPath's `Centroid X µm` -> `Centroid_X_µm`: spatialdata only writes alphanumeric names and `_.-`
     if any(sanitize_name(str(column), is_dataframe_column=True) != column for column in adata.obs.columns):
         sanitize_table(adata, inplace=True)

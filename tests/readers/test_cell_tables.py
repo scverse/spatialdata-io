@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import tifffile
-from spatialdata.models import get_axes_names
+from spatialdata.models import Labels2DModel, get_axes_names
 from spatialdata.transformations import Identity, Translation, get_transformation
 from tests._akoya_data import write_fcs
 
@@ -55,6 +55,7 @@ def test_read_codex_fcs_marker_names_from_pns(tmp_path: Path) -> None:
     assert list(table.obs.index) == ["1", "2", "3", "4", "5"]
     assert list(table.region.unique()) == ["reg001"]
     assert table.instance_id.dtype == np.int64
+    assert table.centroids_px is not None
     np.testing.assert_allclose(table.centroids_px, cells[["x", "y"]], rtol=1e-6)
     assert table.radius_px is not None
     np.testing.assert_allclose(table.radius_px, np.sqrt(cells["size"] / np.pi), rtol=1e-6)
@@ -128,6 +129,7 @@ def test_build_cells_single_table_and_circles(tmp_path: Path) -> None:
     assert list(table.obs["region"].cat.categories) == ["reg001_cells", "reg002_cells"]
     assert table.uns["spatialdata_attrs"]["region"] == ["reg001_cells", "reg002_cells"]
     assert table.obs["cell_id"].dtype == np.int64
+    assert tables[0].centroids_px is not None
     np.testing.assert_allclose(np.asarray(table.obsm["spatial"])[:3], tables[0].centroids_px)
     assert sorted(shapes) == ["reg001_cells", "reg002_cells"]
     assert list(shapes["reg002_cells"].index) == [1, 2, 3, 4]
@@ -231,6 +233,7 @@ def test_qupath_um_to_px(tmp_path: Path) -> None:
 
     table = read_cell_table(path, "qupath", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
 
+    assert table.centroids_px is not None
     np.testing.assert_allclose(table.centroids_px, [[20, 10], [40, 30]])
     assert list(table.var.index) == ["CD3", "CD8"]
     assert list(table.var["compartment"]) == ["Cell", "Nucleus"]
@@ -262,6 +265,7 @@ def test_mcquant_columns(tmp_path: Path) -> None:
 
     assert list(table.var.index) == ["DAPI", "CD3"]
     np.testing.assert_allclose(table.X, cells[["DAPI", "CD3"]], rtol=1e-6)
+    assert table.centroids_px is not None
     np.testing.assert_allclose(table.centroids_px, cells[["X_centroid", "Y_centroid"]])
     assert list(table.instance_id) == [1, 2, 3, 4, 5]
     assert list(table.region.unique()) == ["S"]
@@ -292,6 +296,7 @@ def test_generic_kwargs(tmp_path: Path) -> None:
 
     table = read_cell_table(path, "generic", pixel_size_um=2.0, default_region=None, cells_table_kwargs=kwargs)
 
+    assert table.centroids_px is not None
     np.testing.assert_allclose(table.centroids_px, [[1, 2], [3, 4]])
     assert list(table.var.index) == ["CD3", "CD8"]
     assert list(table.instance_id) == [7, 9]
@@ -324,13 +329,135 @@ def test_generic_bad_kwargs_raise(tmp_path: Path) -> None:
         )
 
 
-@pytest.mark.parametrize("fmt", ["sprm", "inform"])
-def test_sprm_inform_not_implemented(tmp_path: Path, fmt: str) -> None:
-    path = tmp_path / "cells.csv"
-    path.write_text("ID,DAPI\n1,2\n")
+def _write_sprm(directory: Path, *, centers: bool = True) -> pd.DataFrame:
+    rng = np.random.default_rng(3)
+    means = pd.DataFrame({"ID": [1, 2, 4], "DAPI": rng.uniform(0, 1, 3), "CD3": rng.uniform(0, 1, 3)})
+    means.to_csv(directory / "reg1.ome.tiff-cell_channel_mean.csv", index=False)
+    if centers:
+        # more cells than in the means table, in another order
+        pd.DataFrame({"ID": [4, 3, 2, 1], "x": [40.0, 30.0, 20.0, 10.0], "y": [4.0, 3.0, 2.0, 1.0]}).to_csv(
+            directory / "reg1.ome.tiff-cell_centers.csv", index=False
+        )
+    return means
 
-    with pytest.raises(NotImplementedError, match="later release"):
-        read_cell_table(path, fmt, pixel_size_um=None, default_region="S", cells_table_kwargs={})
+
+def test_sprm_adapter(tmp_path: Path) -> None:
+    means = _write_sprm(tmp_path)
+    path = tmp_path / "reg1.ome.tiff-cell_channel_mean.csv"
+
+    assert detect_table_format(path) == "sprm"
+    table = read_cell_table(path, "auto", pixel_size_um=None, default_region="reg1", cells_table_kwargs={})
+
+    assert list(table.var.index) == ["DAPI", "CD3"]
+    np.testing.assert_allclose(table.X, means[["DAPI", "CD3"]], rtol=1e-6)
+    assert list(table.instance_id) == [1, 2, 4]
+    assert not table.row_instance_ids
+    assert list(table.region.unique()) == ["reg1"]
+    assert table.centroids_px is not None
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[10, 1], [20, 2], [40, 4]])
+    assert table.radius_px is None
+
+
+def test_sprm_without_centers_warns_and_omits_spatial(tmp_path: Path) -> None:
+    _write_sprm(tmp_path, centers=False)
+    path = tmp_path / "reg1.ome.tiff-cell_channel_mean.csv"
+
+    with pytest.warns(UserWarning, match="cell_centers"):
+        table = read_cell_table(path, "sprm", pixel_size_um=None, default_region="reg1", cells_table_kwargs={})
+    assert table.centroids_px is None
+
+    mask = np.zeros((6, 6), dtype=np.uint16)
+    mask[1:3, 1:3], mask[4, 4] = 1, 2
+    labels = Labels2DModel.parse(mask, dims=("y", "x"))
+    sdata_tables, shapes = build_cells([table], {}, {"reg1": labels}, {})
+    assert "spatial" not in sdata_tables["table"].obsm
+    assert shapes == {}
+    with pytest.raises(ValueError, match="centroids"):
+        build_cells([table], {}, {}, {})
+
+
+def test_sprm_centers_missing_cells_raise(tmp_path: Path) -> None:
+    _write_sprm(tmp_path)
+    pd.DataFrame({"ID": [1, 2], "x": [1.0, 2.0], "y": [1.0, 2.0]}).to_csv(
+        tmp_path / "reg1.ome.tiff-cell_centers.csv", index=False
+    )
+
+    with pytest.raises(ValueError, match="cell_centers"):
+        read_cell_table(
+            tmp_path / "reg1.ome.tiff-cell_channel_mean.csv",
+            "sprm",
+            pixel_size_um=None,
+            default_region="reg1",
+            cells_table_kwargs={},
+        )
+
+
+def _write_inform(path: Path, unit: str | None, area_unit: str = "square microns") -> None:
+    suffix = "" if unit is None else f" ({unit})"
+    header = [
+        "Sample Name",
+        "Cell ID",
+        f"Cell X Position{suffix}",
+        f"Cell Y Position{suffix}",
+        f"Entire Cell Area ({area_unit})",
+        "Entire Cell DAPI Mean (Normalized Counts, Total Weighting)",
+        "Entire Cell CD8 (Opal 520) Mean (Normalized Counts, Total Weighting)",
+        "Nucleus DAPI Mean (Normalized Counts, Total Weighting)",
+        "Phenotype",
+    ]
+    rows = [
+        ["Scan1.im3", "1", "100", "50", "314.159", "1.5", "2.5", "9", "CD8+"],
+        ["Scan1.im3", "2", "200", "80", "78.54", "3.5", "4.5", "9", "other"],
+    ]
+    path.write_text("\n".join("\t".join(row) for row in [header, *rows]) + "\n", encoding="utf-8")
+
+
+def test_inform_adapter_microns(tmp_path: Path) -> None:
+    path = tmp_path / "Scan1_cell_seg_data.txt"
+    _write_inform(path, "microns")
+
+    assert detect_table_format(path) == "inform"
+    table = read_cell_table(path, "inform", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[200, 100], [400, 160]])
+    assert list(table.var.index) == ["DAPI", "CD8 (Opal 520)"]
+    np.testing.assert_allclose(table.X, [[1.5, 2.5], [3.5, 4.5]])
+    assert list(table.instance_id) == [1, 2]
+    assert not table.row_instance_ids
+    assert list(table.region) == ["Scan1.im3"] * 2
+    assert table.radius_px is not None
+    np.testing.assert_allclose(table.radius_px, np.sqrt(np.array([314.159, 78.54]) / 0.25 / np.pi))
+    assert "Phenotype" in table.obs.columns
+    with pytest.raises(ValueError, match="pixel size"):
+        read_cell_table(path, "inform", pixel_size_um=None, default_region=None, cells_table_kwargs={})
+
+
+def test_inform_adapter_pixels(tmp_path: Path) -> None:
+    path = tmp_path / "Scan1_cell_seg_data.txt"
+    _write_inform(path, "pixels", area_unit="pixels")
+
+    table = read_cell_table(path, "auto", pixel_size_um=None, default_region="S", cells_table_kwargs={})
+
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[100, 50], [200, 80]])
+    assert table.radius_px is not None
+    np.testing.assert_allclose(table.radius_px, np.sqrt(np.array([314.159, 78.54]) / np.pi))
+
+
+def test_inform_without_unit_is_pixels_and_renames_cell_id(tmp_path: Path) -> None:
+    path = tmp_path / "Scan1_cell_seg_data.txt"
+    _write_inform(path, None)
+
+    table = read_cell_table(path, "inform", pixel_size_um=None, default_region=None, cells_table_kwargs={})
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[100, 50], [200, 80]])
+
+    # mixed units (px positions, µm areas) cannot give a radius
+    assert table.radius_px is None
+    elements, _ = build_cells([table], {}, {}, {})
+    assert "source_Cell ID" in elements["table"].obs.columns or "source_Cell_ID" in elements["table"].obs.columns
 
 
 def test_unknown_format_raises(tmp_path: Path) -> None:
