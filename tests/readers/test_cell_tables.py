@@ -116,7 +116,9 @@ def test_build_cells_single_table_and_circles(tmp_path: Path) -> None:
     translation = Translation([10, 0], axes=("x", "y"))
 
     with pytest.warns(UserWarning, match=r"No segmentation mask found for region.*circles") as record:
-        anndatas, shapes = build_cells(tables, {}, {}, {"reg001": Identity(), "reg002": translation})
+        anndatas, shapes = build_cells(
+            tables, {}, {}, {"reg001": {"reg001": Identity()}, "reg002": {"reg002": translation}}
+        )
 
     assert len(record) == 1
     assert list(anndatas) == ["table"]
@@ -129,7 +131,7 @@ def test_build_cells_single_table_and_circles(tmp_path: Path) -> None:
     np.testing.assert_allclose(np.asarray(table.obsm["spatial"])[:3], tables[0].centroids_px)
     assert sorted(shapes) == ["reg001_cells", "reg002_cells"]
     assert list(shapes["reg002_cells"].index) == [1, 2, 3, 4]
-    assert get_transformation(shapes["reg002_cells"], "global") == translation
+    assert get_transformation(shapes["reg002_cells"], get_all=True) == {"reg002": translation}
 
 
 def test_build_cells_different_panels_split_tables(tmp_path: Path) -> None:
@@ -361,7 +363,7 @@ def test_read_labels_lazy_with_transformation(tmp_path: Path) -> None:
     tifffile.imwrite(path, mask)
     translation = Translation([3, 4], axes=("x", "y"))
 
-    labels = read_labels(path, {"scale_factors": [2]}, translation)
+    labels = read_labels(path, {"scale_factors": [2]}, {"global": translation})
 
     level0 = labels["scale0"]["image"]
     assert get_axes_names(labels) == ("y", "x")
@@ -375,7 +377,7 @@ def test_read_labels_ome_channels(tmp_path: Path, mask_channel: int | str | None
     path = tmp_path / "mask.ome.tif"
     tifffile.imwrite(path, masks, metadata={"axes": "CYX", "Channel": {"Name": ["cells", "nuclei"]}})
 
-    labels = read_labels(path, {"scale_factors": None}, Identity(), mask_channel=mask_channel)
+    labels = read_labels(path, {"scale_factors": None}, {"global": Identity()}, mask_channel=mask_channel)
 
     np.testing.assert_array_equal(labels.values, masks[expected])
 
@@ -384,11 +386,11 @@ def test_read_labels_errors(tmp_path: Path) -> None:
     path = tmp_path / "mask.tif"
     tifffile.imwrite(path, np.zeros((8, 8), dtype=np.float32))
     with pytest.raises(ValueError, match="integer"):
-        read_labels(path, {}, Identity())
+        read_labels(path, {}, {"global": Identity()})
 
     tifffile.imwrite(path, np.zeros((2, 8, 8), dtype=np.uint16))
     with pytest.raises(ValueError, match="channel"):
-        read_labels(path, {}, Identity(), mask_channel=5)
+        read_labels(path, {}, {"global": Identity()}, mask_channel=5)
 
 
 def test_read_labels_pyramidal_ome_is_lazy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -402,7 +404,7 @@ def test_read_labels_pyramidal_ome_is_lazy(tmp_path: Path, monkeypatch: pytest.M
         raise AssertionError("full page decode during read")
 
     monkeypatch.setattr(tifffile.TiffPage, "asarray", fail)
-    labels = read_labels(path, {"scale_factors": None}, Identity())
+    labels = read_labels(path, {"scale_factors": None}, {"global": Identity()})
 
     assert labels.shape == (64, 48)
     np.testing.assert_array_equal(labels.values, mask)

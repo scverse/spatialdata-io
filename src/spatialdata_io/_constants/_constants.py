@@ -34,6 +34,7 @@ class PhenocyclerKeys(ModeEnum):
     IMAGE_SUFFIX = "_image"
     LABELS_SUFFIX = "_labels"
     CELLS_SUFFIX = "_cells"
+    POLYGONS_SUFFIX = "_polygons"
     TABLE_KEY = "table"
     # metadata
     REGION_KEY = "region"

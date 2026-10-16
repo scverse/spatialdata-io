@@ -10,6 +10,7 @@ import pytest
 import shapely
 import tifffile
 from skimage.draw import polygon as draw_polygon
+from spatialdata import read_zarr
 from spatialdata.transformations import get_transformation
 from tests._akoya_data import write_qptiff
 
@@ -162,7 +163,7 @@ def test_qupath_geojson_to_labels(tmp_path: Path) -> None:
         sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
 
     assert list(sdata.labels) == ["S_labels"]
-    assert len(sdata.shapes) == 0
+    assert list(sdata.shapes) == ["S_polygons"]
     labels = sdata.labels["S_labels"]["scale0"]["image"]
     assert isinstance(labels.data, da.Array)
     assert labels.shape == (256, 320)
@@ -178,6 +179,29 @@ def test_qupath_geojson_to_labels(tmp_path: Path) -> None:
     assert values[44, 44] == 3
     assert set(np.unique(values)) == {0, 1, 2, 3}
     assert sdata.attrs["akoya"]["geojson"] == {"S": str(tmp_path / "cells.geojson")}
+
+
+def test_qupath_geojson_keeps_polygons(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_qupath_cells(tmp_path / "cells.tsv", ["a", "b", "c"])
+    # cell "b" has no polygon: it is missing from the shapes and the labels
+    _write_geojson(tmp_path / "cells.geojson", [_cell("c", 40, 40), _cell("a", 0, 0)])
+
+    with pytest.warns(UserWarning, match="have no polygon"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+    assert list(sdata.shapes) == ["S_polygons"]
+    polygons = sdata.shapes["S_polygons"]
+    assert list(polygons.index) == [1, 3]
+    labels = sdata.labels["S_labels"]["scale0"]["image"].values
+    assert sorted(set(np.unique(labels)) - {0}) == list(polygons.index)
+    assert polygons.geometry.loc[3].equals(shapely.box(40, 40, 48, 48))
+    assert get_transformation(polygons, get_all=True) == get_transformation(sdata.images["S_image"], get_all=True)
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["S_labels"]
+
+    sdata.write(tmp_path / "out.zarr")
+    reread = read_zarr(tmp_path / "out.zarr")
+    assert reread.shapes["S_polygons"].geometry.equals(polygons.geometry)
 
 
 @pytest.mark.parametrize("collection", [True, False])

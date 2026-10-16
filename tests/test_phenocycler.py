@@ -14,6 +14,7 @@ import tifffile
 from click.testing import CliRunner
 from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
+from spatialdata.transformations import Identity, Translation, get_transformation
 
 from spatialdata_io import phenocycler
 from spatialdata_io.__main__ import phenocycler_wrapper
@@ -53,6 +54,40 @@ def test_read_directory_multiple_scans_and_subset(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Z"):
         phenocycler(tmp_path, regions=["Z"])
+
+
+def test_phenocycler_unrelated_scans_own_coordinate_systems(tmp_path: Path) -> None:
+    for region, slide in (("A", "SLIDE1"), ("B", "SLIDE2")):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI", "CD3"], slide_id=slide)
+        _write_mcquant(tmp_path / f"{region}.csv")
+    _write_mask(tmp_path / "A_mask.tif")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(
+            tmp_path,
+            cells_table={"A": tmp_path / "A.csv", "B": tmp_path / "B.csv"},
+            labels={"A": tmp_path / "A_mask.tif"},
+            image_models_kwargs=_FAST,
+        )
+
+    assert sorted(sdata.coordinate_systems) == ["A", "B"]
+    for name in ("A_image", "A_labels"):
+        assert get_transformation(sdata[name], get_all=True) == {"A": Identity()}
+    for name in ("B_image", "B_cells"):
+        assert get_transformation(sdata[name], get_all=True) == {"B": Identity()}
+
+
+def test_phenocycler_same_slide_scans_placed_in_global(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI"], stage_position_cm=(1.0, 2.0))
+    write_qptiff(tmp_path / "B_Scan1.qptiff", biomarkers=["DAPI"], stage_position_cm=(1.01, 2.0))
+
+    sdata = phenocycler(tmp_path, image_models_kwargs=_FAST)
+
+    assert sdata.coordinate_systems == ["global"]
+    assert get_transformation(sdata["A_image"], get_all=True) == {"global": Translation([0, 0], axes=("x", "y"))}
+    offset = get_transformation(sdata["B_image"], "global")
+    assert isinstance(offset, Translation)
+    np.testing.assert_allclose(offset.translation, [100 / 0.5069, 0], rtol=1e-3)
 
 
 def test_region_collision_keeps_full_stem(tmp_path: Path) -> None:

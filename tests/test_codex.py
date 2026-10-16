@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -10,6 +11,7 @@ import pandas as pd
 import pytest
 import tifffile
 from spatialdata.models import get_channel_names
+from spatialdata.transformations import Identity, get_transformation
 
 from spatialdata_io import codex
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names
@@ -222,7 +224,7 @@ def test_codex_qupath_geojson_labels(tmp_path: Path) -> None:
     )
 
     assert list(sdata.labels) == ["reg002_labels"]
-    assert len(sdata.shapes) == 0
+    assert list(sdata.shapes) == ["reg002_polygons"]
     values = sdata.labels["reg002_labels"]["scale0"]["image"].values
     assert values.shape == (128, 160)
     assert values[2, 7] == 1  # the triangle below the diagonal
@@ -319,6 +321,34 @@ def test_codex_table_multi_region(tmp_path: Path) -> None:
     reg002 = table[table.obs["region"] == "reg002_cells"]
     np.testing.assert_allclose(reg002.obsm["spatial"], data["cells"][["x", "y"]], rtol=1e-6)
     assert sdata.attrs["akoya"]["cell_tables"]["reg002"].endswith("reg002_compensated.fcs")
+
+
+def test_codex_multi_region_own_coordinate_systems(tmp_path: Path) -> None:
+    # CODEX Processor regions have no stage positions: each gets its own coordinate system
+    write_legacy_processor_tree(tmp_path, regions=2, cycles=1, layout="per_marker", n_cells=5)
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, image_models_kwargs=_FAST)
+
+    assert sorted(sdata.coordinate_systems) == ["reg001", "reg002"]
+    for region in ("reg001", "reg002"):
+        for name in (f"{region}_image", f"{region}_cells"):
+            assert get_transformation(sdata[name], get_all=True) == {region: Identity()}
+
+    single = codex(tmp_path, regions=["reg002"], image_models_kwargs=_FAST)
+    assert single.coordinate_systems == ["global"]
+
+
+def test_codex_region_without_image_own_coordinate_system(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, regions=2, cycles=1, layout="per_marker", n_cells=5)
+    shutil.rmtree(tmp_path / "processed_2020-01-01" / "stitched" / "reg002")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["reg001_image"]
+    assert get_transformation(sdata["reg001_image"], get_all=True) == {"reg001": Identity()}
+    assert get_transformation(sdata["reg002_cells"], get_all=True) == {"reg002": Identity()}
 
 
 @pytest.mark.parametrize("fcs", [True, False])

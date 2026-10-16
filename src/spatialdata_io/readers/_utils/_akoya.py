@@ -6,7 +6,7 @@ import json
 import math
 import warnings
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
@@ -64,48 +64,77 @@ def apply_channel_names(scan: AkoyaScan, channel_names: Sequence[str] | None) ->
     return list(channel_names)
 
 
-def region_transformations(scans: Sequence[AkoyaScan]) -> dict[str, BaseTransformation]:
-    """Compute the transformation to the ``"global"`` coordinate system of every region.
+def region_transformations(
+    scans: Sequence[AkoyaScan], regions_without_image: Iterable[str] = ()
+) -> dict[str, dict[str, BaseTransformation]]:
+    """Compute the coordinate systems and transformations of every region, by region id.
 
-    Regions are placed with a pixel ``Translation`` derived from their stage positions only if every scan has a
-    stage position and a pixel size and all scans share the same slide. Otherwise all regions get ``Identity``.
+    Akoya scans are already stitched, so scans of the same sample space are only placed: if there are several
+    scans and all have a stage position and a pixel size, the same slide and pixel sizes equal within 0.1%, each is
+    translated by its stage position (in pixels, relative to the top-left one) into the ``"global"`` coordinate
+    system. Otherwise the regions are unrelated and each gets its own coordinate system, named after the region,
+    with ``Identity``; a read of a single region uses ``"global"``.
+
+    Parameters
+    ----------
+    scans
+        The scans read.
+    regions_without_image
+        Regions read without an image (e.g. only their cells); they are unrelated to the scans.
+
+    Returns
+    -------
+    ``{region: {coordinate_system: transformation}}``, to be passed to every element of the region.
     """
-    regions = [scan.region for scan in scans]
-    placeable = (
-        len(scans) > 1
-        and all(scan.stage_position_um is not None and scan.pixel_size_um for scan in scans)
-        and len({scan.slide_id for scan in scans}) == 1
-        and scans[0].slide_id is not None
-    )
-    if not placeable:
-        if len(scans) > 1:
-            logger.info(
-                "Regions %s have no common stage frame (missing stage position or pixel size, or different "
-                "slides) and are all placed at the origin of 'global', so they overlap. Use `regions=` to read a "
-                "single region or `spatialdata.transform` to arrange them.",
-                regions,
-            )
-        return {region: Identity() for region in regions}
+    imaged = [scan.region for scan in scans]
+    others = sorted(set(regions_without_image) - set(imaged))
+    if len(imaged) + len(others) == 1:
+        return {region: {"global": Identity()} for region in [*imaged, *others]}
 
-    positions = [scan.stage_position_um for scan in scans]
-    min_x = min(position[0] for position in positions if position is not None)
-    min_y = min(position[1] for position in positions if position is not None)
-    result: dict[str, BaseTransformation] = {}
-    for scan in scans:
-        x, y = scan.stage_position_um  # type: ignore[misc]
-        pixel_size = scan.pixel_size_um
-        result[scan.region] = Translation([(x - min_x) / pixel_size, (y - min_y) / pixel_size], axes=("x", "y"))  # type: ignore[operator]
-    return result
+    result: dict[str, dict[str, BaseTransformation]] = {}
+    if _same_sample_space(scans):
+        min_x = min(scan.stage_position_um[0] for scan in scans)  # type: ignore[index]
+        min_y = min(scan.stage_position_um[1] for scan in scans)  # type: ignore[index]
+        for scan in scans:
+            x, y = scan.stage_position_um  # type: ignore[misc]
+            pixel_size = scan.pixel_size_um
+            translation = [(x - min_x) / pixel_size, (y - min_y) / pixel_size]  # type: ignore[operator]
+            result[scan.region] = {"global": Translation(translation, axes=("x", "y"))}
+    else:
+        if len(imaged) > 1:
+            logger.info(
+                "Regions %s do not share a sample space (missing stage position or pixel size, different slides "
+                "or pixel sizes), so each is stored in its own coordinate system, named after the region.",
+                imaged,
+            )
+        result = {region: {region: Identity()} for region in imaged}
+    return result | {region: {region: Identity()} for region in others}
+
+
+def _same_sample_space(scans: Sequence[AkoyaScan]) -> bool:
+    """Whether several scans can be placed by their stage positions in one pixel coordinate system."""
+    if len(scans) < 2 or not all(scan.stage_position_um is not None and scan.pixel_size_um for scan in scans):
+        return False
+    slides = {scan.slide_id for scan in scans}
+    pixel_size = scans[0].pixel_size_um
+    return (
+        len(slides) == 1
+        and None not in slides
+        and all(math.isclose(scan.pixel_size_um, pixel_size, rel_tol=1e-3) for scan in scans)  # type: ignore[arg-type]
+    )
 
 
 def build_image_element(
     image: da.Array,
     scan: AkoyaScan,
     c_coords: list[str],
-    transformation: BaseTransformation,
+    transformations: Mapping[str, BaseTransformation],
     image_models_kwargs: Mapping[str, Any],
 ) -> DataArray | DataTree:
-    """Parse a lazy ``(c, y, x)`` array, or ``(y, x, 3)`` for brightfield RGB scans, into an ``Image2DModel``."""
+    """Parse a lazy ``(c, y, x)`` array, or ``(y, x, 3)`` for brightfield RGB scans, into an ``Image2DModel``.
+
+    ``transformations`` are the region's, see :func:`region_transformations`.
+    """
     image_models_kwargs, _ = _initialize_raster_models_kwargs(image_models_kwargs, {})
     if scan.rgb:
         image = image.transpose(2, 0, 1)
@@ -115,7 +144,7 @@ def build_image_element(
         dims=("c", "y", "x"),
         c_coords=c_coords,
         rgb=scan.rgb,
-        transformations={"global": transformation},
+        transformations=dict(transformations),
         **image_models_kwargs,
     )
 

@@ -41,6 +41,7 @@ __all__ = [
     "build_cells",
     "detect_table_format",
     "polygon_labels",
+    "polygon_shapes",
     "read_cell_table",
     "read_codex_table",
     "read_labels",
@@ -429,7 +430,7 @@ def read_qupath_polygons(
         if found.sum() < len(polygons):
             warnings.warn(
                 f"{len(polygons) - found.sum()} of the {len(polygons)} cells of {table_path} have no polygon in "
-                f"{geojson}; they are in the table but not in the labels.",
+                f"{geojson}; they are in the table but not in the labels and polygons.",
                 UserWarning,
                 stacklevel=5,
             )
@@ -770,7 +771,7 @@ def _match_region(value: str, regions: Sequence[str]) -> str | None:
 def read_labels(
     path: Path,
     labels_models_kwargs: Mapping[str, Any],
-    transformation: BaseTransformation,
+    transformations: Mapping[str, BaseTransformation],
     *,
     mask_channel: int | str | None = None,
 ) -> DataArray | DataTree:
@@ -783,8 +784,8 @@ def read_labels(
     labels_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`; their ``chunks`` also set the
         spatial chunks of uncompressed files, which are memory-mapped.
-    transformation
-        The transformation to ``"global"``, the one of the region's image.
+    transformations
+        The transformations of the region's image, by coordinate system.
     mask_channel
         The mask to read from a file with several: its index or OME channel name (e.g. ``"cells"``). If `None`,
         the first one.
@@ -811,7 +812,7 @@ def read_labels(
     if not 0 <= index < n_masks:
         raise ValueError(f"{path} holds {n_masks} mask channel(s); `mask_channel` {mask_channel!r} is out of range.")
     return Labels2DModel.parse(
-        image[index], dims=("y", "x"), transformations={"global": transformation}, **labels_models_kwargs
+        image[index], dims=("y", "x"), transformations=dict(transformations), **labels_models_kwargs
     )
 
 
@@ -834,12 +835,12 @@ def _ome_channel_names(path: Path) -> list[str]:
 
 def read_region_labels(
     files: Mapping[str, Path],
-    transformations: Mapping[str, BaseTransformation],
+    transformations: Mapping[str, Mapping[str, BaseTransformation]],
     labels_models_kwargs: Mapping[str, Any],
     cells_table_kwargs: Mapping[str, Any],
     image_shapes: Mapping[str, tuple[int, int]],
 ) -> dict[str, DataArray | DataTree]:
-    """Read the mask of each region, as resolved by :func:`resolve_per_region`, with the region's transformation.
+    """Read the mask of each region, as resolved by :func:`resolve_per_region`, with the region's transformations.
 
     A mask whose ``(y, x)`` shape differs from ``image_shapes`` of its region raises a warning: its pixels would
     not align with the image.
@@ -854,7 +855,7 @@ def read_region_labels(
         labels[region] = read_labels(
             path,
             labels_models_kwargs,
-            transformations.get(region, Identity()),
+            _transformations_of(transformations, region),
             mask_channel=cells_table_kwargs.get("mask_channel"),
         )
         shape, image_shape = raster_shape(labels[region]), image_shapes.get(region)
@@ -872,7 +873,7 @@ def polygon_labels(
     tables: Sequence[CellTable],
     labels: Mapping[str, DataArray | DataTree],
     image_shapes: Mapping[str, tuple[int, int]],
-    transformations: Mapping[str, BaseTransformation],
+    transformations: Mapping[str, Mapping[str, BaseTransformation]],
     labels_models_kwargs: Mapping[str, Any],
 ) -> tuple[dict[str, DataArray | DataTree], dict[str, str]]:
     """Lazily rasterise the cell polygons of each region into labels whose values are the cells' instance ids.
@@ -889,7 +890,8 @@ def polygon_labels(
     image_shapes
         The level-0 ``(y, x)`` shape of each region's image; the labels get the same shape.
     transformations
-        The transformation to ``"global"`` of each region's image.
+        The transformations of each region's image, see :func:`region_transformations`; missing regions are in
+        ``"global"``.
     labels_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`; their ``chunks`` are the chunks
         that are rasterised one at a time.
@@ -923,11 +925,52 @@ def polygon_labels(
             elements[region] = Labels2DModel.parse(
                 data,
                 dims=("y", "x"),
-                transformations={"global": transformations.get(region, Identity())},
+                transformations=_transformations_of(transformations, region),
                 **labels_models_kwargs,
             )
             sources[region] = str(table.geojson)
     return elements, sources
+
+
+def polygon_shapes(
+    tables: Sequence[CellTable], transformations: Mapping[str, Mapping[str, BaseTransformation]]
+) -> dict[str, GeoDataFrame]:
+    """The cell polygons of each region as shapes indexed by the cells' instance ids, the ids of their labels.
+
+    Cells without a polygon are left out.
+
+    Parameters
+    ----------
+    tables
+        The cell tables; those with ``polygons_px`` are kept.
+    transformations
+        The transformations of each region, see :func:`region_transformations`; missing regions are in
+        ``"global"``.
+
+    Returns
+    -------
+    The shapes elements by region id.
+    """
+    shapes = {}
+    for table in tables:
+        if table.polygons_px is None:
+            continue
+        for region, rows in _region_rows(table).items():
+            rows = rows[pd.notna(table.polygons_px[rows])]
+            if len(rows) == 0:
+                continue
+            geometry = gpd.GeoDataFrame(
+                geometry=list(table.polygons_px[rows]), index=pd.Index(table.instance_id.to_numpy()[rows])
+            )
+            shapes[region] = ShapesModel.parse(geometry, transformations=_transformations_of(transformations, region))
+    return shapes
+
+
+def _transformations_of(
+    transformations: Mapping[str, Mapping[str, BaseTransformation]], region: str
+) -> dict[str, BaseTransformation]:
+    """A copy of the transformations of ``region``, ``Identity`` to ``"global"`` if it has none."""
+    return dict(transformations.get(region, {"global": Identity()}))
 
 
 def raster_shape(element: DataArray | DataTree) -> tuple[int, int]:
@@ -940,7 +983,7 @@ def build_cells(
     tables: Sequence[CellTable],
     region_elements: Mapping[str, str],
     labels: Mapping[str, DataArray | DataTree],
-    transformations: Mapping[str, BaseTransformation],
+    transformations: Mapping[str, Mapping[str, BaseTransformation]],
 ) -> tuple[dict[str, ad.AnnData], dict[str, GeoDataFrame]]:
     """Build the table elements and, for regions without labels, circle shapes from cell tables.
 
@@ -954,7 +997,8 @@ def build_cells(
     labels
         The labels elements by region id; their regions get no circles.
     transformations
-        The transformation to ``"global"`` of each region's image; missing regions get ``Identity``.
+        The transformations of each region, see :func:`region_transformations`; missing regions get ``Identity``
+        to ``"global"``.
 
     Returns
     -------
@@ -998,7 +1042,7 @@ def build_cells(
                 geometry=0,
                 radius=radius,
                 index=pd.Index(table.instance_id.to_numpy()[rows]),
-                transformations={"global": transformations.get(region, Identity())},
+                transformations=_transformations_of(transformations, region),
             )
     if circle_regions:
         warnings.warn(

@@ -31,6 +31,7 @@ from spatialdata_io.readers._utils._cell_tables import (
     build_cells,
     detect_table_format,
     polygon_labels,
+    polygon_shapes,
     raster_shape,
     read_codex_table,
     read_region_labels,
@@ -117,14 +118,18 @@ def codex(
     Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``,
     ``bestFocus/``) are ignored. The region id ``regNNN`` is taken from the file names; a ``{vx.QPTIFF!r}`` without
     one is named after its file. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files
-    are read as hyperstacks named after their files. Each region is stored as the image ``<region>_image`` in the
-    ``"global"`` coordinate system and its metadata in ``sdata.attrs["akoya"]``. The cells of each region are stored
-    as circles ``<region>_cells`` with the cells' area (``size`` column), annotated by one table ``"table"``
-    (``obs["region"]`` names the circles, ``obs["cell_id"]`` is the instance key), or by one table
-    ``<region>_table`` per region if the regions have different markers. A region with a segmentation mask in
+    are read as hyperstacks named after their files. Each region is stored as the image ``<region>_image`` and its
+    metadata in ``sdata.attrs["akoya"]``. A single region is stored in the ``"global"`` coordinate system. Several
+    CIM scans of the same sample space (same slide, with stage positions and equal pixel sizes) are placed at their
+    stage positions in ``"global"``; otherwise (e.g. CODEX Processor regions, which have no stage positions) each
+    region is stored in its own coordinate system, named after the region. All elements of a region share its
+    coordinate system. The cells of each region are stored as circles ``<region>_cells`` with the cells' area
+    (``size`` column), annotated by one table ``"table"`` (``obs["region"]`` names the circles, ``obs["cell_id"]``
+    is the instance key), or by one table ``<region>_table`` per region if the regions have different markers. A region with a segmentation mask in
     ``labels`` gets the labels ``<region>_labels`` instead of circles, and its cells annotate them; so does a
     region with the cell outlines of a QuPath GeoJSON export (see ``cells_table_kwargs``), rasterised lazily one
-    chunk at a time with the cells' instance ids (the higher id wins where cells overlap). The paths of the tables,
+    chunk at a time with the cells' instance ids (the higher id wins where cells overlap); the outlines are also kept
+    as the shapes ``<region>_polygons`` in pixels, indexed by the same instance ids. The paths of the tables,
     masks and GeoJSON files read are stored in ``sdata.attrs["akoya"]["cell_tables"]``, ``["labels"]`` and
     ``["geojson"]``.
 
@@ -222,17 +227,6 @@ def codex(
         )
 
     names = {scan.region: apply_channel_names(scan, channel_names) for scan in scans}
-    transformations = region_transformations(scans)
-    images = {
-        f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}": build_image_element(
-            arrays[scan.region], scan, names[scan.region], transformations[scan.region], image_models_kwargs
-        )
-        for scan in scans
-    }
-    image_shapes = {scan.region: raster_shape(images[f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}"]) for scan in scans}
-    region_labels = read_region_labels(
-        mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes
-    )
     if table_files:
         cell_tables = read_region_tables(
             table_files,
@@ -248,11 +242,26 @@ def codex(
         read = _read_tables(discovered, layout, selected if regions is not None else None, fcs)
         cell_tables = list(read.values())
         table_paths = {key: str(discovered[key]) for key in read}
+    # the regions of cells or masks without an image are unrelated to the scans
+    cell_regions = {region for table in cell_tables for region in table.region.unique()}
+    transformations = region_transformations(scans, cell_regions | (mask_files.keys() - {"*"}))
+    images = {
+        f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}": build_image_element(
+            arrays[scan.region], scan, names[scan.region], transformations[scan.region], image_models_kwargs
+        )
+        for scan in scans
+    }
+    image_shapes = {scan.region: raster_shape(images[f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}"]) for scan in scans}
+    region_labels = read_region_labels(
+        mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes
+    )
     polygons, geojson_files = polygon_labels(
         cell_tables, region_labels, image_shapes, transformations, labels_models_kwargs
     )
     region_labels |= polygons
     tables, shapes = build_cells(cell_tables, {}, region_labels, transformations) if cell_tables else ({}, {})
+    for region, element in polygon_shapes(cell_tables, transformations).items():
+        shapes[f"{region}{PhenocyclerKeys.POLYGONS_SUFFIX}"] = element
     sdata = SpatialData(
         images=images,
         labels={f"{region}{PhenocyclerKeys.LABELS_SUFFIX}": element for region, element in region_labels.items()},

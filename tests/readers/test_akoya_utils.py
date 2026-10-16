@@ -59,32 +59,54 @@ def test_apply_channel_names_length_mismatch():
         apply_channel_names(_scan(), ["a", "b"])
 
 
-def test_region_transformations_identity_without_positions():
-    result = region_transformations([_scan("a"), _scan("b")])
-    assert all(isinstance(t, Identity) for t in result.values())
-    assert set(result) == {"a", "b"}
+def test_region_transformations_single_is_global():
+    assert region_transformations([_scan("a", stage=(5.0, 5.0))]) == {"a": {"global": Identity()}}
 
 
-def test_region_transformations_translation_same_slide():
+def test_region_transformations_shared_slide_translation():
     result = region_transformations([_scan("a", stage=(0.0, 0.0)), _scan("b", stage=(100.0, 50.0))])
-    assert result["a"] == Translation([0.0, 0.0], axes=("x", "y"))
-    assert result["b"] == Translation([200.0, 100.0], axes=("x", "y"))
+    assert result == {
+        "a": {"global": Translation([0.0, 0.0], axes=("x", "y"))},
+        "b": {"global": Translation([200.0, 100.0], axes=("x", "y"))},
+    }
 
 
-def test_region_transformations_identity_different_slides():
+def test_region_transformations_unrelated_get_own_cs():
     result = region_transformations(
-        [_scan("a", stage=(0.0, 0.0), slide_id="s1"), _scan("b", stage=(100.0, 50.0), slide_id="s2")]
+        [_scan("A", stage=(0.0, 0.0), slide_id="s1"), _scan("B", stage=(100.0, 50.0), slide_id="s2")]
     )
-    assert all(isinstance(t, Identity) for t in result.values())
+    assert result == {"A": {"A": Identity()}, "B": {"B": Identity()}}
 
 
-def test_region_transformations_identity_missing_pixel_size():
-    result = region_transformations([_scan("a", stage=(0.0, 0.0), pixel_size_um=None), _scan("b", stage=(1.0, 1.0))])
-    assert all(isinstance(t, Identity) for t in result.values())
+def test_region_transformations_mixed_pixel_sizes_own_cs():
+    result = region_transformations([_scan("a", stage=(0.0, 0.0)), _scan("b", stage=(1.0, 1.0), pixel_size_um=0.25)])
+    assert result == {"a": {"a": Identity()}, "b": {"b": Identity()}}
+    # pixel sizes equal up to rounding share the sample space
+    result = region_transformations([_scan("a", stage=(0.0, 0.0)), _scan("b", stage=(1.0, 1.0), pixel_size_um=0.5004)])
+    assert set(result["b"]) == {"global"}
 
 
-def test_region_transformations_single_scan_identity():
-    assert isinstance(region_transformations([_scan("a", stage=(5.0, 5.0))])["a"], Identity)
+@pytest.mark.parametrize(
+    "scans",
+    [
+        [_scan("a"), _scan("b")],
+        [_scan("a", stage=(0.0, 0.0), pixel_size_um=None), _scan("b", stage=(1.0, 1.0))],
+        [_scan("a", stage=(0.0, 0.0), slide_id=None), _scan("b", stage=(1.0, 1.0), slide_id=None)],
+    ],
+    ids=["no_stage_positions", "missing_pixel_size", "no_slide_id"],
+)
+def test_region_transformations_unplaceable_get_own_cs(scans: list[AkoyaScan]):
+    assert region_transformations(scans) == {"a": {"a": Identity()}, "b": {"b": Identity()}}
+
+
+def test_region_transformations_regions_without_image():
+    # a region read without an image (e.g. only its cells) is unrelated to the scans
+    shared = [_scan("a", stage=(0.0, 0.0)), _scan("b", stage=(100.0, 50.0))]
+    result = region_transformations(shared, ["c", "a"])
+    assert set(result["a"]) == set(result["b"]) == {"global"}
+    assert result["c"] == {"c": Identity()}
+    assert region_transformations([_scan("a")], ["c"]) == {"a": {"a": Identity()}, "c": {"c": Identity()}}
+    assert region_transformations([], ["c"]) == {"c": {"global": Identity()}}
 
 
 def test_scans_to_attrs_json_serialisable():
@@ -112,14 +134,14 @@ def test_select_regions_unknown_raises():
 def test_build_image_rgb_and_multiplex():
     scan = _scan()
     img = da.from_array(np.random.default_rng(0).integers(0, 255, (3, 16, 16), dtype=np.uint8), chunks=(1, 8, 8))
-    element = build_image_element(img, scan, ["DAPI", "CD3", "CD8"], Identity(), _NO_PYRAMID)
+    element = build_image_element(img, scan, ["DAPI", "CD3", "CD8"], {"global": Identity()}, _NO_PYRAMID)
     assert list(element.coords["c"].values) == ["DAPI", "CD3", "CD8"]
     assert isinstance(get_transformation(element, "global"), Identity)
 
     rgb_scan = _scan(rgb=True)
     rgb_img = da.from_array(np.zeros((16, 16, 3), dtype=np.uint8), chunks=(8, 8, 3))
     trans = Translation([4.0, 2.0], axes=("x", "y"))
-    element = build_image_element(rgb_img, rgb_scan, ["r", "g", "b"], trans, _NO_PYRAMID)
+    element = build_image_element(rgb_img, rgb_scan, ["r", "g", "b"], {"reg1": trans}, _NO_PYRAMID)
     assert list(element.coords["c"].values) == ["r", "g", "b"]
     assert element.shape == (3, 16, 16)
-    assert get_transformation(element, "global") == trans
+    assert get_transformation(element, get_all=True) == {"reg1": trans}

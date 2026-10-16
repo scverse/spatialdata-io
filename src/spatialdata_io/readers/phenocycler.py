@@ -23,6 +23,7 @@ from spatialdata_io.readers._utils._akoya import (
 from spatialdata_io.readers._utils._cell_tables import (
     build_cells,
     polygon_labels,
+    polygon_shapes,
     raster_shape,
     read_region_labels,
     read_region_tables,
@@ -78,9 +79,11 @@ def phenocycler(
 
     The region name is the file name without the ``{vx.ER_QPTIFF_SUFFIX!r}``/``{vx.QPTIFF_SUFFIX!r}`` suffix and
     without a trailing ``_Scan<N>``, unless that makes two regions share a name. Each region is stored as the image
-    ``<region>{vx.IMAGE_SUFFIX}``. Several regions scanned on the same slide are placed at their stage positions in
-    the ``"global"`` coordinate system; otherwise all regions sit at its origin. The per-region metadata is stored
-    in ``sdata.attrs[{vx.ATTRS_KEY!r}]``.
+    ``<region>{vx.IMAGE_SUFFIX}``. A single region is stored in the ``"global"`` coordinate system. Several regions
+    of the same sample space (scanned on the same slide, with stage positions and equal pixel sizes) are placed at
+    their stage positions in ``"global"``; otherwise the regions are unrelated and each is stored in its own
+    coordinate system, named after the region. All elements of a region share its coordinate system. The
+    per-region metadata is stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]``.
 
     A segmentation mask given in ``labels`` is stored lazily as the labels ``<region>{vx.LABELS_SUFFIX}`` with the
     transformation of the region's image. The cells of ``cells_table`` are stored in one table
@@ -91,7 +94,9 @@ def phenocycler(
     ``<region>{vx.CELLS_SUFFIX}``, with a warning. The cell outlines of a QuPath GeoJSON export (see
     ``cells_table_kwargs``) are rasterised lazily, one chunk at a time, into the labels of a region without a
     mask; a feature's ``id`` is matched to the table's ``Object ID`` (else features and rows are matched in order),
-    the labels hold the cells' instance ids, and where cells overlap the higher instance id wins. The paths of the
+    the labels hold the cells' instance ids, and where cells overlap the higher instance id wins. The outlines are
+    also kept as the shapes ``<region>{vx.POLYGONS_SUFFIX}`` in pixels, indexed by the same instance ids; the table
+    annotates the labels. The paths of the
     tables, masks and GeoJSON files are stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]``, ``["labels"]``
     and ``["geojson"]``.
 
@@ -179,6 +184,8 @@ def phenocycler(
     )
     region_labels |= polygons
     tables, shapes = build_cells(cell_tables, {}, region_labels, transformations) if cell_tables else ({}, {})
+    for region, element in polygon_shapes(cell_tables, transformations).items():
+        shapes[f"{region}{PhenocyclerKeys.POLYGONS_SUFFIX}"] = element
     sdata = SpatialData(
         images=images,
         labels={f"{region}{PhenocyclerKeys.LABELS_SUFFIX}": element for region, element in region_labels.items()},
