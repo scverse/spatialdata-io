@@ -18,6 +18,26 @@ class CodexKeys(ModeEnum):
     IMAGE_TIF = ".tif"
 
 
+@unique
+class PhenocyclerKeys(ModeEnum):
+    """Keys for *Akoya PhenoCycler-Fusion* (and CIM QPTIFF) formatted dataset."""
+
+    # files and directories
+    QPTIFF_SUFFIX = ".qptiff"
+    ER_QPTIFF_SUFFIX = ".er.qptiff"
+    XPD_SUFFIX = ".xpd"
+    CHANNELS_CSV_SUFFIX = "channels.csv"
+    # elements
+    IMAGE_SUFFIX = "_image"
+    LABELS_SUFFIX = "_labels"
+    CELLS_SUFFIX = "_cells"
+    TABLE_KEY = "table"
+    # metadata
+    REGION_KEY = "region"
+    INSTANCE_KEY = "cell_id"
+    ATTRS_KEY = "akoya"
+
+
 class CurioKeys(ModeEnum):
     """Keys for *Curio* formatted dataset."""
 
