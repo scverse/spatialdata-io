@@ -16,6 +16,12 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
 ### Added
 
 - `spatialdata_io` ships a `py.typed` marker, so downstream type checkers use its annotations.
+- `xenium` reads pre-1.3.0 (XOA < 1.3.0) and CSV-only bundles: when the parquet files and
+  `cells.zarr.zip` are absent, the table, boundaries, and transcripts are read from the `cells.csv`,
+  `cell_boundaries.csv`, `nucleus_boundaries.csv` and `transcripts.csv` outputs (`.gz` or plain),
+  and the raster cell/nucleus labels are reconstructed by rasterizing the boundary polygons. The
+  cell feature matrix falls back to a `cell_feature_matrix/` MatrixMarket directory or
+  `cell_feature_matrix.tar.gz` when `cell_feature_matrix.h5` is missing.
 
 ### Changed
 
