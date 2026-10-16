@@ -671,6 +671,35 @@ def test_qupath_xy_centroids_and_bare_markers(tmp_path: Path) -> None:
     assert list(table.var.index) == ["CD44", "CD45RO"]
 
 
+@pytest.mark.parametrize("r_names", [False, True])
+def test_qupath_bare_markers_exclude_morphology(tmp_path: Path, r_names: bool) -> None:
+    path = tmp_path / "detections.csv"
+    header = [
+        "Image",
+        "Object ID",
+        "Centroid X µm",
+        "Centroid Y µm",
+        "Area µm^2",
+        "Perimeter µm",
+        "Max diameter µm",
+        "Circularity",
+        "Solidity",
+        "Eccentricity",
+        "Detection probability",
+        "CD44",
+        "CD45RO",
+    ]
+    if r_names:
+        header = [name.replace(" ", ".").replace("µm^2", "um.2").replace("µm", "um") for name in header]
+    path.write_text(",".join(header) + "\nS,u1,1,2,3,4,5,0.9,0.8,0.5,0.99,1.5,4.3\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match=r"reading the 2 other numeric columns \['CD44', 'CD45RO'\]"):
+        table = read_cell_table(path, "qupath", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+
+    assert list(table.var.index) == ["CD44", "CD45RO"]
+    assert {header[4], header[7], header[10]} <= set(table.obs.columns)
+
+
 def test_qupath_xy_centroids_need_a_unit(tmp_path: Path) -> None:
     path = tmp_path / "cells.csv"
     path.write_text("Object ID,X,Y,CD3: Cell: Mean\nab,10,5,1\n", encoding="utf-8")

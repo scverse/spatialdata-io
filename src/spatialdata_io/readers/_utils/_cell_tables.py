@@ -94,6 +94,8 @@ _QUPATH_COMPARTMENTS = ("Cell", "Nucleus", "Cytoplasm", "Membrane")
 _QUPATH_MEASUREMENT = re.compile(r"(?:Cell|Nucleus|Cytoplasm|Membrane)\b|.*: ")
 # the unit of a QuPath measurement, e.g. `Cell: Area µm^2`
 _QUPATH_UNIT = re.compile(r" (µm|um|px)(?:\^2)?$")
+# QuPath shape and detection measurements without a unit, e.g. of a detection export without compartments
+_QUPATH_UNITLESS_MEASUREMENTS = frozenset({"Circularity", "Detection probability", "Eccentricity", "Solidity"})
 _QUPATH_IMAGE = "Image"
 _QUPATH_ID = "Object ID"
 # QuPath's centroid columns by unit; R's `make.names` writes `Centroid X µm` as `Centroid.X.um`
@@ -355,7 +357,8 @@ def read_cell_table(
               (also ``<marker>..<compartment>..Mean`` and ``<marker>_<compartment>_Mean``), one per marker from
               the first of the ``Cell``, ``Nucleus``, ``Cytoplasm`` and ``Membrane`` compartments (in
               ``var["compartment"]``), else, with a `UserWarning`, the numeric columns that are not QuPath
-              measurements (e.g. ``CD44`` of a detection export). The radius comes from ``Cell: Area µm^2`` (or
+              measurements (e.g. ``CD44`` of a detection export; not morphology such as ``Area µm^2``,
+              ``Max diameter µm`` or ``Circularity``). The radius comes from ``Cell: Area µm^2`` (or
               ``px^2``) in the unit of the centroids. A table split into centroids and measurements (two files)
               must be joined on the object id first. The cell outlines are read from a QuPath GeoJSON export, see
               :func:`read_qupath_polygons`: ``cells_table_kwargs["geojson"]``, else ``<table stem>.geojson`` or
@@ -695,8 +698,9 @@ def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
             index=pd.Index(dedupe_channel_names(list(chosen))),
         )
     else:
-        # e.g. a detection export with the measurements named after the markers only
-        candidates = [column for column in df.columns if not _QUPATH_MEASUREMENT.match(column)]
+        # e.g. a detection export with the measurements named after the markers only; its morphology (e.g.
+        # `Area µm^2`, `Max diameter µm`, `Circularity`) is not a marker
+        candidates = [c for c in df.columns if not _QUPATH_MEASUREMENT.match(c) and not _is_qupath_morphology(c)]
         markers = _select_markers(df[candidates], None, roles)
         var = pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers)))
         if markers:
@@ -720,6 +724,11 @@ def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
         "region_column": region_column,
         "area_column": area,
     }
+
+
+def _is_qupath_morphology(column: str) -> bool:
+    """Whether ``column`` (also in R's ``make.names`` form) is a QuPath measurement with a unit or a shape measure."""
+    return any(_QUPATH_UNIT.search(name) or name in _QUPATH_UNITLESS_MEASUREMENTS for name in _qupath_names([column]))
 
 
 def _qupath_xy_unit(path: Path, columns: list[str], kwargs: Mapping[str, Any]) -> str:
