@@ -30,8 +30,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   `dask.distributed`): they open their file in each process on the first chunk read. A cell table for several
   regions converts µm coordinates with each region's own pixel size.
 - The Akoya readers (`phenocycler()`, `codex()`) scale a segmentation mask downsampled from its region image by an
-  integer factor onto the image (a `Scale` before the region's transformation), and scale the mask-pixel centroids
-  and areas of `mcquant`, SPRM and generic pixel tables by the same factor; other shape mismatches still warn.
+  integer factor (exactly, or rounded up) onto the image (a `Scale` before the region's transformation), and scale
+  the centroids (`obsm["spatial"]`) and circle radii of `mcquant`, SPRM and generic pixel tables, taken to be in
+  mask pixels, by the same factor; the source columns in `obs` are kept as read. Other shape mismatches still warn.
 
 ### Changed
 

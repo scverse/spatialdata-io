@@ -543,41 +543,74 @@ def test_read_labels_pyramidal_ome_is_lazy(tmp_path: Path, monkeypatch: pytest.M
 
 @pytest.mark.parametrize(("mask_shape", "factor"), [((32, 40), 2), ((22, 27), 3)])
 def test_mask_integer_downsample_autoscaled(tmp_path: Path, mask_shape: tuple[int, int], factor: int) -> None:
-    # a mask downsampled by an integer factor (exactly, or with its shape rounded up) is scaled onto the image
-    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"], shape=(64, 80), stage_position_cm=(1.0, 2.0))
+    # a mask downsampled by an integer factor (exactly, or with its shape rounded up) is scaled onto the image,
+    # before the stage translation of its region; the full-resolution mask of the other region is unaffected
+    image_shape = (64, 80)
+    write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI"], shape=image_shape, stage_position_cm=(1.0, 2.0))
+    write_qptiff(tmp_path / "B_Scan1.qptiff", biomarkers=["DAPI"], shape=image_shape, stage_position_cm=(1.01, 2.0))
+    tifffile.imwrite(tmp_path / "A_mask.tif", np.zeros(image_shape, dtype=np.uint32))
     mask = np.zeros(mask_shape, dtype=np.uint32)
     mask[2:6, 2:6], mask[10:14, 8:12] = 1, 2
-    tifffile.imwrite(tmp_path / "mask.tif", mask)
-    cells = _write_mcquant(tmp_path / "cells.csv", n=2)
+    tifffile.imwrite(tmp_path / "B_mask.tif", mask)
+    cells = _write_mcquant(tmp_path / "B.csv", n=2)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         sdata = phenocycler(
             tmp_path,
-            cells_table=tmp_path / "cells.csv",
-            labels=tmp_path / "mask.tif",
+            cells_table={"B": tmp_path / "B.csv"},
+            labels={"A": tmp_path / "A_mask.tif", "B": tmp_path / "B_mask.tif"},
             image_models_kwargs={"scale_factors": [2]},
         )
 
-    image_transformation = get_transformation(sdata.images["S_image"], "global")
-    labels_transformation = get_transformation(sdata.labels["S_labels"], "global")
+    assert sdata.coordinate_systems == ["global"]
+    assert get_transformation(sdata.labels["A_labels"], get_all=True) == get_transformation(
+        sdata.images["A_image"], get_all=True
+    )
+    image_transformation = get_transformation(sdata.images["B_image"], "global")
+    assert isinstance(image_transformation, Translation)
+    labels_transformation = get_transformation(sdata.labels["B_labels"], "global")
     assert isinstance(labels_transformation, Sequence)
-    assert labels_transformation.transformations == [
-        Scale([factor, factor], axes=("y", "x")),
-        image_transformation,
-    ]
-    image_extent = get_extent(sdata.images["S_image"], coordinate_system="global")
-    labels_extent = get_extent(sdata.labels["S_labels"], coordinate_system="global")
-    for axis in ("x", "y"):
+    assert labels_transformation.transformations == [Scale([factor, factor], axes=("y", "x")), image_transformation]
+    image_extent = get_extent(sdata.images["B_image"], coordinate_system="global")
+    labels_extent = get_extent(sdata.labels["B_labels"], coordinate_system="global")
+    for axis, image_size, mask_size in zip(("y", "x"), image_shape, mask_shape, strict=True):
         assert labels_extent[axis][0] == pytest.approx(image_extent[axis][0])
-        assert labels_extent[axis][1] == pytest.approx(image_extent[axis][1], abs=factor - 1)
-    # mcquant centroids of the mask are in mask pixels, the table's are in image pixels
+        # a mask rounded up overhangs the image by less than one mask pixel
+        expected_end = image_extent[axis][0] + mask_size * factor
+        assert labels_extent[axis][1] == pytest.approx(expected_end)
+        if image_size % mask_size == 0:
+            assert labels_extent[axis][1] == pytest.approx(image_extent[axis][1])
+    # mcquant centroids of the mask are in mask pixels, the table's are in image pixels; obs keeps them as read
+    table = sdata.tables["table"]
+    np.testing.assert_allclose(table.obsm["spatial"], cells[["X_centroid", "Y_centroid"]].to_numpy() * factor)
+    np.testing.assert_allclose(table.obs["X_centroid"], cells["X_centroid"])
+
+    # writing may reorder the axes of the translation, so compare the composed affine maps
+    sdata.write(tmp_path / "x.zarr")
+    read = get_transformation(read_zarr(tmp_path / "x.zarr").labels["B_labels"], "global")
+    assert isinstance(read, Sequence)
     np.testing.assert_allclose(
-        sdata.tables["table"].obsm["spatial"], cells[["X_centroid", "Y_centroid"]].to_numpy() * factor
+        read.to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y")),
+        labels_transformation.to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y")),
     )
 
-    sdata.write(tmp_path / "x.zarr")
-    assert get_transformation(read_zarr(tmp_path / "x.zarr").labels["S_labels"], "global") == labels_transformation
+
+def test_mask_downsample_keeps_image_pixel_centroids(tmp_path: Path) -> None:
+    # inForm centroids are in image pixels, so a downsampled mask does not scale them
+    write_qptiff(tmp_path / "Scan1.qptiff", biomarkers=["DAPI"], shape=(64, 80))
+    tifffile.imwrite(tmp_path / "mask.tif", np.zeros((32, 40), dtype=np.uint32))
+    _write_inform(tmp_path / "Scan1_cell_seg_data.txt", "pixels", area_unit="pixels")
+
+    sdata = phenocycler(
+        tmp_path,
+        cells_table=tmp_path / "Scan1_cell_seg_data.txt",
+        labels=tmp_path / "mask.tif",
+        image_models_kwargs={"scale_factors": [2]},
+    )
+
+    assert isinstance(get_transformation(sdata.labels[next(iter(sdata.labels))], "global"), Sequence)
+    np.testing.assert_allclose(sdata.tables["table"].obsm["spatial"], [[100, 50], [200, 80]])
 
 
 def test_mask_non_integer_mismatch_warns(tmp_path: Path) -> None:

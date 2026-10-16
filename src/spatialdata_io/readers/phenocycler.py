@@ -122,9 +122,12 @@ def phenocycler(
     labels
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
         mapping from region id to path. A mask whose shape is the region image's divided by an integer factor ``f``
-        (rounded up) is scaled onto the image (``Scale([f, f])`` before the region's transformation), and the pixel
-        centroids and areas of ``"mcquant"``, ``"sprm"`` and ``"generic"`` (``"px"``) tables, which are taken to be
-        in mask pixels, are scaled by ``f`` to image pixels; any other shape mismatch raises a warning.
+        (exactly, or rounded up) is scaled onto the image (``Scale([f, f])`` before the region's transformation);
+        any other shape mismatch raises a warning. The pixel centroids of ``"mcquant"``, ``"sprm"`` and
+        ``"generic"`` (``"px"``) tables are taken to be in mask pixels, so their centroids (``obsm["spatial"]``) and
+        circle radii are scaled by ``f`` to image pixels; the source columns in ``obs`` are kept as read (mask
+        pixels). To avoid this for a generic table in image pixels, use ``coordinates_unit="um"`` or a
+        full-resolution mask.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
