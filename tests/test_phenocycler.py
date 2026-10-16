@@ -662,3 +662,9 @@ def test_is_lazy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     sdata = phenocycler(path, image_models_kwargs=_FAST)
 
     assert isinstance(_level0(sdata, "S_image").data, da.Array)
+
+
+def test_phenocycler_keyword_only(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI"])
+    with pytest.raises(TypeError):
+        phenocycler(tmp_path, ["A"])  # type: ignore[misc]

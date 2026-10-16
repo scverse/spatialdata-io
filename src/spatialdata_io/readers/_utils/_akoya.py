@@ -176,18 +176,14 @@ def scans_to_attrs(scans: Sequence[AkoyaScan], channel_names: Mapping[str, list[
 def normalize_regions(regions: str | Sequence[str] | None) -> list[str] | None:
     """Validate the ``regions`` argument of a reader: a region id or a sequence of them, without duplicates.
 
-    Raises a `TypeError` for a mapping, e.g. ``imread_kwargs`` passed positionally to ``codex()``, whose third
-    parameter used to be ``imread_kwargs``, and a `ValueError` for an empty sequence.
+    Raises a `TypeError` for a mapping and a `ValueError` for an empty sequence.
     """
     if regions is None:
         return None
     if isinstance(regions, str):
         return [regions]
     if isinstance(regions, Mapping):
-        raise TypeError(
-            f"`regions` must be a sequence of region ids, got {type(regions).__name__}; `imread_kwargs` is no "
-            "longer the third positional argument of `codex()` — pass it by keyword."
-        )
+        raise TypeError(f"`regions` must be a sequence of region ids, got {type(regions).__name__}.")
     if not regions:
         raise ValueError("`regions` is empty; pass `None` to read all regions.")
     return list(dict.fromkeys(regions))

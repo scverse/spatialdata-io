@@ -85,12 +85,13 @@ class _LegacyLayout:
 def codex(
     path: str | Path,
     fcs: bool = True,
+    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
+    *,
     regions: Sequence[str] | None = None,
     channel_names: Sequence[str] | None = None,
     cells_table: str | Path | Mapping[str, str | Path] | None = None,
     cells_table_format: str = "auto",
     labels: str | Path | Mapping[str, str | Path] | None = None,
-    imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     cells_table_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -156,6 +157,9 @@ def codex(
     fcs
         Whether to prefer ``{vx.FCS_FILE!r}`` cell tables over ``{vx.FCS_FILE_CSV!r}`` ones when both exist. With
         `False`, a region that only has a ``{vx.FCS_FILE!r}`` table is read from it, with a warning.
+    imread_kwargs
+        Keyword arguments passed to :func:`dask_image.imread.imread`, which is only used for ``{vx.IMAGE_TIF}(f)``
+        files that ``tifffile`` cannot read lazily (e.g. unsupported compression).
     regions
         Regions to read, e.g. ``["reg001"]``, including only their cells. If `None`, all regions are read.
     channel_names
@@ -175,9 +179,6 @@ def codex(
         mapping from region id to path. Each mask is stored lazily as the labels ``<region>_labels``
         with the transformation of the region's image; the cells of the region annotate it instead of circles, and
         their instance ids must be the mask values.
-    imread_kwargs
-        Keyword arguments passed to :func:`dask_image.imread.imread`, which is only used for ``{vx.IMAGE_TIF}(f)``
-        files that ``tifffile`` cannot read lazily (e.g. unsupported compression).
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs

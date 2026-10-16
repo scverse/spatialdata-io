@@ -136,7 +136,11 @@ def test_select_regions_deduplicates():
 
 @pytest.mark.parametrize(
     ("regions", "error", "match"),
-    [({}, TypeError, "pass it by keyword"), ({"a": 1}, TypeError, "sequence of region ids"), ([], ValueError, "empty")],
+    [
+        ({}, TypeError, "sequence of region ids"),
+        ({"a": 1}, TypeError, "sequence of region ids"),
+        ([], ValueError, "empty"),
+    ],
 )
 def test_select_regions_invalid_raises(regions: object, error: type[Exception], match: str):
     with pytest.raises(error, match=match):

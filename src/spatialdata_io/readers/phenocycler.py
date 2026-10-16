@@ -43,6 +43,7 @@ _ACQUISITION_DIR = ("raw", "images", "phenocycler")
 @inject_docs(vx=PhenocyclerKeys)
 def phenocycler(
     path: str | Path,
+    *,
     regions: Sequence[str] | None = None,
     channel_names: Sequence[str] | None = None,
     cells_table: str | Path | Mapping[str, str | Path] | None = None,

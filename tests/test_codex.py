@@ -289,9 +289,8 @@ def test_codex_str_regions_and_channel_names(tmp_path: Path) -> None:
 def test_codex_regions_validation(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, regions=2, cycles=1, channels=1, layout="per_marker", fcs=False, csv=False)
 
-    # `imread_kwargs` used to be the third positional parameter
-    with pytest.raises(TypeError, match="imread_kwargs.*pass it by keyword"):
-        codex(tmp_path, True, {})  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="sequence of region ids"):
+        codex(tmp_path, regions={})  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="empty"):
         codex(tmp_path, regions=[])
 
@@ -551,3 +550,15 @@ def test_codex_write_roundtrip(tmp_path: Path) -> None:
     assert list(table.var_names) == list(sdata.tables["table"].var_names)
     assert read.attrs["akoya"] == sdata.attrs["akoya"]
     assert read.attrs["spatialdata_io_reader"] == "codex"
+
+
+def test_codex_old_positional_call(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, regions=2, cycles=1, channels=1, layout="per_marker", fcs=False, csv=False)
+
+    # `codex(path, fcs, imread_kwargs)` is the signature of earlier releases
+    for fcs in (True, False):
+        sdata = codex(tmp_path, fcs, {})
+        assert sorted(sdata.images) == ["reg001_image", "reg002_image"]
+
+    with pytest.warns(UserWarning, match="imread_kwargs"):
+        codex(tmp_path, True, {"nframes": 1})
