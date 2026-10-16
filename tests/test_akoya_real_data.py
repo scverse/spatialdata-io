@@ -41,6 +41,7 @@ class Scan:
     first_names: tuple[str, ...]
     pixel_size_um: float | None
     shape: tuple[int, int, int] | None = None
+    dtype: str | None = None
 
 
 _SCANS = [
@@ -133,6 +134,76 @@ _SCANS = [
         None,
         (2, 18440, 25816),
     ),
+    # Vectra / PhenoImager (generation `qpi_other`): Opal, unmixed uint16, JPEG, brightfield RGB and inForm float32
+    Scan(
+        "zenodo_15265351/P074_Scan1.qptiff",
+        "phenocycler",
+        "P074",
+        "qpi_other",
+        8,
+        ("DAPI", "Opal 570", "Opal 690", "Opal 480"),
+        0.4984,
+        (8, 17280, 17280),
+        "uint8",
+    ),
+    Scan(
+        "ome_vectra_qptiff/LuCa-7color_Scan1.qptiff",
+        "phenocycler",
+        "LuCa-7color",
+        "qpi_other",
+        5,
+        ("DAPI", "FITC", "CY3", "Texas Red", "CY5"),
+        0.498,
+        (5, 34560, 24960),
+        "uint8",
+    ),
+    Scan(
+        "zenodo_22107401/Panel33C_Scan2.unmixed.qptiff",
+        "phenocycler",
+        "Panel33C_Scan2.unmixed",
+        "qpi_other",
+        8,
+        ("CD21", "CD23", "CD20", "CD4", "CK"),
+        0.4965,
+        (8, 36000, 24960),
+        "uint16",
+    ),
+    # a third-party (KFBIO) scanner writing JPEG-compressed QPI
+    Scan(
+        "zenodo_16569043/2025-07-15_13_13_34.qptiff",
+        "phenocycler",
+        "2025-07-15_13_13_34",
+        "qpi_other",
+        3,
+        ("DAPI", "520", "620"),
+        0.25,
+        (3, 71472, 61440),
+        "uint8",
+    ),
+    # brightfield: one RGB page read as the channels r, g, b
+    Scan(
+        "ome_vectra_qptiff/HandEcompressed_Scan1.qptiff",
+        "phenocycler",
+        "HandEcompressed",
+        "qpi_other",
+        3,
+        ("r", "g", "b"),
+        0.4989,
+        (3, 26640, 30720),
+        "uint8",
+    ),
+    # inForm component data: a single `.tif` file with float32 pages
+    Scan(
+        "ome_vectra_qptiff/LuCa-7color_[13860,52919]_1x1component_data.tif",
+        "phenocycler",
+        "LuCa-7color__13860_52919__1x1component_data",
+        "qpi_other",
+        8,
+        ("PDL1 (Opal 520)",),
+        0.498,
+        (8, 1400, 1868),
+        "float32",
+    ),
 ]
 
 
@@ -150,12 +221,15 @@ def test_real_scan(scan: Scan) -> None:
     assert data.shape[0] == scan.n_channels
     if scan.shape is not None:
         assert data.shape == scan.shape
+    if scan.dtype is not None:
+        assert data.dtype == scan.dtype
     names = get_channel_names(image)
     assert tuple(names[: len(scan.first_names)]) == scan.first_names
     assert len(set(names)) == len(names)
     metadata = sdata.attrs["akoya"]["regions"][scan.region]
     assert metadata["generation"] == scan.generation
-    assert len(metadata["channels"]) == scan.n_channels
+    # a brightfield scan has one RGB page, which is read as three channels
+    assert len(metadata["channels"]) == (1 if names == ["r", "g", "b"] else scan.n_channels)
     if scan.pixel_size_um is None:
         assert metadata["pixel_size_um"] is None
     else:

@@ -33,6 +33,8 @@ __all__ = [
 
 _FULL_RESOLUTION = "FullResolution"
 _SCAN_SUFFIX = re.compile(r"_Scan\d+$")
+# element names may only hold these characters; inForm names its files e.g. ``<sample>_[13860,52919]_component_data.tif``
+_INVALID_REGION_CHARS = re.compile(r"[^0-9A-Za-z_.-]")
 _XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>")
 # micrometres per unit of the TIFF ResolutionUnit; XPosition/YPosition are expressed in the same unit
 _UM_PER_RESOLUTION_UNIT = {tifffile.RESUNIT.CENTIMETER: 1e4, tifffile.RESUNIT.INCH: 25400.0}
@@ -292,9 +294,12 @@ def qptiff_regions_with_duplicates(files: Sequence[Path]) -> tuple[dict[str, Pat
     # an 8-bit file is only a duplicate if the scan is read from an extended-range file
     eight_bit = {key: file for key, file in eight_bit.items() if _is_extended_range(scans[key])}
     bases = [base for _, base in scans]
-    stripped = [_SCAN_SUFFIX.sub("", base) or base for base in bases]
+    stripped = [_INVALID_REGION_CHARS.sub("_", _SCAN_SUFFIX.sub("", base) or base) for base in bases]
     # stripping `_Scan<N>` must not merge two scans into one region
-    regions = [base if stripped.count(region) > 1 else region for base, region in zip(bases, stripped, strict=True)]
+    regions = [
+        _INVALID_REGION_CHARS.sub("_", base) if stripped.count(region) > 1 else region
+        for base, region in zip(bases, stripped, strict=True)
+    ]
     if len(set(regions)) < len(regions):
         duplicated = sorted({region for region in regions if regions.count(region) > 1})
         found = [str(file) for file, region in zip(scans.values(), regions, strict=True) if region in duplicated]

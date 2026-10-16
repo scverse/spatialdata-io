@@ -40,6 +40,64 @@ def test_read_single_file(tmp_path: Path) -> None:
     assert sdata.attrs["spatialdata_io_reader"] == "phenocycler"
 
 
+def test_vectra_unmixed_float32_component_qptiff(tmp_path: Path) -> None:
+    path = tmp_path / "Slide_Scan1.unmixed.qptiff"
+    names = ["PDL1 (Opal 520)", "DAPI"]
+    data = write_qptiff(
+        path,
+        biomarkers=[None, None],
+        names=names,
+        dtype="float32",
+        software="VectraPolaris 1.0",
+        resolution_px_per_cm=2e4,
+    )
+
+    sdata = phenocycler(path, image_models_kwargs=_FAST)
+
+    image = _level0(sdata, "Slide_Scan1.unmixed_image")
+    assert image.dtype == np.float32
+    np.testing.assert_array_equal(image.values, data)
+    assert get_channel_names(sdata.images["Slide_Scan1.unmixed_image"]) == names
+    metadata = sdata.attrs["akoya"]["regions"]["Slide_Scan1.unmixed"]
+    assert metadata["generation"] == "qpi_other"
+    assert metadata["pixel_size_um"] == pytest.approx(0.5)
+
+
+def test_vectra_brightfield_rgb_qptiff(tmp_path: Path) -> None:
+    path = tmp_path / "HandE_Scan1.qptiff"
+    data = write_qptiff(path, biomarkers=[None], names=["BF"], rgb=True, software="VectraPolaris 1.0")
+
+    sdata = phenocycler(path, image_models_kwargs=_FAST)
+
+    assert get_channel_names(sdata.images["HandE_image"]) == ["r", "g", "b"]
+    np.testing.assert_array_equal(_level0(sdata, "HandE_image").values, np.moveaxis(data, -1, 0))
+    assert sdata.attrs["akoya"]["regions"]["HandE"]["generation"] == "qpi_other"
+
+
+def test_inform_component_tif_with_special_characters_in_name(tmp_path: Path) -> None:
+    # inForm names its component files `<sample>_[x,y]_component_data.tif`; the brackets and comma are not valid
+    # in an element name
+    path = tmp_path / "LuCa_[13860,52919]_1x1component_data.tif"
+    data = write_qptiff(
+        path, biomarkers=[None, None], names=["A (Opal 520)", "B"], dtype="float32", software="inForm", levels=1
+    )
+
+    sdata = phenocycler(path, image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["LuCa__13860_52919__1x1component_data_image"]
+    image = _level0(sdata, "LuCa__13860_52919__1x1component_data_image")
+    assert image.dtype == np.float32
+    np.testing.assert_array_equal(image.values, data)
+
+
+def test_non_qpi_tif_raises(tmp_path: Path) -> None:
+    path = tmp_path / "plain.tif"
+    tifffile.imwrite(path, np.zeros((8, 8), dtype=np.uint8))
+
+    with pytest.raises(ValueError, match="not a PerkinElmer/Akoya QPTIFF"):
+        phenocycler(path)
+
+
 def test_read_directory_multiple_scans_and_subset(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
     write_qptiff(tmp_path / "B_Scan1.qptiff", biomarkers=["DAPI", "CD8"])

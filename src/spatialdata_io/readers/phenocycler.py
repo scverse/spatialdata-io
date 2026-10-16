@@ -56,7 +56,7 @@ def phenocycler(
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     cells_table_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
-    """Read *Akoya PhenoCycler-Fusion* 1.x/2.x data.
+    """Read *Akoya PhenoCycler-Fusion* 1.x/2.x data, and PerkinElmer/Akoya Vectra and PhenoImager QPTIFFs.
 
     This function reads the following files:
 
@@ -67,13 +67,19 @@ def phenocycler(
         - ``*{vx.CHANNELS_CSV_SUFFIX!r}``: optional channel list next to a scan or, in the HuBMAP layout, in
           ``lab_processed/images/``.
 
+    The same QPTIFF container is written by Vectra Polaris and PhenoImager HT (also unmixed, uint16) scans, whose
+    channels are read like the Fusion's, by brightfield (H&E) scans, read as the three channels ``r``, ``g`` and
+    ``b``, and by inForm component data (float32, usually a ``.tif`` file, which is read if ``path`` is that single
+    file). The image keeps the dtype of the file. These files have the generation ``"qpi_other"`` in the metadata.
+
     Sidecar files are matched to a scan by file-name prefix and stored as metadata only: the channel names always
     come from the per-page XML of the qptiff. A sidecar whose number of markers differs from the number of channels
     raises a warning. Acquisition files (``*.raw.qptiff``, ``*.qptiff.raw``, ``*.qptiff.intermediate`` and anything
     in a ``raw/images/phenocycler/`` folder below ``path``) are ignored. File suffixes are matched ignoring case.
 
     The region name is the file name without the ``{vx.ER_QPTIFF_SUFFIX!r}``/``{vx.QPTIFF_SUFFIX!r}`` suffix and
-    without a trailing ``_Scan<N>``, unless that makes two regions share a name. Each region is stored as the image
+    without a trailing ``_Scan<N>``, unless that makes two regions share a name; characters other than letters, digits,
+    ``_``, ``.`` and ``-`` are replaced by ``_``. Each region is stored as the image
     ``<region>{vx.IMAGE_SUFFIX}``. A single region is stored in the ``"global"`` coordinate system. Several regions
     of the same sample space (scanned on the same slide, with stage positions and equal pixel sizes) are placed at
     their stage positions in ``"global"``; otherwise the regions are unrelated and each is stored in its own
@@ -106,7 +112,8 @@ def phenocycler(
     Parameters
     ----------
     path
-        Path to a ``{vx.QPTIFF_SUFFIX!r}`` file, or to a directory that is searched recursively for them.
+        Path to a ``{vx.QPTIFF_SUFFIX!r}`` file (or an inForm ``.tif`` QPI file), or to a directory that is searched
+        recursively for ``{vx.QPTIFF_SUFFIX!r}`` files.
     regions
         Regions to read. If `None`, all regions are read.
     channel_names

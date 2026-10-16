@@ -36,6 +36,10 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   integer factor (exactly, or rounded up) onto the image (a `Scale` before the region's transformation), and scale
   the centroids (`obsm["spatial"]`) and circle radii of `mcquant`, SPRM and generic pixel tables, taken to be in
   mask pixels, by the same factor; the source columns in `obs` are kept as read. Other shape mismatches still warn.
+- `phenocycler()` officially supports the PerkinElmer/Akoya QPTIFFs of Vectra Polaris and PhenoImager HT (generation
+  `"qpi_other"`): Opal and unmixed (uint16) scans, brightfield RGB scans (channels `r`, `g`, `b`) and inForm component
+  data (float32). A single `.tif` file is accepted if it is a QPI file. Characters of a file name that are not valid in
+  an element name (e.g. the `[x,y]` of inForm tiles) are replaced by `_` in the region id.
 
 ### Changed
 

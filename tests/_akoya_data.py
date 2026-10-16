@@ -131,7 +131,12 @@ def write_qptiff(
     groups (the last one stripped), an RGB overview and an RGB label.
     """
     rng = np.random.default_rng(0)
-    high = np.iinfo(dtype).max
+
+    def random(size: tuple[int, ...]) -> np.ndarray:
+        if np.dtype(dtype).kind == "f":  # unmixed component data
+            return (rng.random(size) * 1000).astype(dtype)
+        return rng.integers(0, np.iinfo(dtype).max, size, dtype=dtype)
+
     n_pages = 1 if rgb else len(biomarkers)
     names = (
         names if names is not None else [b if b is not None else f"Channel {i + 1}" for i, b in enumerate(biomarkers)]
@@ -173,7 +178,7 @@ def write_qptiff(
         for code, value in zip((286, 287), stage_position_cm, strict=True):
             extratags.append((code, 5, 1, (round(value * 1e6), 1_000_000), False))
 
-    data = rng.integers(0, high, (shape_c if rgb else (n_pages, *shape)), dtype=dtype)
+    data = random(shape_c if rgb else (n_pages, *shape))
     with tifffile.TiffWriter(path, bigtiff=bigtiff) as tw:
         for i in range(n_pages):
             page = data if rgb else data[i]
@@ -189,7 +194,7 @@ def write_qptiff(
             side = (shape[0] // 2**level, shape[1] // 2**level)
             is_last = level == levels - 1
             for i in range(n_pages):
-                page = rng.integers(0, high, (*side, 3) if rgb else side, dtype=dtype)
+                page = random((*side, 3) if rgb else side)
                 write_page(
                     tw,
                     page,
