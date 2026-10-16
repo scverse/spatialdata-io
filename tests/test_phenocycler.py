@@ -494,6 +494,14 @@ def test_extra_region_and_cell_id_columns_are_kept(
     assert list(obs["source_cell_id"]) == [101, 102]
 
 
+def test_duplicate_instance_ids_raise(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    (tmp_path / "cells.csv").write_text("CellID,CD3,X_centroid,Y_centroid\n1,1,1,1\n2,1,2,2\n2,1,3,3\n")
+
+    with pytest.raises(ValueError, match=r"cells\.csv has 1 duplicate instance id.*\[2\].*region 'S'"):
+        phenocycler(tmp_path, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
+
+
 def test_qupath_without_markers_warns(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
     (tmp_path / "cells.tsv").write_text("Object ID\tCentroid X px\tCentroid Y px\nu1\t1\t2\n", encoding="utf-8")

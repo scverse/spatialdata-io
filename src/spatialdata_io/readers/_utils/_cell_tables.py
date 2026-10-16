@@ -236,6 +236,7 @@ def read_codex_table(path: Path, region: str | None = None) -> CellTable:
             "assigned to a region; a table for several regions needs a region column."
         )
     region_ids.name = region_key
+    _check_unique_instance_ids(path, region_ids, instance_id)
     return CellTable(
         obs=_drop_key_columns(obs, columns.get(instance_key), columns.get(region_key)),
         X=X,
@@ -769,6 +770,7 @@ def _from_frame(
             "region as a mapping {region: path}."
         )
     region.name = CodexKeys.REGION_KEY.value
+    _check_unique_instance_ids(path, region, instance_id)
 
     obs = _drop_key_columns(df.drop(columns=markers), instance_column, region_column)
     obs.index = index
@@ -787,6 +789,19 @@ def _from_frame(
         radius_px=radius,
         row_instance_ids=instance_column is None,
     )
+
+
+def _check_unique_instance_ids(path: Path, region: pd.Series, instance_id: pd.Series) -> None:
+    """Raise if two cells of the same region have the same instance id: they could not be told apart."""
+    regions, ids = region.to_numpy(), instance_id.to_numpy()
+    duplicated = pd.DataFrame({"region": regions, "id": ids}).duplicated().to_numpy()
+    if duplicated.any():
+        first = regions[duplicated][0]
+        found = sorted(set(ids[duplicated & (regions == first)].tolist()))
+        raise ValueError(
+            f"{path} has {len(found)} duplicate instance id(s) {found[:5]} in region '{first}'; every cell of a "
+            "region needs its own instance id. Choose another instance id column, or remove the duplicate rows."
+        )
 
 
 def _drop_key_columns(obs: pd.DataFrame, instance_column: str | None, region_column: str | None) -> pd.DataFrame:

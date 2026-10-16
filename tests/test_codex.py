@@ -492,6 +492,16 @@ def test_codex_regionless_table_belongs_to_single_stem_image(tmp_path: Path) -> 
         assert sdata.attrs["akoya"]["cell_tables"] == {"*": str(tmp_path / "cells.csv")}
 
 
+def test_codex_duplicate_cell_ids_raise(tmp_path: Path) -> None:
+    data = write_legacy_processor_tree(tmp_path, cycles=1, channels=1, fcs=False, n_cells=3)
+    table = next(tmp_path.rglob("reg001_compensated.csv"))
+    cells = data["cells"].assign(cell_id=[1.0, 1.0, 2.0])
+    cells.to_csv(table, index=False)
+
+    with pytest.raises(ValueError, match="reg001_compensated.csv has 1 duplicate instance id"):
+        codex(tmp_path, image_models_kwargs=_FAST)
+
+
 def test_codex_overlapping_tables_raise(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, layout="per_marker", fcs=False, csv=True)
     (tmp_path / "all_cells.csv").write_text("cell_id,region,x,y,cyc001_ch001\n1,1,1.0,2.0,3.0\n")
