@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import tifffile
+from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
 from spatialdata.transformations import Identity, get_transformation
 
@@ -508,3 +509,27 @@ def test_codex_overlapping_tables_raise(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match=r"Several cell tables contain the cells of region\(s\) \['reg001'\]"):
         codex(tmp_path, fcs=False, image_models_kwargs=_FAST)
+
+
+def test_codex_write_roundtrip(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path / "data", regions=2, cycles=1, channels=2, n_cells=5)
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path / "data", image_models_kwargs=_FAST)
+
+    sdata.write(tmp_path / "x.zarr")
+    read = read_zarr(tmp_path / "x.zarr")
+
+    assert sorted(read.images) == ["reg001_image", "reg002_image"]
+    assert sorted(read.shapes) == ["reg001_cells", "reg002_cells"]
+    for region in ("reg001", "reg002"):
+        name = f"{region}_image"
+        assert get_channel_names(read.images[name]) == get_channel_names(sdata.images[name])
+        np.testing.assert_array_equal(_level0(read, name).values, _level0(sdata, name).values)
+        assert get_transformation(read.images[name], get_all=True) == {region: Identity()}
+        assert get_transformation(read.shapes[f"{region}_cells"], get_all=True) == {region: Identity()}
+    table = read.tables["table"]
+    assert table.n_obs == 10
+    assert list(table.obs["region"].cat.categories) == ["reg001_cells", "reg002_cells"]
+    assert list(table.var_names) == list(sdata.tables["table"].var_names)
+    assert read.attrs["akoya"] == sdata.attrs["akoya"]
+    assert read.attrs["spatialdata_io_reader"] == "codex"
