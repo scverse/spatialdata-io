@@ -77,6 +77,10 @@ _QUPATH_IMAGE = "Image"
 _QUPATH_ID = "Object ID"
 # the QuPath object types of cells; other features of a GeoJSON export (e.g. annotations) are not cells
 _QUPATH_CELL_TYPES = frozenset({"cell", "detection", "PathCellObject", "PathDetectionObject"})
+# a matched polygon must lie within this distance (px) of its cell's centroid, else the match is considered wrong
+_CENTROID_TOLERANCE_PX = 1.0
+# the largest fraction of matched polygons that may be far from their centroids before the match is rejected
+_MAX_MISPLACED_FRACTION = 0.05
 
 
 @dataclass
@@ -373,6 +377,9 @@ def read_qupath_polygons(
     features have no ids, the cell and detection features (``objectType``) are matched to the table rows in order,
     and their number must equal the number of rows.
 
+    Every matched polygon must contain its cell's centroid or lie within 1 px of it; if more than 5% do not, the
+    polygons belong to other cells (or ``units`` is wrong) and a `ValueError` is raised.
+
     Parameters
     ----------
     geojson
@@ -415,18 +422,49 @@ def read_qupath_polygons(
                 f"{geojson} does not hold the cells of {table_path}: none of the feature ids is an '{_QUPATH_ID}' "
                 "of the table."
             )
+        if not pd.Index(rows[found]).is_unique:
+            raise ValueError(f"{geojson} has several features with the same id.")
         polygons[rows[found]] = geometries[found]
         logger.info("Matched %d of the %d features of %s to cells by id.", found.sum(), len(geometries), geojson)
-        return polygons
-
-    cells = geometries if kinds is None else geometries[np.isin(kinds, list(_QUPATH_CELL_TYPES))]
-    if len(cells) != len(polygons):
-        raise ValueError(
-            f"{geojson} has {len(cells)} cell polygons without ids, but {table_path} has {len(polygons)} rows; "
-            f"without ids ('{_QUPATH_ID}'), polygons are matched to cells in order."
-        )
-    polygons[:] = cells
+        if found.sum() < len(polygons):
+            warnings.warn(
+                f"{len(polygons) - found.sum()} of the {len(polygons)} cells of {table_path} have no polygon in "
+                f"{geojson}; they are in the table but not in the labels.",
+                UserWarning,
+                stacklevel=5,
+            )
+    else:
+        cells = geometries if kinds is None else geometries[np.isin(kinds, list(_QUPATH_CELL_TYPES))]
+        if len(cells) != len(polygons):
+            raise ValueError(
+                f"{geojson} has {len(cells)} cell polygons without ids, but {table_path} has {len(polygons)} rows; "
+                f"without ids ('{_QUPATH_ID}'), polygons are matched to cells in order."
+            )
+        polygons[:] = cells
+    _check_centroids(polygons, table.centroids_px, geojson, table_path)
     return polygons
+
+
+def _check_centroids(polygons: np.ndarray, centroids_px: np.ndarray, geojson: Path, table_path: Path) -> None:
+    """Raise if too many polygons are far from the centroids of the cells they were matched to."""
+    matched = pd.notna(polygons)
+    if not matched.any():
+        return
+    distance = shapely.distance(polygons[matched], shapely.points(centroids_px[matched]))
+    misplaced = int(np.count_nonzero(~(distance <= _CENTROID_TOLERANCE_PX)))
+    if misplaced > _MAX_MISPLACED_FRACTION * matched.sum():
+        raise ValueError(
+            f"{misplaced} of the {matched.sum()} polygons of {geojson} are more than {_CENTROID_TOLERANCE_PX:g} px "
+            f"from the centroid of the cell of {table_path} they were matched to: the polygons are not those of "
+            "these cells, are in another order, or `cells_table_kwargs['geojson_units']` is wrong."
+        )
+    if misplaced:
+        logger.info(
+            "%d polygons of %s are more than %g px from their cell's centroid.",
+            misplaced,
+            geojson,
+            _CENTROID_TOLERANCE_PX,
+        )
 
 
 def _read_geojson(path: Path) -> tuple[np.ndarray | None, np.ndarray, np.ndarray | None]:

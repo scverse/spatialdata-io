@@ -123,8 +123,9 @@ def test_rasterize_is_lazy(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _write_qupath_cells(path: Path, object_ids: list[str]) -> None:
-    header = "Image\tObject ID\tClass\tCentroid X µm\tCentroid Y µm\tCD3: Cell: Mean"
-    rows = [f"S_Scan1.qptiff\t{oid}\tTumor\t{5 + 20 * i}\t{5 + 20 * i}\t{i}" for i, oid in enumerate(object_ids)]
+    # centroids in the 8 px squares `_cell(..., 20 * i, 20 * i)`
+    header = "Image\tObject ID\tClass\tCentroid X px\tCentroid Y px\tCD3: Cell: Mean"
+    rows = [f"S_Scan1.qptiff\t{oid}\tTumor\t{4 + 20 * i}\t{4 + 20 * i}\t{i}" for i, oid in enumerate(object_ids)]
     path.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
 
 
@@ -183,7 +184,7 @@ def test_qupath_geojson_to_labels(tmp_path: Path) -> None:
 def test_qupath_geojson_by_order_explicit_path_in_um(tmp_path: Path, collection: bool) -> None:
     write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
     header = "Image\tCentroid X µm\tCentroid Y µm\tCD3: Cell: Mean"
-    rows = ["S_Scan1.qptiff\t1\t1\t1", "S_Scan1.qptiff\t2\t2\t2"]
+    rows = ["S_Scan1.qptiff\t4\t4\t1", "S_Scan1.qptiff\t24\t24\t2"]
     (tmp_path / "cells.tsv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
     # without ids, the cells and detections follow the row order of the table; annotations are skipped
     features = [_cell(None, 0, 0, "annotation"), _cell(None, 0, 0), _cell(None, 20, 20, "detection")]
@@ -259,3 +260,45 @@ def test_qupath_geojson_errors(tmp_path: Path) -> None:
     _write_geojson(tmp_path / "noid.geojson", [_cell(None, 0, 0), _cell(None, 20, 20)])
     with pytest.raises(ValueError, match="2 cell polygons .* 1 rows"), pytest.warns(UserWarning, match="marker"):
         phenocycler(tmp_path, cells_table=tmp_path / "noid.tsv", image_models_kwargs=_FAST)
+
+
+def _write_order_table(path: Path) -> None:
+    header = "Image\tCentroid X px\tCentroid Y px\tCD3: Cell: Mean"
+    rows = ["S_Scan1.qptiff\t4\t4\t1", "S_Scan1.qptiff\t24\t24\t2"]
+    path.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("features", "match"),
+    [
+        # without ids, polygons in another order than the rows
+        ([_cell(None, 20, 20), _cell(None, 0, 0)], "2 of the 2 polygons .* are more than 1 px"),
+        # ids, but no `Object ID` in the table: matched in order too
+        ([_cell("u2", 20, 20), _cell("u1", 0, 0)], "another order"),
+        # coordinates in µm read as pixels
+        ([_cell(None, 0, 0), _cell(None, 10, 10)], "geojson_units"),
+    ],
+)
+def test_qupath_geojson_polygons_far_from_centroids_raise(tmp_path: Path, features: list[dict], match: str) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_order_table(tmp_path / "cells.tsv")
+    _write_geojson(tmp_path / "cells.geojson", features)
+
+    with pytest.raises(ValueError, match=match):
+        phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+
+def test_qupath_geojson_partial_and_duplicate_ids(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_qupath_cells(tmp_path / "cells.tsv", ["a", "b", "c"])
+    _write_geojson(tmp_path / "cells.geojson", [_cell("a", 0, 0), _cell("c", 40, 40)])
+
+    with pytest.warns(UserWarning, match="1 of the 3 cells .* have no polygon"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+    assert set(np.unique(sdata.labels["S_labels"]["scale0"]["image"].values)) == {0, 1, 3}
+    assert sdata.tables["table"].n_obs == 3
+
+    _write_geojson(tmp_path / "cells.geojson", [_cell("a", 0, 0), _cell("b", 20, 20), _cell("a", 40, 40)])
+    with pytest.raises(ValueError, match="same id"):
+        phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
