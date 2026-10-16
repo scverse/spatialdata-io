@@ -15,11 +15,12 @@ import pandas as pd
 import xarray
 from dask import array as da
 from dask_image.imread import imread
+from scipy.sparse import csr_matrix
 from shapely.geometry import MultiPolygon
 from spatialdata import SpatialData
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
-from spatialdata.transformations import Affine, BaseTransformation
+from spatialdata.transformations import Affine, BaseTransformation, Identity
 
 from spatialdata_io._constants._constants import MerscopeKeys
 from spatialdata_io._docs import inject_docs
@@ -34,10 +35,10 @@ SUPPORTED_BACKENDS = ["dask_image", "rioxarray"]
 def _get_channel_names(images_dir: Path) -> list[str]:
     exp = r"mosaic_(?P<stain>[\w|-]+[0-9]?)_z(?P<z>[0-9]+).tif"
     matches = [re.search(exp, file.name) for file in images_dir.iterdir()]
-
     stainings = {match.group("stain") for match in matches if match}
-
-    return list(stainings)
+    # sort for a deterministic channel order: set iteration depends on PYTHONHASHSEED, which would
+    # otherwise make the image channel axis (and its `c_coords`) order change between runs.
+    return sorted(stainings)
 
 
 def _get_file_paths(path: Path, vpt_outputs: Path | str | dict[str, Any] | None) -> tuple[Path, Path, Path]:
@@ -73,9 +74,9 @@ def _get_file_paths(path: Path, vpt_outputs: Path | str | dict[str, Any] | None)
 
     if isinstance(vpt_outputs, dict):
         return (
-            vpt_outputs[MerscopeKeys.VPT_NAME_COUNTS],
-            vpt_outputs[MerscopeKeys.VPT_NAME_OBS],
-            vpt_outputs[MerscopeKeys.VPT_NAME_BOUNDARIES],
+            Path(vpt_outputs[MerscopeKeys.VPT_NAME_COUNTS]),
+            Path(vpt_outputs[MerscopeKeys.VPT_NAME_OBS]),
+            Path(vpt_outputs[MerscopeKeys.VPT_NAME_BOUNDARIES]),
         )
 
     raise ValueError(
@@ -170,10 +171,17 @@ def merscope(
     count_path, obs_path, boundaries_path = _get_file_paths(path, vpt_outputs)
     images_dir = path / MerscopeKeys.IMAGES_DIR
 
-    microns_to_pixels = Affine(
-        np.genfromtxt(images_dir / MerscopeKeys.TRANSFORMATION_FILE), input_axes=("x", "y"), output_axes=("x", "y")
-    )
-    transformations = {"global": microns_to_pixels}
+    # The micron-to-mosaic-pixel transform only ships with the mosaic images. Without it the data stays
+    # in micron space (identity), so partial reads (e.g. table/transcripts only) still work.
+    transform_path = images_dir / MerscopeKeys.TRANSFORMATION_FILE
+    if transform_path.exists():
+        transform: BaseTransformation = Affine(
+            np.genfromtxt(transform_path), input_axes=("x", "y"), output_axes=("x", "y")
+        )
+    else:
+        logger.warning(f"Transformation file {transform_path} not found. Elements will be in micron space.")
+        transform = Identity()
+    transformations = {"global": transform}
 
     vizgen_region = path.name if region_name is None else region_name
     slide_name = path.parent.name if slide_name is None else slide_name
@@ -184,20 +192,21 @@ def merscope(
     images = {}
 
     if mosaic_images:
-        z_layers = [z_layers] if isinstance(z_layers, int) else z_layers or []
-
-        reader = _get_reader(backend)
-
-        stainings = _get_channel_names(images_dir)
-        if stainings:
-            for z_layer in z_layers:
-                images[f"{dataset_id}_z{z_layer}"] = reader(
-                    images_dir,
-                    stainings,
-                    z_layer,
-                    image_models_kwargs,
-                    **imread_kwargs,
-                )
+        if not images_dir.exists():
+            logger.warning(f"Image directory {images_dir} does not exist. Mosaic images are not loaded.")
+        else:
+            z_layers = [z_layers] if isinstance(z_layers, int) else z_layers or []
+            reader = _get_reader(backend)
+            stainings = _get_channel_names(images_dir)
+            if stainings:
+                for z_layer in z_layers:
+                    images[f"{dataset_id}_z{z_layer}"] = reader(
+                        images_dir,
+                        stainings,
+                        z_layer,
+                        image_models_kwargs,
+                        **imread_kwargs,
+                    )
 
     # Transcripts
     points = {}
@@ -304,13 +313,20 @@ def _dask_image_load_merscope(
 
 def _get_points(transcript_path: Path, transformations: dict[str, BaseTransformation]) -> dd.DataFrame:
     transcript_df = dd.read_csv(transcript_path)
+    # Make `gene` a categorical with *known* categories before parsing. Passing an object-dtype column
+    # to `PointsModel.parse` leaves the dask categories "unknown": they then get inferred from a single
+    # partition, which both forces repeated recomputation downstream and can silently turn genes that
+    # are absent from the first partition into NaN. Computing the categories once here avoids both.
+    transcript_df[MerscopeKeys.GENE_KEY] = transcript_df[MerscopeKeys.GENE_KEY].astype("category").cat.as_known()
     transcripts = PointsModel.parse(
         transcript_df,
         coordinates={"x": MerscopeKeys.GLOBAL_X, "y": MerscopeKeys.GLOBAL_Y, "z": MerscopeKeys.GLOBAL_Z},
         transformations=transformations,
         feature_key=MerscopeKeys.GENE_KEY,
+        # `sort=True` skips an eager `is_monotonic_increasing` check on the index that otherwise scans
+        # the whole transcripts file during this nominally lazy read.
+        sort=True,
     )
-    transcripts["gene"] = transcripts["gene"].astype("category")
     return transcripts
 
 
@@ -319,7 +335,9 @@ def _get_polygons(boundaries_path: Path, transformations: dict[str, BaseTransfor
     geo_df = geo_df.rename_geometry("geometry")
     geo_df = geo_df[geo_df[MerscopeKeys.Z_INDEX] == 0]  # Avoid duplicate boundaries on all z-levels
     geo_df = geo_df[geo_df.geometry.is_valid]  # Remove invalid geometries
-    geo_df.geometry = geo_df.geometry.map(lambda x: MultiPolygon(x.geoms))
+    # Normalise every geometry to a MultiPolygon. Vizgen writes MultiPolygons, but watershed / custom
+    # segmentations can contain plain Polygons, for which `x.geoms` would raise.
+    geo_df.geometry = geo_df.geometry.map(lambda x: x if isinstance(x, MultiPolygon) else MultiPolygon([x]))
     geo_df.index = geo_df[MerscopeKeys.METADATA_CELL_KEY].astype(str)
 
     return ShapesModel.parse(geo_df, transformations=transformations)
@@ -337,7 +355,11 @@ def _get_table(
     obs = pd.read_csv(obs_path, index_col=0, dtype={MerscopeKeys.METADATA_CELL_KEY: str})
 
     is_gene = ~data.columns.str.lower().str.contains("blank")
-    adata = anndata.AnnData(data.loc[:, is_gene], obs=obs)
+    genes = data.loc[:, is_gene]
+    adata = anndata.AnnData(genes, obs=obs)
+    # Store counts as a sparse matrix, like the other scverse readers (xenium/cosmx/...): MERSCOPE
+    # matrices are only ~10% dense, so a dense `int64` X wastes roughly an order of magnitude of memory.
+    adata.X = csr_matrix(genes.to_numpy())
 
     assert isinstance(adata.obs, pd.DataFrame)
     adata.obsm["blank"] = data.loc[:, ~is_gene]  # blank fields are excluded from adata.X
