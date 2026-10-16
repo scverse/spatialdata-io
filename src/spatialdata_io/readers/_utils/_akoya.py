@@ -17,6 +17,7 @@ import tifffile
 import zarr
 from dask.base import tokenize
 from dask_image.imread import imread
+from spatialdata import sanitize_name
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel
 from spatialdata.transformations import BaseTransformation, Identity, Translation
@@ -176,17 +177,19 @@ def scans_to_attrs(scans: Sequence[AkoyaScan], channel_names: Mapping[str, list[
 def normalize_regions(regions: str | Sequence[str] | None) -> list[str] | None:
     """Validate the ``regions`` argument of a reader: a region id or a sequence of them, without duplicates.
 
-    Raises a `TypeError` for a mapping and a `ValueError` for an empty sequence.
+    The region ids are sanitised with :func:`spatialdata.sanitize_name`, like those of the datasets, so raw names
+    (e.g. ``"Slide 1"`` for the region ``Slide_1``) select their region. Raises a `TypeError` for a mapping and a
+    `ValueError` for an empty sequence.
     """
     if regions is None:
         return None
     if isinstance(regions, str):
-        return [regions]
+        return [sanitize_name(regions)]
     if isinstance(regions, Mapping):
         raise TypeError(f"`regions` must be a sequence of region ids, got {type(regions).__name__}.")
     if not regions:
         raise ValueError("`regions` is empty; pass `None` to read all regions.")
-    return list(dict.fromkeys(regions))
+    return list(dict.fromkeys(sanitize_name(str(region)) for region in regions))
 
 
 def select_regions(available: Sequence[str], regions: str | Sequence[str] | None) -> list[str]:

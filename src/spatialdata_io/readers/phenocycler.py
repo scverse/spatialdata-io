@@ -116,7 +116,9 @@ def phenocycler(
         Path to a ``{vx.QPTIFF_SUFFIX!r}`` file (or an inForm ``.tif`` QPI file), or to a directory that is searched
         recursively for ``{vx.QPTIFF_SUFFIX!r}`` files.
     regions
-        Regions to read. If `None`, all regions are read.
+        Regions to read. If `None`, all regions are read. Region ids, like the keys of the ``cells_table``,
+        ``labels`` and ``cells_table_kwargs["geojson"]`` mappings, may also be given as raw names, which are
+        sanitised like the region ids (e.g. ``"Slide 1"`` selects the region ``Slide_1``).
     channel_names
         Channel names to use instead of the ones stored in the qptiff; must have one entry per channel of every
         region read.

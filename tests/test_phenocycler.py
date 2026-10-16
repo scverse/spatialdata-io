@@ -500,6 +500,35 @@ def test_mapping_keys_of_unselected_regions_are_ignored(tmp_path: Path) -> None:
     assert sdata.attrs["akoya"]["cell_tables"] == {"A": str(tmp_path / "A.csv")}
 
 
+def test_raw_region_names_select_sanitised_regions(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "Slide 1.qptiff", biomarkers=["DAPI", "CD3"])
+    write_qptiff(tmp_path / "Slide 2.qptiff", biomarkers=["DAPI", "CD3"])
+    _write_mcquant(tmp_path / "cells.csv")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(
+            tmp_path,
+            regions=["Slide 1"],
+            cells_table={"Slide 1": tmp_path / "cells.csv"},
+            image_models_kwargs=_FAST,
+        )
+
+    assert list(sdata.images) == ["Slide_1_image"]
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["Slide_1_cells"]
+
+
+def test_mapping_keys_colliding_after_sanitising_raise(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "Slide_1.qptiff", biomarkers=["DAPI", "CD3"])
+    _write_mcquant(tmp_path / "cells.csv")
+
+    with pytest.raises(ValueError, match="same region"):
+        phenocycler(
+            tmp_path,
+            cells_table={"Slide 1": tmp_path / "cells.csv", "Slide_1": tmp_path / "cells.csv"},
+            image_models_kwargs=_FAST,
+        )
+
+
 def test_mask_shape_mismatch_warns(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
     _write_mask(tmp_path / "mask.tif", shape=(200, 300))

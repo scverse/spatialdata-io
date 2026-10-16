@@ -996,7 +996,8 @@ def resolve_per_region(
     Parameters
     ----------
     value
-        A path, a mapping from region id to path, or `None`.
+        A path, a mapping from region id to path, or `None`. The keys are sanitised with
+        :func:`spatialdata.sanitize_name`, like the region ids.
     regions
         The regions read.
     available
@@ -1010,10 +1011,16 @@ def resolve_per_region(
     if value is None:
         return {}
     if isinstance(value, Mapping):
-        unknown = sorted(set(value) - set(regions) - set(available))
+        by_region = {sanitize_name(str(key)): file for key, file in value.items()}
+        if len(by_region) < len(value):
+            raise ValueError(
+                f"Several of the keys {list(value)} name the same region after `spatialdata.sanitize_name`; pass "
+                "each region once."
+            )
+        unknown = sorted(set(by_region) - set(regions) - set(available))
         if unknown:
             raise ValueError(f"Unknown region(s) {unknown}. Available regions: {list(available or regions)}.")
-        files = {region: Path(value[region]) for region in regions if region in value}
+        files = {region: Path(by_region[region]) for region in regions if region in by_region}
     else:
         files = {regions[0] if len(regions) == 1 else "*": Path(value)}
     for file in files.values():
