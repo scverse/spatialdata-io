@@ -145,8 +145,8 @@ def phenocycler(
         If `True`, a scan that exists as both ``X{vx.QPTIFF_SUFFIX}`` (8-bit) and ``X{vx.ER_QPTIFF_SUFFIX}``
         (extended range, e.g. uint16) is read from both files: the extended-range file as region ``X`` and the
         8-bit file as the image ``X_8bit{vx.IMAGE_SUFFIX}`` (region ``X_8bit`` in ``sdata.attrs[{vx.ATTRS_KEY!r}]``).
-        Both are the same physical scan, so the 8-bit image has exactly the transformations of region ``X``. Cell
-        tables and masks annotate region ``X`` only. If `False`, only the extended-range file is read.
+        Both are the same physical scan, so the 8-bit image has exactly the transformations of region ``X`` (a
+        warning is raised if their shapes differ). Cell tables and masks annotate region ``X`` only. If `False`, only the extended-range file is read.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
@@ -201,9 +201,19 @@ def phenocycler(
         pixel_sizes={scan.region: scan.pixel_size_um for scan in scans},
         cells_table_kwargs=cells_table_kwargs,
     )
+    images = {scan.region: read_qptiff_image(scan.path) for scan in [*scans, *duplicates.values()]}
+    for region, duplicate in duplicates.items():
+        if images[region].shape[-2:] != images[duplicate.region].shape[-2:]:
+            warnings.warn(
+                f"The 8-bit scan {duplicate.path} has shape {images[duplicate.region].shape[-2:]} (y, x), the "
+                f"extended-range scan {qptiffs[region]} {images[region].shape[-2:]}; they may not be the same scan, "
+                "but the 8-bit image is stored with its transformations.",
+                UserWarning,
+                stacklevel=2,
+            )
     sdata = build_spatialdata(
         scans,
-        {scan.region: read_qptiff_image(scan.path) for scan in [*scans, *duplicates.values()]},
+        images,
         names,
         cell_tables,
         mask_files,

@@ -952,7 +952,9 @@ def test_mask_downsample_keeps_image_pixel_centroids(tmp_path: Path) -> None:
         image_models_kwargs={"scale_factors": [2]},
     )
 
-    assert isinstance(get_transformation(sdata.labels[next(iter(sdata.labels))], "global"), Sequence)
+    labels_transformation = get_transformation(sdata.labels[next(iter(sdata.labels))], "global")
+    assert isinstance(labels_transformation, Sequence)
+    assert labels_transformation.transformations[0] == Scale([2, 2], axes=("y", "x"))
     np.testing.assert_allclose(sdata.tables["table"].obsm["spatial"], [[100, 50], [200, 80]])
 
 

@@ -14,7 +14,7 @@ import tifffile
 from click.testing import CliRunner
 from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
-from spatialdata.transformations import Identity, Translation, get_transformation
+from spatialdata.transformations import Identity, Scale, Sequence, Translation, get_transformation
 
 from spatialdata_io import phenocycler
 from spatialdata_io.__main__ import phenocycler_wrapper
@@ -192,6 +192,49 @@ def test_read_all_bit_depths_shares_stage_placement(tmp_path: Path) -> None:
 
     assert sorted(sdata.images) == ["B_8bit_image", "B_image"]
     assert get_transformation(sdata["B_8bit_image"], get_all=True) == get_transformation(sdata["B_image"], get_all=True)
+
+
+def test_read_all_bit_depths_with_labels_and_cells_table(tmp_path: Path) -> None:
+    for suffix, dtype in ((".qptiff", "uint8"), (".er.qptiff", "uint16")):
+        write_qptiff(
+            tmp_path / f"S{suffix}", biomarkers=["DAPI"], shape=(64, 80), dtype=dtype, stage_position_cm=(1, 2)
+        )
+    mask = np.zeros((32, 40), dtype=np.uint32)
+    mask[2:4, 2:4], mask[5:7, 5:7] = 1, 2
+    tifffile.imwrite(tmp_path / "mask.tif", mask)
+    (tmp_path / "cells.csv").write_text("CellID,CD3,X_centroid,Y_centroid,Area\n1,1,3,3,4\n2,2,6,6,4\n")
+
+    sdata = phenocycler(
+        tmp_path,
+        cells_table=tmp_path / "cells.csv",
+        labels=tmp_path / "mask.tif",
+        read_all_bit_depths=True,
+        image_models_kwargs=_FAST,
+    )
+
+    image_transformations = get_transformation(sdata["S_image"], get_all=True)
+    assert get_transformation(sdata["S_8bit_image"], get_all=True) == image_transformations
+    # the mask is scaled onto the extended-range region only
+    assert list(sdata.labels) == ["S_labels"]
+    labels_transformation = get_transformation(sdata["S_labels"], "global")
+    assert isinstance(labels_transformation, Sequence)
+    assert labels_transformation.transformations == [Scale([2, 2], axes=("y", "x")), image_transformations["global"]]
+    table = sdata.tables["table"]
+    assert table.uns["spatialdata_attrs"]["region"] == ["S_labels"]
+    np.testing.assert_allclose(table.obsm["spatial"], [[6, 6], [12, 12]])
+
+    with pytest.raises(ValueError, match=r"Unknown region\(s\) \['S_8bit'\]"):
+        phenocycler(tmp_path, labels={"S_8bit": tmp_path / "mask.tif"}, read_all_bit_depths=True)
+
+
+def test_read_all_bit_depths_shape_mismatch_warns(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S.qptiff", biomarkers=["DAPI"], shape=(64, 80), dtype="uint8")
+    write_qptiff(tmp_path / "S.er.qptiff", biomarkers=["DAPI"], shape=(64, 96), dtype="uint16")
+
+    with pytest.warns(UserWarning, match=r"8-bit scan .*\(64, 80\).*\(64, 96\)"):
+        sdata = phenocycler(tmp_path, read_all_bit_depths=True, image_models_kwargs=_FAST)
+
+    assert sorted(sdata.images) == ["S_8bit_image", "S_image"]
 
 
 def test_read_all_bit_depths_without_pair_reads_one(tmp_path: Path) -> None:
@@ -822,5 +865,5 @@ def test_is_lazy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_phenocycler_keyword_only(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI"])
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="positional argument"):
         phenocycler(tmp_path, ["A"])  # type: ignore[misc]
