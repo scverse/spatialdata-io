@@ -46,6 +46,13 @@ def _parse_json_param(value: str, param_name: str) -> dict[str, Any]:
         raise click.BadParameter(f"Invalid JSON for {param_name!r}: {e}") from e
 
 
+def _parse_path_or_mapping_param(value: str | None, param_name: str) -> str | dict[str, Any] | None:
+    """A path, or a JSON mapping from region to path if ``value`` starts with ``{``."""
+    if value is not None and value.lstrip().startswith("{"):
+        return _parse_json_param(value, param_name)
+    return value
+
+
 @cli.command(name="codex")
 @click.option(
     "--input",
@@ -70,9 +77,19 @@ def _parse_json_param(value: str, param_name: str) -> dict[str, Any]:
     default=None,
     help="Comma-separated channel names overriding the discovered ones. [default: None]",
 )
-@click.option("--cells-table", type=click.Path(exists=True), default=None, help="Path to a cell table. [default: None]")
+@click.option(
+    "--cells-table",
+    type=str,
+    default=None,
+    help='Path to a cell table, or a JSON mapping from region to path, e.g. \'{"A": "a.csv"}\'. [default: None]',
+)
 @click.option("--cells-table-format", type=str, default="auto", help="Format of the cell table. [default: auto]")
-@click.option("--labels", type=click.Path(exists=True), default=None, help="Path to a label mask. [default: None]")
+@click.option(
+    "--labels",
+    type=str,
+    default=None,
+    help="Path to a segmentation mask, or a JSON mapping from region to path. [default: None]",
+)
 @click.option(
     "--imread-kwargs",
     type=str,
@@ -119,9 +136,9 @@ def codex_wrapper(
         fcs=fcs,
         regions=_parse_list_param(regions),
         channel_names=_parse_list_param(channel_names),
-        cells_table=cells_table,
+        cells_table=_parse_path_or_mapping_param(cells_table, "cells_table"),
         cells_table_format=cells_table_format,
-        labels=labels,
+        labels=_parse_path_or_mapping_param(labels, "labels"),
         imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
         labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
@@ -436,9 +453,19 @@ def _parse_list_param(value: str | None) -> list[str] | None:
     default=None,
     help="Comma-separated channel names overriding the ones in the qptiff. [default: None]",
 )
-@click.option("--cells-table", type=click.Path(exists=True), default=None, help="Path to a cell table. [default: None]")
+@click.option(
+    "--cells-table",
+    type=str,
+    default=None,
+    help='Path to a cell table, or a JSON mapping from region to path, e.g. \'{"A": "a.csv"}\'. [default: None]',
+)
 @click.option("--cells-table-format", type=str, default="auto", help="Format of the cell table. [default: auto]")
-@click.option("--labels", type=click.Path(exists=True), default=None, help="Path to a label mask. [default: None]")
+@click.option(
+    "--labels",
+    type=str,
+    default=None,
+    help="Path to a segmentation mask, or a JSON mapping from region to path. [default: None]",
+)
 @click.option(
     "--image-models-kwargs",
     type=str,
@@ -476,9 +503,9 @@ def phenocycler_wrapper(
         input,
         regions=_parse_list_param(regions),
         channel_names=_parse_list_param(channel_names),
-        cells_table=cells_table,
+        cells_table=_parse_path_or_mapping_param(cells_table, "cells_table"),
         cells_table_format=cells_table_format,
-        labels=labels,
+        labels=_parse_path_or_mapping_param(labels, "labels"),
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
         labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
         cells_table_kwargs=_parse_json_param(cells_table_kwargs, "cells_table_kwargs"),

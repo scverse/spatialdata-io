@@ -4,28 +4,47 @@ from __future__ import annotations
 
 import re
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import anndata as ad
 import numpy as np
 import pandas as pd
 import readfcs
-from spatialdata.models import ShapesModel, TableModel
+import tifffile
+from spatialdata import sanitize_name, sanitize_table
+from spatialdata._logging import logger
+from spatialdata.models import Labels2DModel, ShapesModel, TableModel
 from spatialdata.transformations import Identity
 
 from spatialdata_io._constants._constants import CodexKeys, PhenocyclerKeys
-from spatialdata_io.readers._utils._akoya import dedupe_channel_names
+from spatialdata_io.readers._utils._akoya import dedupe_channel_names, read_tiff, spatial_chunks
+from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
-    from pathlib import Path
+    from collections.abc import Callable, Sequence
 
     from geopandas import GeoDataFrame
     from spatialdata.transformations import BaseTransformation
     from xarray import DataArray, DataTree
 
-__all__ = ["CellTable", "build_cells", "read_codex_table"]
+__all__ = [
+    "CellTable",
+    "build_cells",
+    "detect_table_format",
+    "read_cell_table",
+    "read_codex_table",
+    "read_labels",
+    "read_region_labels",
+    "read_region_tables",
+    "resolve_per_region",
+]
+
+TABLE_FORMATS = ("codex", "qupath", "mcquant", "sprm", "inform", "generic")
+# the keys of `cells_table_kwargs`; see `read_cell_table` and `read_labels`
+CELLS_TABLE_KWARGS = ("x", "y", "instance_id", "region_column", "markers", "coordinates_unit", "mask_channel")
 
 # `cyc001_ch001` (FCS `$PnN`, plain CSV header) or the name part of the Processor CSV header `cyc001_ch001:DAPI1`
 _MARKER_COLUMN = re.compile(r"cyc(\d+)_ch(\d+)", re.IGNORECASE)
@@ -33,6 +52,11 @@ _MARKER_COLUMN = re.compile(r"cyc(\d+)_ch(\d+)", re.IGNORECASE)
 _META_COLUMNS = frozenset(
     {"cell_id", "region", "tile_num", "x", "y", "z", "x_tile", "y_tile", "size", "tsne_x", "tsne_y", "homogeneity"}
 )
+# QuPath measurement columns, e.g. `CD3: Cell: Mean`; the per-marker intensity is taken from the first compartment
+_QUPATH_MARKER = re.compile(r"(.+): (Cell|Nucleus|Cytoplasm|Membrane): Mean")
+_QUPATH_COMPARTMENTS = ("Cell", "Nucleus", "Cytoplasm", "Membrane")
+_QUPATH_IMAGE = "Image"
+_QUPATH_ID = "Object ID"
 
 
 @dataclass
@@ -160,7 +184,7 @@ def read_codex_table(path: Path, region: str | None = None) -> CellTable:
     else:
         raise ValueError(
             f"{path} has no '{region_key}' column and no region id in its file name, so its cells cannot be "
-            "assigned to a region."
+            "assigned to a region; a table for several regions needs a region column."
         )
     region_ids.name = region_key
     return CellTable(
@@ -172,6 +196,448 @@ def read_codex_table(path: Path, region: str | None = None) -> CellTable:
         centroids_px=centroids,
         radius_px=radius,
     )
+
+
+def detect_table_format(path: Path) -> str:
+    """Detect the format of a cell table from its file type and header.
+
+    Parameters
+    ----------
+    path
+        The ``.fcs``, ``.csv``, ``.tsv`` or ``.txt`` (tab-separated) cell table.
+
+    Returns
+    -------
+    ``"codex"`` (FCS, or ``x``/``y`` with ``cell_id`` or ``cycCCC_chHHH`` columns), ``"qupath"`` (``Centroid X µm``
+    or ``Object ID``), ``"mcquant"`` (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``),
+    ``"sprm"`` (first column ``ID``), else ``"generic"``.
+    """
+    if path.suffix.lower() == CodexKeys.FCS_FILE.value:
+        return "codex"
+    columns, _ = _read_header(path)
+    # the name part of the CODEX Processor header form `cyc001_ch001:DAPI1`
+    names = {column.partition(":")[0].casefold() for column in columns}
+    if {"x", "y"} <= names and (
+        CodexKeys.INSTANCE_KEY.value in names or any(_MARKER_COLUMN.fullmatch(name) for name in names)
+    ):
+        return "codex"
+    if {"Centroid X µm", "Centroid X px", _QUPATH_ID} & set(columns):
+        return "qupath"
+    if {"CellID", "X_centroid"} <= set(columns):
+        return "mcquant"
+    if "Cell X Position" in columns:
+        return "inform"
+    if columns[:1] == ["ID"]:
+        return "sprm"
+    return "generic"
+
+
+def read_cell_table(
+    path: Path,
+    fmt: str,
+    *,
+    pixel_size_um: float | None,
+    default_region: str | None,
+    cells_table_kwargs: Mapping[str, Any],
+) -> CellTable:
+    """Read a cell table of any supported format.
+
+    Parameters
+    ----------
+    path
+        The cell table.
+    fmt
+        One of ``"auto"`` (see :func:`detect_table_format`), ``"codex"``, ``"qupath"``, ``"mcquant"`` or
+        ``"generic"``:
+
+            - ``"codex"``: see :func:`read_codex_table`.
+            - ``"qupath"``: a QuPath measurement export. Centroids ``Centroid X µm``/``Centroid Y µm`` (divided by
+              ``pixel_size_um``) or ``Centroid X px``/``Centroid Y px``; instance ids from a numeric ``Object ID``,
+              else the row number (from 1); the region from the ``Image`` column. The markers are the
+              ``<marker>: <compartment>: Mean`` columns, one per marker from the first of the ``Cell``,
+              ``Nucleus``, ``Cytoplasm`` and ``Membrane`` compartments (in ``var["compartment"]``). The radius
+              comes from ``Cell: Area µm^2`` (or ``px^2``).
+            - ``"mcquant"``: an MCMICRO ``mcquant`` table. Instance ids ``CellID``, pixel centroids
+              ``X_centroid``/``Y_centroid``, the markers are the columns between ``CellID`` and ``X_centroid``, the
+              radius comes from ``Area``.
+            - ``"generic"``: columns given by ``cells_table_kwargs``.
+
+        The ``"sprm"`` and ``"inform"`` formats are detected but not read yet.
+    pixel_size_um
+        The pixel size of the region image, to convert µm centroids to pixels.
+    default_region
+        The region id of all cells if the table has no region column.
+    cells_table_kwargs
+        Optional keys: ``region_column`` (the column holding the region of each cell; QuPath default ``Image``),
+        and for ``"generic"`` tables ``x`` and ``y`` (required centroid columns), ``instance_id`` (else the row
+        number, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
+        default: all other numeric columns) and ``coordinates_unit`` (``"px"``, default, or ``"um"``). The key
+        ``mask_channel`` is used by :func:`read_labels`.
+
+    Returns
+    -------
+    The cell table. Its regions are the values of the region column, or ``default_region``.
+    """
+    unknown = sorted(set(cells_table_kwargs) - set(CELLS_TABLE_KWARGS))
+    if unknown:
+        raise ValueError(f"`cells_table_kwargs` has unknown key(s) {unknown}; expected some of {CELLS_TABLE_KWARGS}.")
+    if fmt == "auto":
+        fmt = detect_table_format(path)
+        logger.info("Reading %s as a %r cell table.", path, fmt)
+    if fmt in ("sprm", "inform"):
+        raise NotImplementedError(f"Reading {fmt!r} cell tables ({path}) is added in a later release.")
+    if fmt == "codex":
+        return read_codex_table(path, region=default_region)
+    if fmt not in TABLE_FORMATS:
+        raise ValueError(f"Unknown cell table format {fmt!r}; expected 'auto' or one of {TABLE_FORMATS}.")
+
+    _, sep = _read_header(path)
+    df = pd.read_csv(path, sep=sep, engine="pyarrow")
+    df.columns = pd.Index([str(column) for column in df.columns])
+    reader = {"qupath": _qupath_roles, "mcquant": _mcquant_roles, "generic": _generic_roles}[fmt]
+    roles = reader(path, df, cells_table_kwargs)
+    if roles.pop("in_um"):
+        if pixel_size_um is None:
+            raise ValueError(
+                f"{path} has centroids in µm, but no pixel size is known to convert them to pixels (the region's "
+                "pixel size is missing, or one table covers regions with different pixel sizes)."
+            )
+        roles["px_per_unit"] = 1 / pixel_size_um
+    return _from_frame(path, df, default_region=default_region, **roles)
+
+
+def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    unit = next((unit for unit in ("µm", "px") if f"Centroid X {unit}" in df.columns), None)
+    if unit is None:
+        raise ValueError(f"{path} has no 'Centroid X µm' or 'Centroid X px' column; found {list(df.columns)}.")
+    compartments: dict[str, dict[str, str]] = {}
+    for column in df.columns:
+        if (match := _QUPATH_MARKER.fullmatch(column)) is not None:
+            compartments.setdefault(match.group(1), {})[match.group(2)] = column
+    chosen = {marker: next(c for c in _QUPATH_COMPARTMENTS if c in found) for marker, found in compartments.items()}
+    markers = [compartments[marker][compartment] for marker, compartment in chosen.items()]
+    var = pd.DataFrame(
+        {"source_column": markers, "compartment": list(chosen.values())},
+        index=pd.Index(dedupe_channel_names(list(chosen))),
+    )
+    object_id = df.get(_QUPATH_ID)
+    area = f"Cell: Area {unit}^2"
+    return {
+        "markers": markers,
+        "var": var,
+        "x": f"Centroid X {unit}",
+        "y": f"Centroid Y {unit}",
+        "in_um": unit == "µm",
+        "instance_column": _QUPATH_ID if object_id is not None and pd.api.types.is_integer_dtype(object_id) else None,
+        "region_column": kwargs.get("region_column", _QUPATH_IMAGE if _QUPATH_IMAGE in df.columns else None),
+        "area_column": area if area in df.columns else None,
+    }
+
+
+def _mcquant_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    columns = list(df.columns)
+    if "CellID" not in columns or "X_centroid" not in columns:
+        raise ValueError(f"{path} has no 'CellID' and 'X_centroid' columns; found {columns}.")
+    markers = columns[columns.index("CellID") + 1 : columns.index("X_centroid")]
+    return {
+        "markers": markers,
+        "var": pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers))),
+        "x": "X_centroid",
+        "y": "Y_centroid",
+        "in_um": False,
+        "instance_column": "CellID",
+        "region_column": kwargs.get("region_column"),
+        "area_column": "Area" if "Area" in columns else None,
+    }
+
+
+def _generic_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    if "x" not in kwargs or "y" not in kwargs:
+        raise ValueError(
+            f"Reading {path} as a 'generic' cell table needs the centroid columns as `cells_table_kwargs` 'x' and "
+            f"'y'; found the columns {list(df.columns)}."
+        )
+    unit = kwargs.get("coordinates_unit", "px")
+    if unit not in ("px", "um"):
+        raise ValueError(f"`cells_table_kwargs['coordinates_unit']` must be 'px' or 'um', got {unit!r}.")
+    roles = {kwargs["x"], kwargs["y"], kwargs.get("instance_id"), kwargs.get("region_column")}
+    selection = kwargs.get("markers")
+    if selection is None:
+        markers = [c for c in df.columns if c not in roles and pd.api.types.is_numeric_dtype(df[c])]
+    elif isinstance(selection, str):
+        markers = [c for c in df.columns if c not in roles and re.fullmatch(selection, c)]
+    else:
+        markers = [str(marker) for marker in selection]
+    return {
+        "markers": markers,
+        "var": pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers))),
+        "x": kwargs["x"],
+        "y": kwargs["y"],
+        "in_um": unit == "um",
+        "instance_column": kwargs.get("instance_id"),
+        "region_column": kwargs.get("region_column"),
+        "area_column": None,
+    }
+
+
+def _from_frame(
+    path: Path,
+    df: pd.DataFrame,
+    *,
+    markers: list[str],
+    var: pd.DataFrame,
+    x: str,
+    y: str,
+    instance_column: str | None,
+    region_column: str | None,
+    area_column: str | None,
+    default_region: str | None,
+    px_per_unit: float = 1.0,
+) -> CellTable:
+    """Build a `CellTable` from a data frame and the roles of its columns."""
+    roles = [x, y, instance_column, region_column, area_column, *markers]
+    missing = [column for column in roles if column is not None and column not in df.columns]
+    if missing:
+        raise ValueError(f"{path} has no column(s) {missing}; found {list(df.columns)}.")
+
+    if instance_column is not None:
+        instance_id = pd.Series(df[instance_column].to_numpy(dtype=np.int64))
+    else:
+        # label images use 0 for the background, so instance ids start at 1
+        instance_id = pd.Series(np.arange(1, len(df) + 1, dtype=np.int64))
+    index = pd.Index(instance_id.astype(str))
+    instance_id.index = index
+    instance_id.name = CodexKeys.INSTANCE_KEY.value
+
+    if region_column is not None:
+        region = pd.Series(df[region_column].astype(str).to_numpy(), index=index)
+    elif default_region is not None:
+        region = pd.Series(default_region, index=index)
+    else:
+        raise ValueError(
+            f"{path} has no region column, so its cells cannot be assigned to regions: a table for several regions "
+            "needs a region column (`cells_table_kwargs['region_column']`). Alternatively, pass one table per "
+            "region as a mapping {region: path}."
+        )
+    region.name = CodexKeys.REGION_KEY.value
+
+    obs = df.drop(columns=markers)
+    obs.index = index
+    radius = None
+    if area_column is not None:
+        radius = np.sqrt(df[area_column].to_numpy(dtype=np.float64) * px_per_unit**2 / np.pi)
+    return CellTable(
+        obs=obs,
+        X=df[markers].to_numpy(dtype=np.float32),
+        var=var,
+        region=region,
+        instance_id=instance_id,
+        centroids_px=df[[x, y]].to_numpy(dtype=np.float64) * px_per_unit,
+        radius_px=radius,
+    )
+
+
+def _read_header(path: Path) -> tuple[list[str], str]:
+    """The column names of a delimited text table and its delimiter (tab if the header has one, else comma)."""
+    with path.open(encoding="utf-8-sig", errors="replace") as f:
+        header = f.readline().rstrip("\r\n")
+    sep = "\t" if "\t" in header else ","
+    return [column.strip().strip('"') for column in header.split(sep)], sep
+
+
+def resolve_per_region(value: str | Path | Mapping[str, str | Path] | None, regions: Sequence[str]) -> dict[str, Path]:
+    """Resolve a ``cells_table`` or ``labels`` argument to one file per region.
+
+    Parameters
+    ----------
+    value
+        A path, a mapping from region id to path, or `None`.
+    regions
+        The regions read.
+
+    Returns
+    -------
+    ``{}`` for `None`; ``{region: path}`` for a path and a single region, else ``{"*": path}`` (a file for all
+    regions); the mapping, in the order of ``regions``.
+    """
+    if value is None:
+        return {}
+    if isinstance(value, Mapping):
+        unknown = sorted(set(value) - set(regions))
+        if unknown:
+            raise ValueError(f"Unknown region(s) {unknown}. Regions read: {list(regions)}.")
+        files = {region: Path(value[region]) for region in regions if region in value}
+    else:
+        files = {regions[0] if len(regions) == 1 else "*": Path(value)}
+    for file in files.values():
+        if not file.is_file():
+            raise FileNotFoundError(f"{file} does not exist or is not a file.")
+    return files
+
+
+def read_region_tables(
+    files: Mapping[str, Path],
+    fmt: str,
+    *,
+    available: Sequence[str],
+    selected: Sequence[str],
+    pixel_sizes: Mapping[str, float | None],
+    cells_table_kwargs: Mapping[str, Any],
+) -> list[CellTable]:
+    """Read user-supplied cell tables, as resolved by :func:`resolve_per_region`, and assign their cells to regions.
+
+    A region column value names the region whose id it equals, else the longest region id it starts with followed
+    by a non-alphanumeric character (``A_Scan1.qptiff`` -> ``A``). A table given for one region holds the cells of
+    that region; if its region column matches no region, it holds only cells of that region. Cells of a table for
+    all regions (``"*"``) whose region matches no available region are dropped with a warning; cells of available
+    regions that are not read are dropped silently.
+
+    Parameters
+    ----------
+    files
+        The table of each region, or ``{"*": path}`` for one table for all regions.
+    fmt
+        The table format, see :func:`read_cell_table`.
+    available
+        All region ids of the dataset.
+    selected
+        The region ids read.
+    pixel_sizes
+        The pixel size in µm of each region with an image.
+    cells_table_kwargs
+        See :func:`read_cell_table`.
+
+    Returns
+    -------
+    The cell tables, one per file.
+    """
+    tables = []
+    for key, path in files.items():
+        covered = selected if key == "*" else [key]
+        sizes = {pixel_sizes.get(region) for region in covered}
+        table = read_cell_table(
+            path,
+            fmt,
+            pixel_size_um=sizes.pop() if len(sizes) == 1 else None,
+            default_region=None if key == "*" else key,
+            cells_table_kwargs=cells_table_kwargs,
+        )
+        tables.append(_assign_regions(table, path, key, available, selected))
+    return tables
+
+
+def _assign_regions(
+    table: CellTable, path: Path, key: str, available: Sequence[str], selected: Sequence[str]
+) -> CellTable:
+    values = list(table.region.unique())
+    matched = {value: _match_region(value, available) for value in values}
+    if key != "*" and all(region is None for region in matched.values()):
+        # the region column of a table for one region names its source image only
+        matched = dict.fromkeys(values, key)
+    unmatched = sorted(value for value, region in matched.items() if region is None)
+    if unmatched:
+        warnings.warn(
+            f"Ignoring the cells of {unmatched} in {path}: they match none of the regions {list(available)}.",
+            UserWarning,
+            stacklevel=4,
+        )
+    table.region = table.region.map(matched)
+    keep = table.region.isin(selected if key == "*" else [key]).to_numpy()
+    if not keep.any():
+        target = f"region '{key}'" if key != "*" else f"the regions read {list(selected)}"
+        raise ValueError(f"{path} has no cells of {target}; its region column holds {values}.")
+    return table.take(np.flatnonzero(keep))
+
+
+def _match_region(value: str, regions: Sequence[str]) -> str | None:
+    """The region named by ``value``: equal to it, else the longest one it starts with before a non-alphanumeric."""
+    if value in regions:
+        return value
+    prefixes = [r for r in regions if value.startswith(r) and not value[len(r)].isalnum()]
+    return max(prefixes, key=len, default=None)
+
+
+def read_labels(
+    path: Path,
+    labels_models_kwargs: Mapping[str, Any],
+    transformation: BaseTransformation,
+    *,
+    mask_channel: int | str | None = None,
+) -> DataArray | DataTree:
+    """Lazily read a segmentation mask as a ``Labels2DModel``.
+
+    Parameters
+    ----------
+    path
+        A TIFF or OME-TIFF with integer instance ids (0 = background).
+    labels_models_kwargs
+        Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`; their ``chunks`` also set the
+        spatial chunks of uncompressed files, which are memory-mapped.
+    transformation
+        The transformation to ``"global"``, the one of the region's image.
+    mask_channel
+        The mask to read from a file with several: its index or OME channel name (e.g. ``"cells"``). If `None`,
+        the first one.
+
+    Returns
+    -------
+    The labels element.
+    """
+    _, labels_models_kwargs = _initialize_raster_models_kwargs({}, labels_models_kwargs)
+    _, defaults = _initialize_raster_models_kwargs({}, {})
+    chunks = spatial_chunks(labels_models_kwargs["chunks"], defaults["chunks"])
+    image, _, _, _ = read_tiff(path, {}, chunks)
+    if not np.issubdtype(image.dtype, np.integer):
+        raise ValueError(f"{path} has dtype {image.dtype}; a segmentation mask must have an integer dtype.")
+
+    n_masks = image.shape[0]
+    if isinstance(mask_channel, str):
+        names = _ome_channel_names(path)
+        if mask_channel not in names:
+            raise ValueError(f"{path} has no mask channel {mask_channel!r}; its OME channel names are {names}.")
+        index = names.index(mask_channel)
+    else:
+        index = 0 if mask_channel is None else mask_channel
+        if mask_channel is None and n_masks > 1:
+            logger.info("%s holds %d masks; reading the first. Set `mask_channel` to choose another.", path, n_masks)
+    if not 0 <= index < n_masks:
+        raise ValueError(f"{path} holds {n_masks} mask channel(s); `mask_channel` {mask_channel!r} is out of range.")
+    return Labels2DModel.parse(
+        image[index], dims=("y", "x"), transformations={"global": transformation}, **labels_models_kwargs
+    )
+
+
+def _ome_channel_names(path: Path) -> list[str]:
+    with tifffile.TiffFile(path) as tf:
+        if not tf.ome_metadata:
+            return []
+        images = tifffile.xml2dict(tf.ome_metadata)["OME"]["Image"]
+    pixels = (images[0] if isinstance(images, list) else images)["Pixels"]
+    channels = pixels.get("Channel", [])
+    return [str(channel.get("Name", "")) for channel in (channels if isinstance(channels, list) else [channels])]
+
+
+def read_region_labels(
+    files: Mapping[str, Path],
+    transformations: Mapping[str, BaseTransformation],
+    labels_models_kwargs: Mapping[str, Any],
+    cells_table_kwargs: Mapping[str, Any],
+) -> dict[str, DataArray | DataTree]:
+    """Read the mask of each region, as resolved by :func:`resolve_per_region`, with the region's transformation."""
+    if "*" in files:
+        raise ValueError(
+            f"A single labels mask {files['*']} was given for several regions; a mask belongs to one region image, "
+            "so pass a mapping {region: path}."
+        )
+    return {
+        region: read_labels(
+            path,
+            labels_models_kwargs,
+            transformations.get(region, Identity()),
+            mask_channel=cells_table_kwargs.get("mask_channel"),
+        )
+        for region, path in files.items()
+    }
 
 
 def build_cells(
@@ -267,6 +733,9 @@ def _to_anndata(tables: Sequence[CellTable], element: Callable[[str], str]) -> a
     X = np.concatenate([table.X for table in tables]) if len(tables) > 1 else tables[0].X
     adata = ad.AnnData(X=X, obs=obs, var=tables[0].var.copy())
     adata.obsm[CodexKeys.SPATIAL_KEY.value] = np.concatenate([table.centroids_px for table in tables])
+    # e.g. QuPath's `Centroid X µm` -> `Centroid_X_µm`: spatialdata only writes alphanumeric names and `_.-`
+    if any(sanitize_name(str(column), is_dataframe_column=True) != column for column in adata.obs.columns):
+        sanitize_table(adata, inplace=True)
     return TableModel.parse(
         adata,
         region=list(obs[region_key].cat.categories),

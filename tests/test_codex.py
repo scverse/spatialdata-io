@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 import pytest
 import tifffile
 from spatialdata.models import get_channel_names
@@ -161,10 +162,51 @@ def test_discover_legacy_tables_prefer_requested_format(tmp_path: Path) -> None:
     }
 
 
-def test_codex_not_implemented_cells_table(tmp_path: Path) -> None:
-    write_legacy_processor_tree(tmp_path, layout="per_marker")
-    with pytest.raises(NotImplementedError):
-        codex(tmp_path, cells_table=tmp_path / "x.csv")
+def test_codex_user_cells_table_replaces_discovered(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, regions=2, layout="per_marker", n_cells=50)
+    pd.DataFrame(
+        {"CellID": [1, 2, 3], "CD3": [1.0, 2.0, 3.0], "X_centroid": [1.0, 2.0, 3.0], "Y_centroid": [4.0, 5.0, 6.0]}
+    ).to_csv(tmp_path / "mine.csv", index=False)
+    mask = np.zeros((128, 160), dtype=np.uint16)
+    mask[:3, :3] = [1, 2, 3]
+    tifffile.imwrite(tmp_path / "mask.tif", mask)
+
+    sdata = codex(
+        tmp_path,
+        cells_table={"reg002": tmp_path / "mine.csv"},
+        labels={"reg002": tmp_path / "mask.tif"},
+        image_models_kwargs=_FAST,
+        labels_models_kwargs=_FAST,
+    )
+
+    table = sdata.tables["table"]
+    assert table.n_obs == 3
+    assert list(table.var_names) == ["CD3"]
+    assert table.uns["spatialdata_attrs"]["region"] == ["reg002_labels"]
+    assert list(sdata.labels) == ["reg002_labels"]
+    assert len(sdata.shapes) == 0
+    assert sdata.attrs["akoya"]["cell_tables"] == {"reg002": str(tmp_path / "mine.csv")}
+
+
+def test_codex_labels_with_discovered_tables(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, regions=1, layout="per_marker", n_cells=5)
+    tifffile.imwrite(tmp_path / "mask.tif", np.zeros((128, 160), dtype=np.uint16))
+
+    sdata = codex(tmp_path, labels=tmp_path / "mask.tif", image_models_kwargs=_FAST, labels_models_kwargs=_FAST)
+
+    assert list(sdata.labels) == ["reg001_labels"]
+    assert len(sdata.shapes) == 0
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["reg001_labels"]
+
+
+def test_codex_str_regions_and_channel_names(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, regions=2, cycles=1, channels=1, layout="per_marker", n_cells=5)
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, regions="reg002", channel_names="nuclei", image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["reg002_image"]
+    assert get_channel_names(sdata.images["reg002_image"]) == ["nuclei"]
 
 
 @pytest.mark.parametrize("imagej", [False, True])

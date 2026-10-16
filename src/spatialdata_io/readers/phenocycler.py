@@ -20,6 +20,12 @@ from spatialdata_io.readers._utils._akoya import (
     scans_to_attrs,
     select_regions,
 )
+from spatialdata_io.readers._utils._cell_tables import (
+    build_cells,
+    read_region_labels,
+    read_region_tables,
+    resolve_per_region,
+)
 from spatialdata_io.readers._utils._qptiff import (
     _fusion_profile_records,
     _is_blank,
@@ -74,6 +80,15 @@ def phenocycler(
     the ``"global"`` coordinate system; otherwise all regions sit at its origin. The per-region metadata is stored
     in ``sdata.attrs[{vx.ATTRS_KEY!r}]``.
 
+    A segmentation mask given in ``labels`` is stored lazily as the labels ``<region>{vx.LABELS_SUFFIX}`` with the
+    transformation of the region's image. The cells of ``cells_table`` are stored in one table
+    ``{vx.TABLE_KEY!r}`` (marker intensities dense float32 in ``X``, pixel centroids in ``obsm["spatial"]``,
+    ``obs[{vx.REGION_KEY!r}]`` the annotated element, ``obs[{vx.INSTANCE_KEY!r}]`` the instance key), or in one
+    table ``<region>_table`` per region if the regions have different markers. Cells annotate the labels of their
+    region, whose values must be their instance ids; without a mask they are stored as circles
+    ``<region>{vx.CELLS_SUFFIX}``, with a warning. The paths of the tables and masks are stored in
+    ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]`` and ``["labels"]``.
+
     .. seealso::
 
         - `Akoya PhenoCycler-Fusion <https://www.akoyabio.com/phenocycler/>`_.
@@ -88,28 +103,37 @@ def phenocycler(
         Channel names to use instead of the ones stored in the qptiff; must have one entry per channel of every
         region read.
     cells_table
-        Not implemented yet.
+        A cell table: a path, or a mapping from region id to path, e.g. ``{{"A": "A_cells.csv"}}``. A single path
+        for several regions needs a region column (``Image`` for QuPath, ``region`` for CODEX tables, else
+        ``cells_table_kwargs["region_column"]``); its values are matched to the region ids, e.g.
+        ``A_Scan1.qptiff`` to ``A``.
     cells_table_format
-        Not implemented yet.
+        The format of ``cells_table``: ``"auto"`` (detected from the header), ``"codex"`` (CODEX Processor),
+        ``"qupath"`` (QuPath measurements; µm centroids are converted with the region's pixel size), ``"mcquant"``
+        (MCMICRO) or ``"generic"`` (columns given by ``cells_table_kwargs``).
     labels
-        Not implemented yet.
+        A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
+        mapping from region id to path.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
-        Not implemented yet.
+        Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
     cells_table_kwargs
-        Not implemented yet.
+        Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
+        ``y``, ``instance_id``, ``markers`` (list or regular expression) and ``coordinates_unit`` (``"px"`` or
+        ``"um"``); ``mask_channel`` (index or OME channel name of the mask in a multi-channel ``labels`` file).
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
     """
-    if cells_table is not None or labels is not None:
-        raise NotImplementedError("Reading cell tables and labels with `phenocycler` is added in a later task.")
-
+    regions = [regions] if isinstance(regions, str) else regions
+    channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
     qptiffs = discover_qptiffs(path)
     selected = select_regions(list(qptiffs), regions)
+    table_files = resolve_per_region(cells_table, selected)
+    mask_files = resolve_per_region(labels, selected)
 
     scans = [read_qptiff_metadata(qptiffs[region], region=region) for region in selected]
     names = {}
@@ -128,8 +152,28 @@ def phenocycler(
         )
         for scan in scans
     }
-    sdata = SpatialData(images=images)
-    sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = scans_to_attrs(scans, names)
+    region_labels = read_region_labels(mask_files, transformations, labels_models_kwargs, cells_table_kwargs)
+    cell_tables = read_region_tables(
+        table_files,
+        cells_table_format,
+        available=list(qptiffs),
+        selected=selected,
+        pixel_sizes={scan.region: scan.pixel_size_um for scan in scans},
+        cells_table_kwargs=cells_table_kwargs,
+    )
+    tables, shapes = build_cells(cell_tables, {}, region_labels, transformations) if cell_tables else ({}, {})
+    sdata = SpatialData(
+        images=images,
+        labels={f"{region}{PhenocyclerKeys.LABELS_SUFFIX}": element for region, element in region_labels.items()},
+        shapes=shapes,
+        tables=tables,
+    )
+    attrs = scans_to_attrs(scans, names)
+    if table_files:
+        attrs["cell_tables"] = {key: str(file) for key, file in table_files.items()}
+    if mask_files:
+        attrs["labels"] = {region: str(file) for region, file in mask_files.items()}
+    sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = attrs
     return _set_reader_metadata(sdata, "phenocycler")
 
 

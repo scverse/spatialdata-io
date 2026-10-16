@@ -8,12 +8,15 @@ from pathlib import Path
 
 import dask.array as da
 import numpy as np
+import pandas as pd
 import pytest
 import tifffile
+from click.testing import CliRunner
 from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
 
 from spatialdata_io import phenocycler
+from spatialdata_io.__main__ import phenocycler_wrapper
 from tests._akoya_data import write_qptiff
 
 _FAST = {"scale_factors": [2]}
@@ -162,14 +165,200 @@ def test_channel_names_override(tmp_path: Path) -> None:
         phenocycler(path, channel_names=["only one"])
 
 
-def test_cells_table_and_labels_not_implemented(tmp_path: Path) -> None:
+def _write_mcquant(path: Path, n: int = 5, markers: tuple[str, ...] = ("DAPI", "CD3")) -> None:
+    rng = np.random.default_rng(0)
+    cells = pd.DataFrame(
+        {
+            "CellID": np.arange(1, n + 1),
+            **{marker: rng.uniform(0, 100, n) for marker in markers},
+            "X_centroid": rng.uniform(0, 300, n),
+            "Y_centroid": rng.uniform(0, 250, n),
+            "Area": rng.uniform(10, 50, n),
+        }
+    )
+    cells.to_csv(path, index=False)
+
+
+def _write_mask(path: Path, n: int = 5, shape: tuple[int, int] = (256, 320)) -> np.ndarray:
+    mask = np.zeros(shape, dtype=np.uint32)
+    for i in range(n):
+        mask[10 + 20 * i : 20 + 20 * i, 10:20] = i + 1
+    tifffile.imwrite(path, mask)
+    return mask
+
+
+def test_mcquant_with_mask_labels(tmp_path: Path) -> None:
+    path = tmp_path / "S_Scan1.qptiff"
+    write_qptiff(path, biomarkers=["DAPI", "CD3"], stage_position_cm=(1.0, 2.0))
+    _write_mcquant(tmp_path / "cells.csv")
+    mask = _write_mask(tmp_path / "mask.tif")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        sdata = phenocycler(
+            path,
+            cells_table=tmp_path / "cells.csv",
+            labels=tmp_path / "mask.tif",
+            image_models_kwargs=_FAST,
+            labels_models_kwargs=_FAST,
+        )
+
+    assert list(sdata.labels) == ["S_labels"]
+    assert len(sdata.shapes) == 0
+    np.testing.assert_array_equal(sdata.labels["S_labels"]["scale0"]["image"].values, mask)
+    table = sdata.tables["table"]
+    assert set(table.obs["region"]) == {"S_labels"}
+    assert table.uns["spatialdata_attrs"]["region"] == ["S_labels"]
+    assert list(table.obs["cell_id"]) == [1, 2, 3, 4, 5]
+    assert list(table.var_names) == ["DAPI", "CD3"]
+    assert sdata.attrs["akoya"]["cell_tables"] == {"S": str(tmp_path / "cells.csv")}
+    assert sdata.attrs["akoya"]["labels"] == {"S": str(tmp_path / "mask.tif")}
+
+
+def test_labels_without_cells_table(tmp_path: Path) -> None:
     path = tmp_path / "S_Scan1.qptiff"
     write_qptiff(path, biomarkers=["DAPI"])
+    _write_mask(tmp_path / "mask.tif")
 
-    with pytest.raises(NotImplementedError):
-        phenocycler(path, cells_table=tmp_path / "cells.csv")
-    with pytest.raises(NotImplementedError):
-        phenocycler(path, labels=tmp_path / "mask.tif")
+    sdata = phenocycler(path, labels=str(tmp_path / "mask.tif"), image_models_kwargs=_FAST)
+
+    assert list(sdata.labels) == ["S_labels"]
+    assert len(sdata.tables) == 0
+
+
+def test_cells_table_without_mask_makes_circles(tmp_path: Path) -> None:
+    path = tmp_path / "S_Scan1.qptiff"
+    write_qptiff(path, biomarkers=["DAPI", "CD3"])
+    _write_mcquant(tmp_path / "cells.csv")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(path, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
+
+    assert list(sdata.shapes) == ["S_cells"]
+    assert set(sdata.tables["table"].obs["region"]) == {"S_cells"}
+
+
+def test_phenocycler_cells_mapping_per_region(tmp_path: Path) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
+        _write_mcquant(tmp_path / f"{region}.csv")
+        _write_mask(tmp_path / f"{region}_mask.tif")
+
+    sdata = phenocycler(
+        tmp_path,
+        cells_table={"A": tmp_path / "A.csv", "B": str(tmp_path / "B.csv")},
+        labels={"A": tmp_path / "A_mask.tif", "B": tmp_path / "B_mask.tif"},
+        image_models_kwargs=_FAST,
+        labels_models_kwargs=_FAST,
+    )
+
+    assert list(sdata.tables) == ["table"]
+    table = sdata.tables["table"]
+    assert table.n_obs == 10
+    assert table.obs_names.is_unique
+    assert table.uns["spatialdata_attrs"]["region"] == ["A_labels", "B_labels"]
+    assert sorted(sdata.labels) == ["A_labels", "B_labels"]
+
+
+def test_mapping_with_unknown_region_raises(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_mcquant(tmp_path / "A.csv", markers=("DAPI",))
+
+    with pytest.raises(ValueError, match="'Z'"):
+        phenocycler(tmp_path, cells_table={"Z": tmp_path / "A.csv"})
+
+
+def test_single_table_many_regions_needs_region_column(tmp_path: Path) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
+    _write_mcquant(tmp_path / "cells.csv")
+
+    with pytest.raises(ValueError, match="needs a region column"):
+        phenocycler(tmp_path, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
+
+
+def test_single_qupath_table_many_regions(tmp_path: Path) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
+    header = "Image\tObject ID\tCentroid X µm\tCentroid Y µm\tCD3: Cell: Mean"
+    rows = ["A_Scan1.qptiff\tu1\t5\t5\t1", "B_Scan1.qptiff\tu2\t10\t10\t2", "C_Scan1.qptiff\tu3\t1\t1\t3"]
+    (tmp_path / "cells.tsv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="C_Scan1.qptiff"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+    table = sdata.tables["table"]
+    assert list(table.obs["region"]) == ["A_cells", "B_cells"]
+    np.testing.assert_allclose(np.asarray(table.obsm["spatial"]), np.array([[5, 5], [10, 10]]) / 0.5069)
+    # QuPath column names are not valid spatialdata names, so they are sanitized and the result can be written
+    assert {"Image", "Object_ID", "Centroid_X_µm"} <= set(table.obs.columns)
+    sdata.write(tmp_path / "x.zarr")
+    assert read_zarr(tmp_path / "x.zarr").tables["table"].n_obs == 2
+
+
+def test_different_panels_make_per_region_tables(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
+    write_qptiff(tmp_path / "B_Scan1.qptiff", biomarkers=["DAPI", "CD8", "CD4"])
+    _write_mcquant(tmp_path / "A.csv", markers=("DAPI", "CD3"))
+    _write_mcquant(tmp_path / "B.csv", markers=("DAPI", "CD8", "CD4"))
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(
+            tmp_path, cells_table={"A": tmp_path / "A.csv", "B": tmp_path / "B.csv"}, image_models_kwargs=_FAST
+        )
+
+    assert sorted(sdata.tables) == ["A_table", "B_table"]
+    assert list(sdata.tables["B_table"].var_names) == ["DAPI", "CD8", "CD4"]
+    assert sdata.tables["A_table"].uns["spatialdata_attrs"]["region"] == ["A_cells"]
+
+
+def test_single_mask_many_regions_raises(tmp_path: Path) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_mask(tmp_path / "mask.tif")
+
+    with pytest.raises(ValueError, match="mapping"):
+        phenocycler(tmp_path, labels=tmp_path / "mask.tif")
+
+
+def test_cli_cells_table_and_labels_mappings(runner: CliRunner, tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
+    _write_mcquant(tmp_path / "cells.csv")
+    _write_mask(tmp_path / "mask.tif")
+    output = tmp_path / "out.zarr"
+
+    result = runner.invoke(
+        phenocycler_wrapper,
+        [
+            "--input",
+            str(tmp_path / "S_Scan1.qptiff"),
+            "--output",
+            str(output),
+            "--cells-table",
+            str(tmp_path / "cells.csv"),
+            "--labels",
+            json.dumps({"S": str(tmp_path / "mask.tif")}),
+            "--image-models-kwargs",
+            json.dumps(_FAST),
+            "--labels-models-kwargs",
+            json.dumps(_FAST),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    sdata = read_zarr(output)
+    assert list(sdata.labels) == ["S_labels"]
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["S_labels"]
+
+
+def test_str_regions_and_channel_names(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "AB_Scan1.qptiff", biomarkers=["DAPI"])
+    write_qptiff(tmp_path / "C_Scan1.qptiff", biomarkers=["DAPI"])
+
+    sdata = phenocycler(tmp_path, regions="AB", channel_names="nuclei", image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["AB_image"]
+    assert get_channel_names(sdata.images["AB_image"]) == ["nuclei"]
 
 
 def test_write_roundtrip(tmp_path: Path) -> None:
