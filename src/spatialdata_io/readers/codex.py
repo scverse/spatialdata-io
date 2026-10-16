@@ -29,6 +29,7 @@ from spatialdata_io.readers._utils._akoya import (
     scans_to_attrs,
     select_regions,
 )
+from spatialdata_io.readers._utils._cell_tables import CellTable, build_cells, read_codex_table
 from spatialdata_io.readers._utils._qptiff import AkoyaChannel, AkoyaScan, read_qptiff_image, read_qptiff_metadata
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
 
@@ -101,13 +102,22 @@ def codex(
           ``{vx.CHANNEL_NAMES_FILE!r}`` (one name per line, cycle-major), else they are ``cycCCC_chHHH``.
         - ``*{vx.QPTIFF!r}``: scans of the CODEX Instrument Manager, read lazily with their channel metadata.
         - ``{vx.EXPERIMENT_FILE!r}``: optional; the pixel size is taken from its ``xyResolution`` (nm).
-        - ``*{vx.FCS_FILE!r}`` / ``*{vx.FCS_FILE_CSV!r}``: cell tables, not read yet.
+        - ``*{vx.FCS_FILE!r}`` / ``*{vx.FCS_FILE_CSV!r}``: cell tables of the CODEX Processor, one per region (or
+          one for all regions), e.g. ``segm/segm-1/fcs/compensated/regNNN_compensated.fcs``. Compensated tables
+          are preferred over uncompensated ones. The ``cycCCC_chHHH`` marker columns are stored in ``X`` (dense
+          float32) under their marker names, taken from the FCS ``$PnS`` keywords or the CSV header
+          ``cycCCC_chHHH:<marker>``; all other columns go to ``obs``, the ``x``/``y`` pixel centroids to
+          ``obsm["spatial"]``.
 
     Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``,
     ``bestFocus/``) are ignored. The region id ``regNNN`` is taken from the file names; a ``{vx.QPTIFF!r}`` without
     one is named after its file. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files
     are read as hyperstacks named after their files. Each region is stored as the image ``<region>_image`` in the
-    ``"global"`` coordinate system and its metadata in ``sdata.attrs["akoya"]``.
+    ``"global"`` coordinate system and its metadata in ``sdata.attrs["akoya"]``. The cells of each region are stored
+    as circles ``<region>_cells`` with the cells' area (``size`` column), annotated by one table ``"table"``
+    (``obs["region"]`` names the circles, ``obs["cell_id"]`` is the instance key), or by one table
+    ``<region>_table`` per region if the regions have different markers. The paths of the tables read are stored in
+    ``sdata.attrs["akoya"]["cell_tables"]``.
 
     .. seealso::
 
@@ -118,9 +128,10 @@ def codex(
     path
         Path to a CODEX output directory, or to a single image (``{vx.QPTIFF!r}`` or ``{vx.IMAGE_TIF}(f)``).
     fcs
-        Whether to prefer ``{vx.FCS_FILE!r}`` cell tables over ``{vx.FCS_FILE_CSV!r}`` ones when both exist.
+        Whether to prefer ``{vx.FCS_FILE!r}`` cell tables over ``{vx.FCS_FILE_CSV!r}`` ones when both exist. With
+        `False`, a region that only has a ``{vx.FCS_FILE!r}`` table is read from it, with a warning.
     regions
-        Regions to read, e.g. ``["reg001"]``. If `None`, all regions are read.
+        Regions to read, e.g. ``["reg001"]``, including only their cells. If `None`, all regions are read.
     channel_names
         Channel names to use instead of the discovered ones; must have one entry per channel of every region read.
     cells_table
@@ -148,13 +159,13 @@ def codex(
 
     path = Path(path)
     layout = discover_legacy(path, fcs)
-    selected = select_regions(list(layout.images), regions)
+    selected = select_regions(sorted(layout.images.keys() | layout.tables.keys() - {"*"}), regions)
     experiment = read_json_object(layout.experiment_json) if layout.experiment_json is not None else None
     names_txt = _read_channel_names_txt(layout.channel_names_txt) if layout.channel_names_txt is not None else None
 
     scans: list[AkoyaScan] = []
     arrays: dict[str, da.Array] = {}
-    for region in selected:
+    for region in (region for region in selected if region in layout.images):
         files = layout.images[region]
         if _is_qptiff(files[0]):
             scans.append(read_qptiff_metadata(files[0], region=region))
@@ -191,9 +202,36 @@ def codex(
         )
         for scan in scans
     }
-    sdata = SpatialData(images=images)
+    table_files = {key: file for key, file in layout.tables.items() if key == "*" or key in selected}
+    cell_tables = _read_tables(table_files, layout, selected if regions is not None else None, fcs)
+    tables, shapes = build_cells(cell_tables, {}, {}, transformations) if cell_tables else ({}, {})
+    sdata = SpatialData(images=images, shapes=shapes, tables=tables)
     sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = scans_to_attrs(scans, names)
+    sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value]["cell_tables"] = {key: str(file) for key, file in table_files.items()}
     return _set_reader_metadata(sdata, "codex")
+
+
+def _read_tables(
+    files: Mapping[str, Path], layout: LegacyLayout, regions: Sequence[str] | None, fcs: bool
+) -> list[CellTable]:
+    """Read the cell tables of ``files`` (by region, ``"*"`` for one without a region), keeping only ``regions``."""
+    fallback = [str(file) for file in files.values() if file.suffix.lower() == CodexKeys.FCS_FILE.value]
+    if not fcs and fallback:
+        warnings.warn(
+            f"`fcs=False`, but no CSV cell table was found for {fallback}; reading the FCS table(s) instead.",
+            UserWarning,
+            stacklevel=3,
+        )
+    # a table without a region column belongs to the region in its file name, else to the only image
+    only_image = next(iter(layout.images)) if len(layout.images) == 1 else None
+    tables = []
+    for key, file in files.items():
+        table = read_codex_table(file, region=key if key != "*" else only_image)
+        if regions is not None:
+            table = table.take(np.flatnonzero(table.region.isin(regions).to_numpy()))
+        if len(table.region):
+            tables.append(table)
+    return tables
 
 
 def discover_legacy(path: Path, fcs: bool) -> LegacyLayout:

@@ -212,3 +212,91 @@ def test_codex_imread_kwargs_warns_when_unused(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, layout="per_marker")
     with pytest.warns(UserWarning, match="imread_kwargs"):
         codex(tmp_path, imread_kwargs={"nframes": 1}, image_models_kwargs=_FAST)
+
+
+def test_codex_table_multi_region(tmp_path: Path) -> None:
+    data = write_legacy_processor_tree(tmp_path, regions=2, layout="per_marker", n_cells=50)
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, image_models_kwargs=_FAST)
+
+    assert list(sdata.tables) == ["table"]
+    table = sdata.tables["table"]
+    assert table.n_obs == 100
+    assert list(table.obs["region"].cat.categories) == ["reg001_cells", "reg002_cells"]
+    assert list(table.var_names) == dedupe_channel_names(data["markers"])
+    assert sorted(sdata.shapes) == ["reg001_cells", "reg002_cells"]
+    # the fixture returns the cells of the last region
+    radius = sdata.shapes["reg002_cells"]["radius"].to_numpy()
+    np.testing.assert_allclose(radius, np.sqrt(data["cells"]["size"] / np.pi), rtol=1e-6)
+    reg002 = table[table.obs["region"] == "reg002_cells"]
+    np.testing.assert_allclose(reg002.obsm["spatial"], data["cells"][["x", "y"]], rtol=1e-6)
+    assert sdata.attrs["akoya"]["cell_tables"]["reg002"].endswith("reg002_compensated.fcs")
+
+
+@pytest.mark.parametrize("fcs", [True, False])
+def test_codex_old_flat_layout_regression(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fcs: bool) -> None:
+    # the original reader read the image (and the CSV) relative to the working directory
+    data = write_legacy_processor_tree(tmp_path / "data", layout="old_flat", fcs=fcs)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path / "data", fcs=fcs, image_models_kwargs=_FAST)
+
+    np.testing.assert_array_equal(_level0(sdata, "reg001_image").values, data["images"]["reg001"][:1])
+    table = sdata.tables["table"]
+    assert table.n_obs == 50
+    assert list(table.obs["region"].cat.categories) == ["reg001_cells"]
+    np.testing.assert_allclose(table.X, data["cells"].filter(regex="^cyc").to_numpy(), rtol=1e-6)
+
+
+def test_codex_fcs_false_falls_back_to_fcs_with_warning(tmp_path: Path) -> None:
+    data = write_legacy_processor_tree(tmp_path, layout="per_marker", fcs=True, csv=False)
+
+    with pytest.warns(UserWarning, match="CSV"):
+        sdata = codex(tmp_path, fcs=False, image_models_kwargs=_FAST)
+
+    assert list(sdata.tables["table"].var_names) == dedupe_channel_names(data["markers"])
+
+
+def test_codex_without_tables_reads_images_only(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, layout="per_marker", fcs=False, csv=False)
+
+    sdata = codex(tmp_path, image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["reg001_image"]
+    assert not sdata.tables
+    assert not sdata.shapes
+
+
+def test_codex_table_float32_dense(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, layout="per_marker", fcs=False, csv=True)
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, fcs=False, image_models_kwargs=_FAST)
+
+    table = sdata.tables["table"]
+    assert isinstance(table.X, np.ndarray)
+    assert table.X.dtype == np.float32
+
+
+def test_codex_regions_subsets_tables(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, regions=2, layout="per_marker")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, regions=["reg002"], image_models_kwargs=_FAST)
+
+    assert list(sdata.shapes) == ["reg002_cells"]
+    assert list(sdata.tables["table"].obs["region"].cat.categories) == ["reg002_cells"]
+
+
+def test_codex_single_fcs_file(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, layout="per_marker")
+    fcs = tmp_path / "processed_2020-01-01" / "segm" / "segm-1" / "fcs" / "compensated" / "reg001_compensated.fcs"
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(fcs)
+
+    assert not sdata.images
+    assert list(sdata.shapes) == ["reg001_cells"]
+    assert sdata.tables["table"].n_obs == 50
