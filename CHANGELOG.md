@@ -26,7 +26,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   `.er.qptiff` scans, including PhenoImager (Opal) mode: lazy level-0 image with a recomputed pyramid, channel names
   from the per-page XML, structured and raw scan metadata in `sdata.attrs["akoya"]`, optional `.xpd` /
   `*channels.csv` sidecars, and optional cell tables (QuPath with GeoJSON outlines, MCMICRO `mcquant`, HuBMAP SPRM,
-  inForm, CODEX Processor or generic CSV) with segmentation masks.
+  inForm, CODEX Processor or generic CSV) with segmentation masks. The lazy images and masks can be pickled (e.g. for
+  `dask.distributed`): they open their file in each process on the first chunk read. A cell table for several
+  regions converts µm coordinates with each region's own pixel size.
 
 ### Changed
 
@@ -49,6 +51,10 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
     including multi-region reads of unrelated regions, gets its own coordinate system named after the region.
   - New parameters `channel_names`, `cells_table`, `cells_table_format`, `labels`, `image_models_kwargs`,
     `labels_models_kwargs` and `cells_table_kwargs`; the `codex` CLI command exposes them.
+  - `channelNames.txt` and `experiment.json` are found in any case (e.g. SPACEc's `channelnames.txt`); CSV files
+    that are not CODEX Processor cell tables are ignored, also when their name holds a region id.
+  - A CIM `.qptiff` without `regNNN` in its name is named as `phenocycler()` names it (without the suffix and a
+    trailing `_Scan<N>`), and its `.er.qptiff` is preferred.
 
 ### Fixed
 
