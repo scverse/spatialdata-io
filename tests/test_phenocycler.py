@@ -401,9 +401,9 @@ def test_mapping_keys_of_unselected_regions_are_ignored(tmp_path: Path) -> None:
 
 def test_mask_shape_mismatch_warns(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
-    _write_mask(tmp_path / "mask.tif", shape=(128, 160))
+    _write_mask(tmp_path / "mask.tif", shape=(200, 300))
 
-    with pytest.warns(UserWarning, match=r"\(128, 160\).*\(256, 320\)"):
+    with pytest.warns(UserWarning, match=r"\(200, 300\).*\(256, 320\)"):
         sdata = phenocycler(tmp_path, labels=tmp_path / "mask.tif", image_models_kwargs=_FAST)
 
     assert list(sdata.labels) == ["S_labels"]

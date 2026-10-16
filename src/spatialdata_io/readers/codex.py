@@ -178,7 +178,11 @@ def codex(
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
         mapping from region id to path. Each mask is stored lazily as the labels ``<region>_labels``
         with the transformation of the region's image; the cells of the region annotate it instead of circles, and
-        their instance ids must be the mask values.
+        their instance ids must be the mask values. A mask whose shape is the region image's divided by an integer
+        factor ``f`` (rounded up) is scaled onto the image (``Scale([f, f])`` before the region's transformation),
+        and the pixel centroids and areas of ``"mcquant"``, ``"sprm"`` and ``"generic"`` (``"px"``) tables, which
+        are taken to be in mask pixels, are scaled by ``f`` to image pixels; any other shape mismatch raises a
+        warning.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs

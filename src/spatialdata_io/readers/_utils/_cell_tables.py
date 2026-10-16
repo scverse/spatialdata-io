@@ -6,7 +6,7 @@ import json
 import re
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,7 +21,8 @@ import tifffile
 from spatialdata import SpatialData, sanitize_name, sanitize_table
 from spatialdata._logging import logger
 from spatialdata.models import Labels2DModel, ShapesModel, TableModel
-from spatialdata.transformations import Identity
+from spatialdata.transformations import Identity, Scale, set_transformation
+from spatialdata.transformations import Sequence as TransformationSequence
 from xarray import DataTree
 
 from spatialdata_io._constants._constants import CodexKeys, PhenocyclerKeys
@@ -56,6 +57,7 @@ __all__ = [
     "raster_shape",
     "read_cell_table",
     "read_codex_table",
+    "mask_downsample_factor",
     "read_labels",
     "read_qupath_polygons",
     "read_region_labels",
@@ -127,6 +129,10 @@ class CellTable:
         ``*-cell_centers.csv``).
     radius_px
         The radius of a circle with the cell's area, or `None` if the table has no area.
+    mask_pixels
+        Whether ``centroids_px`` and ``radius_px`` are in pixels of the segmentation mask (pixel coordinates of
+        mask-based pipelines: mcquant, SPRM, ``"generic"`` in ``"px"``) rather than of the image; they are scaled
+        to image pixels when the mask is a downsample of the image, see :func:`build_spatialdata`.
     row_instance_ids
         Whether the instance ids are row numbers because the table has no instance id column.
     polygons_px
@@ -146,6 +152,7 @@ class CellTable:
     row_instance_ids: bool = False
     polygons_px: np.ndarray | None = None
     geojson: Path | None = None
+    mask_pixels: bool = False
 
     def take(self, rows: np.ndarray) -> CellTable:
         """The cells at the positional indices ``rows``."""
@@ -160,6 +167,7 @@ class CellTable:
             row_instance_ids=self.row_instance_ids,
             polygons_px=None if self.polygons_px is None else self.polygons_px[rows],
             geojson=self.geojson,
+            mask_pixels=self.mask_pixels,
         )
 
 
@@ -381,6 +389,7 @@ def read_cell_table(
         "generic": _generic_roles,
     }[fmt]
     roles = reader(path, df, cells_table_kwargs)
+    mask_pixels = fmt in {"mcquant", "sprm"} or (fmt == "generic" and not roles["in_um"])
     units = cells_table_kwargs.get("geojson_units", "px")
     row_pixel_sizes = None
     if roles["in_um"] or (fmt == "qupath" and units == "um"):
@@ -393,6 +402,7 @@ def read_cell_table(
             )
         roles["px_per_unit"] = 1 / row_pixel_sizes
     table = _from_frame(path, df, default_region=default_region, **roles)
+    table.mask_pixels = mask_pixels
     if fmt == "sprm":
         table.centroids_px = _read_sprm_centers(path, table)
     if fmt == "qupath":
@@ -1028,34 +1038,88 @@ def read_region_labels(
     labels_models_kwargs: Mapping[str, Any],
     cells_table_kwargs: Mapping[str, Any],
     image_shapes: Mapping[str, tuple[int, int]],
-) -> dict[str, DataArray | DataTree]:
+) -> tuple[dict[str, DataArray | DataTree], dict[str, int]]:
     """Read the mask of each region, as resolved by :func:`resolve_per_region`, with the region's transformations.
 
-    A mask whose ``(y, x)`` shape differs from ``image_shapes`` of its region raises a warning: its pixels would
-    not align with the image.
+    A mask whose ``(y, x)`` shape differs from ``image_shapes`` of its region is scaled onto the image if it is
+    downsampled by an integer factor, see :func:`mask_downsample_factor`: its transformations become
+    ``Sequence([Scale([f, f]), t])`` for each region transformation ``t``. Any other mismatch raises a warning: its
+    pixels would not align with the image.
+
+    Returns
+    -------
+    The labels elements by region id, and the downsampling factor of the scaled masks by region id.
     """
     if "*" in files:
         raise ValueError(
             f"A single labels mask {files['*']} was given for several regions; a mask belongs to one region image, "
             "so pass a mapping {region: path}."
         )
-    labels = {}
+    labels, factors = {}, {}
     for region, path in files.items():
+        region_transformations = _transformations_of(transformations, region)
         labels[region] = read_labels(
-            path,
-            labels_models_kwargs,
-            _transformations_of(transformations, region),
-            mask_channel=cells_table_kwargs.get("mask_channel"),
+            path, labels_models_kwargs, region_transformations, mask_channel=cells_table_kwargs.get("mask_channel")
         )
         shape, image_shape = raster_shape(labels[region]), image_shapes.get(region)
-        if image_shape is not None and shape != tuple(image_shape):
+        if image_shape is None or shape == tuple(image_shape):
+            continue
+        factor = mask_downsample_factor(shape, image_shape)
+        if factor is None:
             warnings.warn(
                 f"The mask {path} has shape {shape}, but the image of region '{region}' has shape "
                 f"{tuple(image_shape)} (y, x); the labels will not align with the image.",
                 UserWarning,
                 stacklevel=3,
             )
-    return labels
+            continue
+        logger.info(
+            "The mask %s has shape %s, the image of region '%s' %s (y, x); the labels are scaled by %d to align.",
+            path,
+            shape,
+            region,
+            tuple(image_shape),
+            factor,
+        )
+        scale = Scale([factor, factor], axes=("y", "x"))
+        set_transformation(
+            labels[region],
+            {
+                cs: TransformationSequence([scale, transformation])
+                for cs, transformation in region_transformations.items()
+            },
+            set_all=True,
+        )
+        factors[region] = factor
+    return labels, factors
+
+
+def mask_downsample_factor(mask_shape: tuple[int, int], image_shape: tuple[int, int]) -> int | None:
+    """The integer factor ``f > 1`` by which a mask of ``(y, x)`` shape ``mask_shape`` downsamples an image.
+
+    The mask must be ``image_shape / f`` along both axes, exactly or rounded up (each image size within ``f - 1``
+    pixels of ``f`` times the mask size); `None` if there is no such factor.
+    """
+    candidates = {-(-image // mask) for image, mask in zip(image_shape, mask_shape, strict=True) if mask > 0}
+    for factor in sorted(candidates):
+        if factor > 1 and all(-(-image // factor) == mask for image, mask in zip(image_shape, mask_shape, strict=True)):
+            return factor
+    return None
+
+
+def _to_image_pixels(tables: Sequence[CellTable], factors: Mapping[str, int]) -> list[CellTable]:
+    """``tables`` with mask-pixel centroids and radii scaled to image pixels by their region's mask factor."""
+    scaled = []
+    for table in tables:
+        if table.mask_pixels and factors:
+            row_factors = table.region.map(factors).fillna(1).to_numpy(dtype=np.float64)
+            table = replace(
+                table,
+                centroids_px=None if table.centroids_px is None else table.centroids_px * row_factors[:, None],
+                radius_px=None if table.radius_px is None else table.radius_px * row_factors,
+            )
+        scaled.append(table)
+    return scaled
 
 
 def polygon_labels(
@@ -1269,7 +1333,9 @@ def build_spatialdata(
     Each region gets the image ``<region>_image``, the labels ``<region>_labels`` from its mask or its cell polygons
     (see :func:`polygon_labels`), the polygons ``<region>_polygons`` and the cells (see :func:`build_cells`), all in
     the coordinate systems of :func:`region_transformations`; regions with cells or a mask but no image are
-    unrelated to the scans.
+    unrelated to the scans. A mask downsampled from its region image by an integer factor is scaled onto the image
+    (see :func:`read_region_labels`), and the centroids and radii in mask pixels of its cells (``mask_pixels``, see
+    :class:`CellTable`) are scaled by the same factor, so that the table and circles are in image pixels.
 
     Parameters
     ----------
@@ -1307,7 +1373,10 @@ def build_spatialdata(
     image_shapes = {
         scan.region: raster_shape(image_elements[f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}"]) for scan in scans
     }
-    labels = read_region_labels(mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes)
+    labels, factors = read_region_labels(
+        mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes
+    )
+    cell_tables = _to_image_pixels(cell_tables, factors)
     polygons, geojson_files = polygon_labels(cell_tables, labels, image_shapes, transformations, labels_models_kwargs)
     labels |= polygons
     tables, shapes = build_cells(cell_tables, {}, labels, transformations) if cell_tables else ({}, {})

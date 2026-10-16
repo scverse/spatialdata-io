@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 import tifffile
+from spatialdata import get_extent, read_zarr
 from spatialdata.models import Labels2DModel, get_axes_names
-from spatialdata.transformations import Identity, Translation, get_transformation
-from tests._akoya_data import write_fcs
+from spatialdata.transformations import Identity, Scale, Sequence, Translation, get_transformation
+from tests._akoya_data import write_fcs, write_qptiff
 
+from spatialdata_io import phenocycler
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names
 from spatialdata_io.readers._utils._cell_tables import (
     build_cells,
@@ -536,3 +539,59 @@ def test_read_labels_pyramidal_ome_is_lazy(tmp_path: Path, monkeypatch: pytest.M
 
     assert labels.shape == (64, 48)
     np.testing.assert_array_equal(labels.values, mask)
+
+
+@pytest.mark.parametrize(("mask_shape", "factor"), [((32, 40), 2), ((22, 27), 3)])
+def test_mask_integer_downsample_autoscaled(tmp_path: Path, mask_shape: tuple[int, int], factor: int) -> None:
+    # a mask downsampled by an integer factor (exactly, or with its shape rounded up) is scaled onto the image
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"], shape=(64, 80), stage_position_cm=(1.0, 2.0))
+    mask = np.zeros(mask_shape, dtype=np.uint32)
+    mask[2:6, 2:6], mask[10:14, 8:12] = 1, 2
+    tifffile.imwrite(tmp_path / "mask.tif", mask)
+    cells = _write_mcquant(tmp_path / "cells.csv", n=2)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        sdata = phenocycler(
+            tmp_path,
+            cells_table=tmp_path / "cells.csv",
+            labels=tmp_path / "mask.tif",
+            image_models_kwargs={"scale_factors": [2]},
+        )
+
+    image_transformation = get_transformation(sdata.images["S_image"], "global")
+    labels_transformation = get_transformation(sdata.labels["S_labels"], "global")
+    assert isinstance(labels_transformation, Sequence)
+    assert labels_transformation.transformations == [
+        Scale([factor, factor], axes=("y", "x")),
+        image_transformation,
+    ]
+    image_extent = get_extent(sdata.images["S_image"], coordinate_system="global")
+    labels_extent = get_extent(sdata.labels["S_labels"], coordinate_system="global")
+    for axis in ("x", "y"):
+        assert labels_extent[axis][0] == pytest.approx(image_extent[axis][0])
+        assert labels_extent[axis][1] == pytest.approx(image_extent[axis][1], abs=factor - 1)
+    # mcquant centroids of the mask are in mask pixels, the table's are in image pixels
+    np.testing.assert_allclose(
+        sdata.tables["table"].obsm["spatial"], cells[["X_centroid", "Y_centroid"]].to_numpy() * factor
+    )
+
+    sdata.write(tmp_path / "x.zarr")
+    assert get_transformation(read_zarr(tmp_path / "x.zarr").labels["S_labels"], "global") == labels_transformation
+
+
+def test_mask_non_integer_mismatch_warns(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"], shape=(64, 80))
+    tifffile.imwrite(tmp_path / "mask.tif", np.zeros((48, 60), dtype=np.uint32))
+    cells = _write_mcquant(tmp_path / "cells.csv", n=2)
+
+    with pytest.warns(UserWarning, match=r"\(48, 60\).*\(64, 80\).*not align"):
+        sdata = phenocycler(
+            tmp_path,
+            cells_table=tmp_path / "cells.csv",
+            labels=tmp_path / "mask.tif",
+            image_models_kwargs={"scale_factors": [2]},
+        )
+
+    assert get_transformation(sdata.labels["S_labels"], "global") == Identity()
+    np.testing.assert_allclose(sdata.tables["table"].obsm["spatial"], cells[["X_centroid", "Y_centroid"]].to_numpy())
