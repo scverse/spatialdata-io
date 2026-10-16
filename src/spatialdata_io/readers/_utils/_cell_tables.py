@@ -85,9 +85,14 @@ _MARKER_COLUMN = re.compile(r"cyc(\d+)_ch(\d+)", re.IGNORECASE)
 _META_COLUMNS = frozenset(
     {"cell_id", "region", "tile_num", "x", "y", "z", "x_tile", "y_tile", "size", "tsne_x", "tsne_y", "homogeneity"}
 )
-# QuPath measurement columns, e.g. `CD3: Cell: Mean`; the per-marker intensity is taken from the first compartment
-_QUPATH_MARKER = re.compile(r"(.+): (Cell|Nucleus|Cytoplasm|Membrane): Mean")
+# QuPath measurement columns, e.g. `CD3: Cell: Mean`, also in the R `make.names` form `CD3..Cell..Mean` and as
+# `CD3_Cell_Mean`; the per-marker intensity is taken from the first compartment
+_QUPATH_MARKER = re.compile(r"(.+?)(?:: |\.\.|_)(Cell|Nucleus|Cytoplasm|Membrane)(?:: |\.\.|_)Mean")
 _QUPATH_COMPARTMENTS = ("Cell", "Nucleus", "Cytoplasm", "Membrane")
+# other QuPath measurements, e.g. `Nucleus: Area µm^2` or `Nucleus/Cell area ratio`, are not markers
+_QUPATH_MEASUREMENT = re.compile(r"(?:Cell|Nucleus|Cytoplasm|Membrane)\b|.*: ")
+# the unit of a QuPath measurement, e.g. `Cell: Area µm^2`
+_QUPATH_UNIT = re.compile(r" (µm|um|px)(?:\^2)?$")
 _QUPATH_IMAGE = "Image"
 _QUPATH_ID = "Object ID"
 # the QuPath object types of cells; other features of a GeoJSON export (e.g. annotations) are not cells
@@ -96,6 +101,14 @@ _QUPATH_CELL_TYPES = frozenset({"cell", "detection", "PathCellObject", "PathDete
 _INFORM_POSITION = re.compile(r"Cell X Position(?: \((.*)\))?")
 _INFORM_MARKER = re.compile(r"Entire Cell (.+) Mean(?: \(.*\))?")
 _INFORM_AREA = re.compile(r"Entire Cell Area \((.*)\)")
+# the unit of an inForm measurement, e.g. `Tissue Category Area (square microns)`
+_INFORM_UNIT = re.compile(r"\((?:square )?(microns|pixels)\)$")
+# the pages of an inForm `*_binary_seg_maps.tif`: the tissue class map, then one per compartment
+_INFORM_TISSUE_MAP = "<TissueClassMap>"
+_INFORM_COMPARTMENT = re.compile(r"<CompartmentType>\s*(\w+)\s*</CompartmentType>")
+_INFORM_TISSUE_PAGE = "Tissue"
+# the default mask of an inForm segmentation map: the nuclei carry the `Cell ID` of every cell
+_INFORM_DEFAULT_MASK = "Nucleus"
 _INFORM_REGION = "Sample Name"
 _INFORM_ID = "Cell ID"
 # HuBMAP SPRM outputs: `<image>-cell_channel_mean.csv` with the centroids in `<image>-cell_centers.csv`
@@ -278,8 +291,8 @@ def detect_table_format(path: Path) -> str:
 
     Returns
     -------
-    ``"codex"`` (FCS, or ``x``/``y`` with ``cell_id`` or ``cycCCC_chHHH`` columns), ``"qupath"`` (``Centroid X µm``
-    or ``Object ID``), ``"mcquant"`` (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``, optionally
+    ``"codex"`` (FCS, or ``x``/``y`` with ``cell_id`` or ``cycCCC_chHHH`` columns), ``"qupath"`` (``Centroid X µm``,
+    ``Centroid X px`` or ``Object ID``, ignoring case and punctuation as in R's ``Centroid.X.um``), ``"mcquant"`` (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``, optionally
     followed by its unit in parentheses),
     ``"sprm"`` (first column ``ID``), else ``"generic"``.
     """
@@ -292,7 +305,7 @@ def detect_table_format(path: Path) -> str:
         CodexKeys.INSTANCE_KEY.value in names or any(_MARKER_COLUMN.fullmatch(name) for name in names)
     ):
         return "codex"
-    if {"Centroid X µm", "Centroid X px", _QUPATH_ID} & set(columns):
+    if {"centroidxum", "centroidxpx", _column_key(_QUPATH_ID)} & {_column_key(column) for column in columns}:
         return "qupath"
     if {"CellID", "X_centroid"} <= set(columns):
         return "mcquant"
@@ -322,14 +335,21 @@ def read_cell_table(
         ``"sprm"``, ``"inform"`` or ``"generic"``:
 
             - ``"codex"``: see :func:`read_codex_table`.
-            - ``"qupath"``: a QuPath measurement export. Centroids ``Centroid X µm``/``Centroid Y µm`` (divided by
-              ``pixel_size_um``) or ``Centroid X px``/``Centroid Y px``; instance ids from a numeric ``Object ID``,
-              else the row number (from 1); the region from the ``Image`` column. The markers are the
-              ``<marker>: <compartment>: Mean`` columns, one per marker from the first of the ``Cell``,
-              ``Nucleus``, ``Cytoplasm`` and ``Membrane`` compartments (in ``var["compartment"]``). The radius
-              comes from ``Cell: Area µm^2`` (or ``px^2``). The cell outlines are read from a QuPath GeoJSON
-              export, see :func:`read_qupath_polygons`: ``cells_table_kwargs["geojson"]``, else
-              ``<table stem>.geojson`` or ``<table stem>_cells.geojson`` next to the table, if it exists.
+            - ``"qupath"``: a QuPath measurement export. Column names are matched ignoring case, spaces and
+              punctuation, so R's ``make.names`` forms (``Centroid.X.um``, ``Object.ID``) are read too. Centroids
+              ``Centroid X µm``/``Centroid Y µm`` (divided by ``pixel_size_um``) or ``Centroid X px``/``Centroid Y
+              px``, else ``X``/``Y`` in ``coordinates_unit`` or, without it, in the unit of the other measurements
+              (e.g. ``Cell: Area µm^2``; QuPath writes all of them in one unit), raising if that is not unique.
+              Instance ids from a numeric ``Object ID``, else the row number (from 1); the region from the
+              ``Image`` column. The markers are ``markers``, else the ``<marker>: <compartment>: Mean`` columns
+              (also ``<marker>..<compartment>..Mean`` and ``<marker>_<compartment>_Mean``), one per marker from
+              the first of the ``Cell``, ``Nucleus``, ``Cytoplasm`` and ``Membrane`` compartments (in
+              ``var["compartment"]``), else, with a `UserWarning`, the numeric columns that are not QuPath
+              measurements (e.g. ``CD44`` of a detection export). The radius comes from ``Cell: Area µm^2`` (or
+              ``px^2``) in the unit of the centroids. A table split into centroids and measurements (two files)
+              must be joined on the object id first. The cell outlines are read from a QuPath GeoJSON export, see
+              :func:`read_qupath_polygons`: ``cells_table_kwargs["geojson"]``, else ``<table stem>.geojson`` or
+              ``<table stem>_cells.geojson`` next to the table, if it exists.
             - ``"mcquant"``: an MCMICRO ``mcquant`` table. Instance ids ``CellID``, pixel centroids
               ``X_centroid``/``Y_centroid``, the markers are the columns between ``CellID`` and ``X_centroid``, the
               radius comes from ``Area``.
@@ -338,12 +358,15 @@ def read_cell_table(
               one marker per remaining column. Pixel centroids come from ``<image>-cell_centers.csv`` (``ID,x,y``)
               next to the table, which must hold every cell; without it a `UserWarning` is raised and the table has
               no ``obsm["spatial"]`` (the centroids are never computed from the mask), so its region needs a mask.
-            - ``"inform"``: a PerkinElmer/Akoya inForm ``*_cell_seg_data.txt`` (tab-separated; validated on synthetic
-              data only). Instance ids ``Cell ID``, centroids ``Cell X Position``/``Cell Y Position`` in the unit
-              named in the header, ``(microns)`` (divided by ``pixel_size_um``) or ``(pixels)``; pixels if the
-              header names none. The region comes from ``Sample Name``. The markers are the
-              ``Entire Cell <marker> Mean (...)`` columns; the radius comes from ``Entire Cell Area (...)`` if its
-              unit equals that of the positions.
+            - ``"inform"``: a PerkinElmer/Akoya inForm ``*_cell_seg_data.txt`` (tab-separated; spaces around the
+              column names are removed). Instance ids ``Cell ID``, centroids ``Cell X Position``/``Cell Y
+              Position`` in the unit named in their header, ``(microns)`` (divided by ``pixel_size_um``) or
+              ``(pixels)``; if it names none, in ``coordinates_unit`` or, without it, in the unit of the other
+              columns (e.g. ``Tissue Category Area (square microns)``; inForm writes all of them in one unit),
+              raising if they name both, pixels if they name none. The region comes from ``Sample Name``. The
+              markers are the ``Entire Cell <marker> Mean (...)`` columns; the radius comes from
+              ``Entire Cell Area (...)`` if its unit equals that of the positions. Positions in microns may be
+              relative to the slide rather than to the field image, see :func:`build_spatialdata`.
             - ``"generic"``: columns given by ``cells_table_kwargs``.
 
     pixel_size_um
@@ -356,8 +379,9 @@ def read_cell_table(
         Optional keys: ``region_column`` (the column holding the region of each cell; QuPath default ``Image``),
         and for ``"generic"`` tables ``x`` and ``y`` (required centroid columns), ``instance_id`` (else the row
         number, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
-        default: all other numeric columns) and ``coordinates_unit`` (``"px"``, default, or ``"um"``); for
-        ``"qupath"`` tables ``geojson`` (the GeoJSON file of the cell outlines) and ``geojson_units`` (the unit of
+        default: all other numeric columns; also for ``"qupath"`` tables) and ``coordinates_unit`` (``"px"``,
+        default, or ``"um"``; for ``"qupath"`` and ``"inform"`` tables the unit of centroid columns whose name
+        has none); for ``"qupath"`` tables ``geojson`` (the GeoJSON file of the cell outlines) and ``geojson_units`` (the unit of
         its coordinates, ``"px"`` of the full-resolution image, default and what QuPath writes, or ``"um"``). The
         key ``mask_channel`` is used by :func:`read_labels`.
 
@@ -380,7 +404,8 @@ def read_cell_table(
 
     _, sep = _read_header(path)
     df = pd.read_csv(path, sep=sep, engine="pyarrow")
-    df.columns = pd.Index([str(column) for column in df.columns])
+    # inForm writes some column names with trailing spaces
+    df.columns = pd.Index([str(column).strip() for column in df.columns])
     reader = {
         "qupath": _qupath_roles,
         "mcquant": _mcquant_roles,
@@ -439,6 +464,17 @@ def _row_pixel_sizes(
     return values.map(sizes_by_value).to_numpy(dtype=np.float64)
 
 
+def _column_key(column: str) -> str:
+    """``column`` without case, punctuation and spaces, ``µ`` as ``u``: QuPath's ``Centroid X µm`` is R's ``Centroid.X.um``."""
+    return re.sub(r"[^0-9a-z]", "", column.replace("µ", "u").replace("μ", "u").casefold())
+
+
+def _object_id_column(columns: Sequence[str]) -> str | None:
+    """The QuPath ``Object ID`` column (also R's ``Object.ID``), or `None`."""
+    key = _column_key(_QUPATH_ID)
+    return next((column for column in columns if _column_key(column) == key), None)
+
+
 def _find_geojson(table_path: Path) -> Path | None:
     """The GeoJSON next to a QuPath table: ``<stem>.geojson``, else ``<stem>_cells.geojson``.
 
@@ -458,10 +494,11 @@ def read_qupath_polygons(
 ) -> np.ndarray:
     """Read the cell outlines of a QuPath GeoJSON export and match them to the cells of its measurement table.
 
-    A feature belongs to the cell whose ``Object ID`` is the feature ``id`` (the object's UUID, QuPath >= 0.4);
-    features of other objects (e.g. annotations) are skipped. If the table has no ``Object ID`` column or the
-    features have no ids, the cell and detection features (``objectType``) are matched to the table rows in order,
-    and their number must equal the number of rows.
+    A feature belongs to the cell whose ``Object ID`` (or R's ``Object.ID``) is the feature ``id`` (the object's
+    UUID, QuPath >= 0.4); features of other objects (e.g. annotations) are skipped, and so are cell features without
+    a table row (e.g. cells filtered out of the table), with a `UserWarning`. If the table has no ``Object ID``
+    column or the features have no ids, the cell and detection features (``objectType``) are matched to the table
+    rows in order, and their number must equal the number of rows.
 
     Every matched polygon must contain its cell's centroid or lie within 1 px of it; if more than 5% do not, the
     polygons belong to other cells (or ``units`` is wrong) and a `ValueError` is raised.
@@ -492,21 +529,30 @@ def read_qupath_polygons(
     ids, geometries, kinds = _read_geojson(geojson)
 
     polygons = np.full(len(table.obs), None, dtype=object)
-    if _QUPATH_ID in table.obs.columns and ids is not None:
-        object_ids = pd.Index(table.obs[_QUPATH_ID].astype(str))
+    id_column = _object_id_column(list(table.obs.columns))
+    if id_column is not None and ids is not None:
+        object_ids = pd.Index(table.obs[id_column].astype(str))
         if not object_ids.is_unique:
-            raise ValueError(f"The '{_QUPATH_ID}' column of {table_path} is not unique.")
+            raise ValueError(f"The '{id_column}' column of {table_path} is not unique.")
         rows = object_ids.get_indexer(pd.Index(ids).astype(str))
         found = rows >= 0
         if not found.any():
             raise ValueError(
-                f"{geojson} does not hold the cells of {table_path}: none of the feature ids is an '{_QUPATH_ID}' "
+                f"{geojson} does not hold the cells of {table_path}: none of the feature ids is an '{id_column}' "
                 "of the table."
             )
         if not pd.Index(rows[found]).is_unique:
             raise ValueError(f"{geojson} has several features with the same id.")
         polygons[rows[found]] = geometries[found]
         logger.info("Matched %d of the %d features of %s to cells by id.", found.sum(), len(geometries), geojson)
+        is_cell = np.ones(len(ids), dtype=bool) if kinds is None else np.isin(kinds, list(_QUPATH_CELL_TYPES))
+        if unmatched := int(np.count_nonzero(is_cell & ~found)):
+            warnings.warn(
+                f"{unmatched} of the {is_cell.sum()} cell features of {geojson} have no row in {table_path} (e.g. "
+                "cells filtered out of the table); they are ignored.",
+                UserWarning,
+                stacklevel=5,
+            )
         if found.sum() < len(polygons):
             warnings.warn(
                 f"{len(polygons) - found.sum()} of the {len(polygons)} cells of {table_path} have no polygon in "
@@ -590,37 +636,103 @@ def _read_geojson(path: Path) -> tuple[np.ndarray | None, np.ndarray, np.ndarray
 
 
 def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
-    unit = next((unit for unit in ("µm", "px") if f"Centroid X {unit}" in df.columns), None)
+    columns = {_column_key(column): column for column in df.columns}
+    unit = next((unit for unit in ("um", "px") if f"centroidx{unit}" in columns), None)
+    x_key, y_key = ("x", "y") if unit is None else (f"centroidx{unit}", f"centroidy{unit}")
+    x, y = columns.get(x_key), columns.get(y_key)
+    if x is None or y is None:
+        raise ValueError(
+            f"{path} has no centroid columns ('Centroid X µm' and 'Centroid Y µm', 'Centroid X px' and "
+            f"'Centroid Y px', or 'X' and 'Y'); found {list(df.columns)}. If the export splits the centroids and "
+            "the measurements into two files, join them on the object id first."
+        )
     if unit is None:
-        raise ValueError(f"{path} has no 'Centroid X µm' or 'Centroid X px' column; found {list(df.columns)}.")
+        unit = _qupath_xy_unit(path, list(df.columns), kwargs)
+    object_id = _object_id_column(list(df.columns))
+    instance_column = object_id if object_id is not None and pd.api.types.is_integer_dtype(df[object_id]) else None
+    region_column = kwargs.get("region_column", _QUPATH_IMAGE if _QUPATH_IMAGE in df.columns else None)
+    area = columns.get(f"cellarea{unit}2")
+    roles = {x, y, object_id, region_column, area}
+
     compartments: dict[str, dict[str, str]] = {}
     for column in df.columns:
         if (match := _QUPATH_MARKER.fullmatch(column)) is not None:
             compartments.setdefault(match.group(1), {})[match.group(2)] = column
-    chosen = {marker: next(c for c in _QUPATH_COMPARTMENTS if c in found) for marker, found in compartments.items()}
-    markers = [compartments[marker][compartment] for marker, compartment in chosen.items()]
-    if not markers:
+    if kwargs.get("markers") is not None:
+        markers = _select_markers(df, kwargs["markers"], roles)
+        var = pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers)))
+    elif compartments:
+        chosen = {marker: next(c for c in _QUPATH_COMPARTMENTS if c in found) for marker, found in compartments.items()}
+        markers = [compartments[marker][compartment] for marker, compartment in chosen.items()]
+        var = pd.DataFrame(
+            {"source_column": markers, "compartment": list(chosen.values())},
+            index=pd.Index(dedupe_channel_names(list(chosen))),
+        )
+    else:
+        # e.g. a detection export with the measurements named after the markers only
+        candidates = [column for column in df.columns if not _QUPATH_MEASUREMENT.match(column)]
+        markers = _select_markers(df[candidates], None, roles)
+        var = pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers)))
+        if markers:
+            shown = f"{markers[:10]}{' ...' if len(markers) > 10 else ''}"
+            message = f"reading the {len(markers)} other numeric columns {shown} as the markers"
+        else:
+            message = "its table has no marker intensities"
         warnings.warn(
-            f"{path} has no '<marker>: <compartment>: Mean' columns, so its table has no marker intensities.",
+            f"{path} has no '<marker>: <compartment>: Mean' columns; {message}. Set "
+            "`cells_table_kwargs['markers']` to choose the marker columns.",
             UserWarning,
             stacklevel=5,
         )
-    var = pd.DataFrame(
-        {"source_column": markers, "compartment": list(chosen.values())},
-        index=pd.Index(dedupe_channel_names(list(chosen))),
-    )
-    object_id = df.get(_QUPATH_ID)
-    area = f"Cell: Area {unit}^2"
     return {
         "markers": markers,
         "var": var,
-        "x": f"Centroid X {unit}",
-        "y": f"Centroid Y {unit}",
-        "in_um": unit == "µm",
-        "instance_column": _QUPATH_ID if object_id is not None and pd.api.types.is_integer_dtype(object_id) else None,
-        "region_column": kwargs.get("region_column", _QUPATH_IMAGE if _QUPATH_IMAGE in df.columns else None),
-        "area_column": area if area in df.columns else None,
+        "x": x,
+        "y": y,
+        "in_um": unit == "um",
+        "instance_column": instance_column,
+        "region_column": region_column,
+        "area_column": area,
     }
+
+
+def _qupath_xy_unit(path: Path, columns: list[str], kwargs: Mapping[str, Any]) -> str:
+    """The unit of the ``X``/``Y`` centroids of a QuPath table: ``coordinates_unit``, else that of its measurements.
+
+    QuPath writes all measurements of an image in one unit, µm if the image is calibrated, else pixels.
+    """
+    if kwargs.get("coordinates_unit") is not None:
+        return _coordinates_unit(kwargs)
+    units = {"px" if m.group(1) == "px" else "um" for column in columns if (m := _QUPATH_UNIT.search(column))}
+    if len(units) != 1:
+        found = f"in {sorted(units)}" if units else "in no unit"
+        raise ValueError(
+            f"The centroid columns 'X' and 'Y' of {path} name no unit, and its other measurements are {found}; set "
+            "`cells_table_kwargs['coordinates_unit']` to 'px' or 'um'."
+        )
+    unit = units.pop()
+    logger.info("Reading the centroids 'X' and 'Y' of %s in %s, the unit of its other measurements.", path, unit)
+    return unit
+
+
+def _coordinates_unit(kwargs: Mapping[str, Any]) -> str:
+    """``cells_table_kwargs['coordinates_unit']``: ``"px"`` (the default) or ``"um"``."""
+    unit = kwargs.get("coordinates_unit", "px")
+    if unit not in ("px", "um"):
+        raise ValueError(f"`cells_table_kwargs['coordinates_unit']` must be 'px' or 'um', got {unit!r}.")
+    return str(unit)
+
+
+def _select_markers(df: pd.DataFrame, selection: str | Sequence[str] | None, exclude: set[str | None]) -> list[str]:
+    """The marker columns: ``selection`` (columns, or a regular expression matching the full column name).
+
+    Without ``selection``, all numeric columns. Columns in ``exclude`` are only selected if listed in ``selection``.
+    """
+    if selection is None:
+        return [c for c in df.columns if c not in exclude and pd.api.types.is_numeric_dtype(df[c])]
+    if isinstance(selection, str):
+        return [c for c in df.columns if c not in exclude and re.fullmatch(selection, c)]
+    return [str(marker) for marker in selection]
 
 
 def _mcquant_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
@@ -692,7 +804,7 @@ def _inform_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
     if not positions or y is None:
         raise ValueError(f"{path} has no 'Cell X Position' and 'Cell Y Position' columns; found {list(df.columns)}.")
     x = positions[0].group(0)
-    unit = (positions[0].group(1) or "pixels").casefold()
+    unit = (positions[0].group(1) or _inform_position_unit(path, list(df.columns), kwargs)).casefold()
     if unit not in ("microns", "pixels"):
         raise ValueError(f"The unit '{unit}' of the column '{x}' of {path} must be 'microns' or 'pixels'.")
     markers, names = [], []
@@ -722,23 +834,34 @@ def _inform_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
     }
 
 
+def _inform_position_unit(path: Path, columns: list[str], kwargs: Mapping[str, Any]) -> str:
+    """The unit of ``Cell X Position`` without one in its name: ``coordinates_unit``, else that of the other columns.
+
+    inForm writes all columns in one unit, but names it only for some, e.g. ``Tissue Category Area (pixels)`` or
+    ``Distance from Process Region Edge (microns)``; a table that names none is in pixels.
+    """
+    if kwargs.get("coordinates_unit") is not None:
+        return {"px": "pixels", "um": "microns"}[_coordinates_unit(kwargs)]
+    units = {m.group(1) for column in columns if (m := _INFORM_UNIT.search(column)) is not None}
+    if len(units) > 1:
+        raise ValueError(
+            f"The columns 'Cell X Position' and 'Cell Y Position' of {path} name no unit, and its other columns are "
+            f"in {sorted(units)}; set `cells_table_kwargs['coordinates_unit']` to 'px' or 'um'."
+        )
+    unit = units.pop() if units else "pixels"
+    logger.info("Reading the cell positions of %s in %s, the unit of its other columns.", path, unit)
+    return unit
+
+
 def _generic_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
     if "x" not in kwargs or "y" not in kwargs:
         raise ValueError(
             f"Reading {path} as a 'generic' cell table needs the centroid columns as `cells_table_kwargs` 'x' and "
             f"'y'; found the columns {list(df.columns)}."
         )
-    unit = kwargs.get("coordinates_unit", "px")
-    if unit not in ("px", "um"):
-        raise ValueError(f"`cells_table_kwargs['coordinates_unit']` must be 'px' or 'um', got {unit!r}.")
+    unit = _coordinates_unit(kwargs)
     roles = {kwargs["x"], kwargs["y"], kwargs.get("instance_id"), kwargs.get("region_column")}
-    selection = kwargs.get("markers")
-    if selection is None:
-        markers = [c for c in df.columns if c not in roles and pd.api.types.is_numeric_dtype(df[c])]
-    elif isinstance(selection, str):
-        markers = [c for c in df.columns if c not in roles and re.fullmatch(selection, c)]
-    else:
-        markers = [str(marker) for marker in selection]
+    markers = _select_markers(df, kwargs.get("markers"), roles)
     return {
         "markers": markers,
         "var": pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers))),
@@ -986,8 +1109,10 @@ def read_labels(
     transformations
         The transformations of the region's image, by coordinate system.
     mask_channel
-        The mask to read from a file with several: its index or OME channel name (e.g. ``"cells"``). If `None`,
-        the first one.
+        The mask to read from a file with several: its index or channel name, the OME channel name (e.g.
+        ``"cells"``) or, in an inForm ``*_binary_seg_maps.tif``, ``"Tissue"`` (the tissue class map) or the
+        compartment (``"Nucleus"``, ``"Cytoplasm"``, ``"Membrane"``). If `None`, the first one; for an inForm
+        segmentation map ``"Nucleus"``, whose labels are the ``Cell ID`` of every cell.
 
     Returns
     -------
@@ -999,11 +1124,19 @@ def read_labels(
         raise ValueError(f"{path} has dtype {image.dtype}; a segmentation mask must have an integer dtype.")
 
     n_masks = image.shape[0]
+    names = _mask_channel_names(path, n_masks)
     if isinstance(mask_channel, str):
-        names = _ome_channel_names(path)
         if mask_channel not in names:
-            raise ValueError(f"{path} has no mask channel {mask_channel!r}; its OME channel names are {names}.")
+            raise ValueError(f"{path} has no mask channel {mask_channel!r}; its channel names are {names}.")
         index = names.index(mask_channel)
+    elif mask_channel is None and _INFORM_TISSUE_PAGE in names and _INFORM_DEFAULT_MASK in names:
+        index = names.index(_INFORM_DEFAULT_MASK)
+        logger.info(
+            "%s is an inForm segmentation map %s; reading %r. Set `mask_channel` to choose another.",
+            path,
+            names,
+            _INFORM_DEFAULT_MASK,
+        )
     else:
         index = 0 if mask_channel is None else mask_channel
         if mask_channel is None and n_masks > 1:
@@ -1022,11 +1155,25 @@ def _labels_models_kwargs(labels_models_kwargs: Mapping[str, Any]) -> tuple[dict
     return labels_models_kwargs, spatial_chunks(labels_models_kwargs["chunks"], defaults["chunks"])
 
 
-def _ome_channel_names(path: Path) -> list[str]:
+def _mask_channel_names(path: Path, n_masks: int) -> list[str]:
+    """The OME channel names of a mask file, else the page names of an inForm segmentation map, else ``[]``."""
     with tifffile.TiffFile(path) as tf:
-        if not tf.ome_metadata:
+        if tf.ome_metadata:
+            return _ome_channel_names(tf.ome_metadata)
+        if len(tf.pages) != n_masks:
             return []
-        images = tifffile.xml2dict(tf.ome_metadata)["OME"]["Image"]
+        descriptions = [str(tf.pages[i].description) for i in range(n_masks)]  # type: ignore[union-attr]
+    names = [
+        _INFORM_TISSUE_PAGE
+        if _INFORM_TISSUE_MAP in description
+        else (match.group(1) if (match := _INFORM_COMPARTMENT.search(description)) is not None else None)
+        for description in descriptions
+    ]
+    return [str(name) for name in names] if all(name is not None for name in names) else []
+
+
+def _ome_channel_names(ome_metadata: str) -> list[str]:
+    images = tifffile.xml2dict(ome_metadata)["OME"]["Image"]
     pixels = (images[0] if isinstance(images, list) else images)["Pixels"]
     channels = pixels.get("Channel", [])
     return [str(channel.get("Name", "")) for channel in (channels if isinstance(channels, list) else [channels])]
@@ -1336,7 +1483,9 @@ def build_spatialdata(
     the coordinate systems of :func:`region_transformations`; regions with cells or a mask but no image are
     unrelated to the scans. A mask downsampled from its region image by an integer factor is scaled onto the image
     (see :func:`read_region_labels`), and the centroids and radii in mask pixels of its cells (``mask_pixels``, see
-    :class:`CellTable`) are scaled by the same factor, so that the table and circles are in image pixels.
+    :class:`CellTable`) are scaled by the same factor, so that the table and circles are in image pixels. A
+    `UserWarning` is raised for a region if more than 5% of its cells lie outside its image: their coordinates are
+    in another unit or relative to another origin (e.g. inForm positions in microns relative to the slide).
 
     Parameters
     ----------
@@ -1390,6 +1539,7 @@ def build_spatialdata(
         mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes
     )
     cell_tables = _to_image_pixels(cell_tables, factors)
+    _check_cells_in_images(cell_tables, image_shapes)
     polygons, geojson_files = polygon_labels(cell_tables, labels, image_shapes, transformations, labels_models_kwargs)
     labels |= polygons
     tables, shapes = build_cells(cell_tables, {}, labels, transformations) if cell_tables else ({}, {})
@@ -1410,6 +1560,29 @@ def build_spatialdata(
         attrs["geojson"] = geojson_files
     sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = attrs
     return sdata
+
+
+def _check_cells_in_images(tables: Sequence[CellTable], image_shapes: Mapping[str, tuple[int, int]]) -> None:
+    """Warn for each region with an image if more than 5% of its cells' centroids lie outside the image."""
+    for table in tables:
+        if table.centroids_px is None:
+            continue
+        for region, rows in _region_rows(table).items():
+            if region not in image_shapes:
+                continue
+            centroids = table.centroids_px[rows]
+            centroids = centroids[np.isfinite(centroids).all(axis=1)]
+            height, width = image_shapes[region]
+            outside = int(np.count_nonzero(((centroids < 0) | (centroids > [width, height])).any(axis=1)))
+            if outside > _MAX_MISPLACED_FRACTION * len(centroids):
+                warnings.warn(
+                    f"{outside} of the {len(centroids)} cells of region '{region}' lie outside its image ({width} x "
+                    f"{height} px): the table's coordinates are in another unit (see "
+                    "`cells_table_kwargs['coordinates_unit']`) or relative to another origin (e.g. inForm positions "
+                    "in microns, which may be relative to the slide).",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
 
 def _region_rows(table: CellTable) -> dict[str, np.ndarray]:

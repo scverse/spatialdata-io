@@ -1,7 +1,8 @@
 """Tests of the Akoya readers on real public datasets.
 
 They run only when the environment variable ``AKOYA_TEST_DATA`` points to a directory holding the files below (paths
-relative to it). The files are public (Zenodo, Figshare, BioImage Archive, GitHub) but too large to download in CI.
+relative to it). The files are public (Zenodo, Figshare, BioImage Archive, Dryad, GitHub, the MCMICRO bucket) but too large to download
+in CI.
 """
 
 from __future__ import annotations
@@ -11,10 +12,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import dask.array as da
+import numpy as np
+import pandas as pd
 import pytest
 from spatialdata.models import get_channel_names
 
 from spatialdata_io import codex, phenocycler
+from spatialdata_io.readers._utils._cell_tables import detect_table_format, read_cell_table
 
 _ROOT = os.environ.get("AKOYA_TEST_DATA")
 
@@ -252,3 +256,124 @@ def test_real_codex_processor_csv() -> None:
     assert list(table.obs["region"].cat.categories) == ["reg001_cells"]
     assert table.obsm["spatial"].shape == (500, 2)
     assert len(sdata.shapes["reg001_cells"]) == 500
+
+
+# public cell-table exports (see the docstrings of `read_cell_table` and `read_labels` for the variants)
+_EXPORTS = "exports"
+_PHENOPTR = f"{_EXPORTS}/github_phenoptr/repo/inst/extdata/sample/Set4_1-6plex_[16142,55840]"
+_DRYAD = f"{_EXPORTS}/dryad_hqbzkh1v1"
+# the OME `PhysicalSizeX` of the Dryad images, which no Akoya reader reads
+_DRYAD_PIXEL_SIZE_UM = 0.5072844
+
+
+def _export(relative: str) -> Path:
+    path = Path(_ROOT) / relative  # type: ignore[arg-type]
+    if not path.exists():
+        pytest.skip(f"{path} is missing")
+    return path
+
+
+def test_real_inform_table_with_seg_maps_and_component_data() -> None:
+    # inForm 2.3 (github.com/akoyabio/phenoptr): positions in pixels, the `Cell ID`s are the labels of page 1 (nuclei)
+    # of the segmentation map; page 0 is the tissue class map
+    image = _export(f"{_PHENOPTR}_component_data.tif")
+
+    sdata = phenocycler(
+        image,
+        cells_table=_export(f"{_PHENOPTR}_cell_seg_data.txt"),
+        labels=_export(f"{_PHENOPTR}_binary_seg_maps.tif"),
+    )
+
+    region = "Set4_1-6plex__16142_55840__component_data"
+    table = sdata.tables["table"]
+    assert table.shape == (6072, 8)
+    assert list(table.var_names[:2]) == ["PDL1 (Opal 520)", "CD8 (Opal 540)"]
+    assert list(table.obs["region"].cat.categories) == [f"{region}_labels"]
+    labels = sdata.labels[f"{region}_labels"]["scale0"]["image"]
+    assert labels.shape == (1400, 1868)
+    assert set(table.obs["cell_id"]) == set(np.unique(labels.values)) - {0}
+    np.testing.assert_allclose(table.obsm["spatial"][0], [515, 13])
+
+
+def test_real_inform_micron_variant() -> None:
+    # github.com/lilab-stanford/auto-cell: positions in microns without a unit in their name, trailing spaces
+    path = _export(f"{_EXPORTS}/github_auto-cell/repo/cell_annotation/sample_cell_seg_data.txt")
+
+    assert detect_table_format(path) == "inform"
+    table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+
+    assert len(table.obs) == 4
+    assert list(table.var.index) == [
+        "PD1 (PPD520)",
+        "FOXP3 (PPD540)",
+        "CD20 (PPD620)",
+        "CD3 (PPD650)",
+        "PANCK (PPD690)",
+        "PPDDAPI",
+        "Autofluorescence",
+    ]
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px[0], [4230.4 / 0.5, 29684.5 / 0.5])
+    assert table.radius_px is not None
+
+
+def test_real_qupath_r_exported_coordinates_with_geojson(tmp_path: Path) -> None:
+    # doi:10.5061/dryad.hqbzkh1v1: R-exported QuPath centroids (`Centroid.X.um`) and measurements in two files, and
+    # the GeoJSON of all StarDist cells (UUID ids, one `annotation`); 116 cells were filtered out of the tables
+    coords = _export(f"{_DRYAD}/C-7_coords.csv")
+    geojson = _export(f"{_DRYAD}/C-7.geojson")
+    expression = _export(f"{_DRYAD}/C-7_expression.csv")
+    kwargs = {"geojson": geojson}
+
+    assert detect_table_format(coords) == "qupath"
+    with pytest.warns(UserWarning, match="116 of the 9531 cell features"):
+        table = read_cell_table(
+            coords, "auto", pixel_size_um=_DRYAD_PIXEL_SIZE_UM, default_region="C-7", cells_table_kwargs=kwargs
+        )
+    assert table.polygons_px is not None
+    assert pd.notna(table.polygons_px).all()
+    assert len(table.obs) == 9415
+
+    # joined on the object id, the measurements are the markers, from the `Cell` compartment (`DAPI_Cell_Mean`); the
+    # expression file alone has no centroids in QuPath's form (its `Y_coord` is negated)
+    joined = tmp_path / "C-7.csv"
+    pd.read_csv(coords).merge(pd.read_csv(expression), on="Object.ID", validate="1:1").to_csv(joined, index=False)
+    with pytest.warns(UserWarning, match="116 of the 9531 cell features"):
+        table = read_cell_table(
+            joined, "auto", pixel_size_um=_DRYAD_PIXEL_SIZE_UM, default_region="C-7", cells_table_kwargs=kwargs
+        )
+    assert table.X.shape == (9415, 30)
+    assert {"DAPI", "HLA.A", "Pan.Cytokeratin"} <= set(table.var.index)
+    assert set(table.var["compartment"]) == {"Cell"}
+    assert table.var.loc["DAPI", "source_column"] == "DAPI_Cell_Mean"
+
+
+def test_real_qupath_detection_xy_and_bare_markers() -> None:
+    # zenodo.org/records/15514605: `X`/`Y` centroids in µm, markers named after the marker only, `Parent` = TMA core
+    path = _export(f"{_EXPORTS}/zenodo_15514605/measurement_TA4369.csv")
+
+    assert detect_table_format(path) == "qupath"
+    with pytest.warns(UserWarning, match="reading the 48 other numeric columns"):
+        table = read_cell_table(
+            path, "auto", pixel_size_um=0.5, default_region=None, cells_table_kwargs={"region_column": "Parent"}
+        )
+
+    assert table.X.shape == (348314, 48)
+    assert list(table.var.index[:3]) == ["CD44", "CD68", "CD31"]
+    assert table.region.nunique() == 59
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px[0], [2620.8 / 0.5, 661.3 / 0.5])
+
+
+def test_real_mcquant_table_with_ome_tiff() -> None:
+    # MCMICRO exemplar-001: mcquant table in pixels with the OME-TIFF of its first cycle, read as a hyperstack
+    image = _export(f"{_EXPORTS}/s3_mcmicro_exemplar001/exemplar-001-cycle6.ome.tif")
+    cells = _export(f"{_EXPORTS}/s3_mcmicro_exemplar001/unmicst-exemplar-001_cell.csv")
+
+    with pytest.warns(UserWarning, match="cells are represented as circles"):
+        sdata = codex(image, cells_table=cells)
+
+    table = sdata.tables["table"]
+    assert table.shape == (11170, 12)
+    assert list(table.var_names[:4]) == ["DNA_6", "ELANE", "CD57", "CD45"]
+    assert len(sdata.shapes["exemplar-001-cycle6.ome_cells"]) == 11170

@@ -40,6 +40,14 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   `"qpi_other"`): Opal and unmixed (uint16) scans, brightfield RGB scans (channels `r`, `g`, `b`) and inForm component
   data (float32). A single `.tif` file is accepted if it is a QPI file. Characters of a file name that are not valid in
   an element name (e.g. the `[x,y]` of inForm tiles) are replaced by `_` in the region id.
+- The Akoya cell-table adapters read real QuPath, inForm and mcquant exports without column mapping: R-exported
+  QuPath names (`Object.ID`, `Centroid.X.um`, `<marker>_<compartment>_Mean`), QuPath `X`/`Y` centroids (in the unit
+  of the other measurements, or `cells_table_kwargs["coordinates_unit"]`) with bare marker names (read with a
+  warning, or chosen with `cells_table_kwargs["markers"]`), and inForm tables whose `Cell X Position` names no unit
+  (read in the unit of the other columns, e.g. microns) or whose column names have trailing spaces. An inForm
+  `*_binary_seg_maps.tif` given as `labels` reads its nuclei page (the `Cell ID`s) by default, and `mask_channel`
+  accepts its page names (`"Tissue"`, `"Nucleus"`, `"Cytoplasm"`, `"Membrane"`). QuPath GeoJSON cells without a
+  table row are skipped with a warning, and a region whose cells lie mostly outside its image raises a warning.
 
 ### Changed
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 import pytest
+import shapely
 import tifffile
 from spatialdata import get_extent, read_zarr
 from spatialdata.models import Labels2DModel, get_axes_names
@@ -190,15 +192,15 @@ def _write_qupath(path: Path, image: str = "S_Scan1.qptiff") -> None:
     path.write_text("\n".join([_QUPATH_HEADER, *rows]) + "\n", encoding="utf-8")
 
 
-def _write_mcquant(path: Path, n: int = 5) -> pd.DataFrame:
+def _write_mcquant(path: Path, n: int = 5, extent: tuple[float, float] = (60, 40)) -> pd.DataFrame:
     rng = np.random.default_rng(1)
     cells = pd.DataFrame(
         {
             "CellID": np.arange(1, n + 1),
             "DAPI": rng.uniform(0, 100, n),
             "CD3": rng.uniform(0, 100, n),
-            "X_centroid": rng.uniform(0, 60, n),
-            "Y_centroid": rng.uniform(0, 40, n),
+            "X_centroid": rng.uniform(0, extent[0], n),
+            "Y_centroid": rng.uniform(0, extent[1], n),
             "Area": rng.uniform(10, 50, n),
             "Eccentricity": rng.uniform(0, 1, n),
         }
@@ -452,16 +454,252 @@ def test_inform_adapter_pixels(tmp_path: Path) -> None:
 
 def test_inform_without_unit_is_pixels_and_renames_cell_id(tmp_path: Path) -> None:
     path = tmp_path / "Scan1_cell_seg_data.txt"
-    _write_inform(path, None)
+    _write_inform(path, None, area_unit="pixels")
 
     table = read_cell_table(path, "inform", pixel_size_um=None, default_region=None, cells_table_kwargs={})
     assert table.centroids_px is not None
     np.testing.assert_allclose(table.centroids_px, [[100, 50], [200, 80]])
+    assert table.radius_px is not None
 
     # mixed units (px positions, µm areas) cannot give a radius
+    _write_inform(path, "pixels")
+    table = read_cell_table(path, "inform", pixel_size_um=None, default_region=None, cells_table_kwargs={})
     assert table.radius_px is None
     elements, _ = build_cells([table], {}, {}, {})
     assert "source_Cell ID" in elements["table"].obs.columns or "source_Cell_ID" in elements["table"].obs.columns
+
+
+# the header of the inForm micron variant (github.com/lilab-stanford/auto-cell): no unit after `Cell X Position`,
+# trailing spaces after the marker columns, CRLF line ends
+_INFORM_MICRON_HEADER = [
+    "Sample Name",
+    "Tissue Category",
+    "Cell ID",
+    "Total Cells",
+    "Tissue Category Area (square microns)",
+    "Cell Density (per square mm)",
+    "Cell X Position",
+    "Cell Y Position",
+    "Distance from Process Region Edge (microns)",
+    "Nucleus PD1 (PPD520) Mean ",
+    "Entire Cell Area (square microns)",
+    "Entire Cell PD1 (PPD520) Mean ",
+    "Entire Cell PPDDAPI Mean ",
+    "Lab ID",
+    "Slide ID",
+]
+
+
+def test_inform_micron_variant_without_position_unit(tmp_path: Path) -> None:
+    path = tmp_path / "sample_cell_seg_data.txt"
+    rows = [
+        ['"TMA_Core[1,1,A]_[4768,30518].im3"', "STROMA", "1", "", "", "", "100", "50", "#N/A", "0", "314.159", "1.5"],
+        ['"TMA_Core[1,1,A]_[4768,30518].im3"', "TUMOR", "2", "", "", "", "200", "80", "#N/A", "0", "78.54", "3.5"],
+    ]
+    rows = [[*row, "2.5" if i == 0 else "4.5", "", ""] for i, row in enumerate(rows)]
+    path.write_text("\r\n".join("\t".join(row) for row in [_INFORM_MICRON_HEADER, *rows]), encoding="utf-8")
+
+    assert detect_table_format(path) == "inform"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+
+    # the other columns are in microns, so the positions are too
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[200, 100], [400, 160]])
+    assert list(table.var.index) == ["PD1 (PPD520)", "PPDDAPI"]
+    np.testing.assert_allclose(table.X, [[1.5, 2.5], [3.5, 4.5]])
+    assert list(table.region) == ["TMA_Core[1,1,A]_[4768,30518].im3"] * 2
+    assert table.radius_px is not None
+    np.testing.assert_allclose(table.radius_px, np.sqrt(np.array([314.159, 78.54]) / 0.25 / np.pi))
+    assert "Nucleus PD1 (PPD520) Mean" in table.obs.columns
+
+
+def test_inform_position_unit_from_other_columns(tmp_path: Path) -> None:
+    # the phenoptr sample (inForm 2.3) names the unit of its areas and distances only, here pixels
+    path = tmp_path / "S_cell_seg_data.txt"
+    header = ["Sample Name", "Cell ID", "Tissue Category Area (pixels)", "Cell X Position", "Cell Y Position"]
+    path.write_text("\t".join(header) + "\nS.im3\t1\t5\t10\t20\n", encoding="utf-8")
+
+    table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[10, 20]])
+
+    # columns in both units leave the unit of the positions open
+    header[2] = "Distance from Process Region Edge (microns)"
+    path.write_text("\t".join([*header, "Entire Cell Area (pixels)"]) + "\nS.im3\t1\t5\t10\t20\t3\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="coordinates_unit"):
+        read_cell_table(path, "inform", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+    table = read_cell_table(
+        path, "inform", pixel_size_um=0.5, default_region=None, cells_table_kwargs={"coordinates_unit": "um"}
+    )
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[20, 40]])
+
+
+# R-exported QuPath tables (dryad doi:10.5061/dryad.hqbzkh1v1): `make.names` turns `Centroid X µm` into
+# `Centroid.X.um`; the coordinates and the expression are split into two files
+_R_COORDS_HEADER = "Object.ID,Centroid.X.um,Centroid.Y.um,core"
+
+
+def _square(x: float, y: float, size: float = 8) -> dict[str, Any]:
+    return {"type": "Polygon", "coordinates": [[[x, y], [x + size, y], [x + size, y + size], [x, y + size], [x, y]]]}
+
+
+def test_qupath_r_exported_coordinates_with_geojson(tmp_path: Path) -> None:
+    path = tmp_path / "C-7_coords.csv"
+    # µm centroids at 0.5 µm/px: the centres of the 8 px squares at (0, 0) and (20, 20)
+    path.write_text(f"{_R_COORDS_HEADER}\n0000aa8d-e87f,2,2,C-7\n0001e8f3-07bc,12,12,C-7\n", encoding="utf-8")
+    annotation = {"objectType": "annotation", "isLocked": True}
+    features = [
+        {"type": "Feature", "id": "c28880d8", "geometry": _square(0, 0, 2270), "properties": annotation},
+        *(
+            {
+                "type": "Feature",
+                "id": object_id,
+                "geometry": _square(x, x),
+                "nucleusGeometry": _square(x + 2, x + 2, 4),
+                "properties": {"objectType": "cell"},
+            }
+            # in another order than the table; the last cell was filtered out of the table
+            for object_id, x in [("0001e8f3-07bc", 20), ("0000aa8d-e87f", 0), ("ffff0000-0000", 40)]
+        ),
+    ]
+    geojson = tmp_path / "C-7.geojson"
+    geojson.write_text(json.dumps(features), encoding="utf-8")
+
+    assert detect_table_format(path) == "qupath"
+    with pytest.warns(UserWarning, match=r"1 of the 3 cell features of .*C-7.geojson have no row"):
+        table = read_cell_table(
+            path, "auto", pixel_size_um=0.5, default_region="C-7", cells_table_kwargs={"geojson": geojson}
+        )
+
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[4, 4], [24, 24]])
+    assert table.polygons_px is not None
+    assert table.polygons_px[0].equals(shapely.box(0, 0, 8, 8))
+    assert table.polygons_px[1].equals(shapely.box(20, 20, 28, 28))
+    assert list(table.instance_id) == [1, 2]
+    assert list(table.obs["Object.ID"]) == ["0000aa8d-e87f", "0001e8f3-07bc"]
+
+
+def test_qupath_r_exported_marker_columns(tmp_path: Path) -> None:
+    # the expression file joined to the coordinates on `Object.ID`: `<marker>_<compartment>_Mean`, and the
+    # `make.names` form of `CD3: Cell: Mean`
+    path = tmp_path / "C-7.csv"
+    header = f"{_R_COORDS_HEADER},DAPI_Nucleus_Mean,HLA.A_Cytoplasm_Mean,Pan.Cytokeratin_Cytoplasm_Mean,CD3..Cell..Mean"
+    path.write_text(f"{header}\nab,2,2,C-7,1,2,3,4\n", encoding="utf-8")
+
+    table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region="C-7", cells_table_kwargs={})
+
+    assert list(table.var.index) == ["DAPI", "HLA.A", "Pan.Cytokeratin", "CD3"]
+    assert list(table.var["compartment"]) == ["Nucleus", "Cytoplasm", "Cytoplasm", "Cell"]
+    np.testing.assert_allclose(table.X, [[1, 2, 3, 4]])
+
+
+def test_qupath_expression_without_centroids_raises(tmp_path: Path) -> None:
+    path = tmp_path / "C-7_expression.csv"
+    path.write_text("Object.ID,DAPI_Nucleus_Mean,Ki67_Nucleus_Mean\nab,1,2\n", encoding="utf-8")
+
+    assert detect_table_format(path) == "qupath"
+    with pytest.raises(ValueError, match="no centroid columns"):
+        read_cell_table(path, "auto", pixel_size_um=0.5, default_region="C-7", cells_table_kwargs={})
+
+
+# a QuPath detection export with `X`/`Y` centroids and bare marker names (zenodo.org/records/15514605)
+_QUPATH_XY_HEADER = (
+    "Image,Object ID,Parent,X,Y,Nucleus: Area µm^2,Nucleus: Length µm,Cell: Area µm^2,Nucleus/Cell area ratio,"
+    "DAPI: Nucleus: Median,CD44,HLA-DR-AF647,CD45RO"
+)
+
+
+def test_qupath_xy_centroids_and_bare_markers(tmp_path: Path) -> None:
+    path = tmp_path / "measurement_TA4369.csv"
+    rows = [
+        "STardist,74fcc0e7-d660,A-1,10,5,7.7,11.5,3.14159,0.13,20.5,1.5,34.2,4.3",
+        "STardist,9b2e5c11-0a3f,A-2,20,15,8.1,12.0,12.56637,0.2,21,2.5,35.2,5.3",
+    ]
+    path.write_text("\r\n".join([_QUPATH_XY_HEADER, *rows]) + "\r\n", encoding="utf-8")
+
+    assert detect_table_format(path) == "qupath"
+    with pytest.warns(UserWarning, match=r"reading the 3 other numeric columns \['CD44', 'HLA-DR-AF647', 'CD45RO'\]"):
+        table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+
+    # the other measurements are in µm, so the centroids are too
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[20, 10], [40, 30]])
+    assert list(table.var.index) == ["CD44", "HLA-DR-AF647", "CD45RO"]
+    np.testing.assert_allclose(table.X, [[1.5, 34.2, 4.3], [2.5, 35.2, 5.3]], rtol=1e-6)
+    assert {"Parent", "DAPI: Nucleus: Median", "Nucleus/Cell area ratio", "Object ID"} <= set(table.obs.columns)
+    assert list(table.region) == ["STardist"] * 2
+    assert table.radius_px is not None
+    np.testing.assert_allclose(table.radius_px, [2, 4], rtol=1e-5)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        table = read_cell_table(
+            path,
+            "qupath",
+            pixel_size_um=0.5,
+            default_region=None,
+            cells_table_kwargs={"region_column": "Parent", "markers": ["CD44", "CD45RO"]},
+        )
+    assert list(table.region) == ["A-1", "A-2"]
+    assert list(table.var.index) == ["CD44", "CD45RO"]
+
+
+def test_qupath_xy_centroids_need_a_unit(tmp_path: Path) -> None:
+    path = tmp_path / "cells.csv"
+    path.write_text("Object ID,X,Y,CD3: Cell: Mean\nab,10,5,1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="coordinates_unit"):
+        read_cell_table(path, "auto", pixel_size_um=0.5, default_region="S", cells_table_kwargs={})
+    table = read_cell_table(
+        path, "auto", pixel_size_um=0.5, default_region="S", cells_table_kwargs={"coordinates_unit": "px"}
+    )
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[10, 5]])
+
+
+def test_cells_outside_the_image_warn(tmp_path: Path) -> None:
+    # inForm positions in microns relative to the slide, not to the field of the image
+    write_qptiff(tmp_path / "Scan1.qptiff", biomarkers=["DAPI"], shape=(64, 80))
+    _write_inform(tmp_path / "Scan1_cell_seg_data.txt", "microns")
+
+    with pytest.warns(UserWarning, match=r"2 of the 2 cells of region 'Scan1' lie outside its image \(80 x 64 px\)"):
+        phenocycler(
+            tmp_path, cells_table=tmp_path / "Scan1_cell_seg_data.txt", image_models_kwargs={"scale_factors": [2]}
+        )
+
+
+def _write_inform_seg_maps(path: Path, shape: tuple[int, int] = (16, 24)) -> np.ndarray:
+    # inForm `*_binary_seg_maps.tif`: the tissue class map, then one page per compartment, each with its XML
+    pages = np.stack([np.full(shape, i, dtype=np.uint16) for i in range(4)])
+    descriptions = [
+        '<?xml version="1.0" encoding="utf-16"?>\n<TissueClassMap>\n <Version>1</Version>\n</TissueClassMap>',
+        *(
+            '<?xml version="1.0" encoding="utf-16"?>\n<SegmentationImage>\n <Version>1</Version>\n'
+            f" <CompartmentType>{compartment}</CompartmentType>\n</SegmentationImage>"
+            for compartment in ("Nucleus", "Cytoplasm", "Membrane")
+        ),
+    ]
+    with tifffile.TiffWriter(path) as tw:
+        for page, description in zip(pages, descriptions, strict=True):
+            tw.write(page, description=description, metadata=None)
+    return pages
+
+
+@pytest.mark.parametrize(("mask_channel", "expected"), [(None, 1), ("Cytoplasm", 2), (0, 0)])
+def test_read_labels_inform_seg_maps(tmp_path: Path, mask_channel: int | str | None, expected: int) -> None:
+    path = tmp_path / "S_binary_seg_maps.tif"
+    pages = _write_inform_seg_maps(path)
+
+    labels = read_labels(path, {"scale_factors": None}, {"global": Identity()}, mask_channel=mask_channel)
+
+    # by default the nuclei, which hold the `Cell ID` of every cell, not the tissue class map
+    np.testing.assert_array_equal(labels.values, pages[expected])
+    with pytest.raises(ValueError, match=r"'Tissue', 'Nucleus', 'Cytoplasm', 'Membrane'"):
+        read_labels(path, {}, {"global": Identity()}, mask_channel="cells")
 
 
 def test_unknown_format_raises(tmp_path: Path) -> None:
@@ -552,7 +790,8 @@ def test_mask_integer_downsample_autoscaled(tmp_path: Path, mask_shape: tuple[in
     mask = np.zeros(mask_shape, dtype=np.uint32)
     mask[2:6, 2:6], mask[10:14, 8:12] = 1, 2
     tifffile.imwrite(tmp_path / "B_mask.tif", mask)
-    cells = _write_mcquant(tmp_path / "B.csv", n=2)
+    # the centroids are in mask pixels, inside the mask
+    cells = _write_mcquant(tmp_path / "B.csv", n=2, extent=(mask_shape[1], mask_shape[0]))
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
@@ -598,8 +837,8 @@ def test_mask_integer_downsample_autoscaled(tmp_path: Path, mask_shape: tuple[in
 
 def test_mask_downsample_keeps_image_pixel_centroids(tmp_path: Path) -> None:
     # inForm centroids are in image pixels, so a downsampled mask does not scale them
-    write_qptiff(tmp_path / "Scan1.qptiff", biomarkers=["DAPI"], shape=(64, 80))
-    tifffile.imwrite(tmp_path / "mask.tif", np.zeros((32, 40), dtype=np.uint32))
+    write_qptiff(tmp_path / "Scan1.qptiff", biomarkers=["DAPI"], shape=(128, 256))
+    tifffile.imwrite(tmp_path / "mask.tif", np.zeros((64, 128), dtype=np.uint32))
     _write_inform(tmp_path / "Scan1_cell_seg_data.txt", "pixels", area_unit="pixels")
 
     sdata = phenocycler(
