@@ -22,6 +22,7 @@ from spatialdata_io.readers._utils._akoya import (
 )
 from spatialdata_io.readers._utils._cell_tables import (
     build_cells,
+    raster_shape,
     read_region_labels,
     read_region_tables,
     resolve_per_region,
@@ -132,8 +133,8 @@ def phenocycler(
     path = Path(path)
     qptiffs = discover_qptiffs(path)
     selected = select_regions(list(qptiffs), regions)
-    table_files = resolve_per_region(cells_table, selected)
-    mask_files = resolve_per_region(labels, selected)
+    table_files = resolve_per_region(cells_table, selected, list(qptiffs))
+    mask_files = resolve_per_region(labels, selected, list(qptiffs))
 
     scans = [read_qptiff_metadata(qptiffs[region], region=region) for region in selected]
     names = {}
@@ -152,7 +153,10 @@ def phenocycler(
         )
         for scan in scans
     }
-    region_labels = read_region_labels(mask_files, transformations, labels_models_kwargs, cells_table_kwargs)
+    image_shapes = {scan.region: raster_shape(images[f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}"]) for scan in scans}
+    region_labels = read_region_labels(
+        mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes
+    )
     cell_tables = read_region_tables(
         table_files,
         cells_table_format,

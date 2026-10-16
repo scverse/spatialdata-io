@@ -48,9 +48,12 @@ def _parse_json_param(value: str, param_name: str) -> dict[str, Any]:
 
 def _parse_path_or_mapping_param(value: str | None, param_name: str) -> str | dict[str, Any] | None:
     """A path, or a JSON mapping from region to path if ``value`` starts with ``{``."""
-    if value is not None and value.lstrip().startswith("{"):
-        return _parse_json_param(value, param_name)
-    return value
+    if value is None or not value.lstrip().startswith("{"):
+        return value
+    mapping = _parse_json_param(value, param_name)
+    if not isinstance(mapping, dict) or not all(isinstance(path, str) for path in mapping.values()):
+        raise click.BadParameter(f"{param_name!r} must be a path or a JSON object mapping regions to paths.")
+    return mapping
 
 
 @cli.command(name="codex")

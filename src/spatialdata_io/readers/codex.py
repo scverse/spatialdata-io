@@ -30,6 +30,7 @@ from spatialdata_io.readers._utils._cell_tables import (
     CellTable,
     build_cells,
     detect_table_format,
+    raster_shape,
     read_codex_table,
     read_region_labels,
     read_region_tables,
@@ -174,9 +175,10 @@ def codex(
     layout = discover_legacy(path, fcs)
     # regions that only have a discovered table exist only while the discovered tables are read
     table_regions = layout.tables.keys() - {"*"} if cells_table is None else set()
-    selected = select_regions(sorted(layout.images.keys() | table_regions), regions)
-    table_files = resolve_per_region(cells_table, selected)
-    mask_files = resolve_per_region(labels, selected)
+    available = sorted(layout.images.keys() | table_regions)
+    selected = select_regions(available, regions)
+    table_files = resolve_per_region(cells_table, selected, available)
+    mask_files = resolve_per_region(labels, selected, available)
     experiment = read_json_object(layout.experiment_json) if layout.experiment_json is not None else None
     names_txt = _read_channel_names_txt(layout.channel_names_txt) if layout.channel_names_txt is not None else None
 
@@ -219,7 +221,10 @@ def codex(
         )
         for scan in scans
     }
-    region_labels = read_region_labels(mask_files, transformations, labels_models_kwargs, cells_table_kwargs)
+    image_shapes = {scan.region: raster_shape(images[f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}"]) for scan in scans}
+    region_labels = read_region_labels(
+        mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes
+    )
     if table_files:
         cell_tables = read_region_tables(
             table_files,

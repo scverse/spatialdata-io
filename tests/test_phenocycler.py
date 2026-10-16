@@ -268,6 +268,93 @@ def test_mapping_with_unknown_region_raises(tmp_path: Path) -> None:
         phenocycler(tmp_path, cells_table={"Z": tmp_path / "A.csv"})
 
 
+def test_mapping_keys_of_unselected_regions_are_ignored(tmp_path: Path) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
+        _write_mcquant(tmp_path / f"{region}.csv")
+        _write_mask(tmp_path / f"{region}_mask.tif")
+
+    sdata = phenocycler(
+        tmp_path,
+        regions=["A"],
+        cells_table={"A": tmp_path / "A.csv", "B": tmp_path / "B.csv"},
+        labels={"A": tmp_path / "A_mask.tif", "B": tmp_path / "B_mask.tif"},
+        image_models_kwargs=_FAST,
+        labels_models_kwargs=_FAST,
+    )
+
+    assert list(sdata.labels) == ["A_labels"]
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["A_labels"]
+    assert sdata.attrs["akoya"]["cell_tables"] == {"A": str(tmp_path / "A.csv")}
+
+
+def test_mask_shape_mismatch_warns(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_mask(tmp_path / "mask.tif", shape=(128, 160))
+
+    with pytest.warns(UserWarning, match=r"\(128, 160\).*\(256, 320\)"):
+        sdata = phenocycler(tmp_path, labels=tmp_path / "mask.tif", image_models_kwargs=_FAST)
+
+    assert list(sdata.labels) == ["S_labels"]
+
+
+def test_mask_with_row_number_instance_ids_warns(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_mask(tmp_path / "mask.tif")
+    (tmp_path / "cells.csv").write_text("cx,cy,DAPI\n1,2,3\n4,5,6\n")
+
+    with pytest.warns(UserWarning, match="row numbers"):
+        phenocycler(
+            tmp_path,
+            cells_table=tmp_path / "cells.csv",
+            cells_table_format="generic",
+            labels=tmp_path / "mask.tif",
+            image_models_kwargs=_FAST,
+            cells_table_kwargs={"x": "cx", "y": "cy"},
+        )
+
+
+@pytest.mark.parametrize(
+    ("header", "kwargs"),
+    [
+        ("Cell ID,X,Y,CD3", {"x": "X", "y": "Y", "instance_id": "Cell ID"}),
+        ("Region,X,Y,CD3", {"x": "X", "y": "Y", "region_column": "Region"}),
+        ("CELL_ID,region,X,Y,CD3", {"x": "X", "y": "Y", "region_column": "region", "markers": ["CD3"]}),
+    ],
+)
+def test_generic_columns_clashing_with_reserved_keys(tmp_path: Path, header: str, kwargs: dict[str, str]) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    rows = "\n".join(
+        ",".join("S" if col.casefold() == "region" else str(i + 1) for col in header.split(",")) for i in range(2)
+    )
+    (tmp_path / "cells.csv").write_text(f"{header}\n{rows}\n")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(
+            tmp_path,
+            cells_table=tmp_path / "cells.csv",
+            cells_table_format="generic",
+            image_models_kwargs=_FAST,
+            cells_table_kwargs=kwargs,
+        )
+
+    table = sdata.tables["table"]
+    assert list(table.obs["region"]) == ["S_cells", "S_cells"]
+    assert table.obs["cell_id"].dtype == np.int64
+    sdata.write(tmp_path / "x.zarr")
+    assert read_zarr(tmp_path / "x.zarr").tables["table"].n_obs == 2
+
+
+def test_qupath_without_markers_warns(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    (tmp_path / "cells.tsv").write_text("Object ID\tCentroid X px\tCentroid Y px\nu1\t1\t2\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="no marker intensities"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+    assert sdata.tables["table"].n_vars == 0
+
+
 def test_single_table_many_regions_needs_region_column(tmp_path: Path) -> None:
     for region in ("A", "B"):
         write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
@@ -349,6 +436,18 @@ def test_cli_cells_table_and_labels_mappings(runner: CliRunner, tmp_path: Path) 
     sdata = read_zarr(output)
     assert list(sdata.labels) == ["S_labels"]
     assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["S_labels"]
+
+
+@pytest.mark.parametrize("value", ['{"S": 1}', "{not json"])
+def test_cli_bad_mapping_is_bad_parameter(runner: CliRunner, tmp_path: Path, value: str) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+
+    result = runner.invoke(
+        phenocycler_wrapper, ["--input", str(tmp_path), "--output", str(tmp_path / "o.zarr"), "--cells-table", value]
+    )
+
+    assert result.exit_code == 2
+    assert "cells_table" in result.output
 
 
 def test_str_regions_and_channel_names(tmp_path: Path) -> None:

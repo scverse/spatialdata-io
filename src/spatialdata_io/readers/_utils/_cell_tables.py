@@ -18,6 +18,7 @@ from spatialdata import sanitize_name, sanitize_table
 from spatialdata._logging import logger
 from spatialdata.models import Labels2DModel, ShapesModel, TableModel
 from spatialdata.transformations import Identity
+from xarray import DataTree
 
 from spatialdata_io._constants._constants import CodexKeys, PhenocyclerKeys
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names, read_tiff, spatial_chunks
@@ -28,10 +29,11 @@ if TYPE_CHECKING:
 
     from geopandas import GeoDataFrame
     from spatialdata.transformations import BaseTransformation
-    from xarray import DataArray, DataTree
+    from xarray import DataArray
 
 __all__ = [
     "CellTable",
+    "raster_shape",
     "build_cells",
     "detect_table_format",
     "read_cell_table",
@@ -80,6 +82,8 @@ class CellTable:
         The ``(x, y)`` centroids in level-0 pixels of the region image.
     radius_px
         The radius of a circle with the cell's area, or `None` if the table has no area.
+    row_instance_ids
+        Whether the instance ids are row numbers because the table has no instance id column.
     """
 
     obs: pd.DataFrame
@@ -89,6 +93,7 @@ class CellTable:
     instance_id: pd.Series
     centroids_px: np.ndarray
     radius_px: np.ndarray | None
+    row_instance_ids: bool = False
 
     def take(self, rows: np.ndarray) -> CellTable:
         """The cells at the positional indices ``rows``."""
@@ -100,6 +105,7 @@ class CellTable:
             instance_id=self.instance_id.iloc[rows],
             centroids_px=self.centroids_px[rows],
             radius_px=None if self.radius_px is None else self.radius_px[rows],
+            row_instance_ids=self.row_instance_ids,
         )
 
 
@@ -195,6 +201,7 @@ def read_codex_table(path: Path, region: str | None = None) -> CellTable:
         instance_id=instance_id,
         centroids_px=centroids,
         radius_px=radius,
+        row_instance_ids=instance_key not in columns,
     )
 
 
@@ -316,6 +323,12 @@ def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
             compartments.setdefault(match.group(1), {})[match.group(2)] = column
     chosen = {marker: next(c for c in _QUPATH_COMPARTMENTS if c in found) for marker, found in compartments.items()}
     markers = [compartments[marker][compartment] for marker, compartment in chosen.items()]
+    if not markers:
+        warnings.warn(
+            f"{path} has no '<marker>: <compartment>: Mean' columns, so its table has no marker intensities.",
+            UserWarning,
+            stacklevel=5,
+        )
     var = pd.DataFrame(
         {"source_column": markers, "compartment": list(chosen.values())},
         index=pd.Index(dedupe_channel_names(list(chosen))),
@@ -434,6 +447,7 @@ def _from_frame(
         instance_id=instance_id,
         centroids_px=df[[x, y]].to_numpy(dtype=np.float64) * px_per_unit,
         radius_px=radius,
+        row_instance_ids=instance_column is None,
     )
 
 
@@ -445,7 +459,11 @@ def _read_header(path: Path) -> tuple[list[str], str]:
     return [column.strip().strip('"') for column in header.split(sep)], sep
 
 
-def resolve_per_region(value: str | Path | Mapping[str, str | Path] | None, regions: Sequence[str]) -> dict[str, Path]:
+def resolve_per_region(
+    value: str | Path | Mapping[str, str | Path] | None,
+    regions: Sequence[str],
+    available: Sequence[str] = (),
+) -> dict[str, Path]:
     """Resolve a ``cells_table`` or ``labels`` argument to one file per region.
 
     Parameters
@@ -454,6 +472,8 @@ def resolve_per_region(value: str | Path | Mapping[str, str | Path] | None, regi
         A path, a mapping from region id to path, or `None`.
     regions
         The regions read.
+    available
+        All regions of the dataset; mapping keys that are one of them but not read are ignored.
 
     Returns
     -------
@@ -463,9 +483,9 @@ def resolve_per_region(value: str | Path | Mapping[str, str | Path] | None, regi
     if value is None:
         return {}
     if isinstance(value, Mapping):
-        unknown = sorted(set(value) - set(regions))
+        unknown = sorted(set(value) - set(regions) - set(available))
         if unknown:
-            raise ValueError(f"Unknown region(s) {unknown}. Regions read: {list(regions)}.")
+            raise ValueError(f"Unknown region(s) {unknown}. Available regions: {list(available or regions)}.")
         files = {region: Path(value[region]) for region in regions if region in value}
     else:
         files = {regions[0] if len(regions) == 1 else "*": Path(value)}
@@ -622,22 +642,41 @@ def read_region_labels(
     transformations: Mapping[str, BaseTransformation],
     labels_models_kwargs: Mapping[str, Any],
     cells_table_kwargs: Mapping[str, Any],
+    image_shapes: Mapping[str, tuple[int, int]],
 ) -> dict[str, DataArray | DataTree]:
-    """Read the mask of each region, as resolved by :func:`resolve_per_region`, with the region's transformation."""
+    """Read the mask of each region, as resolved by :func:`resolve_per_region`, with the region's transformation.
+
+    A mask whose ``(y, x)`` shape differs from ``image_shapes`` of its region raises a warning: its pixels would
+    not align with the image.
+    """
     if "*" in files:
         raise ValueError(
             f"A single labels mask {files['*']} was given for several regions; a mask belongs to one region image, "
             "so pass a mapping {region: path}."
         )
-    return {
-        region: read_labels(
+    labels = {}
+    for region, path in files.items():
+        labels[region] = read_labels(
             path,
             labels_models_kwargs,
             transformations.get(region, Identity()),
             mask_channel=cells_table_kwargs.get("mask_channel"),
         )
-        for region, path in files.items()
-    }
+        shape, image_shape = raster_shape(labels[region]), image_shapes.get(region)
+        if image_shape is not None and shape != tuple(image_shape):
+            warnings.warn(
+                f"The mask {path} has shape {shape}, but the image of region '{region}' has shape "
+                f"{tuple(image_shape)} (y, x); the labels will not align with the image.",
+                UserWarning,
+                stacklevel=3,
+            )
+    return labels
+
+
+def raster_shape(element: DataArray | DataTree) -> tuple[int, int]:
+    """The level-0 ``(y, x)`` shape of a raster element."""
+    data = element["scale0"]["image"] if isinstance(element, DataTree) else element
+    return int(data.sizes["y"]), int(data.sizes["x"])
 
 
 def build_cells(
@@ -666,6 +705,16 @@ def build_cells(
     per region, and the circle shapes by element name. The circles have the cells' area (radius 1 px without one).
     """
     _check_disjoint_regions(tables)
+    row_ids = sorted(
+        region for table in tables if table.row_instance_ids for region in table.region.unique() if region in labels
+    )
+    if row_ids:
+        warnings.warn(
+            f"The cell table of region(s) {row_ids} has no instance id column, so its row numbers are used as "
+            "instance ids; they may not match the values of the mask.",
+            UserWarning,
+            stacklevel=3,
+        )
     pieces = _split_by_region(tables) if len({tuple(table.var.index) for table in tables}) > 1 else None
 
     def element(region: str) -> str:
@@ -724,10 +773,18 @@ def _to_anndata(tables: Sequence[CellTable], element: Callable[[str], str]) -> a
     """Concatenate cell tables with the same markers into one table annotating the elements of their regions."""
     region_key, instance_key = CodexKeys.REGION_KEY.value, CodexKeys.INSTANCE_KEY.value
     obs = pd.concat([table.obs for table in tables]) if len(tables) > 1 else tables[0].obs.copy()
+    # the region and instance keys are set below; other columns that would clash with them (spatialdata names are
+    # case-insensitively unique, e.g. `Cell ID` -> `Cell_ID` vs `cell_id`) keep their values under `source_<name>`
+    reserved = {region_key, instance_key}
+    obs = obs.drop(columns=[column for column in obs.columns if column in reserved])
+    obs = obs.rename(
+        columns={
+            column: f"source_{column}"
+            for column in obs.columns
+            if sanitize_name(str(column), is_dataframe_column=True).casefold() in reserved
+        }
+    )
     regions = pd.concat([table.region for table in tables]) if len(tables) > 1 else tables[0].region
-    elements = regions.map({region: element(region) for region in regions.unique()}).to_numpy()
-    obs[region_key] = pd.Categorical(elements, categories=sorted(set(elements)))
-    obs[instance_key] = np.concatenate([table.instance_id.to_numpy() for table in tables])
     if not obs.index.is_unique:
         obs.index = pd.Index(regions.to_numpy(dtype=object) + "_" + obs.index.to_numpy(dtype=object))
     X = np.concatenate([table.X for table in tables]) if len(tables) > 1 else tables[0].X
@@ -736,9 +793,12 @@ def _to_anndata(tables: Sequence[CellTable], element: Callable[[str], str]) -> a
     # e.g. QuPath's `Centroid X µm` -> `Centroid_X_µm`: spatialdata only writes alphanumeric names and `_.-`
     if any(sanitize_name(str(column), is_dataframe_column=True) != column for column in adata.obs.columns):
         sanitize_table(adata, inplace=True)
+    elements = regions.map({region: element(region) for region in regions.unique()}).to_numpy()
+    adata.obs[region_key] = pd.Categorical(elements, categories=sorted(set(elements)))
+    adata.obs[instance_key] = np.concatenate([table.instance_id.to_numpy() for table in tables])
     return TableModel.parse(
         adata,
-        region=list(obs[region_key].cat.categories),
+        region=list(adata.obs[region_key].cat.categories),
         region_key=region_key,
         instance_key=instance_key,
     )
