@@ -474,11 +474,15 @@ def _row_pixel_sizes(
 
 
 def _qupath_names(columns: Sequence[str]) -> dict[str, str]:
-    """The columns by their QuPath name: as written, or undoing R's ``make.names`` (``Centroid.X.um``)."""
+    """The columns by their QuPath name: as written, or undoing R's ``make.names``.
+
+    ``make.names`` replaces ``: ``, `` `` and ``^`` by dots: ``Centroid.X.um`` is ``Centroid X µm`` and
+    ``Cell..Area.µm.2`` is ``Cell: Area µm^2``.
+    """
     names = {}
     for column in columns:
-        name = column.replace(".", " ")
-        names[name.removesuffix(" um") + " µm" if name.endswith(" um") else name] = column
+        name = re.sub(r"\.2$", "^2", column.replace("..", ": ")).replace(".", " ")
+        names[re.sub(r" um(?=\^2$|$)", " µm", name)] = column
     return names | {column: column for column in columns}
 
 
@@ -659,7 +663,7 @@ def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
             "the measurements into two files, join them on the object id first."
         )
     if unit is None:
-        unit = _qupath_xy_unit(path, list(df.columns), kwargs)
+        unit = _qupath_xy_unit(path, list(columns), kwargs)
     object_id = _object_id_column(list(df.columns))
     instance_column = object_id if object_id is not None and pd.api.types.is_integer_dtype(df[object_id]) else None
     region_column = kwargs.get("region_column", _QUPATH_IMAGE if _QUPATH_IMAGE in df.columns else None)

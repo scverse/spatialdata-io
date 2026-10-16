@@ -597,6 +597,26 @@ def test_qupath_r_exported_marker_columns(tmp_path: Path) -> None:
     np.testing.assert_allclose(table.X, [[1, 2, 3, 4]])
 
 
+@pytest.mark.parametrize("area", ["Cell..Area.µm.2", "Cell..Area.um.2"])
+def test_qupath_r_exported_area(tmp_path: Path, area: str) -> None:
+    # `make.names` of `Cell: Area µm^2`; areas of pi and 4 pi µm^2 at 0.5 µm/px are circles of radius 2 and 4 px
+    path = tmp_path / "cells.csv"
+    path.write_text(f"{_R_COORDS_HEADER},{area}\nab,2,2,C-7,3.14159\ncd,12,12,C-7,12.56637\n", encoding="utf-8")
+
+    table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region="C-7", cells_table_kwargs={})
+
+    assert table.radius_px is not None
+    np.testing.assert_allclose(table.radius_px, [2, 4], rtol=1e-5)
+
+    # the unit of R-form measurements gives that of `X`/`Y` too
+    path.write_text(f"Object.ID,X,Y,{area}\nab,2,2,3.14159\n", encoding="utf-8")
+    with pytest.warns(UserWarning, match="reading them in um"):
+        table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region="C-7", cells_table_kwargs={})
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[4, 4]])
+    assert table.radius_px is not None
+
+
 def test_qupath_expression_without_centroids_raises(tmp_path: Path) -> None:
     path = tmp_path / "C-7_expression.csv"
     path.write_text("Object.ID,DAPI_Nucleus_Mean,Ki67_Nucleus_Mean\nab,1,2\n", encoding="utf-8")
