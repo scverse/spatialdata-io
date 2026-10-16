@@ -160,6 +160,17 @@ def test_enrichment_positional_when_counts_match(tmp_path: Path) -> None:
     assert [(c.cycle, c.channel) for c in scan.channels] == [(1, 1), (1, 2), (2, 1)]
 
 
+def test_enrichment_not_positional_when_a_record_names_another_page(tmp_path: Path) -> None:
+    # the third record is DAPI, a marker of another page: pairing it with CD4 by position would be a guess
+    p = tmp_path / "x.qptiff"
+    wells = [[("DAPI", "DAPI"), ("CD3", "ATTO 550")], [("DAPI", "DAPI")]]
+    write_qptiff(p, biomarkers=["DAPI", "CD3", "CD4"], scan_profile=fusion_scan_profile_json(wells))
+    scan = read_qptiff_metadata(p)
+    cd4 = scan.channels[2]
+    assert (cd4.cycle, cd4.channel) == (None, None)
+    assert (scan.channels[1].cycle, scan.channels[1].channel) == (1, 2)
+
+
 def test_enrichment_not_positional_when_orders_differ(tmp_path: Path) -> None:
     p = tmp_path / "x.qptiff"
     wells = [[("DAPI", "DAPI"), ("CD3", "ATTO 550"), ("CD8", "CY5"), ("CD20", "AF 750")]]

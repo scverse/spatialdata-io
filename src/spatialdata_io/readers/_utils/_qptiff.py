@@ -414,11 +414,13 @@ def _positional_pairs(
     if len(channels) != len(records):
         return []
     # Fusion orders the pages of a cycle differently from the well items; a page whose marker sits at another
-    # position in the profile means the orders differ and the positional pairing would be wrong
+    # position in the profile, or a record naming the marker of another page, means the orders differ and the
+    # positional pairing would be wrong
+    page_keys = {_name_key(channel.name) for channel in channels}
     record_keys = {_name_key(name) for name, _ in records}
     for channel, (name, _) in zip(channels, records, strict=True):
-        key = _name_key(channel.name)
-        if key != _name_key(name) and key in record_keys:
+        key, record_key = _name_key(channel.name), _name_key(name)
+        if key != record_key and (key in record_keys or record_key in page_keys):
             return []
     return list(zip(channels, records, strict=True))
 
