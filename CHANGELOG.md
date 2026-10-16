@@ -41,7 +41,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   - Marker names in `table.var_names` come from the FCS `$PnS` keywords or the CSV header `cycCCC_chHHH:<marker>`
     (previously `cycCCC_chHHH`); the image channels are named too.
   - The positional third parameter is now `regions` (previously `imread_kwargs`); pass `imread_kwargs` by keyword.
-    It is only used by the `dask_image.imread` fallback for TIFFs that `tifffile` cannot read lazily.
+    Code that still passes `imread_kwargs` positionally gets a `TypeError` (a mapping is not a valid `regions`)
+    rather than a silently different read; an empty `regions` raises a `ValueError`. `imread_kwargs` is only used by
+    the `dask_image.imread` fallback for TIFFs that `tifffile` cannot read lazily.
   - A single region is stored in `"global"`. Several regions are placed at their stage positions in `"global"` only
     when all of them share a sample space (same slide id, stage positions and pixel size); otherwise each region,
     including multi-region reads of unrelated regions, gets its own coordinate system named after the region.

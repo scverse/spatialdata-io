@@ -267,6 +267,19 @@ def test_codex_str_regions_and_channel_names(tmp_path: Path) -> None:
     assert get_channel_names(sdata.images["reg002_image"]) == ["nuclei"]
 
 
+def test_codex_regions_validation(tmp_path: Path) -> None:
+    write_legacy_processor_tree(tmp_path, regions=2, cycles=1, channels=1, layout="per_marker", fcs=False, csv=False)
+
+    # `imread_kwargs` used to be the third positional parameter
+    with pytest.raises(TypeError, match="imread_kwargs.*pass it by keyword"):
+        codex(tmp_path, True, {})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="empty"):
+        codex(tmp_path, regions=[])
+
+    sdata = codex(tmp_path, regions=["reg002", "reg002"], image_models_kwargs=_FAST)
+    assert list(sdata.images) == ["reg002_image"]
+
+
 @pytest.mark.parametrize("imagej", [False, True])
 def test_read_legacy_image_tiles_uncompressed_planes(tmp_path: Path, imagej: bool) -> None:
     # uncompressed single-strip planes are one zarr chunk each; they must be memory-mapped and tiled instead

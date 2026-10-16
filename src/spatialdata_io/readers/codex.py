@@ -19,6 +19,7 @@ from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._akoya import (
     apply_channel_names,
     build_image_element,
+    normalize_regions,
     read_json_object,
     read_tiff,
     region_transformations,
@@ -192,7 +193,7 @@ def codex(
     -------
     :class:`spatialdata.SpatialData`
     """
-    regions = [regions] if isinstance(regions, str) else regions
+    regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
     layout = discover_legacy(path, fcs)

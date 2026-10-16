@@ -33,6 +33,7 @@ __all__ = [
     "apply_channel_names",
     "build_image_element",
     "dedupe_channel_names",
+    "normalize_regions",
     "read_json_object",
     "read_tiff",
     "region_transformations",
@@ -170,14 +171,35 @@ def scans_to_attrs(scans: Sequence[AkoyaScan], channel_names: Mapping[str, list[
     return {"regions": regions}
 
 
-def select_regions(available: Sequence[str], regions: Sequence[str] | None) -> list[str]:
-    """Return the requested regions (all if ``None``), raising if one is not available."""
+def normalize_regions(regions: str | Sequence[str] | None) -> list[str] | None:
+    """Validate the ``regions`` argument of a reader: a region id or a sequence of them, without duplicates.
+
+    Raises a `TypeError` for a mapping, e.g. ``imread_kwargs`` passed positionally to ``codex()``, whose third
+    parameter used to be ``imread_kwargs``, and a `ValueError` for an empty sequence.
+    """
+    if regions is None:
+        return None
+    if isinstance(regions, str):
+        return [regions]
+    if isinstance(regions, Mapping):
+        raise TypeError(
+            f"`regions` must be a sequence of region ids, got {type(regions).__name__}; `imread_kwargs` is no "
+            "longer the third positional argument of `codex()` — pass it by keyword."
+        )
+    if not regions:
+        raise ValueError("`regions` is empty; pass `None` to read all regions.")
+    return list(dict.fromkeys(regions))
+
+
+def select_regions(available: Sequence[str], regions: str | Sequence[str] | None) -> list[str]:
+    """Return the requested regions (all if ``None``), raising if one is not available; see :func:`normalize_regions`."""
+    regions = normalize_regions(regions)
     if regions is None:
         return list(available)
     unknown = [region for region in regions if region not in available]
     if unknown:
         raise ValueError(f"Unknown region(s) {unknown}. Available regions: {list(available)}.")
-    return list(regions)
+    return regions
 
 
 def read_json_object(path: Path) -> dict[str, Any] | None:

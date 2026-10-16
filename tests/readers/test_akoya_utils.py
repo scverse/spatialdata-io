@@ -126,6 +126,20 @@ def test_select_regions():
     assert select_regions(["a", "b"], ["b"]) == ["b"]
 
 
+def test_select_regions_deduplicates():
+    assert select_regions(["a", "b"], ["b", "a", "b"]) == ["b", "a"]
+    assert select_regions(["a", "b"], "b") == ["b"]
+
+
+@pytest.mark.parametrize(
+    ("regions", "error", "match"),
+    [({}, TypeError, "pass it by keyword"), ({"a": 1}, TypeError, "sequence of region ids"), ([], ValueError, "empty")],
+)
+def test_select_regions_invalid_raises(regions: object, error: type[Exception], match: str):
+    with pytest.raises(error, match=match):
+        select_regions(["a", "b"], regions)  # type: ignore[arg-type]
+
+
 def test_select_regions_unknown_raises():
     with pytest.raises(ValueError, match="'c'.*Available.*a.*b"):
         select_regions(["a", "b"], ["c"])
