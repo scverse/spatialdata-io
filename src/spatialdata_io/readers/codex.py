@@ -14,38 +14,37 @@ import numpy as np
 import pandas as pd
 from spatialdata import SpatialData
 
-from spatialdata_io._constants._constants import CodexKeys, PhenocyclerKeys
+from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._akoya import (
     apply_channel_names,
-    build_image_element,
     normalize_regions,
     read_json_object,
     read_tiff,
-    region_transformations,
-    scans_to_attrs,
     select_regions,
     spatial_chunks,
 )
 from spatialdata_io.readers._utils._cell_tables import (
     CellTable,
-    build_cells,
+    build_spatialdata,
     detect_table_format,
-    polygon_labels,
-    polygon_shapes,
-    raster_shape,
     read_codex_table,
-    read_region_labels,
     read_region_tables,
     resolve_per_region,
 )
-from spatialdata_io.readers._utils._qptiff import AkoyaChannel, AkoyaScan, read_qptiff_image, read_qptiff_metadata
+from spatialdata_io.readers._utils._qptiff import (
+    AkoyaChannel,
+    AkoyaScan,
+    qptiff_regions,
+    read_qptiff_image,
+    read_qptiff_metadata,
+)
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["LegacyLayout", "codex", "discover_legacy", "read_legacy_image"]
+__all__ = ["codex"]
 
 _REGION = re.compile(r"reg(\d+)", re.IGNORECASE)
 _PER_MARKER = re.compile(r"reg(\d+)_cyc(\d+)_ch(\d+)_(.+)\.tiff?$", re.IGNORECASE)
@@ -68,7 +67,7 @@ _PATTERNS = (
 
 
 @dataclass
-class LegacyLayout:
+class _LegacyLayout:
     """Files of a CODEX Processor/Uploader output tree or of CODEX Instrument Manager scans.
 
     ``images`` maps each region to its per-marker images (sorted by cycle and channel), to its single hyperstack
@@ -121,7 +120,9 @@ def codex(
 
     Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``,
     ``bestFocus/``) are ignored. The region id ``regNNN`` is taken from the file names; a ``{vx.QPTIFF!r}`` without
-    one is named after its file. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files
+    one is named as :func:`spatialdata_io.phenocycler` names it: after its file, without the ``.er.qptiff`` or
+    ``{vx.QPTIFF!r}`` suffix and a trailing ``_Scan<N>`` (unless that makes two regions share a name), and the
+    extended-range ``.er.qptiff`` of a scan is preferred. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files
     are read as hyperstacks named after their files. Each region is stored as the image ``<region>_image`` and its
     metadata in ``sdata.attrs["akoya"]``.
 
@@ -197,7 +198,7 @@ def codex(
     regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
-    layout = discover_legacy(path, fcs)
+    layout = _discover_legacy(path, fcs)
     # regions that only have a discovered table exist only while the discovered tables are read
     table_regions = layout.tables.keys() - {"*"} if cells_table is None else set()
     available = sorted(layout.images.keys() | table_regions)
@@ -215,7 +216,7 @@ def codex(
             scans.append(read_qptiff_metadata(files[0], region=region))
             arrays[region] = read_qptiff_image(files[0])
             continue
-        arrays[region], channels = read_legacy_image(
+        arrays[region], channels = _read_legacy_image(
             files, layout.channel_names_txt, imread_kwargs, image_models_kwargs=image_models_kwargs
         )
         scans.append(
@@ -254,44 +255,22 @@ def codex(
         read = _read_tables(discovered, layout, selected if regions is not None else None, fcs)
         cell_tables = list(read.values())
         table_paths = {key: str(discovered[key]) for key in read}
-    # the regions of cells or masks without an image are unrelated to the scans
-    cell_regions = {region for table in cell_tables for region in table.region.unique()}
-    transformations = region_transformations(scans, cell_regions | (mask_files.keys() - {"*"}))
-    images = {
-        f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}": build_image_element(
-            arrays[scan.region], scan, names[scan.region], transformations[scan.region], image_models_kwargs
-        )
-        for scan in scans
-    }
-    image_shapes = {scan.region: raster_shape(images[f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}"]) for scan in scans}
-    region_labels = read_region_labels(
-        mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes
+    sdata = build_spatialdata(
+        scans,
+        arrays,
+        names,
+        cell_tables,
+        mask_files,
+        table_paths=table_paths,
+        image_models_kwargs=image_models_kwargs,
+        labels_models_kwargs=labels_models_kwargs,
+        cells_table_kwargs=cells_table_kwargs,
     )
-    polygons, geojson_files = polygon_labels(
-        cell_tables, region_labels, image_shapes, transformations, labels_models_kwargs
-    )
-    region_labels |= polygons
-    tables, shapes = build_cells(cell_tables, {}, region_labels, transformations) if cell_tables else ({}, {})
-    for region, element in polygon_shapes(cell_tables, transformations).items():
-        shapes[f"{region}{PhenocyclerKeys.POLYGONS_SUFFIX}"] = element
-    sdata = SpatialData(
-        images=images,
-        labels={f"{region}{PhenocyclerKeys.LABELS_SUFFIX}": element for region, element in region_labels.items()},
-        shapes=shapes,
-        tables=tables,
-    )
-    attrs = scans_to_attrs(scans, names)
-    attrs["cell_tables"] = table_paths
-    if mask_files:
-        attrs["labels"] = {region: str(file) for region, file in mask_files.items()}
-    if geojson_files:
-        attrs["geojson"] = geojson_files
-    sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = attrs
     return _set_reader_metadata(sdata, "codex")
 
 
 def _read_tables(
-    files: Mapping[str, Path], layout: LegacyLayout, regions: Sequence[str] | None, fcs: bool
+    files: Mapping[str, Path], layout: _LegacyLayout, regions: Sequence[str] | None, fcs: bool
 ) -> dict[str, CellTable]:
     """Read the cell tables of ``files`` (by region, ``"*"`` for one without a region), keeping only ``regions``.
 
@@ -328,7 +307,7 @@ def _read_tables(
     return tables
 
 
-def discover_legacy(path: Path, fcs: bool) -> LegacyLayout:
+def _discover_legacy(path: Path, fcs: bool) -> _LegacyLayout:
     """Find the images, cell tables and sidecar files of a CODEX dataset.
 
     Parameters
@@ -353,7 +332,7 @@ def discover_legacy(path: Path, fcs: bool) -> LegacyLayout:
     tables = _discover_tables(files, fcs)
     if not images and not tables:
         raise FileNotFoundError(f"No CODEX images or cell tables found in {path}. Expected: {'; '.join(_PATTERNS)}.")
-    return LegacyLayout(
+    return _LegacyLayout(
         images=dict(sorted(images.items())),
         tables=dict(sorted(tables.items())),
         channel_names_txt=_find_sidecar(path, files, CodexKeys.CHANNEL_NAMES_FILE.value),
@@ -361,7 +340,7 @@ def discover_legacy(path: Path, fcs: bool) -> LegacyLayout:
     )
 
 
-def read_legacy_image(
+def _read_legacy_image(
     files: list[Path],
     channel_names_txt: Path | None,
     imread_kwargs: Mapping[str, Any],
@@ -372,7 +351,7 @@ def read_legacy_image(
     Parameters
     ----------
     files
-        The per-marker images of the region, or its single hyperstack, as returned by :func:`discover_legacy`.
+        The per-marker images of the region, or its single hyperstack, as returned by :func:`_discover_legacy`.
     channel_names_txt
         Optional ``channelNames.txt`` naming the hyperstack channels when the file has no ImageJ ``Labels``.
     imread_kwargs
@@ -486,10 +465,14 @@ def _discover_images(files: Sequence[Path]) -> dict[str, list[Path]]:
     per_marker: dict[str, dict[tuple[int, int], Path]] = {}
     stacks: dict[str, list[Path]] = {}
     qptiffs: dict[str, list[Path]] = {}
+    unnamed_qptiffs = []
     for file in files:
         region = _region_id(file.name)
         if _is_qptiff(file):
-            qptiffs.setdefault(region or file.stem, []).append(file)
+            if region is None:
+                unnamed_qptiffs.append(file)
+            else:
+                qptiffs.setdefault(region, []).append(file)
         elif _is_tiff(file) and region is not None:
             if (match := _PER_MARKER.search(file.name)) is None:
                 stacks.setdefault(region, []).append(file)
@@ -502,6 +485,10 @@ def _discover_images(files: Sequence[Path]) -> dict[str, list[Path]]:
                     f"{markers[key]} and {file}. Pass the path of a directory that contains each region once."
                 )
             markers[key] = file
+
+    # named like `phenocycler()` names them, e.g. `Tonsil_Scan1.er.qptiff` -> `Tonsil`
+    for region, file in qptiff_regions(unnamed_qptiffs).items():
+        qptiffs.setdefault(region, []).append(file)
 
     images: dict[str, list[Path]] = {}
     # the Processor's stitched outputs come first: cell tables refer to their pixel space

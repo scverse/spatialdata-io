@@ -18,31 +18,42 @@ import pandas as pd
 import readfcs
 import shapely
 import tifffile
-from spatialdata import sanitize_name, sanitize_table
+from spatialdata import SpatialData, sanitize_name, sanitize_table
 from spatialdata._logging import logger
 from spatialdata.models import Labels2DModel, ShapesModel, TableModel
 from spatialdata.transformations import Identity
 from xarray import DataTree
 
 from spatialdata_io._constants._constants import CodexKeys, PhenocyclerKeys
-from spatialdata_io.readers._utils._akoya import dedupe_channel_names, read_tiff, spatial_chunks
+from spatialdata_io.readers._utils._akoya import (
+    build_image_element,
+    dedupe_channel_names,
+    read_tiff,
+    region_transformations,
+    scans_to_attrs,
+    spatial_chunks,
+)
 from spatialdata_io.readers._utils._rasterize import rasterize_polygons_lazy
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    import dask.array as da
     from geopandas import GeoDataFrame
     from spatialdata.transformations import BaseTransformation
     from xarray import DataArray
 
+    from spatialdata_io.readers._utils._qptiff import AkoyaScan
+
 __all__ = [
     "CellTable",
-    "raster_shape",
     "build_cells",
+    "build_spatialdata",
     "detect_table_format",
     "polygon_labels",
     "polygon_shapes",
+    "raster_shape",
     "read_cell_table",
     "read_codex_table",
     "read_labels",
@@ -1239,6 +1250,84 @@ def build_cells(
     if pieces is None:
         return {PhenocyclerKeys.TABLE_KEY.value: _to_anndata(tables, element)}, shapes
     return {f"{region}_table": _to_anndata([piece], element) for region, piece in sorted(pieces.items())}, shapes
+
+
+def build_spatialdata(
+    scans: Sequence[AkoyaScan],
+    images: Mapping[str, da.Array],
+    channel_names: Mapping[str, list[str]],
+    cell_tables: Sequence[CellTable],
+    mask_files: Mapping[str, Path],
+    *,
+    table_paths: Mapping[str, str] | None,
+    image_models_kwargs: Mapping[str, Any],
+    labels_models_kwargs: Mapping[str, Any],
+    cells_table_kwargs: Mapping[str, Any],
+) -> SpatialData:
+    """Assemble the regions of an Akoya read into a `SpatialData` with their metadata in ``attrs["akoya"]``.
+
+    Each region gets the image ``<region>_image``, the labels ``<region>_labels`` from its mask or its cell polygons
+    (see :func:`polygon_labels`), the polygons ``<region>_polygons`` and the cells (see :func:`build_cells`), all in
+    the coordinate systems of :func:`region_transformations`; regions with cells or a mask but no image are
+    unrelated to the scans.
+
+    Parameters
+    ----------
+    scans
+        The scans read.
+    images
+        The lazy image of each scan, by region id, see :func:`build_image_element`.
+    channel_names
+        The channel names of each scan, by region id.
+    cell_tables
+        The cell tables read.
+    mask_files
+        The mask of each region, as resolved by :func:`resolve_per_region`.
+    table_paths
+        The paths of the cell tables, stored in ``attrs["akoya"]["cell_tables"]`` unless `None`.
+    image_models_kwargs
+        Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
+    labels_models_kwargs
+        Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
+    cells_table_kwargs
+        See :func:`read_labels` (``mask_channel``).
+
+    Returns
+    -------
+    The `SpatialData` object.
+    """
+    cell_regions = {region for table in cell_tables for region in table.region.unique()}
+    transformations = region_transformations(scans, cell_regions | (mask_files.keys() - {"*"}))
+    image_elements = {
+        f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}": build_image_element(
+            images[scan.region], scan, channel_names[scan.region], transformations[scan.region], image_models_kwargs
+        )
+        for scan in scans
+    }
+    image_shapes = {
+        scan.region: raster_shape(image_elements[f"{scan.region}{PhenocyclerKeys.IMAGE_SUFFIX}"]) for scan in scans
+    }
+    labels = read_region_labels(mask_files, transformations, labels_models_kwargs, cells_table_kwargs, image_shapes)
+    polygons, geojson_files = polygon_labels(cell_tables, labels, image_shapes, transformations, labels_models_kwargs)
+    labels |= polygons
+    tables, shapes = build_cells(cell_tables, {}, labels, transformations) if cell_tables else ({}, {})
+    for region, element in polygon_shapes(cell_tables, transformations).items():
+        shapes[f"{region}{PhenocyclerKeys.POLYGONS_SUFFIX}"] = element
+    sdata = SpatialData(
+        images=image_elements,
+        labels={f"{region}{PhenocyclerKeys.LABELS_SUFFIX}": element for region, element in labels.items()},
+        shapes=shapes,
+        tables=tables,
+    )
+    attrs = scans_to_attrs(scans, channel_names)
+    if table_paths is not None:
+        attrs["cell_tables"] = dict(table_paths)
+    if mask_files:
+        attrs["labels"] = {region: str(file) for region, file in mask_files.items()}
+    if geojson_files:
+        attrs["geojson"] = geojson_files
+    sdata.attrs[PhenocyclerKeys.ATTRS_KEY.value] = attrs
+    return sdata
 
 
 def _region_rows(table: CellTable) -> dict[str, np.ndarray]:

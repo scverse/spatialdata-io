@@ -17,11 +17,21 @@ from spatialdata_io._constants._constants import PhenocyclerKeys
 from spatialdata_io.readers._utils._akoya import lazy_tiff_array
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
-__all__ = ["AkoyaChannel", "AkoyaScan", "qpi_pixel_size_um", "read_qptiff_image", "read_qptiff_metadata"]
+__all__ = [
+    "AkoyaChannel",
+    "AkoyaScan",
+    "qpi_pixel_size_um",
+    "qptiff_base_name",
+    "qptiff_regions",
+    "read_qptiff_image",
+    "read_qptiff_metadata",
+]
 
 _FULL_RESOLUTION = "FullResolution"
+_SCAN_SUFFIX = re.compile(r"_Scan\d+$")
 _XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>")
 # micrometres per unit of the TIFF ResolutionUnit; XPosition/YPosition are expressed in the same unit
 _UM_PER_RESOLUTION_UNIT = {tifffile.RESUNIT.CENTIMETER: 1e4, tifffile.RESUNIT.INCH: 25400.0}
@@ -114,7 +124,7 @@ def read_qptiff_metadata(path: Path, region: str | None = None) -> AkoyaScan:
 
     return AkoyaScan(
         path=path,
-        region=region if region is not None else _default_region(path),
+        region=region if region is not None else qptiff_base_name(path),
         generation=_generation(software, experiment_v4 is not None),
         software=software,
         slide_id=_text(root, "SlideID"),
@@ -228,11 +238,46 @@ def _bool(text: str | None) -> bool | None:
     return None if text is None else text.lower() == "true"
 
 
-def _default_region(path: Path) -> str:
-    for suffix in (PhenocyclerKeys.ER_QPTIFF_SUFFIX, PhenocyclerKeys.QPTIFF_SUFFIX):
-        if path.name.lower().endswith(suffix.value):
-            return path.name[: -len(suffix.value)]
+def qptiff_base_name(path: Path) -> str:
+    """The file name without the ``.er.qptiff``/``.qptiff`` suffix (in any case)."""
+    for suffix in (PhenocyclerKeys.ER_QPTIFF_SUFFIX.value, PhenocyclerKeys.QPTIFF_SUFFIX.value):
+        if path.name.lower().endswith(suffix):
+            return path.name[: -len(suffix)]
     return path.stem
+
+
+def qptiff_regions(files: Sequence[Path]) -> dict[str, Path]:
+    """The region id of every qptiff scan among ``files``, the same for both Akoya readers.
+
+    Files of the same scan (folder and base name) are read once, preferring the extended-range ``.er.qptiff``.
+    The region id is the base name without a trailing ``_Scan<N>``, unless that makes two scans share a region id.
+
+    Parameters
+    ----------
+    files
+        The qptiff files, in the order of the result.
+
+    Returns
+    -------
+    The scan file of every region.
+    """
+    scans: dict[tuple[Path, str], Path] = {}
+    for file in files:
+        key = (file.parent, qptiff_base_name(file))
+        if key not in scans or file.name.lower().endswith(PhenocyclerKeys.ER_QPTIFF_SUFFIX.value):
+            scans[key] = file
+    bases = [base for _, base in scans]
+    stripped = [_SCAN_SUFFIX.sub("", base) or base for base in bases]
+    # stripping `_Scan<N>` must not merge two scans into one region
+    regions = [base if stripped.count(region) > 1 else region for base, region in zip(bases, stripped, strict=True)]
+    if len(set(regions)) < len(regions):
+        duplicated = sorted({region for region in regions if regions.count(region) > 1})
+        found = [str(file) for file, region in zip(scans.values(), regions, strict=True) if region in duplicated]
+        raise ValueError(
+            f"Several qptiff files map to the same region(s) {duplicated}: {found}. Pass the path of a single qptiff "
+            "file or of a directory that contains each region once."
+        )
+    return dict(zip(regions, scans.values(), strict=True))
 
 
 def _generation(software: str | None, has_experiment_v4: bool) -> str:

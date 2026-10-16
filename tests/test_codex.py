@@ -14,9 +14,9 @@ from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
 from spatialdata.transformations import Identity, get_transformation
 
-from spatialdata_io import codex
+from spatialdata_io import codex, phenocycler
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names
-from spatialdata_io.readers.codex import discover_legacy, read_legacy_image
+from spatialdata_io.readers.codex import _discover_legacy, _read_legacy_image
 from tests._akoya_data import cim_experiment_v4_xml, write_legacy_processor_tree, write_qptiff
 
 if TYPE_CHECKING:
@@ -118,6 +118,24 @@ def test_codex_cim_qptiff(tmp_path: Path) -> None:
         assert sdata.attrs["akoya"]["regions"]["reg001"]["generation"] == "cim_qptiff"
 
 
+def test_codex_and_phenocycler_name_a_qptiff_alike(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "Tonsil_Scan1.qptiff", biomarkers=["DAPI"], dtype="uint8")
+    write_qptiff(tmp_path / "Tonsil_Scan1.er.qptiff", biomarkers=["DAPI"], dtype="uint16")
+
+    for reader in (codex, phenocycler):
+        sdata = reader(tmp_path, image_models_kwargs=_FAST)
+        assert list(sdata.images) == ["Tonsil_image"]
+        assert sdata.attrs["akoya"]["regions"]["Tonsil"]["path"].endswith("Tonsil_Scan1.er.qptiff")
+
+
+def test_reader_modules_export_only_the_readers() -> None:
+    from spatialdata_io.readers import codex as codex_module
+    from spatialdata_io.readers import phenocycler as phenocycler_module
+
+    assert codex_module.__all__ == ["codex"]
+    assert phenocycler_module.__all__ == ["phenocycler"]
+
+
 def test_codex_old_flat_layout_image(tmp_path: Path) -> None:
     data = write_legacy_processor_tree(tmp_path, layout="old_flat")
 
@@ -170,11 +188,11 @@ def test_codex_regions_channel_names_and_pixel_size(tmp_path: Path) -> None:
 def test_discover_legacy_tables_prefer_requested_format(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, regions=2, layout="per_marker", fcs=True, csv=True)
 
-    assert {region: path.suffix for region, path in discover_legacy(tmp_path, fcs=True).tables.items()} == {
+    assert {region: path.suffix for region, path in _discover_legacy(tmp_path, fcs=True).tables.items()} == {
         "reg001": ".fcs",
         "reg002": ".fcs",
     }
-    assert {region: path.suffix for region, path in discover_legacy(tmp_path, fcs=False).tables.items()} == {
+    assert {region: path.suffix for region, path in _discover_legacy(tmp_path, fcs=False).tables.items()} == {
         "reg001": ".csv",
         "reg002": ".csv",
     }
@@ -292,7 +310,7 @@ def test_read_legacy_image_tiles_uncompressed_planes(tmp_path: Path, imagej: boo
     tifffile.imwrite(hyperstack, stack[None], imagej=True, metadata={"axes": "TCYX"})
 
     for source in (files, [hyperstack]):
-        image, _ = read_legacy_image(source, None, {}, image_models_kwargs={"chunks": (1, 32, 64)})
+        image, _ = _read_legacy_image(source, None, {}, image_models_kwargs={"chunks": (1, 32, 64)})
         assert max(image.chunks[-2]) <= 32
         assert max(image.chunks[-1]) <= 64
         np.testing.assert_array_equal(image.compute(), stack)
@@ -315,15 +333,15 @@ def test_discover_legacy_regionless_table_ignores_sidecar_csv(tmp_path: Path) ->
     cells.parent.mkdir()
     cells.write_text("cell_id,x,y,cyc001_ch001:DAPI\n1,2.0,3.0,4.0\n")
 
-    assert discover_legacy(tmp_path, fcs=True).tables == {"*": cells}
+    assert _discover_legacy(tmp_path, fcs=True).tables == {"*": cells}
 
     (tmp_path / "clusters.csv").write_text("cellid,cluster\n1,2\n")
     (tmp_path / "xy.csv").write_text("x,y\n1.0,2.0\n")
-    assert discover_legacy(tmp_path, fcs=True).tables == {"*": cells}
+    assert _discover_legacy(tmp_path, fcs=True).tables == {"*": cells}
 
     (tmp_path / "other_cells.csv").write_text("cell_id:cell_id,x:x,y:y\n1,1.0,2.0\n")
     with pytest.raises(ValueError, match="cannot choose"):
-        discover_legacy(tmp_path, fcs=True)
+        _discover_legacy(tmp_path, fcs=True)
 
 
 @pytest.mark.parametrize("with_table", [True, False])
