@@ -357,6 +357,78 @@ def merscope_wrapper(
     sdata.write(output)
 
 
+def _parse_list_param(value: str | None) -> list[str] | None:
+    return None if value is None else [item.strip() for item in value.split(",")]
+
+
+@cli.command(name="phenocycler")
+@click.option(
+    "--input",
+    "-i",
+    type=click.Path(exists=True),
+    help="Path to a .qptiff file or to a directory containing .qptiff files.",
+    required=True,
+)
+@click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
+@click.option(
+    "--regions", type=str, default=None, help="Comma-separated regions to read; all if omitted. [default: None]"
+)
+@click.option(
+    "--channel-names",
+    type=str,
+    default=None,
+    help="Comma-separated channel names overriding the ones in the qptiff. [default: None]",
+)
+@click.option("--cells-table", type=click.Path(exists=True), default=None, help="Path to a cell table. [default: None]")
+@click.option("--cells-table-format", type=str, default="auto", help="Format of the cell table. [default: auto]")
+@click.option("--labels", type=click.Path(exists=True), default=None, help="Path to a label mask. [default: None]")
+@click.option(
+    "--image-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+)
+@click.option(
+    "--labels-models-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
+)
+@click.option(
+    "--cells-table-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments for reading the cell table. [default: {}]",
+)
+def phenocycler_wrapper(
+    input: str,
+    output: str,
+    regions: str | None = None,
+    channel_names: str | None = None,
+    cells_table: str | None = None,
+    cells_table_format: str = "auto",
+    labels: str | None = None,
+    image_models_kwargs: str = "{}",
+    labels_models_kwargs: str = "{}",
+    cells_table_kwargs: str = "{}",
+) -> None:
+    """PhenoCycler-Fusion conversion to SpatialData."""
+    from spatialdata_io.readers.phenocycler import phenocycler
+
+    sdata = phenocycler(
+        input,
+        regions=_parse_list_param(regions),
+        channel_names=_parse_list_param(channel_names),
+        cells_table=cells_table,
+        cells_table_format=cells_table_format,
+        labels=labels,
+        image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
+        cells_table_kwargs=_parse_json_param(cells_table_kwargs, "cells_table_kwargs"),
+    )
+    sdata.write(output)
+
+
 @cli.command(name="seqfish")
 @_input_output_click_options
 @click.option("--load-images", type=bool, default=True, help="Whether to load images. [default: True]")
