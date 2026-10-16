@@ -325,6 +325,24 @@ def test_discover_legacy_regionless_table_ignores_sidecar_csv(tmp_path: Path) ->
         discover_legacy(tmp_path, fcs=True)
 
 
+@pytest.mark.parametrize("with_table", [True, False])
+def test_codex_region_named_non_cell_csv_is_ignored(tmp_path: Path, with_table: bool) -> None:
+    data = write_legacy_processor_tree(tmp_path, cycles=1, channels=2, fcs=False, csv=with_table, n_cells=5)
+    (tmp_path / "reg001_antibodies.csv").write_text("Antibody,Clone\nCD3,UCHT1\n")
+    # a HuBMAP SPRM output of the same region, which is only read when given as `cells_table`
+    (tmp_path / "reg001_expr-cell_channel_mean.csv").write_text("ID,CD3\n1,2.0\n")
+
+    if with_table:
+        with pytest.warns(UserWarning, match="circles"):
+            sdata = codex(tmp_path, image_models_kwargs=_FAST)
+        assert sdata.tables["table"].n_obs == len(data["cells"])
+        assert sdata.attrs["akoya"]["cell_tables"]["reg001"].endswith("reg001_compensated.csv")
+    else:
+        sdata = codex(tmp_path, image_models_kwargs=_FAST)
+        assert not sdata.tables
+    assert list(sdata.images) == ["reg001_image"]
+
+
 def test_codex_imread_kwargs_warns_when_unused(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, layout="per_marker")
     with pytest.warns(UserWarning, match="imread_kwargs"):

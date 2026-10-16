@@ -116,7 +116,8 @@ def codex(
           are preferred over uncompensated ones. The ``cycCCC_chHHH`` marker columns are stored in ``X`` (dense
           float32) under their marker names, taken from the FCS ``$PnS`` keywords or the CSV header
           ``cycCCC_chHHH:<marker>``; all other columns go to ``obs``, the ``x``/``y`` pixel centroids to
-          ``obsm["spatial"]``.
+          ``obsm["spatial"]``. Other CSV files (without ``x``/``y`` and ``cell_id`` or ``cycCCC_chHHH`` columns,
+          e.g. antibody lists or HuBMAP SPRM outputs) are ignored; pass them as ``cells_table`` to read them.
 
     Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``,
     ``bestFocus/``) are ignored. The region id ``regNNN`` is taken from the file names; a ``{vx.QPTIFF!r}`` without
@@ -537,11 +538,11 @@ def _discover_tables(files: Sequence[Path], fcs: bool) -> dict[str, Path]:
     for file in files:
         if file.suffix.lower() not in _TABLE_SUFFIXES:
             continue
-        region = _region_id(file.name)
-        # without a region in its name, a CSV may be any sidecar (e.g. an antibody list)
-        if region is None and detect_table_format(file) != "codex":
+        # a CSV may be any sidecar, also with a region in its name (e.g. `reg001_antibodies.csv` or a HuBMAP SPRM
+        # `reg001_...-cell_channel_mean.csv`); only CODEX Processor tables are discovered
+        if detect_table_format(file) != "codex":
             continue
-        candidates.setdefault(region or "*", []).append(file)
+        candidates.setdefault(_region_id(file.name) or "*", []).append(file)
 
     def rank(file: Path) -> tuple[bool, bool]:
         # the preferred format first, then compensated over uncompensated
