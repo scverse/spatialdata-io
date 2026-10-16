@@ -57,6 +57,21 @@ def test_codex_hyperstack_channel_names_txt(tmp_path: Path) -> None:
     np.testing.assert_array_equal(image.values, data["images"]["reg001"].reshape(8, *image.shape[1:]))
 
 
+@pytest.mark.parametrize("from_subdirectory", [False, True])
+def test_codex_sidecar_names_are_case_insensitive(tmp_path: Path, from_subdirectory: bool) -> None:
+    # SPACEc and the HuBMAP codex-pipeline write `channelnames.txt`; older exports `Experiment.json`
+    data = write_legacy_processor_tree(tmp_path, cycles=2, channels=4, layout="hyperstack")
+    (tmp_path / "channelNames.txt").rename(tmp_path / "channelnames.txt")
+    (tmp_path / "experiment.json").unlink()
+    (tmp_path / "Experiment.json").write_text(json.dumps({"xyResolution": 377.5}))
+    source = tmp_path / "processed_2020-01-01" / "stitched" if from_subdirectory else tmp_path
+
+    sdata = codex(source, image_models_kwargs=_FAST)
+
+    assert get_channel_names(sdata.images["reg001_image"]) == dedupe_channel_names(data["markers"])
+    assert sdata.attrs["akoya"]["regions"]["reg001"]["pixel_size_um"] == pytest.approx(0.3775)
+
+
 def test_codex_hyperstack_bad_channel_names_warns(tmp_path: Path) -> None:
     data = write_legacy_processor_tree(tmp_path, cycles=2, channels=4, layout="hyperstack")
     (tmp_path / "channelNames.txt").write_text("\n".join(data["markers"][:7]) + "\n")

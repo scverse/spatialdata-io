@@ -107,7 +107,9 @@ def codex(
           into channels, in file order. The channel names come from the ImageJ ``Labels``, else from
           ``{vx.CHANNEL_NAMES_FILE!r}`` (one name per line, cycle-major), else they are ``cycCCC_chHHH``.
         - ``*{vx.QPTIFF!r}``: scans of the CODEX Instrument Manager, read lazily with their channel metadata.
-        - ``{vx.EXPERIMENT_FILE!r}``: optional; the pixel size is taken from its ``xyResolution`` (nm).
+        - ``{vx.EXPERIMENT_FILE!r}``: optional; the pixel size is taken from its ``xyResolution`` (nm). Like
+          ``{vx.CHANNEL_NAMES_FILE!r}``, it is found in ``path`` or up to three folders above it, ignoring the case
+          of the file name (e.g. ``channelnames.txt``).
         - ``*{vx.FCS_FILE!r}`` / ``*{vx.FCS_FILE_CSV!r}``: cell tables of the CODEX Processor, one per region (or
           one for all regions), e.g. ``segm/segm-1/fcs/compensated/regNNN_compensated.fcs``. Compensated tables
           are preferred over uncompensated ones. The ``cycCCC_chHHH`` marker columns are stored in ``X`` (dense
@@ -558,14 +560,24 @@ def _discover_tables(files: Sequence[Path], fcs: bool) -> dict[str, Path]:
 
 
 def _find_sidecar(path: Path, files: Sequence[Path], name: str) -> Path | None:
-    """The shallowest file called ``name`` in ``files``, else in the nearest ancestor of ``path`` holding one."""
-    matches = sorted((file for file in files if file.name == name), key=lambda file: (len(file.parts), str(file)))
+    """The shallowest file called ``name`` in ``files``, else in the nearest ancestor of ``path`` holding one.
+
+    Names are compared case-insensitively: SPACEc and the HuBMAP codex-pipeline write ``channelnames.txt``.
+    """
+    folded = name.casefold()
+    matches = sorted(
+        (file for file in files if file.name.casefold() == folded), key=lambda file: (len(file.parts), str(file))
+    )
     if matches:
         return matches[0]
     start = path.parent if path.is_file() else path
     for directory in [start, *start.parents][: _SIDECAR_ANCESTORS + 1]:
-        if (directory / name).is_file():
-            return directory / name
+        try:
+            found = sorted(file for file in directory.iterdir() if file.name.casefold() == folded and file.is_file())
+        except OSError:  # e.g. an unreadable ancestor directory
+            continue
+        if found:
+            return found[0]
     return None
 
 
