@@ -512,6 +512,27 @@ def test_single_qupath_table_many_regions(tmp_path: Path) -> None:
     assert read_zarr(tmp_path / "x.zarr").tables["table"].n_obs == 2
 
 
+def test_single_qupath_table_regions_with_different_pixel_sizes(tmp_path: Path) -> None:
+    # scans of the same instrument differ in the 4th decimal; each cell is converted with its own scan's pixel size
+    sizes = {"A": 0.5069, "B": 0.5079}
+    for region, size in sizes.items():
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI", "CD3"], resolution_px_per_cm=1e4 / size)
+    header = "Image\tObject ID\tCentroid X µm\tCentroid Y µm\tCell: Area µm^2\tCD3: Cell: Mean"
+    rows = ["A_Scan1.qptiff\tu1\t5\t6\t3.14159\t1", "B_Scan1.qptiff\tu2\t10\t20\t3.14159\t2"]
+    (tmp_path / "cells.tsv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+    table = sdata.tables["table"]
+    expected = np.array([[5 / sizes["A"], 6 / sizes["A"]], [10 / sizes["B"], 20 / sizes["B"]]])
+    np.testing.assert_allclose(np.asarray(table.obsm["spatial"]), expected)
+    for region, (x, y) in zip(sizes, expected, strict=True):
+        circles = sdata.shapes[f"{region}_cells"]
+        np.testing.assert_allclose([circles.geometry.x.iloc[0], circles.geometry.y.iloc[0]], [x, y])
+        np.testing.assert_allclose(circles["radius"].iloc[0], 1 / sizes[region], rtol=1e-5)
+
+
 def test_different_panels_make_per_region_tables(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI", "CD3"])
     write_qptiff(tmp_path / "B_Scan1.qptiff", biomarkers=["DAPI", "CD8", "CD4"])

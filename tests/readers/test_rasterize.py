@@ -228,6 +228,26 @@ def test_qupath_geojson_by_order_explicit_path_in_um(tmp_path: Path, collection:
     assert (values == 1).sum() == pytest.approx((8 / 0.5069) ** 2, rel=0.15)
 
 
+def test_qupath_geojson_in_um_regions_with_different_pixel_sizes(tmp_path: Path) -> None:
+    sizes = {"A": 0.5, "B": 0.25}
+    for region, size in sizes.items():
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI"], resolution_px_per_cm=1e4 / size)
+    header = "Image\tCentroid X µm\tCentroid Y µm\tCD3: Cell: Mean"
+    rows = ["A_Scan1.qptiff\t4\t4\t1", "B_Scan1.qptiff\t24\t24\t2"]
+    (tmp_path / "cells.tsv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+    _write_geojson(tmp_path / "polygons.json", [_cell(None, 0, 0), _cell(None, 20, 20)])
+
+    sdata = phenocycler(
+        tmp_path,
+        cells_table=tmp_path / "cells.tsv",
+        image_models_kwargs=_FAST,
+        cells_table_kwargs={"geojson": tmp_path / "polygons.json", "geojson_units": "um"},
+    )
+
+    assert sdata.shapes["A_polygons"].geometry.iloc[0].equals(shapely.box(0, 0, 16, 16))
+    assert sdata.shapes["B_polygons"].geometry.iloc[0].equals(shapely.box(80, 80, 112, 112))
+
+
 def test_qupath_geojson_mask_wins(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
     _write_qupath_cells(tmp_path / "cells.tsv", ["a", "b"])

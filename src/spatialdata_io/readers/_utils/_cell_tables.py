@@ -7,6 +7,7 @@ import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -286,7 +287,7 @@ def read_cell_table(
     path: Path,
     fmt: str,
     *,
-    pixel_size_um: float | None,
+    pixel_size_um: float | Mapping[str, float | None] | None,
     default_region: str | None,
     cells_table_kwargs: Mapping[str, Any],
 ) -> CellTable:
@@ -326,7 +327,9 @@ def read_cell_table(
             - ``"generic"``: columns given by ``cells_table_kwargs``.
 
     pixel_size_um
-        The pixel size of the region image, to convert µm centroids to pixels.
+        The pixel size of the region image, to convert µm centroids to pixels; for a table of several regions, the
+        pixel size of each region, by region id: every cell is converted with the pixel size of the region its
+        region column names (see :func:`read_region_tables`), cells of other regions get NaN coordinates.
     default_region
         The region id of all cells if the table has no region column.
     cells_table_kwargs
@@ -366,13 +369,17 @@ def read_cell_table(
         "generic": _generic_roles,
     }[fmt]
     roles = reader(path, df, cells_table_kwargs)
+    units = cells_table_kwargs.get("geojson_units", "px")
+    row_pixel_sizes = None
+    if roles["in_um"] or (fmt == "qupath" and units == "um"):
+        row_pixel_sizes = _row_pixel_sizes(path, df, roles["region_column"], pixel_size_um)
     if roles.pop("in_um"):
-        if pixel_size_um is None:
+        if row_pixel_sizes is None:
             raise ValueError(
                 f"{path} has centroids in µm, but no pixel size is known to convert them to pixels (the region's "
-                "pixel size is missing, or one table covers regions with different pixel sizes)."
+                "pixel size is missing)."
             )
-        roles["px_per_unit"] = 1 / pixel_size_um
+        roles["px_per_unit"] = 1 / row_pixel_sizes
     table = _from_frame(path, df, default_region=default_region, **roles)
     if fmt == "sprm":
         table.centroids_px = _read_sprm_centers(path, table)
@@ -380,10 +387,34 @@ def read_cell_table(
         geojson = cells_table_kwargs.get("geojson")
         geojson = _find_geojson(path) if geojson is None else Path(geojson)
         if geojson is not None:
-            units = cells_table_kwargs.get("geojson_units", "px")
-            table.polygons_px = read_qupath_polygons(geojson, table, path, units=units, pixel_size_um=pixel_size_um)
+            table.polygons_px = read_qupath_polygons(geojson, table, path, units=units, pixel_size_um=row_pixel_sizes)
             table.geojson = geojson
     return table
+
+
+def _row_pixel_sizes(
+    path: Path, df: pd.DataFrame, region_column: str | None, pixel_size_um: float | Mapping[str, float | None] | None
+) -> float | np.ndarray | None:
+    """The pixel size of every row of ``df``, or one for all rows; `None` if it is unknown.
+
+    For pixel sizes by region id, each row gets that of the region its region column names, NaN if it names none of
+    them (its cells are not read). Raises if a region named by the table has no pixel size.
+    """
+    if not isinstance(pixel_size_um, Mapping):
+        return pixel_size_um
+    if region_column is None or region_column not in df.columns:
+        sizes = set(pixel_size_um.values())
+        return sizes.pop() if len(sizes) == 1 else None
+    values = df[region_column].astype(str)
+    regions = {value: _match_region(value, list(pixel_size_um)) for value in values.unique()}
+    unknown = sorted({region for region in regions.values() if region is not None and pixel_size_um[region] is None})
+    if unknown:
+        raise ValueError(
+            f"{path} has coordinates in µm, but the pixel size of region(s) {unknown} is unknown, so they cannot be "
+            "converted to pixels."
+        )
+    sizes_by_value = {value: np.nan if region is None else pixel_size_um[region] for value, region in regions.items()}
+    return values.map(sizes_by_value).to_numpy(dtype=np.float64)
 
 
 def _find_geojson(table_path: Path) -> Path | None:
@@ -396,7 +427,12 @@ def _find_geojson(table_path: Path) -> Path | None:
 
 
 def read_qupath_polygons(
-    geojson: Path, table: CellTable, table_path: Path, *, units: str = "px", pixel_size_um: float | None = None
+    geojson: Path,
+    table: CellTable,
+    table_path: Path,
+    *,
+    units: str = "px",
+    pixel_size_um: float | np.ndarray | None = None,
 ) -> np.ndarray:
     """Read the cell outlines of a QuPath GeoJSON export and match them to the cells of its measurement table.
 
@@ -419,7 +455,7 @@ def read_qupath_polygons(
     units
         The unit of the coordinates: ``"px"`` (of the full-resolution image, what QuPath writes) or ``"um"``.
     pixel_size_um
-        The pixel size, to convert ``"um"`` coordinates.
+        The pixel size, to convert ``"um"`` coordinates, or the pixel size of every row of ``table``.
 
     Returns
     -------
@@ -427,16 +463,11 @@ def read_qupath_polygons(
     """
     if units not in ("px", "um"):
         raise ValueError(f"`cells_table_kwargs['geojson_units']` must be 'px' or 'um', got {units!r}.")
-    px_per_unit = 1.0
-    if units == "um":
-        if pixel_size_um is None:
-            raise ValueError(f"{geojson} has coordinates in µm, but no pixel size is known to convert them to pixels.")
-        px_per_unit = 1 / pixel_size_um
+    if units == "um" and pixel_size_um is None:
+        raise ValueError(f"{geojson} has coordinates in µm, but no pixel size is known to convert them to pixels.")
     if not geojson.is_file():
         raise FileNotFoundError(f"{geojson} does not exist or is not a file.")
     ids, geometries, kinds = _read_geojson(geojson)
-    if px_per_unit != 1.0:
-        geometries = shapely.transform(geometries, lambda xy: xy * px_per_unit)
 
     polygons = np.full(len(table.obs), None, dtype=object)
     if _QUPATH_ID in table.obs.columns and ids is not None:
@@ -469,14 +500,25 @@ def read_qupath_polygons(
                 f"without ids ('{_QUPATH_ID}'), polygons are matched to cells in order."
             )
         polygons[:] = cells
+    if units == "um":
+        _scale_polygons(polygons, 1 / np.broadcast_to(np.asarray(pixel_size_um, dtype=np.float64), polygons.shape))
     if table.centroids_px is not None:
         _check_centroids(polygons, table.centroids_px, geojson, table_path)
     return polygons
 
 
+def _scale_polygons(polygons: np.ndarray, factors: np.ndarray) -> None:
+    """Scale every polygon by its factor in place; polygons with a NaN factor (cells that are not read) are dropped."""
+    polygons[np.isnan(factors)] = None
+    for factor in np.unique(factors[~np.isnan(factors)]):
+        rows = np.flatnonzero((factors == factor) & pd.notna(polygons))
+        polygons[rows] = shapely.transform(polygons[rows], partial(np.multiply, factor))
+
+
 def _check_centroids(polygons: np.ndarray, centroids_px: np.ndarray, geojson: Path, table_path: Path) -> None:
     """Raise if too many polygons are far from the centroids of the cells they were matched to."""
-    matched = pd.notna(polygons)
+    # cells of regions that are not read have no pixel coordinates
+    matched = pd.notna(polygons) & np.isfinite(centroids_px).all(axis=1)
     if not matched.any():
         return
     distance = shapely.distance(polygons[matched], shapely.points(centroids_px[matched]))
@@ -699,9 +741,9 @@ def _from_frame(
     region_column: str | None,
     area_column: str | None,
     default_region: str | None,
-    px_per_unit: float = 1.0,
+    px_per_unit: float | np.ndarray = 1.0,
 ) -> CellTable:
-    """Build a `CellTable` from a data frame and the roles of its columns."""
+    """Build a `CellTable` from a data frame and the roles of its columns; ``px_per_unit`` may be given per row."""
     roles = [x, y, instance_column, region_column, area_column, *markers]
     missing = [column for column in roles if column is not None and column not in df.columns]
     if missing:
@@ -739,7 +781,9 @@ def _from_frame(
         var=var,
         region=region,
         instance_id=instance_id,
-        centroids_px=None if x is None or y is None else df[[x, y]].to_numpy(dtype=np.float64) * px_per_unit,
+        centroids_px=None
+        if x is None or y is None
+        else df[[x, y]].to_numpy(dtype=np.float64) * np.reshape(px_per_unit, (-1, 1)),
         radius_px=radius,
         row_instance_ids=instance_column is None,
     )
@@ -843,12 +887,12 @@ def read_region_tables(
         )
     tables = []
     for key, path in files.items():
-        covered = selected if key == "*" else [key]
-        sizes = {pixel_sizes.get(region) for region in covered}
+        # a table for several regions converts the µm coordinates of each cell with the pixel size of its region
+        size = {region: pixel_sizes.get(region) for region in selected} if key == "*" else pixel_sizes.get(key)
         table = read_cell_table(
             path,
             fmt,
-            pixel_size_um=sizes.pop() if len(sizes) == 1 else None,
+            pixel_size_um=size,
             default_region=None if key == "*" else key,
             cells_table_kwargs={**cells_table_kwargs, "geojson": geojson_files.get(key)},
         )
