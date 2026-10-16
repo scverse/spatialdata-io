@@ -135,6 +135,46 @@ def test_enrichment_leaves_unmatched_channels_empty(tmp_path: Path) -> None:
     assert [c.cycle for c in scan.channels] == [1, 1, None]
 
 
+def test_enrichment_ambiguous_name_left_unset(tmp_path: Path) -> None:
+    p = tmp_path / "x.qptiff"
+    wells = [[("DAPI", "DAPI"), ("CD3", "ATTO 550")], [("DAPI", "DAPI"), ("CD8", "AF 750")], [("DAPI", "DAPI")]]
+    write_qptiff(p, biomarkers=["DAPI", "CD3", "CD8"], scan_profile=fusion_scan_profile_json(wells))
+    scan = read_qptiff_metadata(p)
+    assert [c.cycle for c in scan.channels] == [None, 1, 2]
+    assert scan.channels[0].channel is None
+
+
+def test_enrichment_positional_when_counts_match(tmp_path: Path) -> None:
+    p = tmp_path / "cim.qptiff"
+    write_qptiff(
+        p,
+        biomarkers=["DAPI", "F4-80", "NK1"],
+        software="Codex Instrument Manager 1.30.0.12",
+        scan_profile=cim_experiment_v4_xml([["DAPI", "F4/80"], ["NK1.1", "BLANK"]]),
+    )
+    scan = read_qptiff_metadata(p)
+    assert [c.name for c in scan.channels] == ["DAPI", "F4-80", "NK1"]
+    assert [(c.cycle, c.channel) for c in scan.channels] == [(1, 1), (1, 2), (2, 1)]
+
+
+def test_enrichment_not_positional_when_orders_differ(tmp_path: Path) -> None:
+    p = tmp_path / "x.qptiff"
+    wells = [[("DAPI", "DAPI"), ("CD3", "ATTO 550"), ("CD8", "CY5"), ("CD20", "AF 750")]]
+    write_qptiff(p, biomarkers=["DAPI", "CD3", "CD20", "CD8"], scan_profile=fusion_scan_profile_json(wells))
+    scan = read_qptiff_metadata(p)
+    assert [c.channel for c in scan.channels] == [1, 2, 4, 3]
+
+
+def test_profile_record_without_marker_skipped(tmp_path: Path) -> None:
+    p = tmp_path / "x.qptiff"
+    profile = json.loads(fusion_scan_profile_json([[("DAPI", "DAPI"), ("CD3", "ATTO 550")]]))
+    del profile["experimentDescription"]["wells"][0]["items"][1]["markerName"]
+    write_qptiff(p, biomarkers=["DAPI", "CD3"], scan_profile=json.dumps(profile))
+    dapi, cd3 = read_qptiff_metadata(p).channels
+    assert dapi.cycle == 1
+    assert cd3.cycle is None
+
+
 @pytest.mark.parametrize(("dtype", "name"), [("uint8", "x.qptiff"), ("uint16", "x.er.qptiff")])
 def test_image_is_lazy_and_correct(tmp_path: Path, dtype: str, name: str) -> None:
     p = tmp_path / name

@@ -311,6 +311,9 @@ def _fusion_profile_records(profile: dict[str, Any]) -> list[tuple[str, dict[str
     wells = profile.get("experimentDescription", {}).get("wells", [])
     for cycle, well in enumerate(wells, start=1):
         for channel, item in enumerate(well.get("items", []), start=1):
+            marker = item.get("markerName")
+            if not isinstance(marker, str) or _is_blank(marker):
+                continue
             # Fusion writes the string "None" for reagent fields that do not apply (e.g. DAPI)
             extra = {
                 key: item[key]
@@ -323,7 +326,7 @@ def _fusion_profile_records(profile: dict[str, Any]) -> list[tuple[str, dict[str
             exposure = item.get("exposure")
             records.append(
                 (
-                    str(item.get("markerName")),
+                    marker,
                     {
                         "cycle": cycle,
                         "channel": channel,
@@ -341,6 +344,9 @@ def _experiment_v4_records(experiment: ET.Element) -> list[tuple[str, dict[str, 
     for cycle in experiment.iterfind("Cycles/Cycle"):
         cycle_index = _float(_text(cycle, "Index"))
         for channel in cycle.iterfind("Channels/Channel"):
+            marker = _text(channel, "MarkerName")
+            if marker is None or _is_blank(marker) or _text(channel, "MarkerClass") == "Blank":
+                continue
             channel_index = _float(_text(channel, "Index"))
             extra: dict[str, Any] = {}
             for key, tag in (("dye", "DyeName"), ("marker_class", "MarkerClass")):
@@ -352,7 +358,7 @@ def _experiment_v4_records(experiment: ET.Element) -> list[tuple[str, dict[str, 
                 extra["wavelength_nm"] = wavelength
             records.append(
                 (
-                    str(_text(channel, "MarkerName")),
+                    marker,
                     {
                         "cycle": None if cycle_index is None else int(cycle_index),
                         "channel": None if channel_index is None else int(channel_index),
@@ -364,25 +370,59 @@ def _experiment_v4_records(experiment: ET.Element) -> list[tuple[str, dict[str, 
     return records
 
 
-def _enrich(channels: list[AkoyaChannel], records: list[tuple[str, dict[str, Any]]]) -> None:
-    """Fill cycle/channel/extra from the scan profile, joined on (marker name, occurrence index).
+def _is_blank(marker: str) -> bool:
+    """Whether a scan-profile marker is a blank/empty slot (Fusion ``--``, CIM ``BLANK``/``EMPTY``)."""
+    return marker.strip() in {"", "--"} or marker.strip().casefold() in {"blank", "empty"}
 
-    The page XML stays authoritative: channels are never reordered and the page exposure wins; channels
-    without a matching record are left unchanged.
+
+def _name_key(name: str) -> str:
+    # CIM sanitises page Biomarker names (``F4/80`` -> ``F4-80``), so compare alphanumerics only
+    return re.sub(r"[^0-9a-z]", "", name.casefold())
+
+
+def _enrich(channels: list[AkoyaChannel], records: list[tuple[str, dict[str, Any]]]) -> None:
+    """Fill cycle/channel/extra of ``channels`` from the non-blank scan-profile ``records``.
+
+    Record ``k`` enriches page ``k`` when there are as many records as pages and no pair contradicts the names.
+    Otherwise channels are joined on the normalised name with occurrence index, but only for names that occur
+    as often in the pages as in the profile; any other channel is left unchanged rather than guessed. The page
+    XML stays authoritative: names and order never change and the page exposure wins.
     """
-    by_key: dict[tuple[str, int], dict[str, Any]] = {}
-    seen: Counter[str] = Counter()
-    for name, record in records:
-        by_key[(name, seen[name])] = record
-        seen[name] += 1
-    seen.clear()
-    for channel in channels:
-        match = by_key.get((channel.name, seen[channel.name]))
-        seen[channel.name] += 1
-        if match is None:
-            continue
-        channel.cycle = match["cycle"]
-        channel.channel = match["channel"]
+    for channel, (_, record) in _positional_pairs(channels, records) or _name_pairs(channels, records):
+        channel.cycle = record["cycle"]
+        channel.channel = record["channel"]
         if channel.exposure_ms is None:
-            channel.exposure_ms = match["exposure_ms"]
-        channel.extra.update({k: v for k, v in match["extra"].items() if k not in channel.extra})
+            channel.exposure_ms = record["exposure_ms"]
+        channel.extra.update({k: v for k, v in record["extra"].items() if k not in channel.extra})
+
+
+def _positional_pairs(
+    channels: list[AkoyaChannel], records: list[tuple[str, dict[str, Any]]]
+) -> list[tuple[AkoyaChannel, tuple[str, dict[str, Any]]]]:
+    if len(channels) != len(records):
+        return []
+    # Fusion orders the pages of a cycle differently from the well items; a page whose marker sits at another
+    # position in the profile means the orders differ and the positional pairing would be wrong
+    record_keys = {_name_key(name) for name, _ in records}
+    for channel, (name, _) in zip(channels, records, strict=True):
+        key = _name_key(channel.name)
+        if key != _name_key(name) and key in record_keys:
+            return []
+    return list(zip(channels, records, strict=True))
+
+
+def _name_pairs(
+    channels: list[AkoyaChannel], records: list[tuple[str, dict[str, Any]]]
+) -> list[tuple[AkoyaChannel, tuple[str, dict[str, Any]]]]:
+    channels_by_key: dict[str, list[AkoyaChannel]] = {}
+    records_by_key: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for channel in channels:
+        channels_by_key.setdefault(_name_key(channel.name), []).append(channel)
+    for record in records:
+        records_by_key.setdefault(_name_key(record[0]), []).append(record)
+    pairs: list[tuple[AkoyaChannel, tuple[str, dict[str, Any]]]] = []
+    for key, keyed_channels in channels_by_key.items():
+        keyed_records = records_by_key.get(key, [])
+        if len(keyed_records) == len(keyed_channels):
+            pairs.extend(zip(keyed_channels, keyed_records, strict=True))
+    return pairs
