@@ -236,12 +236,13 @@ def test_qupath_geojson_mask_wins(tmp_path: Path) -> None:
     mask[100:110, 100:110] = 1
     tifffile.imwrite(tmp_path / "mask.tif", mask)
 
-    with pytest.warns(UserWarning, match="mask .* is used"):
+    with pytest.warns(UserWarning, match="mask .* is used for the labels and the polygons are kept as 'S_polygons'"):
         sdata = phenocycler(
             tmp_path, cells_table=tmp_path / "cells.tsv", labels=tmp_path / "mask.tif", image_models_kwargs=_FAST
         )
 
     np.testing.assert_array_equal(sdata.labels["S_labels"]["scale0"]["image"].values, mask)
+    assert "S_polygons" in sdata.shapes
 
 
 def test_qupath_geojson_errors(tmp_path: Path) -> None:

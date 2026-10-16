@@ -21,7 +21,7 @@ This package contains reader functions to load common spatial omics formats into
 - 10x Genomics Visium®
 - 10x Genomics Visium HD®
 - 10x Genomics Xenium®
-- Akoya PhenoCycler® (formerly CODEX®)
+- Akoya PhenoCycler® (formerly CODEX®): CODEX Processor/Uploader/Instrument Manager outputs and PhenoCycler-Fusion 1.x/2.x
 - Curio Seeker®
 - DBiT-seq
 - MCMICRO (output data)

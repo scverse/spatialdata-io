@@ -989,7 +989,8 @@ def polygon_labels(
     """Lazily rasterise the cell polygons of each region into labels whose values are the cells' instance ids.
 
     Where cells overlap, the one with the higher instance id wins. Regions with a mask in ``labels`` keep it, with
-    a warning; regions without an image are skipped, their cells become circles.
+    a warning; regions without an image are skipped, their cells become circles. In both cases the polygons are
+    still kept as shapes, see :func:`polygon_shapes`.
 
     Parameters
     ----------
@@ -1020,7 +1021,8 @@ def polygon_labels(
                 row_ids = " Its cells' instance ids are row numbers and may not match the mask's values."
                 warnings.warn(
                     f"Region '{region}' has both a segmentation mask and the cell polygons {table.geojson}; the mask "
-                    f"is used.{row_ids if table.row_instance_ids else ''}",
+                    f"is used for the labels and the polygons are kept as '{region}{PhenocyclerKeys.POLYGONS_SUFFIX}'."
+                    f"{row_ids if table.row_instance_ids else ''}",
                     UserWarning,
                     stacklevel=3,
                 )

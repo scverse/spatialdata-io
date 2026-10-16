@@ -82,23 +82,27 @@ def phenocycler(
     ``<region>{vx.IMAGE_SUFFIX}``. A single region is stored in the ``"global"`` coordinate system. Several regions
     of the same sample space (scanned on the same slide, with stage positions and equal pixel sizes) are placed at
     their stage positions in ``"global"``; otherwise the regions are unrelated and each is stored in its own
-    coordinate system, named after the region. All elements of a region share its coordinate system. The
-    per-region metadata is stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]``.
+    coordinate system, named after the region. A region with cells or a mask but no scan gets its own coordinate
+    system too. All elements of a region share its coordinate system. The per-region metadata is stored in
+    ``sdata.attrs[{vx.ATTRS_KEY!r}]``.
 
     A segmentation mask given in ``labels`` is stored lazily as the labels ``<region>{vx.LABELS_SUFFIX}`` with the
     transformation of the region's image. The cells of ``cells_table`` are stored in one table
     ``{vx.TABLE_KEY!r}`` (marker intensities dense float32 in ``X``, pixel centroids in ``obsm["spatial"]``,
     ``obs[{vx.REGION_KEY!r}]`` the annotated element, ``obs[{vx.INSTANCE_KEY!r}]`` the instance key), or in one
-    table ``<region>_table`` per region if the regions have different markers. Cells annotate the labels of their
-    region, whose values must be their instance ids; without a mask they are stored as circles
-    ``<region>{vx.CELLS_SUFFIX}``, with a warning. The cell outlines of a QuPath GeoJSON export (see
-    ``cells_table_kwargs``) are rasterised lazily, one chunk at a time, into the labels of a region without a
-    mask; a feature's ``id`` is matched to the table's ``Object ID`` (else features and rows are matched in order),
-    the labels hold the cells' instance ids, and where cells overlap the higher instance id wins. The outlines are
-    also kept as the shapes ``<region>{vx.POLYGONS_SUFFIX}`` in pixels, indexed by the same instance ids; the table
-    annotates the labels. The paths of the
-    tables, masks and GeoJSON files are stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]``, ``["labels"]``
-    and ``["geojson"]``.
+    table ``<region>_table`` per region if the regions have different markers. Columns of the cell table that clash
+    with ``{vx.REGION_KEY!r}`` or ``{vx.INSTANCE_KEY!r}`` are kept as ``source_<name>``, and column names that
+    spatialdata cannot write (e.g. QuPath's ``Centroid X µm``) are sanitised (``Centroid_X_µm``). Cells annotate
+    the labels of their region, whose values must be their instance ids; without a mask they are stored as circles
+    ``<region>{vx.CELLS_SUFFIX}``, with a warning.
+
+    The cell outlines of a QuPath GeoJSON export (see ``cells_table_kwargs``) are rasterised lazily, one chunk at a
+    time, into the labels of a region without a mask; a feature's ``id`` is matched to the table's ``Object ID``
+    (else features and rows are matched in order), the labels hold the cells' instance ids, and where cells overlap
+    the higher instance id wins; the table annotates the labels. The outlines are always kept as the shapes
+    ``<region>{vx.POLYGONS_SUFFIX}`` in pixels, indexed by the same instance ids, also when a mask is given for the
+    region (the mask is used for the labels, with a warning). The paths of the tables, masks and GeoJSON files are
+    stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]``, ``["labels"]`` and ``["geojson"]``.
 
     .. seealso::
 
@@ -121,7 +125,8 @@ def phenocycler(
     cells_table_format
         The format of ``cells_table``: ``"auto"`` (detected from the header), ``"codex"`` (CODEX Processor),
         ``"qupath"`` (QuPath measurements; µm centroids are converted with the region's pixel size), ``"mcquant"``
-        (MCMICRO) or ``"generic"`` (columns given by ``cells_table_kwargs``).
+        (MCMICRO), ``"sprm"`` (HuBMAP SPRM ``*-cell_channel_mean.csv``), ``"inform"`` (inForm
+        ``*_cell_seg_data.txt``) or ``"generic"`` (columns given by ``cells_table_kwargs``).
     labels
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
         mapping from region id to path.
@@ -293,7 +298,7 @@ def _read_sidecars(scan: AkoyaScan) -> None:
 
 
 def _find_sidecar(qptiff: Path, base: str, suffix: str) -> Path | None:
-    """First file ending in ``suffix`` whose name starts with ``base``, next to the scan or in HuBMAP's processed dir."""
+    """First file ending in ``suffix`` whose name starts with ``base``, next to the scan or in HuBMAP processed dir."""
     pattern = re.compile(rf"{re.escape(base)}(?![0-9A-Za-z]).*{re.escape(suffix)}$")
     directories = [qptiff.parent]
     # HuBMAP keeps `raw/images/<scan>.qptiff` and `lab_processed/images/<scan>.qptiff.channels.csv`

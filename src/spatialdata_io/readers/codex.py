@@ -119,19 +119,26 @@ def codex(
     ``bestFocus/``) are ignored. The region id ``regNNN`` is taken from the file names; a ``{vx.QPTIFF!r}`` without
     one is named after its file. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files
     are read as hyperstacks named after their files. Each region is stored as the image ``<region>_image`` and its
-    metadata in ``sdata.attrs["akoya"]``. A single region is stored in the ``"global"`` coordinate system. Several
-    CIM scans of the same sample space (same slide, with stage positions and equal pixel sizes) are placed at their
-    stage positions in ``"global"``; otherwise (e.g. CODEX Processor regions, which have no stage positions) each
-    region is stored in its own coordinate system, named after the region. All elements of a region share its
-    coordinate system. The cells of each region are stored as circles ``<region>_cells`` with the cells' area
-    (``size`` column), annotated by one table ``"table"`` (``obs["region"]`` names the circles, ``obs["cell_id"]``
-    is the instance key), or by one table ``<region>_table`` per region if the regions have different markers. A region with a segmentation mask in
-    ``labels`` gets the labels ``<region>_labels`` instead of circles, and its cells annotate them; so does a
-    region with the cell outlines of a QuPath GeoJSON export (see ``cells_table_kwargs``), rasterised lazily one
-    chunk at a time with the cells' instance ids (the higher id wins where cells overlap); the outlines are also kept
-    as the shapes ``<region>_polygons`` in pixels, indexed by the same instance ids. The paths of the tables,
-    masks and GeoJSON files read are stored in ``sdata.attrs["akoya"]["cell_tables"]``, ``["labels"]`` and
-    ``["geojson"]``.
+    metadata in ``sdata.attrs["akoya"]``.
+
+    A single region is stored in the ``"global"`` coordinate system. Several CIM scans of the same sample space
+    (same slide, with stage positions and equal pixel sizes) are placed at their stage positions in ``"global"``;
+    otherwise (e.g. CODEX Processor regions, which have no stage positions) each region is stored in its own
+    coordinate system, named after the region. A region with cells or a mask but no image is unrelated to the
+    scans, so it also gets its own coordinate system. All elements of a region share its coordinate system.
+
+    The cells of each region are stored as circles ``<region>_cells`` with the cells' area (``size`` column),
+    annotated by one table ``"table"`` (``obs["region"]`` names the annotated element, ``obs["cell_id"]`` is the
+    instance key), or by one table ``<region>_table`` per region if the regions have different markers. Columns of
+    the cell table that clash with ``region`` or ``cell_id`` are kept as ``source_<name>``, and column names that
+    spatialdata cannot write (e.g. QuPath's ``Centroid X µm``) are sanitised (``Centroid_X_µm``). A region with a
+    segmentation mask in ``labels`` gets the labels ``<region>_labels`` instead of circles, and its cells annotate
+    them; so does a region with the cell outlines of a QuPath GeoJSON export (see ``cells_table_kwargs``),
+    rasterised lazily one chunk at a time with the cells' instance ids (the higher id wins where cells overlap).
+    The outlines are always kept as the shapes ``<region>_polygons`` in pixels, indexed by the same instance ids,
+    also when a mask is given for the region (the mask is used for the labels, with a warning) or the region has no
+    image (its cells are then circles). The paths of the tables, masks and GeoJSON files read are stored in
+    ``sdata.attrs["akoya"]["cell_tables"]``, ``["labels"]`` and ``["geojson"]``.
 
     .. seealso::
 
@@ -155,8 +162,9 @@ def codex(
         ``cells_table_kwargs["region_column"]``). See ``cells_table_format`` for the formats.
     cells_table_format
         The format of ``cells_table``: ``"auto"`` (detected from the header), ``"codex"``, ``"qupath"`` (QuPath
-        measurements; µm centroids are converted with the region's pixel size), ``"mcquant"`` (MCMICRO) or
-        ``"generic"`` (columns given by ``cells_table_kwargs``).
+        measurements; µm centroids are converted with the region's pixel size), ``"mcquant"`` (MCMICRO), ``"sprm"``
+        (HuBMAP SPRM ``*-cell_channel_mean.csv``), ``"inform"`` (inForm ``*_cell_seg_data.txt``) or ``"generic"``
+        (columns given by ``cells_table_kwargs``).
     labels
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
         mapping from region id to path. Each mask is stored lazily as the labels ``<region>_labels``
@@ -164,7 +172,7 @@ def codex(
         their instance ids must be the mask values.
     imread_kwargs
         Keyword arguments passed to :func:`dask_image.imread.imread`, which is only used for ``{vx.IMAGE_TIF}(f)``
-        files that :mod:`tifffile` cannot read lazily (e.g. unsupported compression).
+        files that ``tifffile`` cannot read lazily (e.g. unsupported compression).
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
