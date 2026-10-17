@@ -43,6 +43,7 @@ _READERS = [
     ("spatialdata_io.readers.macsima", "macsima", "macsima_wrapper"),
     ("spatialdata_io.readers.mcmicro", "mcmicro", "mcmicro_wrapper"),
     ("spatialdata_io.readers.merscope", "merscope", "merscope_wrapper"),
+    ("spatialdata_io.readers.phenocycler", "phenocycler", "phenocycler_wrapper"),
     ("spatialdata_io.readers.seqfish", "seqfish", "seqfish_wrapper"),
     ("spatialdata_io.readers.steinbock", "steinbock", "steinbock_wrapper"),
     ("spatialdata_io.readers.stereoseq", "stereoseq", "stereoseq_wrapper"),
