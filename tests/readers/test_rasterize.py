@@ -102,6 +102,40 @@ def test_rasterize_multipolygon_and_empty() -> None:
     assert not rasterize_polygons_lazy([], [], shape=(5, 6)).compute().any()
 
 
+def test_rasterize_bounds_the_pixels_of_a_large_polygon(monkeypatch: pytest.MonkeyPatch) -> None:
+    tested = []
+
+    def counting_intersects_xy(geometries: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        tested.append(len(x))
+        return intersects_xy(geometries, x, y)
+
+    intersects_xy = shapely.intersects_xy
+    polygons = [shapely.Polygon([(-1.3, -2.2), (40.5, 3.1), (37.2, 41.7), (2.4, 30.3)]), shapely.box(3, 3, 9, 9)]
+    expected = rasterize_polygons_lazy(polygons, [1, 2], shape=(32, 32), chunks=(32, 32)).compute()
+    monkeypatch.setattr(_rasterize, "_BATCH_PIXELS", 100)
+    monkeypatch.setattr(_rasterize.shapely, "intersects_xy", counting_intersects_xy)
+
+    # the first polygon covers the whole chunk: its pixels are tested in bands of rows
+    labels = rasterize_polygons_lazy(polygons, [1, 2], shape=(32, 32), chunks=(32, 32)).compute()
+
+    np.testing.assert_array_equal(labels, expected)
+    assert max(tested) <= 100
+    assert sum(tested) == 32 * 32 + 8 * 8
+
+
+def test_rasterize_draws_only_polygonal_parts() -> None:
+    collection = shapely.GeometryCollection(
+        [shapely.box(0, 0, 2, 2), shapely.LineString([(4, 0.5), (7, 0.5)]), shapely.Point(6.5, 6.5)]
+    )
+    line = shapely.LineString([(0.5, 5), (0.5, 7)])
+
+    labels = rasterize_polygons_lazy([collection, line], [1, 2], shape=(8, 8), chunks=(4, 4)).compute()
+
+    expected = np.zeros((8, 8), dtype=np.uint32)
+    expected[:2, :2] = 1
+    np.testing.assert_array_equal(labels, expected)
+
+
 def test_rasterize_errors() -> None:
     with pytest.raises(ValueError, match="2 polygons but 1 ids"):
         rasterize_polygons_lazy([shapely.box(0, 0, 1, 1)] * 2, [1], shape=(4, 4))

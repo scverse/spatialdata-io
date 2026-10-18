@@ -18,13 +18,15 @@ if TYPE_CHECKING:
 __all__ = ["rasterize_polygons_lazy"]
 
 _MAX_ID = np.iinfo(np.uint32).max
-# the polygon pixels tested at once, bounding the memory of a block's temporaries (~25 MB)
+_POLYGONAL = (shapely.GeometryType.POLYGON, shapely.GeometryType.MULTIPOLYGON)
+# the polygon pixels tested at once (at least one row of a polygon), bounding the memory of a block's temporaries
+# (~25 MB)
 _BATCH_PIXELS = 1 << 18
 _TOKEN_BATCH = 1 << 16
 
 
 def rasterize_polygons_lazy(
-    polygons: Sequence[shapely.Polygon | shapely.MultiPolygon],
+    polygons: Sequence[shapely.Geometry],
     ids: Sequence[int],
     shape: tuple[int, int],
     chunks: tuple[int, int] = (4096, 4096),
@@ -40,7 +42,7 @@ def rasterize_polygons_lazy(
     Parameters
     ----------
     polygons
-        The polygons, in pixels.
+        The polygons, in pixels; of other geometries (e.g. a ``GeometryCollection``) only the polygons are drawn.
     ids
         The label of each polygon, between 1 and ``2**32 - 1``.
     shape
@@ -57,7 +59,7 @@ def rasterize_polygons_lazy(
     labels = np.asarray(ids, dtype=np.int64)
     if len(labels) and (labels.min() < 1 or labels.max() > _MAX_ID):
         raise ValueError(f"Polygon ids must be between 1 and {_MAX_ID}; got {labels.min()} to {labels.max()}.")
-    geometries = np.asarray(polygons, dtype=object)
+    geometries = _polygonal(np.array(polygons, dtype=object))
     labels = labels.astype(np.uint32)
     sizes = normalize_chunks(chunks, shape, dtype=np.uint32)
     name = f"rasterize-polygons-{_token(geometries, labels, sizes)}"
@@ -84,6 +86,14 @@ def rasterize_polygons_lazy(
     return da.Array(graph, name, sizes, meta=np.empty((0, 0), dtype=np.uint32))
 
 
+def _polygonal(geometries: np.ndarray) -> np.ndarray:
+    """``geometries`` with only the polygons of collections; lines and points cover no pixels."""
+    for i in np.flatnonzero(~np.isin(shapely.get_type_id(geometries), _POLYGONAL)):
+        parts = shapely.get_parts(shapely.get_parts(geometries[i]))
+        geometries[i] = shapely.multipolygons(parts[shapely.get_type_id(parts) == shapely.GeometryType.POLYGON])
+    return geometries
+
+
 def _token(geometries: np.ndarray, labels: np.ndarray, *args: Any) -> str:
     """A deterministic token of the polygons, hashing their WKB in batches to bound the memory."""
     wkb = hashlib.blake2b(digest_size=16)
@@ -106,14 +116,23 @@ def _draw_block(
     minx, miny, maxx, maxy = shapely.bounds(geometries).T
     r0, r1 = np.clip([np.floor(miny - 0.5), np.ceil(maxy - 0.5) + 1], 0, shape[0]).astype(np.int64)
     c0, c1 = np.clip([np.floor(minx - 0.5), np.ceil(maxx - 0.5) + 1], 0, shape[1]).astype(np.int64)
-    width = c1 - c0
-    sizes = np.maximum(r1 - r0, 0) * np.maximum(width, 0)
-    firsts = np.cumsum(sizes) - sizes
+    # a polygon larger than a batch is tested in bands of rows
+    width = np.maximum(c1 - c0, 0)
+    band = np.maximum(_BATCH_PIXELS // np.maximum(width, 1), 1)
+    n_bands = np.maximum(-(-(r1 - r0) // band), 1)
+    of = np.repeat(np.arange(len(geometries)), n_bands)
+    nth = np.arange(len(of)) - np.repeat(np.cumsum(n_bands) - n_bands, n_bands)
+    r0 = r0[of] + nth * band[of]
+    r1, c0, width = np.minimum(r0 + band[of], r1[of]), c0[of], width[of]
+    geometries, labels = geometries[of], labels[of]
+    sizes = np.maximum(r1 - r0, 0) * width
+    ends = np.cumsum(sizes)
+    firsts = ends - sizes
     flat = out.reshape(-1)
     # all candidate pixels of a batch of polygons are tested in one GEOS call, which releases the GIL
     start = 0
     while start < len(geometries):
-        stop = max(int(np.searchsorted(firsts, firsts[start] + _BATCH_PIXELS)), start + 1)
+        stop = max(int(np.searchsorted(ends, firsts[start] + _BATCH_PIXELS, side="right")), start + 1)
         owner = np.repeat(np.arange(start, stop), sizes[start:stop])
         offset = np.arange(len(owner)) - (firsts[owner] - firsts[start])
         rows = r0[owner] + offset // width[owner]
