@@ -52,6 +52,7 @@ __all__ = [
     "CellTable",
     "build_cells",
     "build_spatialdata",
+    "check_cells_table_options",
     "detect_table_format",
     "mask_downsample_factor",
     "polygon_labels",
@@ -346,9 +347,7 @@ def read_cell_table(
     -------
     The cell table. Its regions are the (matched) values of the region column, or ``default_region``.
     """
-    unknown = sorted(set(cells_table_kwargs) - set(CELLS_TABLE_KWARGS))
-    if unknown:
-        raise ValueError(f"`cells_table_kwargs` has unknown key(s) {unknown}; expected some of {CELLS_TABLE_KWARGS}.")
+    check_cells_table_options(fmt, cells_table_kwargs)
     if fmt == "auto":
         # centroid columns given by the user make a generic table
         fmt = "generic" if {"x", "y"} <= cells_table_kwargs.keys() else detect_table_format(path)
@@ -359,8 +358,6 @@ def read_cell_table(
         raise ValueError(
             f"`cells_table_kwargs['coordinates_space']` is only used with generic cell tables; {path} is {fmt!r}."
         )
-    if fmt not in TABLE_FORMATS:
-        raise ValueError(f"Unknown cell table format {fmt!r}; expected 'auto' or one of {TABLE_FORMATS}.")
 
     if path.suffix.lower() == CodexKeys.FCS_FILE.value:
         df = _read_fcs(path)
@@ -431,6 +428,15 @@ def _region_values(
         # the region column of a table for one region names its source image only
         return pd.Series(default_region, index=df.index)
     return values.map({value: value if region is None else region for value, region in matched.items()})
+
+
+def check_cells_table_options(fmt: str, cells_table_kwargs: Mapping[str, Any]) -> None:
+    """Raise for an unknown cell table format or key of ``cells_table_kwargs``, also when no table is read."""
+    if fmt != "auto" and fmt not in TABLE_FORMATS:
+        raise ValueError(f"Unknown cell table format {fmt!r}; expected 'auto' or one of {TABLE_FORMATS}.")
+    unknown = sorted(set(cells_table_kwargs) - set(CELLS_TABLE_KWARGS))
+    if unknown:
+        raise ValueError(f"`cells_table_kwargs` has unknown key(s) {unknown}; expected some of {CELLS_TABLE_KWARGS}.")
 
 
 def _row_pixel_sizes(

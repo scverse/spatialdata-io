@@ -18,7 +18,12 @@ from spatialdata_io.readers._utils._akoya import (
     read_json_object,
     select_regions,
 )
-from spatialdata_io.readers._utils._cell_tables import build_spatialdata, read_region_tables, resolve_per_region
+from spatialdata_io.readers._utils._cell_tables import (
+    build_spatialdata,
+    check_cells_table_options,
+    read_region_tables,
+    resolve_per_region,
+)
 from spatialdata_io.readers._utils._qptiff import (
     _fusion_profile_records,
     _is_blank,
@@ -175,6 +180,7 @@ def phenocycler(
     -------
     :class:`spatialdata.SpatialData`
     """
+    check_cells_table_options(cells_table_format, cells_table_kwargs)
     regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)

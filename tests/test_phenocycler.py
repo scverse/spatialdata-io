@@ -1068,3 +1068,13 @@ def test_cells_without_a_positive_area_get_unit_circles(tmp_path: Path) -> None:
         sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
 
     np.testing.assert_allclose(sdata.shapes["S_cells"]["radius"], [1, 1, 1], rtol=1e-5)
+
+
+@pytest.mark.parametrize("reader", [codex, phenocycler])
+def test_cells_table_options_are_checked_without_a_cells_table(tmp_path: Path, reader) -> None:  # type: ignore[no-untyped-def]
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+
+    with pytest.raises(ValueError, match=r"unknown key\(s\) \['mask_chanel'\]"):
+        reader(tmp_path, cells_table_kwargs={"mask_chanel": 1})
+    with pytest.raises(ValueError, match="Unknown cell table format 'excel'"):
+        reader(tmp_path, cells_table_format="excel")

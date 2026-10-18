@@ -26,6 +26,7 @@ from spatialdata_io.readers._utils._akoya import (
 from spatialdata_io.readers._utils._cell_tables import (
     CellTable,
     build_spatialdata,
+    check_cells_table_options,
     detect_table_format,
     read_cell_table,
     read_region_tables,
@@ -221,6 +222,7 @@ def codex(
         warnings.warn(
             "`imread_kwargs` is ignored: every image is read lazily with tifffile.", UserWarning, stacklevel=2
         )
+    check_cells_table_options(cells_table_format, cells_table_kwargs)
     regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
