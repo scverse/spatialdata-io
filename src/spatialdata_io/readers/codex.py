@@ -28,8 +28,7 @@ from spatialdata_io.readers._utils._akoya import (
 from spatialdata_io.readers._utils._cell_tables import (
     CellTable,
     build_spatialdata,
-    check_cells_table_options,
-    detect_table_format,
+    is_codex_table,
     read_cell_table,
     read_region_tables,
     resolve_per_region,
@@ -98,11 +97,9 @@ def codex(
     regions: Sequence[str] | None = None,
     channel_names: Sequence[str] | None = None,
     cells_table: str | Path | Mapping[str, str | Path] | None = None,
-    cells_table_format: str = "auto",
     labels: str | Path | Mapping[str, str | Path] | None = None,
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    cells_table_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """Read *CODEX* (CODEX Processor, CODEX Uploader and CODEX Instrument Manager) data.
 
@@ -124,9 +121,10 @@ def codex(
           preferred over uncompensated ones; other tables of the same region (e.g. of a second segmentation run) raise
           an error. The ``cycCCC_chHHH`` marker columns are stored in ``X`` (dense float32) under their marker names,
           taken from the FCS ``$PnS`` keywords or the CSV header ``cycCCC_chHHH:<marker>``; all other columns go to
-          ``obs``, the ``x``/``y`` pixel centroids to ``obsm["spatial"]``. Other CSV files (without ``x``/``y`` and
-          ``cell_id`` or ``cycCCC_chHHH`` columns, e.g. antibody lists or HuBMAP SPRM outputs) are ignored; pass them as
-          ``cells_table`` to read them. FCS files of other instruments are ignored too.
+          ``obs``, the ``x``/``y`` pixel centroids to ``obsm["spatial"]``. A table without ``cycCCC_chHHH`` columns
+          reads its numeric columns that are not CODEX Processor columns (``x``, ``size``, ...) as the markers, with a
+          warning listing them. Other CSV files (without ``x``/``y`` and ``cell_id`` or ``cycCCC_chHHH`` columns,
+          e.g. antibody lists) and FCS files of other instruments are ignored.
 
     Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``, ``bestFocus/``)
     are ignored, as are hidden files and folders (names starting with ``.``, e.g. macOS ``._*`` files, and
@@ -149,16 +147,10 @@ def codex(
     The cells of each region are stored as circles ``<region>_cells`` with the cells' area (``size`` column),
     annotated by one table ``"table"`` (``obs["region"]`` names the annotated element, ``obs["cell_id"]`` is the
     instance key), or by one table ``<region>_table`` per region if the regions have different markers. Columns of
-    the cell table that clash with ``region`` or ``cell_id`` are kept as ``source_<name>``, and column names that
-    spatialdata cannot write (e.g. QuPath's ``Centroid X µm``) are sanitised (``Centroid_X_µm``). A region with a
-    segmentation mask in ``labels`` gets the labels ``<region>_labels`` instead of circles, and its cells annotate
-    them; so does a region with the cell outlines of a QuPath GeoJSON export (see ``cells_table_kwargs``),
-    rasterised lazily one chunk at a time with the cells' instance ids (the higher id wins where cells overlap).
-    The outlines are always kept as the shapes ``<region>_polygons`` in pixels, indexed by the same instance ids,
-    also when a mask is given for the region (the mask is used for the labels, with a warning) or the region has no
-    image (its cells are then circles). The paths of the tables, masks and GeoJSON files read are stored in
-    ``sdata.attrs["akoya"]["cell_tables"]``, ``["labels"]`` and ``["geojson"]``, by region id (``"*"`` for a file of
-    several regions).
+    the cell table that spatialdata cannot write are sanitised. A region with a segmentation mask (see ``labels``)
+    gets the labels ``<region>_labels`` instead of circles, and its cells annotate them. The paths of the tables and
+    masks read are stored in ``sdata.attrs["akoya"]["cell_tables"]`` and ``["labels"]``, by region id (``"*"`` for a
+    file of several regions).
 
     .. seealso::
 
@@ -178,15 +170,9 @@ def codex(
     channel_names
         Channel names to use instead of the discovered ones; must have one entry per channel of every region read.
     cells_table
-        A cell table to read instead of the discovered ones (explicit beats discovered): a path, or a mapping from
-        region id to path, e.g. ``{{"reg001": "reg001_cells.csv"}}``. A single path for several regions needs a
-        region column (``region`` for CODEX tables, ``Image`` for QuPath, else
-        ``cells_table_kwargs["region_column"]``). See ``cells_table_format`` for the formats.
-    cells_table_format
-        The format of ``cells_table``: ``"auto"`` (detected from the header), ``"codex"``, ``"qupath"`` (QuPath
-        measurements; µm centroids are converted with the region's pixel size), ``"mcquant"`` (MCMICRO), ``"sprm"``
-        (HuBMAP SPRM ``*-cell_channel_mean.csv``), ``"inform"`` (inForm ``*_cell_seg_data.txt``) or ``"generic"``
-        (columns given by ``cells_table_kwargs``).
+        A CODEX cell table to read instead of the discovered ones (explicit beats discovered): a path, or a mapping
+        from region id to path, e.g. ``{{"reg001": "reg001_cells.csv"}}``. A single path for several regions needs a
+        ``region`` column.
     labels
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
         mapping from region id to path; a mask inside ``path`` is not read as an image. If `None`, a TIFF named after
@@ -197,32 +183,12 @@ def codex(
         the labels ``<region>_labels`` with the transformation of the region's image; the cells of the region annotate
         it instead of circles, and their instance ids must be the mask values. A mask whose shape is the region image's
         divided by an integer factor ``f`` (exactly, or rounded up) is scaled onto the image (``Scale([f, f])`` before
-        the region's transformation); any other shape mismatch raises a warning. The pixel centroids of ``"mcquant"``
-        and ``"sprm"`` tables are taken to be in mask pixels, so their centroids (``obsm["spatial"]``) and circle radii
-        are scaled by ``f`` to image pixels (a centroid ``c`` to ``f * c + (f - 1) / 2``, the centre of its mask
-        pixel); the source columns in ``obs`` are kept as read (mask pixels). The pixel
-        centroids of other tables are in image pixels and are not scaled;
-        ``cells_table_kwargs["coordinates_space"]="mask"`` scales those of a ``"generic"`` table too.
+        the region's transformation); the cell centroids stay in image pixels. Any other shape mismatch raises a
+        warning. Of a mask file with several planes, the first is read.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
-    cells_table_kwargs
-        Options for reading ``cells_table`` (or the discovered cell tables) and ``labels``: ``region_column``; for
-        ``"generic"`` tables ``x``, ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath
-        and CODEX tables, whose markers are named by their name, ``cycCCC_chHHH:<name>`` header or ``cycCCC_chHHH``),
-        ``coordinates_unit`` (``"px"`` or ``"um"``; for QuPath ``X``/``Y`` and inForm ``Cell X Position`` columns
-        without a unit, which are otherwise read in the unit of the table's other columns) and
-        ``coordinates_space`` (``"image"``, default, or ``"mask"``: whether the pixel centroids of a generic table
-        are in pixels of the region image or of its mask, see ``labels``); with ``x`` and ``y``,
-        ``cells_table_format="auto"`` reads a generic table. ``mask_channel`` (index or channel name of the mask in
-        a multi-channel ``labels`` file: an OME channel name, or for an inForm ``*_binary_seg_maps.tif``
-        ``"Tissue"``, ``"Nucleus"`` (the default there, its labels are the ``Cell ID`` of every cell),
-        ``"Cytoplasm"`` or ``"Membrane"``); for QuPath tables ``geojson`` (the GeoJSON export of the cell
-        outlines, a path or a mapping from region id to path like ``cells_table``; default ``<table stem>.geojson``
-        or ``<table stem>_cells.geojson`` next to the table, ignored with a warning if it holds none of the
-        table's cells; ``False`` reads none) and ``geojson_units`` (``"px"`` of the
-        full-resolution image, default and what QuPath writes, or ``"um"``).
 
     Returns
     -------
@@ -232,7 +198,6 @@ def codex(
         warnings.warn(
             "`imread_kwargs` is ignored: every image is read lazily with tifffile.", UserWarning, stacklevel=2
         )
-    check_cells_table_options(cells_table_format, cells_table_kwargs)
     regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
@@ -246,9 +211,7 @@ def codex(
         masks={Path(mask).resolve() for mask in masks},
     )
     # the regions of a table without a region in its file name are known only once it is read
-    regionless = (
-        _read_regionless_table(layout.tables["*"], layout, cells_table_kwargs) if "*" in layout.tables else None
-    )
+    regionless = _read_regionless_table(layout.tables["*"], layout) if "*" in layout.tables else None
     table_regions = set(regionless.region.unique()) if regionless is not None else set()
     available = sorted(layout.images.keys() | layout.tables.keys() - {"*"} | table_regions)
     selected = select_regions(available, regions)
@@ -294,25 +257,11 @@ def codex(
 
     names = {scan.region: apply_channel_names(scan, channel_names) for scan in scans}
     if cells_table is not None:
-        cell_tables = read_region_tables(
-            table_files,
-            cells_table_format,
-            available=layout.images,
-            selected=selected,
-            pixel_sizes={scan.region: scan.pixel_size_um for scan in scans},
-            cells_table_kwargs=cells_table_kwargs,
-        )
+        cell_tables = read_region_tables(table_files, available=list(layout.images), selected=selected)
         table_paths = {key: str(file) for key, file in table_files.items()}
     else:
         named_files = {key: layout.tables[key] for key in selected if key in layout.tables}
-        named = read_region_tables(
-            named_files,
-            "codex",
-            available={region: layout.images.get(region, []) for region in available},
-            selected=selected,
-            pixel_sizes={},
-            cells_table_kwargs=cells_table_kwargs,
-        )
+        named = read_region_tables(named_files, available=available, selected=selected)
         read = dict(zip(named_files, named, strict=True))
         if regionless is not None:
             regionless = regionless.take(np.flatnonzero(regionless.region.isin(selected).to_numpy()))
@@ -334,7 +283,6 @@ def codex(
         table_paths=table_paths,
         image_models_kwargs=image_models_kwargs,
         labels_models_kwargs=labels_models_kwargs,
-        cells_table_kwargs=cells_table_kwargs,
     )
     return _set_reader_metadata(sdata, "codex")
 
@@ -349,18 +297,12 @@ def _warn_fcs_fallback(files: Iterable[Path], fcs: bool) -> None:
         )
 
 
-def _read_regionless_table(file: Path, layout: _LegacyLayout, cells_table_kwargs: Mapping[str, Any]) -> CellTable:
+def _read_regionless_table(file: Path, layout: _LegacyLayout) -> CellTable:
     """Read the discovered cell table ``file`` that has no region in its file name."""
     only_image = next(iter(layout.images)) if len(layout.images) == 1 else None
-    regions = {region: layout.images.get(region, []) for region in layout.images.keys() | layout.tables.keys() - {"*"}}
     # next to a single image named after its file (e.g. `Kidney.tif`), a single region value names that image
     table = read_cell_table(
-        file,
-        "codex",
-        pixel_size_um=None,
-        default_region=only_image,
-        cells_table_kwargs=cells_table_kwargs,
-        regions=regions,
+        file, default_region=only_image, regions=layout.images.keys() | layout.tables.keys() - {"*"}
     )
     # values that name no region of the dataset are regions without an image
     table.region = table.region.map({value: sanitize_name(value) for value in table.region.unique()})
@@ -601,7 +543,7 @@ def _discover_tables(files: Sequence[Path], fcs: bool) -> dict[str, Path]:
     preferred = CodexKeys.FCS_FILE.value if fcs else CodexKeys.FCS_FILE_CSV.value
     candidates: dict[str, list[Path]] = {}
     for file in files:
-        if file.suffix.lower() in _TABLE_SUFFIXES and _is_codex_table(file):
+        if file.suffix.lower() in _TABLE_SUFFIXES and is_codex_table(file):
             candidates.setdefault(region_id(file.name) or "*", []).append(file)
 
     def uncompensated(file: Path) -> bool:
@@ -625,18 +567,6 @@ def _discover_tables(files: Sequence[Path], fcs: bool) -> dict[str, Path]:
         (formats,) = same_table.values()
         tables[region] = min(formats, key=lambda path: path.suffix.lower() != preferred)
     return tables
-
-
-def _is_codex_table(file: Path) -> bool:
-    """Whether ``file`` is a CODEX Processor table.
-
-    A CSV may be any sidecar, also with a region in its name (e.g. ``reg001_antibodies.csv`` or a HuBMAP SPRM
-    ``reg001_...-cell_channel_mean.csv``), an FCS file the export of any flow cytometer.
-    """
-    try:
-        return detect_table_format(file) == "codex"
-    except ValueError:
-        return False
 
 
 def _find_sidecar(path: Path, files: Sequence[Path], name: str) -> Path | None:

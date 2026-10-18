@@ -48,7 +48,7 @@ __all__ = [
     "spatial_chunks",
 ]
 
-# the extensions of image files, also named in the region column of a table (e.g. QuPath's `Image`)
+# the extensions of image files, removed to name a region after its file
 IMAGE_EXTENSION = re.compile(r"(?:\.er)?\.(?:qptiff|ome\.tiff?|tiff?)$", re.IGNORECASE)
 # `reg001`, `exp_reg001` or `1_reg001`, but not `Treg2` or `coreg1`
 _REGION = re.compile(r"(?<![A-Za-z])reg(\d+)", re.IGNORECASE)

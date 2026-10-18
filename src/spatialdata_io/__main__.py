@@ -69,16 +69,6 @@ def _akoya_click_options(func: Callable[..., None]) -> Callable[..., None]:
             help="A channel name overriding the discovered ones (repeat for every channel).",
         ),
         click.option(
-            "--cells-table",
-            type=str,
-            default=None,
-            help='Path to a cell table, or a JSON mapping from region to path, e.g. \'{"A": "a.csv"}\'. '
-            "[default: None]",
-        ),
-        click.option(
-            "--cells-table-format", type=str, default="auto", help="Format of the cell table. [default: auto]"
-        ),
-        click.option(
             "--labels",
             type=str,
             default=None,
@@ -96,12 +86,6 @@ def _akoya_click_options(func: Callable[..., None]) -> Callable[..., None]:
             default="{}",
             help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
         ),
-        click.option(
-            "--cells-table-kwargs",
-            type=str,
-            default="{}",
-            help="JSON string of keyword arguments for reading the cell table. [default: {}]",
-        ),
     ]
     for option in reversed(options):
         func = option(func)
@@ -117,6 +101,13 @@ def _akoya_click_options(func: Callable[..., None]) -> Callable[..., None]:
     required=True,
 )
 @_akoya_click_options
+@click.option(
+    "--cells-table",
+    type=str,
+    default=None,
+    help='Path to a CODEX cell table, or a JSON mapping from region to path, e.g. \'{"reg001": "a.csv"}\'. '
+    "[default: None]",
+)
 @click.option(
     "--fcs",
     type=bool,
@@ -136,12 +127,10 @@ def codex_wrapper(
     regions: tuple[str, ...] = (),
     channel_names: tuple[str, ...] = (),
     cells_table: str | None = None,
-    cells_table_format: str = "auto",
     labels: str | None = None,
     imread_kwargs: str = "{}",
     image_models_kwargs: str = "{}",
     labels_models_kwargs: str = "{}",
-    cells_table_kwargs: str = "{}",
 ) -> None:
     """Codex conversion to SpatialData."""
     from spatialdata_io.readers.codex import codex
@@ -152,12 +141,10 @@ def codex_wrapper(
         regions=list(regions) or None,
         channel_names=list(channel_names) or None,
         cells_table=_parse_path_or_mapping_param(cells_table, "cells_table"),
-        cells_table_format=cells_table_format,
         labels=_parse_path_or_mapping_param(labels, "labels"),
         imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
         labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
-        cells_table_kwargs=_parse_json_param(cells_table_kwargs, "cells_table_kwargs"),
     )
     sdata.write(output)
 
@@ -466,13 +453,10 @@ def phenocycler_wrapper(
     output: str,
     regions: tuple[str, ...] = (),
     channel_names: tuple[str, ...] = (),
-    cells_table: str | None = None,
-    cells_table_format: str = "auto",
     labels: str | None = None,
     read_all_bit_depths: bool = False,
     image_models_kwargs: str = "{}",
     labels_models_kwargs: str = "{}",
-    cells_table_kwargs: str = "{}",
 ) -> None:
     """PhenoCycler-Fusion conversion to SpatialData."""
     from spatialdata_io.readers.phenocycler import phenocycler
@@ -481,13 +465,10 @@ def phenocycler_wrapper(
         input,
         regions=list(regions) or None,
         channel_names=list(channel_names) or None,
-        cells_table=_parse_path_or_mapping_param(cells_table, "cells_table"),
-        cells_table_format=cells_table_format,
         labels=_parse_path_or_mapping_param(labels, "labels"),
         read_all_bit_depths=read_all_bit_depths,
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
         labels_models_kwargs=_parse_json_param(labels_models_kwargs, "labels_models_kwargs"),
-        cells_table_kwargs=_parse_json_param(cells_table_kwargs, "cells_table_kwargs"),
     )
     sdata.write(output)
 

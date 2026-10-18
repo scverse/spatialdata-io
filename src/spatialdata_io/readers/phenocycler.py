@@ -18,12 +18,7 @@ from spatialdata_io.readers._utils._akoya import (
     read_json_object,
     select_regions,
 )
-from spatialdata_io.readers._utils._cell_tables import (
-    build_spatialdata,
-    check_cells_table_options,
-    read_region_tables,
-    resolve_per_region,
-)
+from spatialdata_io.readers._utils._cell_tables import build_spatialdata, resolve_per_region
 from spatialdata_io.readers._utils._qptiff import (
     _fusion_profile_records,
     _is_blank,
@@ -54,13 +49,10 @@ def phenocycler(
     *,
     regions: Sequence[str] | None = None,
     channel_names: Sequence[str] | None = None,
-    cells_table: str | Path | Mapping[str, str | Path] | None = None,
-    cells_table_format: str = "auto",
     labels: str | Path | Mapping[str, str | Path] | None = None,
     read_all_bit_depths: bool = False,
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-    cells_table_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> SpatialData:
     """Read *Akoya PhenoCycler-Fusion* 1.x/2.x data, and PerkinElmer/Akoya Vectra and PhenoImager QPTIFFs.
 
@@ -94,28 +86,12 @@ def phenocycler(
     ``<region>{vx.IMAGE_SUFFIX}``. A single region is stored in the ``"global"`` coordinate system. Several regions
     of the same sample space (scanned on the same slide, with stage positions and equal pixel sizes) are placed at
     their stage positions in ``"global"``; otherwise the regions are unrelated and each is stored in its own
-    coordinate system, named after the region. A region with cells or a mask but no scan gets its own coordinate
-    system too. All elements of a region share its coordinate system. The per-region metadata is stored in
-    ``sdata.attrs[{vx.ATTRS_KEY!r}]``.
+    coordinate system, named after the region. All elements of a region share its coordinate system. The
+    per-region metadata is stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]``.
 
     A segmentation mask given in ``labels`` is stored lazily as the labels ``<region>{vx.LABELS_SUFFIX}`` with the
-    transformation of the region's image. The cells of ``cells_table`` are stored in one table
-    ``{vx.TABLE_KEY!r}`` (marker intensities dense float32 in ``X``, pixel centroids in ``obsm["spatial"]``,
-    ``obs[{vx.REGION_KEY!r}]`` the annotated element, ``obs[{vx.INSTANCE_KEY!r}]`` the instance key), or in one
-    table ``<region>_table`` per region if the regions have different markers. Columns of the cell table that clash
-    with ``{vx.REGION_KEY!r}`` or ``{vx.INSTANCE_KEY!r}`` are kept as ``source_<name>``, and column names that
-    spatialdata cannot write (e.g. QuPath's ``Centroid X µm``) are sanitised (``Centroid_X_µm``). Cells annotate
-    the labels of their region, whose values must be their instance ids; without a mask they are stored as circles
-    ``<region>{vx.CELLS_SUFFIX}``, with a warning.
-
-    The cell outlines of a QuPath GeoJSON export (see ``cells_table_kwargs``) are rasterised lazily, one chunk at a
-    time, into the labels of a region without a mask; a feature's ``id`` is matched to the table's ``Object ID``
-    (else features and rows are matched in order), the labels hold the cells' instance ids, and where cells overlap
-    the higher instance id wins; the table annotates the labels. The outlines are always kept as the shapes
-    ``<region>{vx.POLYGONS_SUFFIX}`` in pixels, indexed by the same instance ids, also when a mask is given for the
-    region (the mask is used for the labels, with a warning). The paths of the tables, masks and GeoJSON files are
-    stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]``, ``["labels"]`` and ``["geojson"]``, by region id
-    (``"*"`` for a file of several regions).
+    transformation of the region's image; the mask paths are stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]["labels"]``,
+    by region id.
 
     .. seealso::
 
@@ -127,72 +103,38 @@ def phenocycler(
         Path to a ``{vx.QPTIFF_SUFFIX!r}`` file (or an inForm ``.tif`` QPI file), or to a directory that is searched
         recursively for ``{vx.QPTIFF_SUFFIX!r}`` files.
     regions
-        Regions to read. If `None`, all regions are read. Region ids, like the keys of the ``cells_table``,
-        ``labels`` and ``cells_table_kwargs["geojson"]`` mappings, may also be given as raw names, which are
-        sanitised like the region ids (e.g. ``"Slide 1"`` selects the region ``Slide_1``).
+        Regions to read. If `None`, all regions are read. Region ids, like the keys of the ``labels`` mapping, may
+        also be given as raw names, which are sanitised like the region ids (e.g. ``"Slide 1"`` selects the region
+        ``Slide_1``).
     channel_names
         Channel names to use instead of the ones stored in the qptiff; must have one entry per channel of every
         region read.
-    cells_table
-        A cell table: a path, or a mapping from region id to path, e.g. ``{{"A": "A_cells.csv"}}``. A single path
-        for several regions needs a region column (``Image`` for QuPath, ``region`` for CODEX tables, else
-        ``cells_table_kwargs["region_column"]``); its values are matched to the region ids, also after
-        :func:`spatialdata.sanitize_name` (``A_[1,2]`` to ``A__1_2_``), or to the names of the region's files
-        (``A_Scan1.qptiff`` or ``A_Scan1`` to ``A``).
-    cells_table_format
-        The format of ``cells_table``: ``"auto"`` (detected from the header), ``"codex"`` (CODEX Processor),
-        ``"qupath"`` (QuPath measurements; µm centroids are converted with the region's pixel size), ``"mcquant"``
-        (MCMICRO), ``"sprm"`` (HuBMAP SPRM ``*-cell_channel_mean.csv``), ``"inform"`` (inForm
-        ``*_cell_seg_data.txt``) or ``"generic"`` (columns given by ``cells_table_kwargs``).
     labels
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
         mapping from region id to path. A mask whose shape is the region image's divided by an integer factor ``f``
         (exactly, or rounded up) is scaled onto the image (``Scale([f, f])`` before the region's transformation);
-        any other shape mismatch raises a warning. The pixel centroids of ``"mcquant"`` and ``"sprm"`` tables
-        are taken to be in mask pixels, so their centroids (``obsm["spatial"]``) and circle radii are scaled by
-        ``f`` to image pixels (a centroid ``c`` to ``f * c + (f - 1) / 2``, the centre of its mask pixel); the
-        source columns in ``obs`` are kept as read (mask pixels). The pixel centroids of
-        other tables are in image pixels and are not scaled; ``cells_table_kwargs["coordinates_space"]="mask"``
-        scales those of a ``"generic"`` table too.
+        any other shape mismatch raises a warning. Of a mask file with several planes, the first is read.
     read_all_bit_depths
         If `True`, a scan that exists as both ``X{vx.QPTIFF_SUFFIX}`` (8-bit) and ``X{vx.ER_QPTIFF_SUFFIX}``
         (extended range, e.g. uint16) is read from both files, also if ``path`` is the extended-range file: the
         extended-range file as region ``X`` and the 8-bit file as the image ``X_8bit{vx.IMAGE_SUFFIX}`` (region
         ``X_8bit`` in ``sdata.attrs[{vx.ATTRS_KEY!r}]``). Both are the same physical scan, so the 8-bit image has
-        exactly the transformations of region ``X`` (a warning is raised if their shapes differ). Cell tables and
-        masks annotate region ``X`` only. If `False`, only the extended-range file is read.
+        exactly the transformations of region ``X`` (a warning is raised if their shapes differ). Masks belong to
+        region ``X`` only. If `False`, only the extended-range file is read.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
-    cells_table_kwargs
-        Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
-        ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath and CODEX tables, whose
-        markers are named by their name, ``cycCCC_chHHH:<name>`` header or ``cycCCC_chHHH``),
-        ``coordinates_unit`` (``"px"`` or ``"um"``; for QuPath ``X``/``Y`` and inForm ``Cell X Position`` columns
-        without a unit, which are otherwise read in the unit of the table's other columns) and
-        ``coordinates_space`` (``"image"``, default, or ``"mask"``: whether the pixel centroids of a generic table
-        are in pixels of the region image or of its mask, see ``labels``); with ``x`` and ``y``,
-        ``cells_table_format="auto"`` reads a generic table. ``mask_channel`` (index or channel name of the mask in
-        a multi-channel ``labels`` file: an OME channel name, or for an inForm ``*_binary_seg_maps.tif``
-        ``"Tissue"``, ``"Nucleus"`` (the default there, its labels are the ``Cell ID`` of every cell),
-        ``"Cytoplasm"`` or ``"Membrane"``); for QuPath tables ``geojson`` (the GeoJSON export of the cell
-        outlines, a path or a mapping from region id to path like ``cells_table``; default ``<table stem>.geojson``
-        or ``<table stem>_cells.geojson`` next to the table, ignored with a warning if it holds none of the
-        table's cells; ``False`` reads none) and ``geojson_units`` (``"px"`` of the
-        full-resolution image, default and what QuPath writes, or ``"um"``).
 
     Returns
     -------
     :class:`spatialdata.SpatialData`
     """
-    check_cells_table_options(cells_table_format, cells_table_kwargs)
     regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
     qptiffs, eight_bit = _discover_qptiffs(path)
     selected = select_regions(list(qptiffs), regions)
-    table_files = resolve_per_region(cells_table, selected, list(qptiffs))
     mask_files = resolve_per_region(labels, selected, list(qptiffs))
 
     scans = [read_qptiff_metadata(qptiffs[region], region=region) for region in selected]
@@ -210,16 +152,6 @@ def phenocycler(
     for scan in [*scans, *duplicates.values()]:
         names[scan.region] = apply_channel_names(scan, channel_names)
         _read_sidecars(scan)
-    cell_tables = read_region_tables(
-        table_files,
-        cells_table_format,
-        available={
-            region: [file, *([eight_bit[region]] if region in eight_bit else [])] for region, file in qptiffs.items()
-        },
-        selected=selected,
-        pixel_sizes={scan.region: scan.pixel_size_um for scan in scans},
-        cells_table_kwargs=cells_table_kwargs,
-    )
     images = {scan.region: read_qptiff_image(scan) for scan in [*scans, *duplicates.values()]}
     for region, duplicate in duplicates.items():
         if images[region].shape[-2:] != images[duplicate.region].shape[-2:]:
@@ -234,12 +166,11 @@ def phenocycler(
         scans,
         images,
         names,
-        cell_tables,
+        [],
         mask_files,
-        table_paths={key: str(file) for key, file in table_files.items()} if table_files else None,
+        table_paths=None,
         image_models_kwargs=image_models_kwargs,
         labels_models_kwargs=labels_models_kwargs,
-        cells_table_kwargs=cells_table_kwargs,
         duplicate_scans=duplicates,
     )
     return _set_reader_metadata(sdata, "phenocycler")

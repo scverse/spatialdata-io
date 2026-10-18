@@ -295,9 +295,7 @@ def test_discover_legacy_tables_ranking(tmp_path: Path) -> None:
 
 def test_codex_user_cells_table_replaces_discovered(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, regions=2, layout="per_marker", n_cells=50)
-    pd.DataFrame(
-        {"CellID": [1, 2, 3], "CD3": [1.0, 2.0, 3.0], "X_centroid": [1.0, 2.0, 3.0], "Y_centroid": [4.0, 5.0, 6.0]}
-    ).to_csv(tmp_path / "mine.csv", index=False)
+    (tmp_path / "mine.csv").write_text("cell_id,x,y,cyc001_ch001:CD3\n1,1.0,4.0,1.0\n2,2.0,5.0,2.0\n3,3.0,6.0,3.0\n")
     mask = np.zeros((128, 160), dtype=np.uint16)
     mask[:3, :3] = [1, 2, 3]
     tifffile.imwrite(tmp_path / "mask.tif", mask)
@@ -412,47 +410,6 @@ def test_codex_labels_with_discovered_tables(tmp_path: Path) -> None:
     assert list(sdata.labels) == ["reg001_labels"]
     assert len(sdata.shapes) == 0
     assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["reg001_labels"]
-
-
-def test_codex_qupath_geojson_labels(tmp_path: Path) -> None:
-    write_legacy_processor_tree(tmp_path / "tree", regions=2, layout="per_marker", n_cells=5)
-    header = "Image\tObject ID\tCentroid X px\tCentroid Y px\tCD3: Cell: Mean"
-    rows = ["reg002.tif\tu1\t5\t5\t1", "reg002.tif\tu2\t25\t25\t2"]
-    (tmp_path / "q.tsv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
-    features = [
-        {"type": "Feature", "id": oid, "geometry": {"type": "Polygon", "coordinates": [ring]}, "properties": {}}
-        for oid, ring in [
-            ("u2", [[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]),
-            ("u1", [[0, 0], [9, 0], [9, 9], [0, 0]]),
-        ]
-    ]
-    (tmp_path / "polygons.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": features}))
-
-    sdata = codex(
-        tmp_path / "tree",
-        regions=["reg002"],
-        cells_table={"reg002": tmp_path / "q.tsv"},
-        image_models_kwargs=_FAST,
-        cells_table_kwargs={"geojson": {"reg002": tmp_path / "polygons.geojson"}},
-    )
-
-    assert list(sdata.labels) == ["reg002_labels"]
-    assert list(sdata.shapes) == ["reg002_polygons"]
-    values = sdata.labels["reg002_labels"]["scale0"]["image"].values
-    assert values.shape == (128, 160)
-    assert values[2, 7] == 1  # the triangle below the diagonal
-    assert values[7, 2] == 0
-    assert values[25, 25] == 2
-    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["reg002_labels"]
-    assert sdata.attrs["akoya"]["geojson"] == {"reg002": str(tmp_path / "polygons.geojson")}
-
-    with pytest.raises(ValueError, match="same form as the tables"):
-        codex(
-            tmp_path / "tree",
-            cells_table=tmp_path / "q.tsv",
-            image_models_kwargs=_FAST,
-            cells_table_kwargs={"geojson": {"reg002": tmp_path / "polygons.geojson"}},
-        )
 
 
 def test_codex_str_regions_and_channel_names(tmp_path: Path) -> None:
@@ -570,8 +527,6 @@ def test_discover_legacy_regionless_table_ignores_sidecar_csv(tmp_path: Path) ->
 def test_codex_region_named_non_cell_csv_is_ignored(tmp_path: Path, with_table: bool) -> None:
     data = write_legacy_processor_tree(tmp_path, cycles=1, channels=2, fcs=False, csv=with_table, n_cells=5)
     (tmp_path / "reg001_antibodies.csv").write_text("Antibody,Clone\nCD3,UCHT1\n")
-    # a HuBMAP SPRM output of the same region, which is only read when given as `cells_table`
-    (tmp_path / "reg001_expr-cell_channel_mean.csv").write_text("ID,CD3\n1,2.0\n")
 
     if with_table:
         with pytest.warns(UserWarning, match="circles"):
@@ -813,24 +768,18 @@ def test_codex_old_positional_call(tmp_path: Path) -> None:
         codex(tmp_path, True, {"nframes": 1})
 
 
-@pytest.mark.parametrize("case", ["one_region", "kidney_2019", "regions_subset", "phenocycler_codex_csv"])
+@pytest.mark.parametrize("case", ["one_region", "kidney_2019", "regions_subset"])
 def test_single_region_codex_table_write_roundtrip(tmp_path: Path, case: str) -> None:
     data = tmp_path / "data"
     data.mkdir()
     if case == "kidney_2019":
         tifffile.imwrite(data / "Kidney.tif", np.zeros((2, 16, 16), dtype=np.uint16))
         (data / "Kidney.csv").write_text("cell_id,x,y,size,cyc001_ch001\n1,1.0,2.0,3.0,4.0\n2,5.0,6.0,7.0,8.0\n")
-    elif case == "phenocycler_codex_csv":
-        write_qptiff(data / "S_Scan1.qptiff", biomarkers=["DAPI"])
-        (data / "cells.csv").write_text("cell_id,x,y,size,DAPI\n1,1.0,2.0,3.0,4.0\n2,5.0,6.0,7.0,8.0\n")
     else:
         write_legacy_processor_tree(data, regions=1 if case == "one_region" else 2, cycles=1, channels=1, n_cells=5)
 
     with pytest.warns(UserWarning, match="circles"):
-        if case == "phenocycler_codex_csv":
-            sdata = phenocycler(data, cells_table=data / "cells.csv", image_models_kwargs=_FAST)
-        else:
-            sdata = codex(data, regions=["reg001"] if case == "regions_subset" else None, image_models_kwargs=_FAST)
+        sdata = codex(data, regions=["reg001"] if case == "regions_subset" else None, image_models_kwargs=_FAST)
     sdata.write(tmp_path / "x.zarr")
 
     table = read_zarr(tmp_path / "x.zarr").tables["table"]
@@ -860,31 +809,6 @@ def test_codex_discovered_table_of_another_region_raises(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="has no cells of region 'reg002'"):
         codex(tmp_path, image_models_kwargs=_FAST)
-
-
-def test_codex_cells_table_kwargs_apply_to_discovered_tables(tmp_path: Path) -> None:
-    tifffile.imwrite(tmp_path / "reg001_montage.tif", np.zeros((2, 16, 16), dtype=np.uint16))
-    (tmp_path / "reg001_cells.csv").write_text("cell_id,x,y,CD3,CD4\n1,1.0,2.0,3.0,4.0\n2,3.0,4.0,5.0,6.0\n")
-
-    with pytest.warns(UserWarning, match="circles") as record:
-        sdata = codex(tmp_path, cells_table_kwargs={"markers": ["CD3"]}, image_models_kwargs=_FAST)
-
-    assert list(sdata.tables["table"].var_names) == ["CD3"]
-    assert not [warning for warning in record if "cycCCC_chHHH" in str(warning.message)]
-
-
-def test_codex_region_column_of_discovered_regionless_table(tmp_path: Path) -> None:
-    for region in ("reg001", "reg002"):
-        tifffile.imwrite(tmp_path / f"{region}_montage.tif", np.zeros((2, 16, 16), dtype=np.uint16))
-    (tmp_path / "cells.csv").write_text("cell_id,Sample,x,y,cyc001_ch001\n1,reg001,1.0,2.0,3.0\n1,reg002,3.0,4.0,5.0\n")
-
-    with pytest.raises(ValueError, match=r"cannot be assigned to regions.*cells_table_kwargs\['region_column'\]"):
-        codex(tmp_path, image_models_kwargs=_FAST)
-
-    with pytest.warns(UserWarning, match="circles"):
-        sdata = codex(tmp_path, cells_table_kwargs={"region_column": "Sample"}, image_models_kwargs=_FAST)
-    assert sorted(sdata.shapes) == ["reg001_cells", "reg002_cells"]
-    assert sdata.tables["table"].n_obs == 2
 
 
 def test_codex_labels_disable_mask_discovery(tmp_path: Path) -> None:
