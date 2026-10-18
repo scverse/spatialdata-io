@@ -16,6 +16,7 @@ from spatialdata import SpatialData, sanitize_name
 from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._akoya import (
+    IMAGE_EXTENSION,
     apply_channel_names,
     normalize_regions,
     read_json_object,
@@ -59,7 +60,6 @@ _RAW_CYCLE_DIR = re.compile(r"cyc\d+_reg\d+", re.IGNORECASE)
 _TIFF_SUFFIXES = (".tif", ".tiff")
 # the segmentation mask of a region, e.g. HuBMAP's `reg001_mask.ome.tiff` next to `reg001_expr.ome.tiff`
 _MASK = re.compile(r"[_-](?:mask|labels)(?:\.ome)?\.tiff?$", re.IGNORECASE)
-_TIFF_NAME = re.compile(r"(?:\.ome)?\.tiff?$", re.IGNORECASE)
 _TABLE_SUFFIXES = (CodexKeys.FCS_FILE.value, CodexKeys.FCS_FILE_CSV.value)
 # deep enough for `<experiment>/processed_<date>/segm/segm-1/fcs/compensated/<table>`
 _MAX_DEPTH = 8
@@ -190,8 +190,9 @@ def codex(
     labels
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
         mapping from region id to path; a mask inside ``path`` is not read as an image. If `None`, a TIFF named after
-        a region image or with its region id, ending in ``_mask`` or ``_labels`` (e.g. ``reg001_mask.ome.tiff`` or
-        ``Kidney_labels.tif`` next to ``Kidney.tif``), is the mask of that region; such files are never read as images.
+        a region image or with its region id, ending in ``_mask`` or ``_labels`` (e.g. ``reg001_mask.ome.tiff``,
+        ``Kidney_labels.tif`` next to ``Kidney.tif``, or ``Tonsil_mask.tif`` or ``Tonsil_Scan1_mask.tif`` next to
+        ``Tonsil_Scan1.qptiff``), is the mask of that region; such files are never read as images.
         Each mask is stored lazily as
         the labels ``<region>_labels`` with the transformation of the region's image; the cells of the region annotate
         it instead of circles, and their instance ids must be the mask values. A mask whose shape is the region image's
@@ -552,9 +553,12 @@ def _discover_images(files: Sequence[Path]) -> dict[str, list[Path]]:
 def _discover_masks(files: Sequence[Path], images: Mapping[str, Sequence[Path]]) -> dict[str, Path]:
     """The masks among ``files`` (``<image>_mask.tif`` or ``_labels``, also ``.ome.tiff``) of the regions of ``images``.
 
-    A mask belongs to the region in its file name (``regNNN``), else to the region of the image it is named after.
+    A mask belongs to the region in its file name (``regNNN``), else to the region it is named after: the region id
+    (e.g. ``Tonsil_mask.tif``) or the file name of its image (``Tonsil_Scan1_mask.tif`` of ``Tonsil_Scan1.qptiff``).
     """
-    by_image = {_TIFF_NAME.sub("", file.name): region for region, paths in images.items() for file in paths}
+    by_image = {region: region for region in images} | {
+        IMAGE_EXTENSION.sub("", file.name): region for region, paths in images.items() for file in paths
+    }
     masks: dict[str, list[Path]] = {}
     for file in files:
         region = region_id(file.name) or by_image.get(_MASK.sub("", file.name))

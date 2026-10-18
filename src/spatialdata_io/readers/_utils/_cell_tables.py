@@ -28,6 +28,7 @@ from xarray import DataTree
 
 from spatialdata_io._constants._constants import CodexKeys, PhenocyclerKeys
 from spatialdata_io.readers._utils._akoya import (
+    IMAGE_EXTENSION,
     build_image_element,
     dedupe_channel_names,
     read_tiff,
@@ -105,8 +106,6 @@ _QUPATH_UNIT = re.compile(r" (µm|um|px)(?:\^2)?$")
 # QuPath shape and detection measurements without a unit, e.g. of a detection export without compartments
 _QUPATH_UNITLESS_MEASUREMENTS = frozenset({"Circularity", "Detection probability", "Eccentricity", "Solidity"})
 _QUPATH_IMAGE = "Image"
-# the extensions of image files, also named in the region column of a table (e.g. QuPath's `Image`)
-_IMAGE_SUFFIX = re.compile(r"(?:\.er)?\.(?:qptiff|ome\.tiff?|tiff?)$", re.IGNORECASE)
 _QUPATH_ID = "Object ID"
 # QuPath's centroid columns by unit; R's `make.names` writes `Centroid X µm` as `Centroid.X.um`
 _QUPATH_CENTROIDS = {"um": ("Centroid X µm", "Centroid Y µm"), "px": ("Centroid X px", "Centroid Y px")}
@@ -1294,10 +1293,10 @@ def _match_region(value: str, regions: Mapping[str, Sequence[Path]]) -> str | No
     candidates = list(dict.fromkeys((value, sanitize_name(value))))
     if exact := next((candidate for candidate in candidates if candidate in regions), None):
         return exact
-    stem = _IMAGE_SUFFIX.sub("", value)
+    stem = IMAGE_EXTENSION.sub("", value)
     for region, files in regions.items():
         for name in (file.name for file in files):
-            if stem == _IMAGE_SUFFIX.sub("", name) or (value.startswith(name) and not value[len(name)].isalnum()):
+            if stem == IMAGE_EXTENSION.sub("", name) or (value.startswith(name) and not value[len(name)].isalnum()):
                 return region
     return None
 

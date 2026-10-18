@@ -902,3 +902,15 @@ def test_codex_labels_disable_mask_discovery(tmp_path: Path) -> None:
 
     assert sorted(sdata.images) == ["reg001_image", "reg002_image"]
     assert list(sdata.labels) == ["reg001_labels"]
+
+
+@pytest.mark.parametrize("mask", ["Tonsil_mask.tif", "Tonsil_Scan1_mask.tif"])
+def test_codex_discovers_the_mask_of_a_qptiff_region(tmp_path: Path, mask: str) -> None:
+    write_qptiff(tmp_path / "Tonsil_Scan1.er.qptiff", biomarkers=["DAPI"], shape=(16, 16))
+    tifffile.imwrite(tmp_path / mask, np.ones((16, 16), dtype=np.uint16))
+
+    sdata = codex(tmp_path, image_models_kwargs=_FAST, labels_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["Tonsil_image"]
+    assert list(sdata.labels) == ["Tonsil_labels"]
+    assert sdata.attrs["akoya"]["labels"] == {"Tonsil": str(tmp_path / mask)}

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from spatialdata_io.readers._utils._qptiff import AkoyaScan
 
 __all__ = [
+    "IMAGE_EXTENSION",
     "apply_channel_names",
     "build_image_element",
     "dedupe_channel_names",
@@ -47,6 +48,8 @@ __all__ = [
     "spatial_chunks",
 ]
 
+# the extensions of image files, also named in the region column of a table (e.g. QuPath's `Image`)
+IMAGE_EXTENSION = re.compile(r"(?:\.er)?\.(?:qptiff|ome\.tiff?|tiff?)$", re.IGNORECASE)
 # `reg001`, `exp_reg001` or `1_reg001`, but not `Treg2` or `coreg1`
 _REGION = re.compile(r"(?<![A-Za-z])reg(\d+)", re.IGNORECASE)
 
