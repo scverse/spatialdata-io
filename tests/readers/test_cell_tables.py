@@ -12,7 +12,7 @@ import tifffile
 from spatialdata import get_extent, read_zarr
 from spatialdata.models import Labels2DModel, get_axes_names
 from spatialdata.transformations import Identity, Scale, Sequence, Translation, get_transformation
-from tests._akoya_data import write_fcs, write_qptiff
+from tests._akoya_data import forbid_pixel_reads, write_fcs, write_qptiff
 
 from spatialdata_io import phenocycler
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names
@@ -866,18 +866,18 @@ def test_read_labels_errors(tmp_path: Path) -> None:
         read_labels(path, {}, {"global": Identity()}, mask_channel=5)
 
 
-def test_read_labels_pyramidal_ome_is_lazy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("compression", [None, "zlib"])
+def test_read_labels_pyramidal_ome_is_lazy(tmp_path: Path, compression: str | None) -> None:
     mask = np.repeat(np.arange(64, dtype=np.uint16), 48).reshape(64, 48)
     path = tmp_path / "mask.ome.tif"
+    tile = (16, 16) if compression else None
     with tifffile.TiffWriter(path) as tw:
-        tw.write(mask, subifds=1, tile=(16, 16), compression="zlib", metadata={"axes": "YX"})
-        tw.write(mask[::2, ::2], subfiletype=1, tile=(16, 16), compression="zlib")
+        tw.write(mask, subifds=1, tile=tile, compression=compression, metadata={"axes": "YX"})
+        tw.write(mask[::2, ::2], subfiletype=1, tile=tile, compression=compression)
 
-    def fail(*args: object, **kwargs: object) -> None:
-        raise AssertionError("full page decode during read")
-
-    monkeypatch.setattr(tifffile.TiffPage, "asarray", fail)
-    labels = read_labels(path, {"scale_factors": None}, {"global": Identity()})
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        forbid_pixel_reads(monkeypatch)
+        labels = read_labels(path, {"scale_factors": None}, {"global": Identity()})
 
     assert labels.shape == (64, 48)
     np.testing.assert_array_equal(labels.values, mask)

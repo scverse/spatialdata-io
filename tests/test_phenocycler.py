@@ -18,7 +18,7 @@ from spatialdata.transformations import Identity, Scale, Sequence, Translation, 
 
 from spatialdata_io import phenocycler
 from spatialdata_io.__main__ import phenocycler_wrapper
-from tests._akoya_data import write_qptiff
+from tests._akoya_data import forbid_pixel_reads, write_qptiff
 
 _FAST = {"scale_factors": [2]}
 
@@ -850,17 +850,16 @@ def test_write_roundtrip(tmp_path: Path) -> None:
     assert read.attrs["spatialdata_io_reader"] == "phenocycler"
 
 
-def test_is_lazy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_is_lazy(tmp_path: Path) -> None:
     path = tmp_path / "S_Scan1.qptiff"
-    write_qptiff(path, biomarkers=["DAPI", "CD3"])
+    written = write_qptiff(path, biomarkers=["DAPI", "CD3"])
 
-    def fail(*args: object, **kwargs: object) -> None:
-        raise AssertionError("full page decode during read")
-
-    monkeypatch.setattr(tifffile.TiffPage, "asarray", fail)
-    sdata = phenocycler(path, image_models_kwargs=_FAST)
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        forbid_pixel_reads(monkeypatch)
+        sdata = phenocycler(path, image_models_kwargs=_FAST)
 
     assert isinstance(_level0(sdata, "S_image").data, da.Array)
+    np.testing.assert_array_equal(_level0(sdata, "S_image").values, written)
 
 
 def test_phenocycler_keyword_only(tmp_path: Path) -> None:

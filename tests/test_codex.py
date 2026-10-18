@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
@@ -17,7 +17,7 @@ from spatialdata.transformations import Identity, get_transformation
 from spatialdata_io import codex, phenocycler
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names
 from spatialdata_io.readers.codex import _discover_legacy, _read_legacy_image
-from tests._akoya_data import cim_experiment_v4_xml, write_legacy_processor_tree, write_qptiff
+from tests._akoya_data import cim_experiment_v4_xml, forbid_pixel_reads, write_legacy_processor_tree, write_qptiff
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -375,6 +375,18 @@ def test_codex_region_named_non_cell_csv_is_ignored(tmp_path: Path, with_table: 
         sdata = codex(tmp_path, image_models_kwargs=_FAST)
         assert not sdata.tables
     assert list(sdata.images) == ["reg001_image"]
+
+
+@pytest.mark.parametrize("layout", ["per_marker", "hyperstack"])
+def test_codex_is_lazy(tmp_path: Path, layout: Literal["per_marker", "hyperstack"]) -> None:
+    data = write_legacy_processor_tree(tmp_path, layout=layout)
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        forbid_pixel_reads(monkeypatch)
+        sdata = codex(tmp_path, image_models_kwargs=_FAST)
+
+    expected = data["images"]["reg001"]
+    np.testing.assert_array_equal(_level0(sdata, "reg001_image").values, expected.reshape(-1, *expected.shape[-2:]))
 
 
 @pytest.mark.parametrize("qptiff", [False, True])

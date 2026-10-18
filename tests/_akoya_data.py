@@ -9,8 +9,12 @@ import numpy as np
 import pandas as pd
 import tifffile
 
+from spatialdata_io.readers._utils import _akoya
+
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 _XML_DECLARATION = '<?xml version="1.0" encoding="utf-16"?>'
 
@@ -321,3 +325,16 @@ def write_legacy_processor_tree(
         if csv and not (layout == "old_flat" and fcs):
             cells.to_csv(table_dir / f"{table_stem}.csv", index=False)
     return {"markers": markers, "images": images, "cells": cells}
+
+
+def forbid_pixel_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every read of pixel data fail: the chunk reads of the lazy tiff arrays and tifffile's own decoding."""
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("pixel data read eagerly")
+
+    monkeypatch.setattr(_akoya._TiffZarrSource, "__getitem__", fail)
+    monkeypatch.setattr(_akoya._ContiguousTiff, "__getitem__", fail)
+    monkeypatch.setattr(tifffile.TiffPage, "decode", property(lambda self: fail))
+    monkeypatch.setattr(tifffile.TiffPage, "asarray", fail)
+    monkeypatch.setattr(tifffile.TiffFile, "asarray", fail)
