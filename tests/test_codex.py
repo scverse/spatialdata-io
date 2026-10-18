@@ -475,6 +475,27 @@ def test_codex_flat_layout_ignores_non_region_tifs(tmp_path: Path) -> None:
         assert list(sdata.images) == ["Kidney_sample_image"]
 
 
+def test_codex_and_phenocycler_take_the_region_id_of_a_qptiff(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "exp_reg001.qptiff", biomarkers=["DAPI"], dtype="uint8")
+    write_qptiff(tmp_path / "exp_reg001.er.qptiff", biomarkers=["DAPI"], dtype="uint16")
+    write_qptiff(tmp_path / "Tonsil_Scan1.qptiff", biomarkers=["DAPI"], dtype="uint8")
+
+    for reader in (codex, phenocycler):
+        sdata = reader(tmp_path, image_models_kwargs=_FAST)
+        assert sorted(sdata.images) == ["Tonsil_image", "reg001_image"]
+        assert sdata.attrs["akoya"]["regions"]["reg001"]["path"].endswith("exp_reg001.er.qptiff")
+        assert list(reader(tmp_path / "exp_reg001.qptiff", image_models_kwargs=_FAST).images) == ["reg001_image"]
+
+
+def test_codex_and_phenocycler_raise_for_qptiffs_of_one_region_id(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "exp_reg001_Scan1.qptiff", biomarkers=["DAPI"])
+    write_qptiff(tmp_path / "other_reg1.qptiff", biomarkers=["DAPI"])
+
+    for reader in (codex, phenocycler):
+        with pytest.raises(ValueError, match=r"Several qptiff files map to the same region\(s\) \['reg001'\]"):
+            reader(tmp_path, image_models_kwargs=_FAST)
+
+
 def test_codex_and_phenocycler_name_a_non_region_qptiff_alike(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "Preg12_Scan1.qptiff", biomarkers=["DAPI"], dtype="uint8")
 

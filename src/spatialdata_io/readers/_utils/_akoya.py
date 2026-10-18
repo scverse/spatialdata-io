@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import re
 import threading
 import warnings
 from collections import Counter
@@ -39,11 +40,21 @@ __all__ = [
     "normalize_regions",
     "read_json_object",
     "read_tiff",
+    "region_id",
     "region_transformations",
     "scans_to_attrs",
     "select_regions",
     "spatial_chunks",
 ]
+
+# `reg001`, `exp_reg001` or `1_reg001`, but not `Treg2` or `coreg1`
+_REGION = re.compile(r"(?<![A-Za-z])reg(\d+)", re.IGNORECASE)
+
+
+def region_id(name: str) -> str | None:
+    """The CODEX region id ``regRRR`` in a file name: ``reg`` and digits, not preceded by a letter; else `None`."""
+    match = _REGION.search(name)
+    return f"reg{int(match.group(1)):03d}" if match else None
 
 
 def dedupe_channel_names(names: Sequence[str]) -> list[str]:

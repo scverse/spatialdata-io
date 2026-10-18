@@ -20,6 +20,7 @@ from spatialdata_io.readers._utils._akoya import (
     normalize_regions,
     read_json_object,
     read_tiff,
+    region_id,
     select_regions,
     spatial_chunks,
 )
@@ -50,8 +51,6 @@ if TYPE_CHECKING:
 
 __all__ = ["codex"]
 
-# `reg001`, `exp_reg001` or `1_reg001`, but not `Treg2` or `coreg1`
-_REGION = re.compile(r"(?<![A-Za-z])reg(\d+)", re.IGNORECASE)
 _PER_MARKER = re.compile(r"reg(\d+)_cyc(\d+)_ch(\d+)_(.+)\.tiff?$", re.IGNORECASE)
 _MONTAGE = re.compile(r"reg\d+_montage\.tiff?$", re.IGNORECASE)
 _TILE_STACK = re.compile(r"reg\d+_X\d+_Y\d+_Z\d+\.tiff?$", re.IGNORECASE)
@@ -131,7 +130,8 @@ def codex(
     digits not preceded by a letter, e.g. ``exp_reg001`` but not ``Treg2``); a ``{vx.QPTIFF!r}`` without one is named as
     :func:`spatialdata_io.phenocycler` names it: after its file, without the ``.er.qptiff`` or ``{vx.QPTIFF!r}`` suffix
     and a trailing ``_Scan<N>`` (unless that makes two regions share a name), and the extended-range ``.er.qptiff`` of a
-    scan is preferred. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files are read as
+    scan is preferred, also for one with a region id (``exp_reg001.er.qptiff`` and ``exp_reg001.qptiff`` are region
+    ``reg001``). Several scans with the same region id raise an error. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files are read as
     hyperstacks named after their files, made valid element names by :func:`spatialdata.sanitize_name` (e.g.
     ``Kidney sample.tif`` becomes the region ``Kidney_sample``). Each region is stored as the image ``<region>_image``
     and its metadata in ``sdata.attrs["akoya"]``.
@@ -483,15 +483,11 @@ def _is_ignored_dir(name: str, has_stitched: bool) -> bool:
 def _discover_images(files: Sequence[Path]) -> dict[str, list[Path]]:
     per_marker: dict[str, dict[tuple[int, int], Path]] = {}
     stacks: dict[str, list[Path]] = {}
-    qptiffs: dict[str, list[Path]] = {}
-    unnamed_qptiffs = []
+    all_qptiffs = []
     for file in files:
-        region = _region_id(file.name)
+        region = region_id(file.name)
         if _is_qptiff(file):
-            if region is None:
-                unnamed_qptiffs.append(file)
-            else:
-                qptiffs.setdefault(region, []).append(file)
+            all_qptiffs.append(file)
         elif _is_tiff(file) and region is not None:
             if (match := _PER_MARKER.search(file.name)) is None:
                 stacks.setdefault(region, []).append(file)
@@ -505,9 +501,8 @@ def _discover_images(files: Sequence[Path]) -> dict[str, list[Path]]:
                 )
             markers[key] = file
 
-    # named like `phenocycler()` names them, e.g. `Tonsil_Scan1.er.qptiff` -> `Tonsil`
-    for region, file in qptiff_regions(unnamed_qptiffs).items():
-        qptiffs.setdefault(region, []).append(file)
+    # named like `phenocycler()` names them, e.g. `exp_reg001.qptiff` -> `reg001`, `Tonsil_Scan1.er.qptiff` -> `Tonsil`
+    qptiffs = qptiff_regions(all_qptiffs)
 
     images: dict[str, list[Path]] = {}
     # the Processor's stitched outputs come first: cell tables refer to their pixel space
@@ -517,7 +512,7 @@ def _discover_images(files: Sequence[Path]) -> dict[str, list[Path]]:
         elif region in stacks:
             images[region] = [_single(region, _preferred_stacks(stacks[region]))]
         else:
-            images[region] = [_single(region, qptiffs[region])]
+            images[region] = [qptiffs[region]]
     return images
 
 
@@ -543,7 +538,7 @@ def _discover_tables(files: Sequence[Path], fcs: bool) -> dict[str, Path]:
     candidates: dict[str, list[Path]] = {}
     for file in files:
         if file.suffix.lower() in _TABLE_SUFFIXES and _is_codex_table(file):
-            candidates.setdefault(_region_id(file.name) or "*", []).append(file)
+            candidates.setdefault(region_id(file.name) or "*", []).append(file)
 
     def uncompensated(file: Path) -> bool:
         return any("uncompensated" in part.casefold() for part in file.parts)
@@ -623,11 +618,6 @@ def _pixel_size_um(experiment: Mapping[str, Any] | None) -> float | None:
         if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
             return value / 1000
     return None
-
-
-def _region_id(name: str) -> str | None:
-    match = _REGION.search(name)
-    return f"reg{int(match.group(1)):03d}" if match else None
 
 
 def _is_qptiff(path: Path) -> bool:

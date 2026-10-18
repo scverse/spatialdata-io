@@ -85,7 +85,9 @@ def phenocycler(
     ``.``, e.g. macOS ``._*`` files, and ``__MACOSX/``); symlinked folders are followed. File suffixes are matched
     ignoring case.
 
-    The region name is the file name without the ``{vx.ER_QPTIFF_SUFFIX!r}``/``{vx.QPTIFF_SUFFIX!r}`` suffix and
+    The region name is the CODEX region id ``regNNN`` of a file name with ``reg`` and digits not preceded by a letter
+    (``exp_reg001.qptiff`` is ``reg001``, as in :func:`spatialdata_io.codex`; several scans with the same region id
+    raise an error), else the file name without the ``{vx.ER_QPTIFF_SUFFIX!r}``/``{vx.QPTIFF_SUFFIX!r}`` suffix and
     without a trailing ``_Scan<N>``, unless that makes two regions share a name, made a valid element name by
     :func:`spatialdata.sanitize_name` (characters other than letters, digits, ``_``, ``.`` and ``-`` are replaced by
     ``_``, e.g. ``A_[1,2]`` becomes ``A__1_2_``). Each region is stored as the image

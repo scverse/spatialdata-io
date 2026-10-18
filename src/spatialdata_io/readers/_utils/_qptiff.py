@@ -15,7 +15,7 @@ import tifffile
 from spatialdata import sanitize_name
 
 from spatialdata_io._constants._constants import PhenocyclerKeys
-from spatialdata_io.readers._utils._akoya import lazy_tiff_array
+from spatialdata_io.readers._utils._akoya import lazy_tiff_array, region_id
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -248,7 +248,9 @@ def qptiff_regions(files: Sequence[Path]) -> dict[str, Path]:
     """The region id of every qptiff scan among ``files``, the same for both Akoya readers.
 
     Files of the same scan (folder and base name) are read once, preferring the extended-range ``.er.qptiff``.
-    The region id is the base name without a trailing ``_Scan<N>``, unless that makes two scans share a region id.
+    The region id is the CODEX region id ``regRRR`` of a base name with ``reg`` and digits not preceded by a letter
+    (``exp_reg001`` to ``reg001``), else the base name without a trailing ``_Scan<N>``, unless that makes two scans
+    share a region id. Raises if two scans have the same region id.
 
     Parameters
     ----------
@@ -289,7 +291,7 @@ def qptiff_regions_with_duplicates(files: Sequence[Path]) -> tuple[dict[str, Pat
     stripped = [sanitize_name(_SCAN_SUFFIX.sub("", base) or base) for base in bases]
     # stripping `_Scan<N>` must not merge two scans into one region
     regions = [
-        sanitize_name(base) if stripped.count(region) > 1 else region
+        region_id(base) or (sanitize_name(base) if stripped.count(region) > 1 else region)
         for base, region in zip(bases, stripped, strict=True)
     ]
     if len(set(regions)) < len(regions):
