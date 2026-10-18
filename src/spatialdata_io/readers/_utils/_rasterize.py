@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+from itertools import product
 from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
 import shapely
+from dask.array.core import normalize_chunks
 from dask.base import tokenize
-from skimage.draw import polygon as draw_polygon
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -16,6 +18,9 @@ if TYPE_CHECKING:
 __all__ = ["rasterize_polygons_lazy"]
 
 _MAX_ID = np.iinfo(np.uint32).max
+# the polygon pixels tested at once, bounding the memory of a block's temporaries (~25 MB)
+_BATCH_PIXELS = 1 << 18
+_TOKEN_BATCH = 1 << 16
 
 
 def rasterize_polygons_lazy(
@@ -27,10 +32,11 @@ def rasterize_polygons_lazy(
 ) -> da.Array:
     """Rasterise polygons into a lazy ``uint32`` labels array, one chunk at a time.
 
-    A pixel ``(row, col)`` gets the id of a polygon that contains its centre ``(col + 0.5, row + 0.5)``: pixel
-    ``(0, 0)`` covers ``[0, 1) x [0, 1)``, as in QuPath. Holes are not part of a polygon. Where polygons overlap,
-    the one with the higher id wins, independently of their order. Only a spatial index of the polygons is built
-    here; each chunk draws just the polygons that intersect it when it is computed.
+    A pixel ``(row, col)`` gets the id of a polygon that contains its centre ``(col + 0.5, row + 0.5)`` or has it on
+    its boundary: pixel ``(0, 0)`` covers ``[0, 1) x [0, 1)``, as in QuPath. Holes are not part of a polygon. Where
+    polygons overlap or touch, the one with the higher id wins, independently of their order, so cells that share an
+    edge leave no gap. Only the polygons that may
+    intersect each chunk are found here; a chunk draws them when it is computed.
 
     Parameters
     ----------
@@ -54,51 +60,70 @@ def rasterize_polygons_lazy(
     labels = np.asarray(ids, dtype=np.int64)
     if len(labels) and (labels.min() < 1 or labels.max() > _MAX_ID):
         raise ValueError(f"Polygon ids must be between 1 and {_MAX_ID}; got {labels.min()} to {labels.max()}.")
-    # drawing in ascending id order lets the higher id win overlaps; the stable sort keeps ties in input order
-    order = np.argsort(labels, kind="stable")
-    geometries = np.asarray(polygons, dtype=object)[order]
+    geometries = np.asarray(polygons, dtype=object)
     if scale != 1.0:
         geometries = shapely.transform(geometries, lambda xy: xy * scale)
-    labels = labels[order].astype(np.uint32)
-    template = da.empty(shape, chunks=chunks, dtype=np.uint32)
-    # dask would otherwise tokenize the geometries one by one; their vectorised WKB is much faster to hash
-    wkb = np.frombuffer(b"".join(shapely.to_wkb(geometries)), dtype=np.uint8)
-    token = tokenize(wkb, labels, template.shape, template.chunks)
-    return da.map_blocks(
-        _draw_block,
-        template,
-        dtype=np.uint32,
-        name=f"rasterize-polygons-{token}",
-        tree=shapely.STRtree(geometries),
-        labels=labels,
-        meta=np.empty((0, 0), dtype=np.uint32),
-    )
+    labels = labels.astype(np.uint32)
+    sizes = normalize_chunks(chunks, shape, dtype=np.uint32)
+    name = f"rasterize-polygons-{_token(geometries, labels, sizes)}"
+    # every task holds just the polygons that may intersect its chunk, so the polygons are shipped once in all
+    starts = [np.cumsum((0, *axis[:-1])) for axis in sizes]
+    blocks = list(product(*(range(len(axis)) for axis in sizes)))
+    boxes = [
+        shapely.box(starts[1][j], starts[0][i], starts[1][j] + sizes[1][j], starts[0][i] + sizes[0][i])
+        for i, j in blocks
+    ]
+    block_of, polygon = shapely.STRtree(geometries).query(boxes)
+    counts = np.bincount(block_of, minlength=len(blocks))
+    by_block = np.split(polygon[np.argsort(block_of, kind="stable")], np.cumsum(counts)[:-1])
+    graph = {
+        (name, i, j): (
+            _draw_block,
+            geometries[rows],
+            labels[rows],
+            (int(starts[0][i]), int(starts[1][j])),
+            (sizes[0][i], sizes[1][j]),
+        )
+        for (i, j), rows in zip(blocks, by_block, strict=True)
+    }
+    return da.Array(graph, name, sizes, meta=np.empty((0, 0), dtype=np.uint32))
+
+
+def _token(geometries: np.ndarray, labels: np.ndarray, *args: Any) -> str:
+    """A deterministic token of the polygons, hashing their WKB in batches to bound the memory."""
+    wkb = hashlib.blake2b(digest_size=16)
+    for start in range(0, len(geometries), _TOKEN_BATCH):
+        wkb.update(b"".join(shapely.to_wkb(geometries[start : start + _TOKEN_BATCH])))
+    return tokenize(wkb.hexdigest(), labels, *args)
 
 
 def _draw_block(
-    block: np.ndarray, tree: shapely.STRtree, labels: np.ndarray, block_info: dict[Any, Any] | None = None
+    geometries: np.ndarray, labels: np.ndarray, origin: tuple[int, int], shape: tuple[int, int]
 ) -> np.ndarray:
-    (y0, y1), (x0, x1) = block_info[0]["array-location"]  # type: ignore[index]
-    out = np.zeros(block.shape, dtype=np.uint32)
-    # the tree indices follow the ascending ids
-    for i in np.sort(tree.query(shapely.box(x0, y0, x1, y1))):
-        for part in shapely.get_parts(tree.geometries[i]):
-            if isinstance(part, shapely.Polygon) and not part.is_empty:
-                _draw_polygon(out, part, labels[i], y0, x0)
+    """The labels of the block of ``shape`` at ``origin``, the highest id of the polygons covering each pixel centre."""
+    out = np.zeros(shape, dtype=np.uint32)
+    if not len(geometries):
+        return out
+    # private copies in block coordinates, prepared without racing other threads over the shared polygons
+    geometries = shapely.transform(geometries, lambda xy: xy - origin[::-1])
+    shapely.prepare(geometries)
+    # the pixel window of each polygon in the block; pixel centres are at +0.5
+    minx, miny, maxx, maxy = shapely.bounds(geometries).T
+    r0, r1 = np.clip([np.floor(miny - 0.5), np.ceil(maxy - 0.5) + 1], 0, shape[0]).astype(np.int64)
+    c0, c1 = np.clip([np.floor(minx - 0.5), np.ceil(maxx - 0.5) + 1], 0, shape[1]).astype(np.int64)
+    width = c1 - c0
+    sizes = np.maximum(r1 - r0, 0) * np.maximum(width, 0)
+    firsts = np.cumsum(sizes) - sizes
+    flat = out.reshape(-1)
+    # all candidate pixels of a batch of polygons are tested in one GEOS call, which releases the GIL
+    start = 0
+    while start < len(geometries):
+        stop = max(int(np.searchsorted(firsts, firsts[start] + _BATCH_PIXELS)), start + 1)
+        owner = np.repeat(np.arange(start, stop), sizes[start:stop])
+        offset = np.arange(len(owner)) - (firsts[owner] - firsts[start])
+        rows = r0[owner] + offset // width[owner]
+        cols = c0[owner] + offset % width[owner]
+        inside = shapely.intersects_xy(geometries[owner], cols + 0.5, rows + 0.5)
+        np.maximum.at(flat, rows[inside] * shape[1] + cols[inside], labels[owner[inside]])
+        start = stop
     return out
-
-
-def _draw_polygon(out: np.ndarray, polygon: shapely.Polygon, value: int, y0: int, x0: int) -> None:
-    """Set the pixels of ``out`` (the block at ``(y0, x0)``) whose centres are inside ``polygon`` to ``value``."""
-    minx, miny, maxx, maxy = polygon.bounds
-    # the pixel window of the polygon in the block; pixel centres are at +0.5
-    r0, c0 = max(int(np.floor(miny - 0.5)) - y0, 0), max(int(np.floor(minx - 0.5)) - x0, 0)
-    r1, c1 = min(int(np.ceil(maxy - 0.5)) + 1 - y0, out.shape[0]), min(int(np.ceil(maxx - 0.5)) + 1 - x0, out.shape[1])
-    if r0 >= r1 or c0 >= c1:
-        return
-    inside = np.zeros((r1 - r0, c1 - c0), dtype=bool)
-    # holes are cleared from this polygon only, so cells lying in a hole keep their pixels
-    for ring, fill in [(polygon.exterior, True), *((ring, False) for ring in polygon.interiors)]:
-        xy = shapely.get_coordinates(ring)
-        inside[draw_polygon(xy[:, 1] - 0.5 - (y0 + r0), xy[:, 0] - 0.5 - (x0 + c0), shape=inside.shape)] = fill
-    out[r0:r1, c0:c1][inside] = value

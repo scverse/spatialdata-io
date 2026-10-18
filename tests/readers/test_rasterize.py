@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 import warnings
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +68,11 @@ def test_rasterize_pixel_convention_and_scale() -> None:
     # coordinates in µm with 0.5 µm pixels
     half = shapely.box(0.5, 1, 1.5, 2.5)
     np.testing.assert_array_equal(rasterize_polygons_lazy([half], [7], shape=(8, 8), scale=2).compute(), expected)
+    # pixel centres on the shared diagonal go to the higher id
+    halves = [shapely.Polygon([(0, 0), (4, 0), (0, 4)]), shapely.Polygon([(4, 0), (4, 4), (0, 4)])]
+    labels = rasterize_polygons_lazy(halves, [1, 2], shape=(4, 4)).compute()
+    rows, cols = np.indices((4, 4))
+    np.testing.assert_array_equal(labels, np.where(rows + cols >= 3, 2, 1))
 
 
 def test_rasterize_overlap_higher_id_wins() -> None:
@@ -107,11 +113,12 @@ def test_rasterize_errors() -> None:
 def test_rasterize_is_lazy(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
-    def counting_polygon(*args: Any, **kwargs: Any) -> tuple[np.ndarray, np.ndarray]:
-        calls.append(1)
-        return draw_polygon(*args, **kwargs)
+    def counting_draw_block(geometries: np.ndarray, *args: Any) -> np.ndarray:
+        calls.append(len(geometries))
+        return draw_block(geometries, *args)
 
-    monkeypatch.setattr(_rasterize, "draw_polygon", counting_polygon)
+    draw_block = _rasterize._draw_block
+    monkeypatch.setattr(_rasterize, "_draw_block", counting_draw_block)
     polygons = [shapely.box(i, i, i + 3, i + 3) for i in range(0, 60, 6)]
 
     labels = rasterize_polygons_lazy(polygons, list(range(1, 11)), shape=(64, 64), chunks=(16, 16))
@@ -119,8 +126,18 @@ def test_rasterize_is_lazy(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not calls
     labels.blocks[0, 0].compute()
     # only the polygons of the chunk are drawn
-    assert len(calls) == 3
+    assert calls == [3]
     assert labels.compute().max() == 10
+
+
+def test_rasterize_tasks_hold_only_their_polygons() -> None:
+    polygons = [shapely.box(x, y, x + 3, y + 3) for x in range(0, 64, 8) for y in range(0, 64, 8)]
+
+    labels = rasterize_polygons_lazy(polygons, list(range(1, 65)), shape=(64, 64), chunks=(16, 16))
+
+    # with dask.distributed, every task is shipped on its own
+    largest = max(len(pickle.dumps(task)) for task in dict(labels.__dask_graph__()).values())
+    assert largest < len(pickle.dumps(polygons)) / 4
 
 
 def _write_qupath_cells(path: Path, object_ids: list[str]) -> None:
