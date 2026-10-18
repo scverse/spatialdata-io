@@ -302,6 +302,7 @@ def _read_sidecars(scan: AkoyaScan) -> None:
 def _find_sidecar(qptiff: Path, base: str, suffix: str) -> Path | None:
     """First file ending in ``suffix`` whose name starts with ``base``, next to the scan or in HuBMAP processed dir."""
     pattern = re.compile(rf"{re.escape(base)}(?![0-9A-Za-z]).*{re.escape(suffix)}$")
+    qptiff = qptiff.absolute()  # also look above the working directory, e.g. for `phenocycler(".")`
     directories = [qptiff.parent]
     # HuBMAP keeps `raw/images/<scan>.qptiff` and `lab_processed/images/<scan>.qptiff.channels.csv`
     for ancestor in qptiff.parents:

@@ -318,7 +318,8 @@ def test_dataset_below_an_acquisition_like_folder_is_read(tmp_path: Path) -> Non
     assert list(sdata.images) == ["S_image"]
 
 
-def test_sidecars_hubmap_layout(tmp_path: Path) -> None:
+@pytest.mark.parametrize("relative", [False, True])
+def test_sidecars_hubmap_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool) -> None:
     raw_images = tmp_path / "raw" / "images"
     processed = tmp_path / "lab_processed" / "images"
     raw_images.mkdir(parents=True)
@@ -332,10 +333,13 @@ def test_sidecars_hubmap_layout(tmp_path: Path) -> None:
     (raw_images / "S_Scan1.xpd").write_text(json.dumps(xpd))
     (processed / "S_Scan1.qptiff.channels.csv").write_text("Channel,Marker\n1,DAPI\n2,CD3\n")
 
+    if relative:
+        monkeypatch.chdir(raw_images)
+
     # DAPI repeats per cycle and blanks do not count as channels, so the sidecars match the two pages
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
-        sdata = phenocycler(tmp_path, image_models_kwargs=_FAST)
+        sdata = phenocycler("." if relative else tmp_path, image_models_kwargs=_FAST)
 
     raw = sdata.attrs["akoya"]["regions"]["S"]["raw"]
     assert raw["xpd"] == xpd

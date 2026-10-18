@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import re
 import warnings
 from collections.abc import Collection, Iterable, Mapping
@@ -572,7 +573,8 @@ def _find_sidecar(path: Path, files: Sequence[Path], name: str) -> Path | None:
     )
     if matches:
         return matches[0]
-    start = path.parent if path.is_file() else path
+    # absolute, so that the ancestors of e.g. `codex(".")` are searched too
+    start = (path.parent if path.is_file() else path).absolute()
     for directory in [start, *start.parents][: _SIDECAR_ANCESTORS + 1]:
         try:
             found = sorted(file for file in directory.iterdir() if file.name.casefold() == folded and file.is_file())
@@ -584,7 +586,16 @@ def _find_sidecar(path: Path, files: Sequence[Path], name: str) -> Path | None:
 
 
 def _read_channel_names_txt(path: Path) -> list[str]:
-    return [line.strip() for line in path.read_text().splitlines() if line.strip()]
+    data = path.read_bytes()
+    # written on Windows: UTF-16 with a byte order mark, UTF-8 (with or without one) or the ANSI code page
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        text = data.decode("utf-16")
+    else:
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = data.decode("cp1252", errors="replace")
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 def _pixel_size_um(experiment: Mapping[str, Any] | None) -> float | None:
