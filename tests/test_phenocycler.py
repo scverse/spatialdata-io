@@ -548,6 +548,24 @@ def test_phenocycler_cells_mapping_per_region(tmp_path: Path) -> None:
     assert sorted(sdata.labels) == ["A_labels", "B_labels"]
 
 
+def test_codex_format_table_uses_region_column(tmp_path: Path) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI"])
+    (tmp_path / "cells.csv").write_text("cell_id,Sample,x,y,DAPI\n1,A,1.0,2.0,3.0\n2,B,1.0,2.0,3.0\n3,B,4,5,6\n")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(
+            tmp_path,
+            regions=["A"],
+            cells_table=tmp_path / "cells.csv",
+            cells_table_kwargs={"region_column": "Sample"},
+            image_models_kwargs=_FAST,
+        )
+
+    assert list(sdata.tables["table"].obs["cell_id"]) == [1]
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["A_cells"]
+
+
 def test_mapping_with_unknown_region_raises(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI"])
     _write_mcquant(tmp_path / "A.csv", markers=("DAPI",))

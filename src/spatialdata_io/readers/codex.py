@@ -26,9 +26,10 @@ from spatialdata_io.readers._utils._akoya import (
 )
 from spatialdata_io.readers._utils._cell_tables import (
     CellTable,
+    _match_region,
     build_spatialdata,
     detect_table_format,
-    read_codex_table,
+    read_cell_table,
     read_region_tables,
     resolve_per_region,
 )
@@ -200,7 +201,7 @@ def codex(
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
     cells_table_kwargs
         Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
-        ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath tables),
+        ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath and CODEX tables),
         ``coordinates_unit`` (``"px"`` or ``"um"``; for QuPath ``X``/``Y`` and inForm ``Cell X Position`` columns
         without a unit, which are otherwise read in the unit of the table's other columns) and
         ``coordinates_space`` (``"image"``, default, or ``"mask"``: whether the pixel centroids of a generic table
@@ -283,13 +284,15 @@ def codex(
         )
         table_paths = {key: str(file) for key, file in table_files.items()}
     else:
-        named = {key: read_codex_table(layout.tables[key], region=key) for key in selected if key in layout.tables}
-        read = {"*": regionless, **named} if regionless is not None else named
-        if regions is not None:
-            read = {
-                key: table.take(np.flatnonzero(table.region.isin(selected).to_numpy())) for key, table in read.items()
-            }
-        read = {key: table for key, table in read.items() if len(table.region)}
+        named_files = {key: layout.tables[key] for key in selected if key in layout.tables}
+        named = read_region_tables(
+            named_files, "codex", available=available, selected=selected, pixel_sizes={}, cells_table_kwargs={}
+        )
+        read = dict(zip(named_files, named, strict=True))
+        if regionless is not None:
+            regionless = regionless.take(np.flatnonzero(regionless.region.isin(selected).to_numpy()))
+            if len(regionless.region):
+                read = {"*": regionless, **read}
         cell_tables = list(read.values())
         table_paths = {}
         for key, table in read.items():
@@ -324,11 +327,17 @@ def _warn_fcs_fallback(files: Iterable[Path], fcs: bool) -> None:
 def _read_regionless_table(file: Path, layout: _LegacyLayout) -> CellTable:
     """Read the discovered cell table ``file`` that has no region in its file name."""
     only_image = next(iter(layout.images)) if len(layout.images) == 1 else None
-    table = read_codex_table(file, region=only_image)
-    # next to a single image named after its file (e.g. `Kidney.tif`), its cells belong to that image
+    table = read_cell_table(file, "codex", pixel_size_um=None, default_region=only_image, cells_table_kwargs={})
     values = table.region.unique()
-    if only_image is not None and len(values) == 1 and values[0] not in layout.images:
+    if only_image is not None and len(values) == 1 and _match_region(values[0], [only_image]) is None:
+        # next to a single image named after its file (e.g. `Kidney.tif`), its cells belong to that image
         table.region = pd.Series(only_image, index=table.region.index, name=table.region.name)
+    else:
+        # values that name no region of the dataset are regions without an image
+        regions = list(layout.images.keys() | layout.tables.keys() - {"*"})
+        table.region = table.region.map(
+            {value: _match_region(value, regions) or sanitize_name(value) for value in values}
+        )
     return table
 
 

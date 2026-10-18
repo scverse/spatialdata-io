@@ -20,13 +20,14 @@ from spatialdata_io.readers._utils._cell_tables import (
     build_cells,
     detect_table_format,
     read_cell_table,
-    read_codex_table,
     read_labels,
     resolve_per_region,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from spatialdata_io.readers._utils._cell_tables import CellTable
 
 
 def _cells(n: int = 5, region: int = 1, markers: tuple[str, ...] = ("cyc001_ch001", "cyc001_ch002")) -> pd.DataFrame:
@@ -43,12 +44,16 @@ def _cells(n: int = 5, region: int = 1, markers: tuple[str, ...] = ("cyc001_ch00
     )
 
 
+def _read_codex(path: Path, region: str | None = None) -> CellTable:
+    return read_cell_table(path, "codex", pixel_size_um=None, default_region=region, cells_table_kwargs={})
+
+
 def test_read_codex_fcs_marker_names_from_pns(tmp_path: Path) -> None:
     cells = _cells(markers=("cyc001_ch001", "cyc001_ch002", "cyc002_ch001"))
     path = tmp_path / "reg001_compensated.fcs"
     write_fcs(path, cells, {"cyc001_ch001": "DAPI", "cyc001_ch002": "CD3", "cyc002_ch001": "DAPI"})
 
-    table = read_codex_table(path)
+    table = _read_codex(path)
 
     assert list(table.var.index) == ["DAPI", "CD3", "DAPI (2)"]
     assert list(table.var["cycle"]) == [1, 1, 2]
@@ -70,7 +75,7 @@ def test_read_codex_fcs_without_pns_keeps_column_names(tmp_path: Path) -> None:
     path = tmp_path / "reg001.fcs"
     write_fcs(path, _cells())
 
-    assert list(read_codex_table(path).var.index) == ["cyc001_ch001", "cyc001_ch002"]
+    assert list(_read_codex(path).var.index) == ["cyc001_ch001", "cyc001_ch002"]
 
 
 def test_read_codex_csv_colon_header(tmp_path: Path) -> None:
@@ -81,7 +86,7 @@ def test_read_codex_csv_colon_header(tmp_path: Path) -> None:
         "2,2,11,21,31,200.5,8\n"
     )
 
-    table = read_codex_table(path)
+    table = _read_codex(path)
 
     assert list(table.var.index) == ["DAPI1", "CD3"]
     assert list(table.var["source_column"]) == ["cyc001_ch001:DAPI1", "cyc001_ch002:CD3"]
@@ -96,7 +101,7 @@ def test_read_codex_csv_marker_name_columns(tmp_path: Path) -> None:
     path = tmp_path / "cells.csv"
     path.write_text("cell_id,x,y,tile_num,CD3,CD8,label\n1,1.0,2.0,1,5.0,6.0,T\n")
 
-    table = read_codex_table(path, region="Kidney")
+    table = _read_codex(path, region="Kidney")
 
     assert list(table.var.index) == ["CD3", "CD8"]
     assert "cycle" not in table.var.columns
@@ -109,17 +114,44 @@ def test_read_codex_table_errors(tmp_path: Path) -> None:
     no_xy = tmp_path / "a.csv"
     no_xy.write_text("cell_id,cyc001_ch001\n1,2.0\n")
     with pytest.raises(ValueError, match="'x' and 'y'"):
-        read_codex_table(no_xy)
+        _read_codex(no_xy)
     no_region = tmp_path / "b.csv"
     no_region.write_text("cell_id,x,y,cyc001_ch001\n1,1.0,2.0,2.0\n")
     with pytest.raises(ValueError, match="region"):
-        read_codex_table(no_region)
+        _read_codex(no_region)
+
+
+@pytest.mark.parametrize("sep", ["\t", ", "])
+def test_read_codex_table_delimiters_like_detection(tmp_path: Path, sep: str) -> None:
+    path = tmp_path / "cells.tsv"
+    header = ["cell_id", "region", "x", "y", "size", "cyc001_ch001:DAPI"]
+    path.write_text("\n".join(sep.join(row) for row in [header, ["1", "2", "1.0", "2.0", "3.0", "4.0"]]) + "\n")
+
+    assert detect_table_format(path) == "codex"
+    table = read_cell_table(path, "auto", pixel_size_um=None, default_region=None, cells_table_kwargs={})
+
+    assert list(table.var.index) == ["DAPI"]
+    assert list(table.region) == ["reg002"]
+    np.testing.assert_array_equal(table.centroids_px, [[1, 2]])
+
+
+def test_read_codex_table_cells_table_kwargs(tmp_path: Path) -> None:
+    path = tmp_path / "cells.csv"
+    path.write_text("cell_id,label,Sample,x,y,CD3,CD8\n1,7,A,1.0,2.0,3.0,4.0\n2,8,B,5.0,6.0,7.0,8.0\n")
+    kwargs = {"region_column": "Sample", "instance_id": "label", "markers": ["CD8"]}
+
+    table = read_cell_table(path, "codex", pixel_size_um=None, default_region="A", cells_table_kwargs=kwargs)
+
+    assert list(table.region) == ["A", "B"]
+    assert list(table.instance_id) == [7, 8]
+    assert list(table.var.index) == ["CD8"]
+    assert "CD3" in table.obs.columns
 
 
 def test_build_cells_single_table_and_circles(tmp_path: Path) -> None:
     write_fcs(tmp_path / "reg001.fcs", _cells(n=3, region=1))
     write_fcs(tmp_path / "reg002.fcs", _cells(n=4, region=2))
-    tables = [read_codex_table(tmp_path / f"reg00{r}.fcs") for r in (1, 2)]
+    tables = [_read_codex(tmp_path / f"reg00{r}.fcs") for r in (1, 2)]
     translation = Translation([10, 0], axes=("x", "y"))
 
     with pytest.warns(UserWarning, match=r"No segmentation mask found for region.*circles") as record:
@@ -145,7 +177,7 @@ def test_build_cells_single_table_and_circles(tmp_path: Path) -> None:
 def test_build_cells_different_panels_split_tables(tmp_path: Path) -> None:
     write_fcs(tmp_path / "reg001.fcs", _cells(region=1, markers=("cyc001_ch001",)))
     write_fcs(tmp_path / "reg002.fcs", _cells(region=2, markers=("cyc001_ch001", "cyc001_ch002")))
-    tables = [read_codex_table(tmp_path / f"reg00{r}.fcs") for r in (1, 2)]
+    tables = [_read_codex(tmp_path / f"reg00{r}.fcs") for r in (1, 2)]
 
     with pytest.warns(UserWarning, match="circles"):
         anndatas, _ = build_cells(tables, {}, {}, {})
@@ -158,13 +190,13 @@ def test_build_cells_different_panels_split_tables(tmp_path: Path) -> None:
 def test_dedupe_matches_akoya_convention(tmp_path: Path) -> None:
     write_fcs(tmp_path / "reg001.fcs", _cells(), {"cyc001_ch001": "X", "cyc001_ch002": "X"})
 
-    assert list(read_codex_table(tmp_path / "reg001.fcs").var.index) == dedupe_channel_names(["X", "X"])
+    assert list(_read_codex(tmp_path / "reg001.fcs").var.index) == dedupe_channel_names(["X", "X"])
 
 
 def test_read_codex_fcs_blank_pns_falls_back_to_pnn(tmp_path: Path) -> None:
     write_fcs(tmp_path / "reg001.fcs", _cells(), {"cyc001_ch001": " ", "cyc001_ch002": "CD3"})
 
-    assert list(read_codex_table(tmp_path / "reg001.fcs").var.index) == ["cyc001_ch001", "CD3"]
+    assert list(_read_codex(tmp_path / "reg001.fcs").var.index) == ["cyc001_ch001", "CD3"]
 
 
 @pytest.mark.parametrize("different_panels", [False, True])
@@ -172,7 +204,7 @@ def test_build_cells_overlapping_regions_raise(tmp_path: Path, different_panels:
     write_fcs(tmp_path / "a.fcs", _cells(region=1))
     markers = ("cyc001_ch001",) if different_panels else ("cyc001_ch001", "cyc001_ch002")
     write_fcs(tmp_path / "b.fcs", _cells(region=1, markers=markers))
-    tables = [read_codex_table(tmp_path / name) for name in ("a.fcs", "b.fcs")]
+    tables = [_read_codex(tmp_path / name) for name in ("a.fcs", "b.fcs")]
 
     with pytest.raises(ValueError, match="Several cell tables"):
         build_cells(tables, {}, {}, {})

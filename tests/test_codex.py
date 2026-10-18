@@ -664,7 +664,7 @@ def test_codex_unreadable_regionless_table_raises(tmp_path: Path) -> None:
     (tmp_path / "cells.csv").write_text("cell_id,x,y,cyc001_ch001\n1,1.0,2.0,3.0\n")
     (tmp_path / "clusters.csv").write_text("cellid,cluster\n1,2\n")
 
-    with pytest.raises(ValueError, match="cannot be assigned to a region"):
+    with pytest.raises(ValueError, match="cannot be assigned to regions"):
         codex(tmp_path, image_models_kwargs=_FAST)
 
     # a CODEX table next to a single image that cannot be read
@@ -675,7 +675,7 @@ def test_codex_unreadable_regionless_table_raises(tmp_path: Path) -> None:
 
     # a single table file without a region column and no image
     write_fcs(tmp_path / "Kidney.fcs", pd.DataFrame({"cell_id": [1.0], "x": [1.0], "y": [2.0], "cyc001_ch001": [3.0]}))
-    with pytest.raises(ValueError, match="cannot be assigned to a region"):
+    with pytest.raises(ValueError, match="cannot be assigned to regions"):
         codex(tmp_path / "Kidney.fcs")
 
 
@@ -769,3 +769,26 @@ def test_single_region_codex_table_write_roundtrip(tmp_path: Path, case: str) ->
     assert table.obs.index.name is None
     assert table.obs["cell_id"].dtype == np.int64
     np.testing.assert_array_equal(table.obs["cell_id"], sdata.tables["table"].obs["cell_id"])
+
+
+def test_codex_discovered_tables_assign_regions_like_given_ones(tmp_path: Path) -> None:
+    for name in ("Tonsil 1", "Tonsil 2"):
+        tifffile.imwrite(tmp_path / f"{name}.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+    (tmp_path / "cells.csv").write_text(
+        "cell_id,region,x,y,size,cyc001_ch001\n1,Tonsil 1,1.0,2.0,3.0,4.0\n1,Tonsil 2,3.0,4.0,3.0,5.0\n"
+    )
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, image_models_kwargs=_FAST)
+
+    assert sorted(sdata.shapes) == ["Tonsil_1_cells", "Tonsil_2_cells"]
+    assert sorted(sdata.coordinate_systems) == ["Tonsil_1", "Tonsil_2"]
+
+
+def test_codex_discovered_table_of_another_region_raises(tmp_path: Path) -> None:
+    data = write_legacy_processor_tree(tmp_path, regions=2, cycles=1, channels=1, fcs=False, n_cells=3)
+    # the table of reg002 whose region column names reg001
+    data["cells"].assign(region=1.0).to_csv(next(tmp_path.rglob("reg002_compensated.csv")), index=False)
+
+    with pytest.raises(ValueError, match="has no cells of region 'reg002'"):
+        codex(tmp_path, image_models_kwargs=_FAST)

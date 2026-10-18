@@ -58,7 +58,6 @@ __all__ = [
     "polygon_shapes",
     "raster_shape",
     "read_cell_table",
-    "read_codex_table",
     "read_labels",
     "read_qupath_polygons",
     "read_region_labels",
@@ -195,104 +194,6 @@ class CellTable:
         )
 
 
-def read_codex_table(path: Path, region: str | None = None) -> CellTable:
-    """Read a CODEX Processor ``.fcs`` or ``.csv`` cell table.
-
-    Marker columns are the ``cycCCC_chHHH`` columns; their names come from the FCS ``$PnS`` keywords or from the
-    display part of the Processor CSV header ``cycCCC_chHHH:<marker>``. A table without such columns has one
-    marker column per numeric column that is not a known CODEX Processor column (``x``, ``size``, ...).
-
-    Parameters
-    ----------
-    path
-        The ``.fcs`` or ``.csv`` file.
-    region
-        The region id of all cells if the table has no ``region`` column. A numeric ``region`` column ``r`` is
-        mapped to the region id ``regRRR``.
-
-    Returns
-    -------
-    The cell table.
-    """
-    if path.suffix.lower() == CodexKeys.FCS_FILE.value:
-        fcs = readfcs.ReadFCS(path)
-        df = fcs.data  # positional columns, named by `$PnN`
-        names = list(fcs.channels["PnN"])
-        labels = list(fcs.channels["PnS"]) if "PnS" in fcs.channels.columns else [""] * len(names)
-    else:
-        df = pd.read_csv(path, engine="pyarrow")
-        names = [str(column) for column in df.columns]
-        labels = [""] * len(names)
-    sources = names
-    # the Processor CSV header form `cyc001_ch001:DAPI1` (also `cell_id:cell_id`)
-    split = [name.partition(":") for name in names]
-    df.columns = pd.Index([name for name, _, _ in split])
-    displays = [label.strip() or display or name for (name, _, display), label in zip(split, labels, strict=True)]
-
-    marker_matches = [_MARKER_COLUMN.fullmatch(column) for column in df.columns]
-    if any(marker_matches):
-        is_marker = [match is not None for match in marker_matches]
-    else:
-        is_marker = [
-            column.casefold() not in _META_COLUMNS and pd.api.types.is_numeric_dtype(df[column])
-            for column in df.columns
-        ]
-    markers = [i for i, marker in enumerate(is_marker) if marker]
-    var = pd.DataFrame(
-        {"source_column": [sources[i] for i in markers]},
-        index=pd.Index(dedupe_channel_names([displays[i] for i in markers])),
-    )
-    if any(marker_matches):
-        var["cycle"] = [int(marker_matches[i].group(1)) for i in markers]  # type: ignore[union-attr]
-        var["channel"] = [int(marker_matches[i].group(2)) for i in markers]  # type: ignore[union-attr]
-    X = df.iloc[:, markers].to_numpy(dtype=np.float32)
-    obs = df.iloc[:, [i for i, marker in enumerate(is_marker) if not marker]]
-
-    columns = {column.casefold(): column for column in obs.columns}
-    if "x" not in columns or "y" not in columns:
-        raise ValueError(f"{path} has no 'x' and 'y' centroid columns; found {list(obs.columns)}.")
-    centroids = obs[[columns["x"], columns["y"]]].to_numpy(dtype=np.float64)
-    radius = np.sqrt(obs[columns["size"]].to_numpy(dtype=np.float64) / np.pi) if "size" in columns else None
-
-    instance_key = CodexKeys.INSTANCE_KEY.value
-    if instance_key in columns:
-        instance_id = obs[columns[instance_key]].astype(np.int64)
-    else:
-        # label images use 0 for the background, so instance ids start at 1
-        instance_id = pd.Series(np.arange(1, len(obs) + 1, dtype=np.int64))
-    # unnamed, like the index of the other formats: the table element gets an `instance_key` column of that name
-    instance_id.index = pd.Index(instance_id.astype(str).to_numpy())
-    obs.index = instance_id.index
-    instance_id.name = instance_key
-
-    region_key = CodexKeys.REGION_KEY.value
-    if region_key in columns:
-        regions = obs[columns[region_key]]
-        if pd.api.types.is_numeric_dtype(regions):
-            ids = {value: f"reg{int(value):03d}" for value in regions.unique()}
-            regions = regions.map(ids)
-        region_ids = regions.astype(str)
-    elif region is not None:
-        region_ids = pd.Series(region, index=obs.index)
-    else:
-        raise ValueError(
-            f"{path} has no '{region_key}' column and no region id in its file name, so its cells cannot be "
-            "assigned to a region; a table for several regions needs a region column."
-        )
-    region_ids.name = region_key
-    _check_unique_instance_ids(path, region_ids, instance_id)
-    return CellTable(
-        obs=_drop_key_columns(obs, columns.get(instance_key), columns.get(region_key)),
-        X=X,
-        var=var,
-        region=region_ids,
-        instance_id=instance_id,
-        centroids_px=centroids,
-        radius_px=radius,
-        row_instance_ids=instance_key not in columns,
-    )
-
-
 def detect_table_format(path: Path) -> str:
     """Detect the format of a cell table from its file type and header.
 
@@ -362,7 +263,12 @@ def read_cell_table(
         ``y``), ``"codex"``, ``"qupath"``, ``"mcquant"``,
         ``"sprm"``, ``"inform"`` or ``"generic"``:
 
-            - ``"codex"``: see :func:`read_codex_table`.
+            - ``"codex"``: a CODEX Processor ``.fcs`` or ``.csv`` table. The markers are ``markers``, else the
+              ``cycCCC_chHHH`` columns, named by the FCS ``$PnS`` keywords or by the display part of the Processor
+              CSV header ``cycCCC_chHHH:<marker>`` (in ``var`` with their ``cycle`` and ``channel``), else the
+              numeric columns that are not CODEX Processor columns (``x``, ``size``, ...). Centroids ``x``/``y`` in
+              pixels, instance ids ``cell_id``, the region from ``region`` (a numeric region ``r`` is the region id
+              ``regRRR``), the radius from ``size``.
             - ``"qupath"``: a QuPath measurement export, also with R's ``make.names`` column names
               (``Centroid.X.um``, ``Object.ID``). Centroids ``Centroid X µm``/``Centroid Y µm`` (divided by
               ``pixel_size_um``) or ``Centroid X px``/``Centroid Y px``, else ``X``/``Y`` in ``coordinates_unit``
@@ -408,7 +314,7 @@ def read_cell_table(
         Optional keys: ``region_column`` (the column holding the region of each cell; QuPath default ``Image``),
         and for ``"generic"`` tables ``x`` and ``y`` (required centroid columns), ``instance_id`` (else the row
         number, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
-        default: all other numeric columns; also for ``"qupath"`` tables) and ``coordinates_unit`` (``"px"``,
+        default: all other numeric columns; also for ``"qupath"`` and ``"codex"`` tables) and ``coordinates_unit`` (``"px"``,
         default, or ``"um"``; for ``"qupath"`` and ``"inform"`` tables the unit of centroid columns whose name
         has none) and ``coordinates_space`` (the pixels of ``"px"`` centroids: ``"image"``, default, those of the
         full-resolution region image, or ``"mask"``, those of the region's mask, scaled to image pixels like the
@@ -433,16 +339,18 @@ def read_cell_table(
         raise ValueError(
             f"`cells_table_kwargs['coordinates_space']` is only used with generic cell tables; {path} is {fmt!r}."
         )
-    if fmt == "codex":
-        return read_codex_table(path, region=default_region)
     if fmt not in TABLE_FORMATS:
         raise ValueError(f"Unknown cell table format {fmt!r}; expected 'auto' or one of {TABLE_FORMATS}.")
 
-    _, sep = _read_header(path)
-    df = pd.read_csv(path, sep=sep, engine="pyarrow")
-    # inForm writes some column names with trailing spaces
-    df.columns = pd.Index([str(column).strip() for column in df.columns])
+    if path.suffix.lower() == CodexKeys.FCS_FILE.value:
+        df = _read_fcs(path)
+    else:
+        _, sep = _read_header(path)
+        df = pd.read_csv(path, sep=sep, engine="pyarrow")
+        # inForm writes some column names with trailing spaces
+        df.columns = pd.Index([str(column).strip() for column in df.columns])
     reader = {
+        "codex": _codex_roles,
         "qupath": _qupath_roles,
         "mcquant": _mcquant_roles,
         "sprm": _sprm_roles,
@@ -678,6 +586,69 @@ def _read_geojson(path: Path) -> tuple[np.ndarray | None, np.ndarray, np.ndarray
         geometries,
         np.asarray(types, dtype=object) if has_types else None,
     )
+
+
+def _read_fcs(path: Path) -> pd.DataFrame:
+    """The events of an FCS file, with the columns named ``$PnN:$PnS`` like the CODEX Processor CSV header."""
+    fcs = readfcs.ReadFCS(path)
+    df = fcs.data  # positional columns, named by `$PnN`
+    labels = fcs.channels["PnS"] if "PnS" in fcs.channels.columns else [""] * df.shape[1]
+    names = fcs.channels["PnN"]
+    df.columns = pd.Index(
+        [f"{name}:{label.strip()}" if label.strip() else name for name, label in zip(names, labels, strict=True)]
+    )
+    return df
+
+
+def _codex_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    """The roles of a CODEX table; renames the columns of ``df`` to the name part of ``cycCCC_chHHH:<marker>``."""
+    split = [str(column).partition(":") for column in df.columns]
+    # the source of an FCS column is its `$PnN`
+    fcs = path.suffix.lower() == CodexKeys.FCS_FILE.value
+    sources = [name if fcs else str(column) for column, (name, _, _) in zip(df.columns, split, strict=True)]
+    names = [name for name, _, _ in split]
+    displays = [display.strip() or name for name, _, display in split]
+    df.columns = pd.Index(names)
+    columns = {column.casefold(): column for column in names}
+    x, y = kwargs.get("x", columns.get("x")), kwargs.get("y", columns.get("y"))
+    if x is None or y is None:
+        raise ValueError(f"{path} has no 'x' and 'y' centroid columns; found {names}.")
+    instance_column = kwargs.get("instance_id", columns.get(CodexKeys.INSTANCE_KEY.value))
+    region_column = kwargs.get("region_column", columns.get(CodexKeys.REGION_KEY.value))
+    if region_column in df.columns and pd.api.types.is_numeric_dtype(df[region_column]):
+        values = df[region_column]
+        df[region_column] = values.map({value: f"reg{int(value):03d}" for value in values.dropna().unique()})
+    area = columns.get("size")
+
+    matches = [_MARKER_COLUMN.fullmatch(name) for name in names]
+    if kwargs.get("markers") is not None:
+        selected = set(_select_markers(df, kwargs["markers"], {x, y, instance_column, region_column, area}))
+        is_marker = [name in selected for name in names]
+    elif any(matches):
+        is_marker = [match is not None for match in matches]
+    else:
+        is_marker = [
+            name.casefold() not in _META_COLUMNS and pd.api.types.is_numeric_dtype(df.iloc[:, i])
+            for i, name in enumerate(names)
+        ]
+    positions = [i for i, marker in enumerate(is_marker) if marker]
+    var = pd.DataFrame(
+        {"source_column": [sources[i] for i in positions]},
+        index=pd.Index(dedupe_channel_names([displays[i] for i in positions])),
+    )
+    if positions and all(matches[i] for i in positions):
+        var["cycle"] = [int(matches[i].group(1)) for i in positions]  # type: ignore[union-attr]
+        var["channel"] = [int(matches[i].group(2)) for i in positions]  # type: ignore[union-attr]
+    return {
+        "markers": [names[i] for i in positions],
+        "var": var,
+        "x": x,
+        "y": y,
+        "in_um": False,
+        "instance_column": instance_column,
+        "region_column": region_column,
+        "area_column": area,
+    }
 
 
 def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
