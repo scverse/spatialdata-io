@@ -232,7 +232,9 @@ def read_tiff(
     """
     with tifffile.TiffFile(path) as tf:
         series = tf.series[0]
-        axes, offset, shape, dtype = series.axes, series.dataoffset, series.shape, series.dtype
+        axes, offset, shape = series.axes, series.dataoffset, series.shape
+        # tifffile reports the dtype in native byte order; a memory map needs the file's (big-endian for ImageJ)
+        dtype = series.dtype.newbyteorder(tf.byteorder)
         metadata = tf.imagej_metadata or {}
     labels = list(metadata["Labels"]) if isinstance(metadata.get("Labels"), list | tuple) else None
     read_by_tifffile = True

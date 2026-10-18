@@ -181,3 +181,18 @@ def test_build_image_rgb_and_multiplex():
     assert list(element.coords["c"].values) == ["r", "g", "b"]
     assert element.shape == (3, 16, 16)
     assert get_transformation(element, get_all=True) == {"reg1": trans}
+
+
+@pytest.mark.parametrize("imagej", [False, True])
+@pytest.mark.parametrize(
+    "data", [np.array([[[1, 8], [15, 0]]], dtype=np.uint16), np.array([[[1, 2], [300, 0]]], np.uint16)]
+)
+def test_read_tiff_big_endian(tmp_path: Path, imagej: bool, data: np.ndarray) -> None:
+    # ImageJ/Fiji write big-endian tiffs by default; the memory-mapped path must use the file's byte order
+    path = tmp_path / "x.tif"
+    tifffile.imwrite(path, data, byteorder=">", imagej=imagej)
+
+    image, _, _, _ = read_tiff(path, {}, (16, 16))
+
+    assert image.dtype == np.dtype("uint16")
+    np.testing.assert_array_equal(image.compute(), data)
