@@ -190,6 +190,29 @@ def test_codex_ignores_raw_tiles(tmp_path: Path) -> None:
     assert sorted(codex(tmp_path, image_models_kwargs=_FAST).images) == expected
 
 
+def test_codex_skips_hidden_files_and_follows_symlinks(tmp_path: Path) -> None:
+    root = tmp_path / "exp"
+    write_legacy_processor_tree(root, regions=2, layout="per_marker", fcs=True, csv=False, n_cells=5)
+    expected = _discover_legacy(root, fcs=True)
+    stitched = root / "processed_2020-01-01" / "stitched"
+    # macOS AppleDouble files and copies in __MACOSX/ and .Trash-1000/
+    for file in [*stitched.rglob("*.tif"), *root.rglob("*.fcs")]:
+        (file.parent / f"._{file.name}").write_bytes(b"AppleDouble")
+    for folder in ("__MACOSX", ".Trash-1000"):
+        shutil.copytree(stitched, root / folder / "stitched")
+    # the stitched images moved to another volume, and a link back up the tree
+    shutil.move(stitched, tmp_path / "scratch")
+    stitched.symlink_to(tmp_path / "scratch", target_is_directory=True)
+    (root / "loop").symlink_to(root, target_is_directory=True)
+
+    layout = _discover_legacy(root, fcs=True)
+
+    assert layout.tables == expected.tables
+    assert {region: [file.name for file in files] for region, files in layout.images.items()} == {
+        region: [file.name for file in files] for region, files in expected.images.items()
+    }
+
+
 def test_codex_regions_channel_names_and_pixel_size(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, regions=2, cycles=1, channels=2, layout="per_marker")
     (tmp_path / "experiment.json").write_text(json.dumps({"xyResolution": 377.5, "numChannels": 2}))

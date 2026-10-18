@@ -289,6 +289,24 @@ def test_discovery_ignores_suffix_case(tmp_path: Path) -> None:
     assert sorted(sdata.images) == ["A_image", "B_image"]
 
 
+def test_discovery_skips_hidden_files_and_follows_symlinks(tmp_path: Path) -> None:
+    root = tmp_path / "ds"
+    for folder in (".Trash-1000/files", "__MACOSX"):
+        (root / folder).mkdir(parents=True)
+        write_qptiff(root / folder / "A_Scan1.qptiff", biomarkers=["DAPI"])
+    write_qptiff(root / "A_Scan1.qptiff", biomarkers=["DAPI"])
+    (root / "._A_Scan1.qptiff").write_bytes(b"AppleDouble")
+    # a scan folder on another volume, and a link back up the tree
+    (tmp_path / "scratch").mkdir()
+    write_qptiff(tmp_path / "scratch" / "B_Scan1.qptiff", biomarkers=["DAPI"])
+    (root / "scans").symlink_to(tmp_path / "scratch", target_is_directory=True)
+    (root / "loop").symlink_to(root, target_is_directory=True)
+
+    sdata = phenocycler(root, image_models_kwargs=_FAST)
+
+    assert sorted(sdata.images) == ["A_image", "B_image"]
+
+
 def test_dataset_below_an_acquisition_like_folder_is_read(tmp_path: Path) -> None:
     # only the folders below `path` are checked for the HuBMAP acquisition folder `raw/images/phenocycler/`
     root = tmp_path / "raw" / "images" / "phenocycler" / "project"

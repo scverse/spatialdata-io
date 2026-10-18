@@ -80,6 +80,8 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   - Region ids `regNNN` are taken from `reg` and digits not preceded by a letter (`exp_reg001`, not `Treg2`). A CIM
     `.qptiff` without one is named as `phenocycler()` names it (without the suffix and a trailing `_Scan<N>`), and its
     `.er.qptiff` is preferred. Top-level `.tif` files of the original layout are named after their sanitised stems.
+  - Hidden files and folders (e.g. macOS `._*` files, `__MACOSX/`, `.Trash-*/`) are ignored and symlinked folders
+    are followed, by `phenocycler()` too.
 
 ### Fixed
 

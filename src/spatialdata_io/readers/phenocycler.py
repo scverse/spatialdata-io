@@ -27,7 +27,7 @@ from spatialdata_io.readers._utils._qptiff import (
     read_qptiff_image,
     read_qptiff_metadata,
 )
-from spatialdata_io.readers._utils._utils import _set_reader_metadata
+from spatialdata_io.readers._utils._utils import _set_reader_metadata, walk_visible
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -72,10 +72,12 @@ def phenocycler(
     ``b``, and by inForm component data (float32, usually a ``.tif`` file, which is read if ``path`` is that single
     file). The image keeps the dtype of the file. These files have the generation ``"qpi_other"`` in the metadata.
 
-    Sidecar files are matched to a scan by file-name prefix and stored as metadata only: the channel names always
-    come from the per-page XML of the qptiff. A sidecar whose number of markers differs from the number of channels
-    raises a warning. Acquisition files (``*.raw.qptiff``, ``*.qptiff.raw``, ``*.qptiff.intermediate`` and anything
-    in a ``raw/images/phenocycler/`` folder below ``path``) are ignored. File suffixes are matched ignoring case.
+    Sidecar files are matched to a scan by file-name prefix and stored as metadata only: the channel names always come
+    from the per-page XML of the qptiff. A sidecar whose number of markers differs from the number of channels raises a
+    warning. Acquisition files (``*.raw.qptiff``, ``*.qptiff.raw``, ``*.qptiff.intermediate`` and anything in a
+    ``raw/images/phenocycler/`` folder below ``path``) are ignored, as are hidden files and folders (names starting with
+    ``.``, e.g. macOS ``._*`` files, and ``__MACOSX/``); symlinked folders are followed. File suffixes are matched
+    ignoring case.
 
     The region name is the file name without the ``{vx.ER_QPTIFF_SUFFIX!r}``/``{vx.QPTIFF_SUFFIX!r}`` suffix and
     without a trailing ``_Scan<N>``, unless that makes two regions share a name, made a valid element name by
@@ -236,11 +238,14 @@ def _discover_qptiffs(path: Path) -> tuple[dict[str, Path], dict[str, Path]]:
         raise FileNotFoundError(f"{path} does not exist.")
     if path.is_file():
         return qptiff_regions_with_duplicates([path])
-    files = [
-        qptiff
-        for qptiff in sorted(path.rglob(f"*{PhenocyclerKeys.QPTIFF_SUFFIX}", case_sensitive=False))
-        if qptiff.is_file() and not _is_acquisition_file(qptiff.relative_to(path))
-    ]
+    files = sorted(
+        directory / name
+        for directory, _, names in walk_visible(path)
+        for name in names
+        if name.lower().endswith(PhenocyclerKeys.QPTIFF_SUFFIX)
+        and (directory / name).is_file()
+        and not _is_acquisition_file((directory / name).relative_to(path))
+    )
     if not files:
         raise FileNotFoundError(
             f"No .qptiff files found in {path} (searched recursively for '*.qptiff', excluding acquisition files)."

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import warnings
 from collections.abc import Collection, Iterable, Mapping
@@ -39,7 +38,11 @@ from spatialdata_io.readers._utils._qptiff import (
     read_qptiff_image,
     read_qptiff_metadata,
 )
-from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
+from spatialdata_io.readers._utils._utils import (
+    _initialize_raster_models_kwargs,
+    _set_reader_metadata,
+    walk_visible,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -122,14 +125,15 @@ def codex(
           ``cells_table`` to read them. FCS files of other instruments are ignored too.
 
     Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``, ``bestFocus/``)
-    are ignored. The region id ``regNNN`` is taken from the file names (``reg`` and digits not preceded by a letter,
-    e.g. ``exp_reg001`` but not ``Treg2``); a ``{vx.QPTIFF!r}`` without one is named as
+    are ignored, as are hidden files and folders (names starting with ``.``, e.g. macOS ``._*`` files, and
+    ``__MACOSX/``); symlinked folders are followed. The region id ``regNNN`` is taken from the file names (``reg`` and
+    digits not preceded by a letter, e.g. ``exp_reg001`` but not ``Treg2``); a ``{vx.QPTIFF!r}`` without one is named as
     :func:`spatialdata_io.phenocycler` names it: after its file, without the ``.er.qptiff`` or ``{vx.QPTIFF!r}`` suffix
     and a trailing ``_Scan<N>`` (unless that makes two regions share a name), and the extended-range ``.er.qptiff`` of a
     scan is preferred. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files are read as
     hyperstacks named after their files, made valid element names by :func:`spatialdata.sanitize_name` (e.g.
-    ``Kidney sample.tif`` becomes the region ``Kidney_sample``). Each region is stored as the image ``<region>_image`` and its
-    metadata in ``sdata.attrs["akoya"]``.
+    ``Kidney sample.tif`` becomes the region ``Kidney_sample``). Each region is stored as the image ``<region>_image``
+    and its metadata in ``sdata.attrs["akoya"]``.
 
     A single region is stored in the ``"global"`` coordinate system. Several CIM scans of the same sample space
     (same slide, with stage positions and equal pixel sizes) are placed at their stage positions in ``"global"``;
@@ -442,27 +446,19 @@ def _spatial_chunks(image_models_kwargs: Mapping[str, Any]) -> tuple[int, int]:
 
 
 def _walk(root: Path) -> list[Path]:
-    """All files below ``root`` in sorted order, skipping raw acquisition and intermediate processing folders."""
+    """All visible files below ``root`` in sorted order, skipping raw acquisition and intermediate processing folders."""
     files: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        directory = Path(dirpath)
+    for directory, dirnames, filenames in walk_visible(root):
         depth = len(directory.relative_to(root).parts)
         has_stitched = any(name.casefold() == "stitched" for name in dirnames)
-        dirnames[:] = sorted(
-            name for name in dirnames if depth < _MAX_DEPTH and not _is_ignored_dir(name, has_stitched)
-        )
-        files.extend(directory / name for name in sorted(filenames))
+        dirnames[:] = [name for name in dirnames if depth < _MAX_DEPTH and not _is_ignored_dir(name, has_stitched)]
+        files.extend(directory / name for name in filenames)
     return files
 
 
 def _is_ignored_dir(name: str, has_stitched: bool) -> bool:
     folded = name.casefold()
-    return (
-        folded == "tiles"
-        or (folded == "bestfocus" and has_stitched)
-        or _RAW_CYCLE_DIR.fullmatch(name) is not None
-        or name.startswith(".")
-    )
+    return folded == "tiles" or (folded == "bestfocus" and has_stitched) or _RAW_CYCLE_DIR.fullmatch(name) is not None
 
 
 def _discover_images(files: Sequence[Path]) -> dict[str, list[Path]]:
