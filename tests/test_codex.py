@@ -688,7 +688,7 @@ def test_codex_regionless_table_belongs_to_single_stem_image(tmp_path: Path) -> 
             sdata = codex(tmp_path, regions=regions, image_models_kwargs=_FAST)
         assert list(sdata.tables["table"].obs["region"].cat.categories) == ["Kidney_cells"]
         assert list(sdata.shapes) == ["Kidney_cells"]
-        assert sdata.attrs["akoya"]["cell_tables"] == {"*": str(tmp_path / "cells.csv")}
+        assert sdata.attrs["akoya"]["cell_tables"] == {"Kidney": str(tmp_path / "cells.csv")}
 
 
 def test_codex_duplicate_cell_ids_raise(tmp_path: Path) -> None:

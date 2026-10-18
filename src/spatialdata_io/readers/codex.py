@@ -153,7 +153,8 @@ def codex(
     The outlines are always kept as the shapes ``<region>_polygons`` in pixels, indexed by the same instance ids,
     also when a mask is given for the region (the mask is used for the labels, with a warning) or the region has no
     image (its cells are then circles). The paths of the tables, masks and GeoJSON files read are stored in
-    ``sdata.attrs["akoya"]["cell_tables"]``, ``["labels"]`` and ``["geojson"]``.
+    ``sdata.attrs["akoya"]["cell_tables"]``, ``["labels"]`` and ``["geojson"]``, by region id (``"*"`` for a file of
+    several regions).
 
     .. seealso::
 
@@ -290,7 +291,12 @@ def codex(
             }
         read = {key: table for key, table in read.items() if len(table.region)}
         cell_tables = list(read.values())
-        table_paths = {key: str(layout.tables[key]) for key in read}
+        table_paths = {}
+        for key, table in read.items():
+            # by region id, like a given table; `"*"` only for a region-less table of several regions
+            values = table.region.unique()
+            region = values[0] if key == "*" and len(values) == 1 and values[0] not in read else key
+            table_paths[region] = str(layout.tables[key])
     sdata = build_spatialdata(
         scans,
         arrays,

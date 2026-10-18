@@ -106,7 +106,8 @@ def phenocycler(
     the higher instance id wins; the table annotates the labels. The outlines are always kept as the shapes
     ``<region>{vx.POLYGONS_SUFFIX}`` in pixels, indexed by the same instance ids, also when a mask is given for the
     region (the mask is used for the labels, with a warning). The paths of the tables, masks and GeoJSON files are
-    stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]``, ``["labels"]`` and ``["geojson"]``.
+    stored in ``sdata.attrs[{vx.ATTRS_KEY!r}]["cell_tables"]``, ``["labels"]`` and ``["geojson"]``, by region id
+    (``"*"`` for a file of several regions).
 
     .. seealso::
 
