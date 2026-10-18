@@ -732,6 +732,54 @@ def test_qupath_bare_markers_exclude_morphology(tmp_path: Path, r_names: bool) -
     assert {header[4], header[7], header[10]} <= set(table.obs.columns)
 
 
+@pytest.mark.parametrize(
+    ("intensities", "compartments"),
+    [
+        # built-in cell detection (all versions)
+        (["Nucleus: DAPI mean", "Nucleus: DAPI std dev", "Cytoplasm: CD3 mean", "Cell: CD3 mean"], ["Nucleus", "Cell"]),
+        # cells of QuPath >= 0.6
+        (
+            ["Nucleus: DAPI: Mean", "Nucleus: DAPI: Median", "Cell: CD3: Mean", "Nucleus: CD3: Mean"],
+            ["Nucleus", "Cell"],
+        ),
+        # the same in R's `make.names` form
+        (["Nucleus..DAPI.mean", "Cytoplasm..CD3.mean", "Cell..CD3.mean"], ["Nucleus", "Cell"]),
+        # detections without compartments
+        (["DAPI: Mean", "DAPI: Median", "DAPI: Std.Dev.", "CD3: Mean", "CD3: Max"], None),
+    ],
+)
+def test_qupath_intensity_column_forms(tmp_path: Path, intensities: list[str], compartments: list[str] | None) -> None:
+    path = tmp_path / "cells.csv"
+    header = ["Image", "Object ID", "Name", "Classification", "Centroid X µm", "Centroid Y µm", *intensities]
+    rows = [f"S,u{i},,,{i},{i},{','.join(str(i + j) for j in range(len(intensities)))}" for i in range(2)]
+    path.write_text("\n".join([",".join(header), *rows]) + "\n", encoding="utf-8")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        table = read_cell_table(path, "auto", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+
+    assert list(table.var.index) == ["DAPI", "CD3"]
+    if compartments is None:
+        assert "compartment" not in table.var.columns
+    else:
+        assert list(table.var["compartment"]) == compartments
+    assert {"Name", "Classification"} <= set(table.obs.columns)
+
+
+@pytest.mark.parametrize("r_names", [False, True])
+def test_qupath_bare_markers_exclude_empty_text_and_measurements(tmp_path: Path, r_names: bool) -> None:
+    path = tmp_path / "cells.csv"
+    header = ["Image", "Object ID", "Name", "Classification", "Centroid X µm", "Centroid Y µm", "DAPI: Median", "CD44"]
+    if r_names:
+        header = [name.replace(": ", "..").replace(" ", ".").replace("µm", "um") for name in header]
+    path.write_text(",".join(header) + "\nS,u1,,,1,2,3,4\nS,u2,,,1,2,3,4\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match=r"reading the 1 other numeric columns \['CD44'\]"):
+        table = read_cell_table(path, "qupath", pixel_size_um=0.5, default_region=None, cells_table_kwargs={})
+
+    assert list(table.var.index) == ["CD44"]
+
+
 def test_qupath_xy_centroids_need_a_unit(tmp_path: Path) -> None:
     path = tmp_path / "cells.csv"
     path.write_text("Object ID,X,Y,CD3: Cell: Mean\nab,10,5,1\n", encoding="utf-8")

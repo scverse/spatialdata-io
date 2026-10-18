@@ -86,9 +86,16 @@ _MARKER_COLUMN = re.compile(r"cyc(\d+)_ch(\d+)", re.IGNORECASE)
 _META_COLUMNS = frozenset(
     {"cell_id", "region", "tile_num", "x", "y", "z", "x_tile", "y_tile", "size", "tsne_x", "tsne_y", "homogeneity"}
 )
-# QuPath measurement columns, e.g. `CD3: Cell: Mean`, also in the R `make.names` form `CD3..Cell..Mean` and as
-# `CD3_Cell_Mean`; the per-marker intensity is taken from the first compartment
-_QUPATH_MARKER = re.compile(r"(.+?)(?:: |\.\.|_)(Cell|Nucleus|Cytoplasm|Membrane)(?:: |\.\.|_)Mean")
+# QuPath mean intensities: `CD3: Cell: Mean` (also `CD3..Cell..Mean` of R's `make.names` and `CD3_Cell_Mean`),
+# `Cell: CD3: Mean` (QuPath >= 0.6) and `Cell: CD3 mean` (built-in cell detection); the per-marker intensity is
+# taken from the first compartment. Detections without compartments have `CD3: Mean`.
+_QUPATH_MARKER = re.compile(
+    r"(?P<marker>.+?)(?:: |\.\.|_)(?P<compartment>Cell|Nucleus|Cytoplasm|Membrane)(?:: |\.\.|_)Mean"
+)
+_QUPATH_COMPARTMENT_MARKER = re.compile(
+    r"(?P<compartment>Cell|Nucleus|Cytoplasm|Membrane): (?P<marker>.+?)(?:: M| m)ean"
+)
+_QUPATH_DETECTION_MARKER = re.compile(r"(?P<marker>.+?): Mean")
 _QUPATH_COMPARTMENTS = ("Cell", "Nucleus", "Cytoplasm", "Membrane")
 # other QuPath measurements, e.g. `Nucleus: Area µm^2` or `Nucleus/Cell area ratio`, are not markers
 _QUPATH_MEASUREMENT = re.compile(r"(?:Cell|Nucleus|Cytoplasm|Membrane)\b|.*: ")
@@ -276,10 +283,12 @@ def read_cell_table(
               `UserWarning`, raising if that is not unique.
               Instance ids from a numeric ``Object ID``, else the row number (from 1); the region from the
               ``Image`` column. The markers are ``markers``, else the ``<marker>: <compartment>: Mean`` columns
-              (also ``<marker>..<compartment>..Mean`` and ``<marker>_<compartment>_Mean``), one per marker from
-              the first of the ``Cell``, ``Nucleus``, ``Cytoplasm`` and ``Membrane`` compartments (in
-              ``var["compartment"]``), else, with a `UserWarning`, the numeric columns that are not QuPath
-              measurements (e.g. ``CD44`` of a detection export; not morphology such as ``Area µm^2``,
+              (also ``<marker>..<compartment>..Mean`` and ``<marker>_<compartment>_Mean``), ``<compartment>:
+              <marker>: Mean`` (QuPath >= 0.6) and ``<compartment>: <marker> mean`` (built-in cell detection)
+              columns, one per marker from the first of the ``Cell``, ``Nucleus``, ``Cytoplasm`` and ``Membrane``
+              compartments (in ``var["compartment"]``), else the ``<marker>: Mean`` columns of detections
+              without compartments, else, with a `UserWarning`, the numeric columns that are not QuPath
+              measurements or empty (e.g. ``CD44`` of a detection export; not morphology such as ``Area µm^2``,
               ``Max diameter µm`` or ``Circularity``). The radius comes from ``Cell: Area µm^2`` (or
               ``px^2``) in the unit of the centroids. A table split into centroids and measurements (two files)
               must be joined on the object id first. The cell outlines are read from a QuPath GeoJSON export, see
@@ -670,24 +679,36 @@ def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
     area = columns.get(f"Cell: Area {'µm' if unit == 'um' else 'px'}^2")
     roles = {x, y, object_id, region_column, area}
 
-    compartments: dict[str, dict[str, str]] = {}
+    intensities: dict[str, dict[str | None, str]] = {}
     for column in df.columns:
-        if (match := _QUPATH_MARKER.fullmatch(column)) is not None:
-            compartments.setdefault(match.group(1), {})[match.group(2)] = column
+        if (found := _qupath_intensity(column)) is not None:
+            intensities.setdefault(found[0], {}).setdefault(found[1], column)
+    # `<marker>: Mean` columns are the markers only of detections without compartments
+    with_compartments = {marker: found for marker, found in intensities.items() if set(found) - {None}}
+    compartments = with_compartments or intensities
     if kwargs.get("markers") is not None:
         markers = _select_markers(df, kwargs["markers"], roles)
         var = pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers)))
     elif compartments:
-        chosen = {marker: next(c for c in _QUPATH_COMPARTMENTS if c in found) for marker, found in compartments.items()}
+        chosen = {
+            marker: next(c for c in (*_QUPATH_COMPARTMENTS, None) if c in found)
+            for marker, found in compartments.items()
+        }
         markers = [compartments[marker][compartment] for marker, compartment in chosen.items()]
-        var = pd.DataFrame(
-            {"source_column": markers, "compartment": list(chosen.values())},
-            index=pd.Index(dedupe_channel_names(list(chosen))),
-        )
+        var = pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(list(chosen))))
+        if with_compartments:
+            var["compartment"] = list(chosen.values())
     else:
         # e.g. a detection export with the measurements named after the markers only; its morphology (e.g.
-        # `Area µm^2`, `Max diameter µm`, `Circularity`) is not a marker
-        candidates = [c for c in df.columns if not _QUPATH_MEASUREMENT.match(c) and not _is_qupath_morphology(c)]
+        # `Area µm^2`, `Max diameter µm`, `Circularity`), other measurements (e.g. `DAPI: Median`) and empty text
+        # columns (e.g. `Name`, read as all-NaN numbers) are not markers
+        candidates = [
+            c
+            for c in df.columns
+            if not any(_QUPATH_MEASUREMENT.match(name) for name in _qupath_names([c]))
+            and not _is_qupath_morphology(c)
+            and df[c].notna().any()
+        ]
         markers = _select_markers(df[candidates], None, roles)
         var = pd.DataFrame({"source_column": markers}, index=pd.Index(dedupe_channel_names(markers)))
         if markers:
@@ -696,7 +717,7 @@ def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
         else:
             message = "its table has no marker intensities"
         warnings.warn(
-            f"{path} has no '<marker>: <compartment>: Mean' columns; {message}. Set "
+            f"{path} has no QuPath mean intensity columns (e.g. '<marker>: <compartment>: Mean'); {message}. Set "
             "`cells_table_kwargs['markers']` to choose the marker columns.",
             UserWarning,
             stacklevel=5,
@@ -711,6 +732,18 @@ def _qupath_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> di
         "region_column": region_column,
         "area_column": area,
     }
+
+
+def _qupath_intensity(column: str) -> tuple[str, str | None] | None:
+    """The marker and compartment (`None` without one) of a QuPath mean intensity column, also in R's form."""
+    for name in (column, *_qupath_names([column])):
+        for pattern in (_QUPATH_MARKER, _QUPATH_COMPARTMENT_MARKER):
+            if (match := pattern.fullmatch(name)) is not None:
+                return match["marker"], match["compartment"]
+    for name in (column, *_qupath_names([column])):
+        if (match := _QUPATH_DETECTION_MARKER.fullmatch(name)) is not None:
+            return match["marker"], None
+    return None
 
 
 def _is_qupath_morphology(column: str) -> bool:
