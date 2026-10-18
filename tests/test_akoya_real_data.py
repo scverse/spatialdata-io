@@ -17,7 +17,11 @@ import dask.array as da
 import numpy as np
 import pandas as pd
 import pytest
+import tifffile
+from scipy.stats import spearmanr
+from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
+from spatialdata.transformations import get_transformation
 
 from spatialdata_io import codex, phenocycler
 from spatialdata_io.readers._utils._cell_tables import detect_table_format, read_cell_table
@@ -244,6 +248,60 @@ def test_real_scan(scan: Scan) -> None:
     else:
         assert metadata["pixel_size_um"] == pytest.approx(scan.pixel_size_um, abs=1e-3)
     assert sdata.attrs["spatialdata_io_reader"] == scan.reader
+    if path.is_file():
+        _assert_tile_matches_tifffile(path, data, channel=scan.n_channels - 1)
+
+
+def _assert_tile_matches_tifffile(path: Path, data: da.Array, channel: int) -> None:
+    """A full-resolution tile of ``channel`` equals tifffile's decoding of the whole page (not through zarr)."""
+    with tifffile.TiffFile(path) as tf:
+        full = [page for page in tf.pages if page.shape[:2] == data.shape[1:]]
+        # brightfield: one RGB page holds the three channels
+        page = full[0] if full[0].ndim == 3 else full[channel]
+        y, x = data.shape[1] // 2, data.shape[2] // 2
+        expected = page.asarray()[y : y + 256, x : x + 256]
+    if expected.ndim == 3:
+        expected = expected[..., channel]
+    np.testing.assert_array_equal(data[channel, y : y + 256, x : x + 256].compute(), expected)
+
+
+def test_real_same_qptiff_through_both_readers() -> None:
+    path = Path(_ROOT) / "figshare_25123538/AML2_183_Scan1.qptiff"  # type: ignore[arg-type]
+    if not path.exists():
+        pytest.skip(f"{path} is missing")
+
+    a, b = phenocycler(path), codex(path)
+
+    image_a, image_b = a.images["AML2_183_image"], b.images["AML2_183_image"]
+    assert get_channel_names(image_a) == get_channel_names(image_b)
+    assert list(image_a) == list(image_b)
+    coarsest = list(image_a)[-1]
+    np.testing.assert_array_equal(image_a[coarsest]["image"].values, image_b[coarsest]["image"].values)
+    assert get_transformation(image_a, get_all=True) == get_transformation(image_b, get_all=True)
+    assert a.attrs["akoya"]["regions"] == b.attrs["akoya"]["regions"]
+
+
+def _image_at(sdata, region: str, channel: str, xy: np.ndarray) -> np.ndarray:
+    """The full-resolution values of ``channel`` of the image of ``region`` at the pixel positions ``xy``."""
+    image = sdata.images[f"{region}_image"]["scale0"]["image"]
+    plane = image.sel(c=channel).values
+    x = np.clip(xy[:, 0].astype(int), 0, plane.shape[1] - 1)
+    y = np.clip(xy[:, 1].astype(int), 0, plane.shape[0] - 1)
+    return plane[y, x]
+
+
+def _assert_cells_on_their_signal(sdata, region: str, element: str, pairs: dict[str, str], rho: float) -> None:
+    """The table's per-cell means correlate with the image at the cell centroids, and drop away from them."""
+    table = sdata.tables["table"]
+    cells = table[table.obs["region"] == element]
+    xy = cells.obsm["spatial"]
+    for var, channel in pairs.items():
+        values = np.asarray(cells[:, var].X).ravel()
+        at_cells = spearmanr(values, _image_at(sdata, region, channel, xy)).statistic
+        shifted = spearmanr(values, _image_at(sdata, region, channel, xy + 25)).statistic
+        assert at_cells > rho, (var, at_cells)
+        # clustered markers stay correlated nearby, but less so
+        assert shifted < at_cells - 0.1, (var, at_cells, shifted)
 
 
 def test_real_codex_processor_csv() -> None:
@@ -305,6 +363,15 @@ def test_real_inform_table_with_seg_maps_and_component_data() -> None:
     assert labels.shape == (1400, 1868)
     assert set(table.obs["cell_id"]) == set(np.unique(labels.values)) - {0}
     np.testing.assert_allclose(table.obsm["spatial"][0], [515, 13])
+    # the table's centroids are those of its labels, and its DAPI is the image's DAPI there
+    mask = labels.values
+    ys, xs = np.nonzero(mask)
+    counts = np.bincount(mask[ys, xs])
+    ids = table.obs["cell_id"].to_numpy()
+    centroids = np.c_[np.bincount(mask[ys, xs], xs)[ids], np.bincount(mask[ys, xs], ys)[ids]] / counts[ids, None]
+    # inForm rounds the positions to whole pixels
+    assert np.median(np.linalg.norm(centroids + 0.5 - table.obsm["spatial"], axis=1)) < 2
+    _assert_cells_on_their_signal(sdata, region, f"{region}_labels", {"DAPI": "DAPI"}, rho=0.5)
 
 
 def test_real_inform_micron_variant() -> None:
@@ -383,11 +450,59 @@ def test_real_mcquant_table_with_ome_tiff() -> None:
     image = _export(f"{_EXPORTS}/s3_mcmicro_exemplar001/exemplar-001-cycle6.ome.tif")
     cells = _export(f"{_EXPORTS}/s3_mcmicro_exemplar001/unmicst-exemplar-001_cell.csv")
 
+    # the OME-XML has no channel names: those of cycle 6 in `markers.csv`
     with pytest.warns(UserWarning, match="cells are represented as circles") as caught:
-        sdata = codex(image, cells_table=cells)
+        sdata = codex(image, cells_table=cells, channel_names=["DNA_6", "ELANE", "CD57", "CD45"])
     _assert_cells_inside_images(caught)
 
     table = sdata.tables["table"]
     assert table.shape == (11170, 12)
     assert list(table.var_names[:4]) == ["DNA_6", "ELANE", "CD57", "CD45"]
-    assert len(sdata.shapes["exemplar-001-cycle6.ome_cells"]) == 11170
+    assert len(sdata.shapes["exemplar-001-cycle6_cells"]) == 11170
+    pairs = {"DNA_6": "DNA_6", "CD57": "CD57"}
+    _assert_cells_on_their_signal(sdata, "exemplar-001-cycle6", "exemplar-001-cycle6_cells", pairs, rho=0.8)
+
+
+def test_real_qupath_cores_with_geojson_end_to_end(tmp_path: Path) -> None:
+    # two TMA cores of doi:10.5061/dryad.hqbzkh1v1 in one read: OME-TIFFs, QuPath centroids + measurements, StarDist
+    # GeoJSON; the pixel size comes from `experiment.json` (the OME `PhysicalSizeX`)
+    cores = ("C-7", "N-12")
+    for core in cores:
+        (tmp_path / f"{core}.ome.tif").symlink_to(_export(f"{_DRYAD}/{core}.ome.tif"))
+        coords = pd.read_csv(_export(f"{_DRYAD}/{core}_coords.csv"))
+        expression = pd.read_csv(_export(f"{_DRYAD}/{core}_expression.csv"))
+        coords.merge(expression, on="Object.ID", validate="1:1").to_csv(tmp_path / f"{core}.csv", index=False)
+    (tmp_path / "channelnames.txt").symlink_to(_export(f"{_DRYAD}/channelnames.txt"))
+    (tmp_path / "experiment.json").write_text(f'{{"xyResolution": {_DRYAD_PIXEL_SIZE_UM * 1000}}}')
+
+    with pytest.warns(UserWarning, match="cell features"):
+        sdata = codex(
+            tmp_path,
+            cells_table={core: tmp_path / f"{core}.csv" for core in cores},
+            cells_table_kwargs={"geojson": {core: _export(f"{_DRYAD}/{core}.geojson") for core in cores}},
+        )
+
+    assert sorted(sdata.coordinate_systems) == list(cores)
+    table = sdata.tables["table"]
+    assert list(table.obs["region"].cat.categories) == [f"{core}_labels" for core in cores]
+    for core, n_cells in zip(cores, (9415, 14242), strict=True):
+        cells = table[table.obs["region"] == f"{core}_labels"]
+        assert cells.n_obs == n_cells
+        assert sdata.shapes[f"{core}_polygons"].geometry.is_valid.all()
+        mask = sdata.labels[f"{core}_labels"]["scale0"]["image"].values
+        assert set(np.unique(mask)) - {0} == set(cells.obs["cell_id"])
+        # the rasterised cell under each centroid is that cell
+        x, y = cells.obsm["spatial"].astype(int).T
+        assert (mask[y, x] == cells.obs["cell_id"].to_numpy()).mean() > 0.99
+        _assert_cells_on_their_signal(sdata, core, f"{core}_labels", {"DAPI": "DAPI"}, rho=0.6)
+
+    sdata.write(tmp_path / "dryad.zarr")
+    read = read_zarr(tmp_path / "dryad.zarr")
+    assert read.attrs["akoya"] == sdata.attrs["akoya"]
+    for name in ("C-7_labels", "N-12_polygons", "N-12_image"):
+        assert get_transformation(read[name], get_all=True) == get_transformation(sdata[name], get_all=True)
+    np.testing.assert_array_equal(read.tables["table"].X, table.X)
+    for name in ("C-7_labels", "N-12_image"):
+        element = read.labels.get(name) or read.images[name]
+        expected = sdata.labels.get(name) or sdata.images[name]
+        np.testing.assert_array_equal(element["scale0"]["image"].values, expected["scale0"]["image"].values)
