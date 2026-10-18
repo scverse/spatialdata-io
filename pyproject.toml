@@ -28,6 +28,7 @@ dependencies = [
   "anndata",
   "click",
   "dask-image",
+  "flowio",
   "h5py",
   "imagecodecs",
   "joblib",
@@ -157,6 +158,7 @@ exclude = "^tests/data/"
 [[tool.mypy.overrides]]
 module = [
   "dask_image.*",
+  "flowio.*",
   "h5py.*",
   "multiscale_spatial_image.*",
   "pyarrow.*",

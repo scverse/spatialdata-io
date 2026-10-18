@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import anndata as ad
-import flowio  # type: ignore[import-untyped]  # readfcs' parser, for the TEXT segment only
+import flowio  # readfcs' parser, for the TEXT segment only
 import geopandas as gpd
 import numpy as np
 import pandas as pd
