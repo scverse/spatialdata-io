@@ -171,6 +171,15 @@ def test_repeated_column_names_are_deduplicated(tmp_path: Path, fmt: str, header
     assert table.X.shape == (1, len(markers))
 
 
+@pytest.mark.parametrize("cell_id", ["", "1.5", "a"])
+def test_missing_or_fractional_instance_ids_raise(tmp_path: Path, cell_id: str) -> None:
+    path = tmp_path / "cells.csv"
+    path.write_text(f"CellID,CD3,X_centroid,Y_centroid\n1,1,1,1\n{cell_id},1,2,2\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"1 cell\(s\) whose instance id in 'CellID' is missing or not an integer"):
+        read_cell_table(path, "mcquant", pixel_size_um=None, default_region="S", cells_table_kwargs={})
+
+
 def test_build_cells_single_table_and_circles(tmp_path: Path) -> None:
     write_fcs(tmp_path / "reg001.fcs", _cells(n=3, region=1))
     write_fcs(tmp_path / "reg002.fcs", _cells(n=4, region=2))

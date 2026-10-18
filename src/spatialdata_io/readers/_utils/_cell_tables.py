@@ -999,7 +999,7 @@ def _from_frame(
         raise ValueError(f"{path} has no column(s) {missing}; found {list(df.columns)}.")
 
     if instance_column is not None:
-        instance_id = pd.Series(df[instance_column].to_numpy(dtype=np.int64))
+        instance_id = pd.Series(_instance_ids(path, df[instance_column]))
     else:
         # label images use 0 for the background, so instance ids start at 1
         instance_id = pd.Series(np.arange(1, len(df) + 1, dtype=np.int64))
@@ -1033,6 +1033,21 @@ def _from_frame(
         radius_px=radius,
         row_instance_ids=instance_column is None,
     )
+
+
+def _instance_ids(path: Path, column: pd.Series) -> np.ndarray:
+    """The integer instance ids in ``column``; raises for missing or non-integer ids, which no label can have."""
+    if pd.api.types.is_integer_dtype(column):
+        return column.to_numpy(dtype=np.int64)
+    ids = pd.to_numeric(column, errors="coerce").to_numpy(dtype=np.float64)
+    invalid = ~(np.isfinite(ids) & (ids == np.round(ids)))
+    if invalid.any():
+        raise ValueError(
+            f"{path} has {invalid.sum()} cell(s) whose instance id in '{column.name}' is missing or not an integer "
+            f"(e.g. {column[invalid].tolist()[:5]}); every cell needs an integer instance id, the value of its "
+            "label. Choose another instance id column, or remove these rows."
+        )
+    return ids.astype(np.int64)
 
 
 def _check_unique_instance_ids(path: Path, region: pd.Series, instance_id: pd.Series) -> None:
