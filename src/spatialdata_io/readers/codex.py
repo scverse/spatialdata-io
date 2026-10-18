@@ -207,8 +207,8 @@ def codex(
     labels_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
     cells_table_kwargs
-        Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
-        ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath and CODEX tables),
+        Options for reading ``cells_table`` (or the discovered cell tables) and ``labels``: ``region_column``; for
+        ``"generic"`` tables ``x``, ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath and CODEX tables),
         ``coordinates_unit`` (``"px"`` or ``"um"``; for QuPath ``X``/``Y`` and inForm ``Cell X Position`` columns
         without a unit, which are otherwise read in the unit of the table's other columns) and
         ``coordinates_space`` (``"image"``, default, or ``"mask"``: whether the pixel centroids of a generic table
@@ -240,7 +240,9 @@ def codex(
         path, fcs, find_tables=cells_table is None, masks={Path(mask).resolve() for mask in masks}
     )
     # the regions of a table without a region in its file name are known only once it is read
-    regionless = _read_regionless_table(layout.tables["*"], layout) if "*" in layout.tables else None
+    regionless = (
+        _read_regionless_table(layout.tables["*"], layout, cells_table_kwargs) if "*" in layout.tables else None
+    )
     table_regions = set(regionless.region.unique()) if regionless is not None else set()
     available = sorted(layout.images.keys() | layout.tables.keys() - {"*"} | table_regions)
     selected = select_regions(available, regions)
@@ -303,7 +305,7 @@ def codex(
             available={region: layout.images.get(region, []) for region in available},
             selected=selected,
             pixel_sizes={},
-            cells_table_kwargs={},
+            cells_table_kwargs=cells_table_kwargs,
         )
         read = dict(zip(named_files, named, strict=True))
         if regionless is not None:
@@ -341,13 +343,18 @@ def _warn_fcs_fallback(files: Iterable[Path], fcs: bool) -> None:
         )
 
 
-def _read_regionless_table(file: Path, layout: _LegacyLayout) -> CellTable:
+def _read_regionless_table(file: Path, layout: _LegacyLayout, cells_table_kwargs: Mapping[str, Any]) -> CellTable:
     """Read the discovered cell table ``file`` that has no region in its file name."""
     only_image = next(iter(layout.images)) if len(layout.images) == 1 else None
     regions = {region: layout.images.get(region, []) for region in layout.images.keys() | layout.tables.keys() - {"*"}}
     # next to a single image named after its file (e.g. `Kidney.tif`), a single region value names that image
     table = read_cell_table(
-        file, "codex", pixel_size_um=None, default_region=only_image, cells_table_kwargs={}, regions=regions
+        file,
+        "codex",
+        pixel_size_um=None,
+        default_region=only_image,
+        cells_table_kwargs=cells_table_kwargs,
+        regions=regions,
     )
     # values that name no region of the dataset are regions without an image
     table.region = table.region.map({value: sanitize_name(value) for value in table.region.unique()})

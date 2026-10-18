@@ -857,3 +857,14 @@ def test_codex_discovered_table_of_another_region_raises(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="has no cells of region 'reg002'"):
         codex(tmp_path, image_models_kwargs=_FAST)
+
+
+def test_codex_cells_table_kwargs_apply_to_discovered_tables(tmp_path: Path) -> None:
+    tifffile.imwrite(tmp_path / "reg001_montage.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+    (tmp_path / "reg001_cells.csv").write_text("cell_id,x,y,CD3,CD4\n1,1.0,2.0,3.0,4.0\n2,3.0,4.0,5.0,6.0\n")
+
+    with pytest.warns(UserWarning, match="circles") as record:
+        sdata = codex(tmp_path, cells_table_kwargs={"markers": ["CD3"]}, image_models_kwargs=_FAST)
+
+    assert list(sdata.tables["table"].var_names) == ["CD3"]
+    assert not [warning for warning in record if "cycCCC_chHHH" in str(warning.message)]
