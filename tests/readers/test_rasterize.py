@@ -6,6 +6,7 @@ import warnings
 from typing import TYPE_CHECKING, Any
 
 import dask.array as da
+import geopandas as gpd
 import numpy as np
 import pytest
 import shapely
@@ -17,6 +18,7 @@ from tests._akoya_data import write_qptiff
 
 from spatialdata_io import phenocycler
 from spatialdata_io.readers._utils import _rasterize
+from spatialdata_io.readers._utils._cell_tables import _read_geojson
 from spatialdata_io.readers._utils._rasterize import rasterize_polygons_lazy
 
 if TYPE_CHECKING:
@@ -423,3 +425,27 @@ def test_qupath_geojson_false_reads_no_outlines(tmp_path: Path) -> None:
     assert list(sdata.shapes) == ["S_cells"]
     assert not sdata.labels
     assert "geojson" not in sdata.attrs["akoya"]
+
+
+def test_read_geojson_reads_only_ids_and_object_types(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    frames = []
+
+    def spy(*args: Any, **kwargs: Any) -> gpd.GeoDataFrame:
+        frames.append(read_file(*args, **kwargs))
+        return frames[-1]
+
+    read_file = gpd.read_file
+    monkeypatch.setattr(gpd, "read_file", spy)
+    feature = _cell("a", 0, 0)
+    # QuPath also writes the nucleus outline and every measurement
+    feature["properties"] |= {"nucleusGeometry": feature["geometry"], "measurements": {"CD3: Cell: Mean": 1.0}}
+    _write_geojson(tmp_path / "cells.geojson", [feature])
+
+    ids, geometries, kinds = _read_geojson(tmp_path / "cells.geojson")
+
+    assert ids is not None
+    assert kinds is not None
+    assert list(ids) == ["a"]
+    assert list(kinds) == ["cell"]
+    assert geometries[0].equals(shapely.box(0, 0, 8, 8))
+    assert set(frames[0].columns) == {"id", "objectType", "geometry"}

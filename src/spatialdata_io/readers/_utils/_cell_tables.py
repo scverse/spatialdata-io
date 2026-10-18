@@ -647,7 +647,8 @@ def _read_geojson(path: Path) -> tuple[np.ndarray | None, np.ndarray, np.ndarray
         ids = [f.get("id") for f in features]
         types = [(f.get("properties") or {}).get("objectType") for f in features]
     else:
-        frame = gpd.read_file(path)
+        # QuPath's other properties (measurements, nucleus outlines) would take several times the memory
+        frame = gpd.read_file(path, columns=["id", "objectType"])
         geometries = frame.geometry.to_numpy()
         ids = list(frame["id"]) if "id" in frame.columns else [None] * len(frame)
         types = list(frame["objectType"]) if "objectType" in frame.columns else [None] * len(frame)
