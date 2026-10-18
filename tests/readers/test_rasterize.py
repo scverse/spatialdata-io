@@ -61,15 +61,12 @@ def test_rasterize_matches_eager_reference() -> None:
     assert result[29, 38] == 0  # in the hole
 
 
-def test_rasterize_pixel_convention_and_scale() -> None:
+def test_rasterize_pixel_convention() -> None:
     square = shapely.box(1, 2, 3, 5)  # covers the pixels x 1..2, y 2..4
 
     expected = np.zeros((8, 8), dtype=np.uint32)
     expected[2:5, 1:3] = 7
     np.testing.assert_array_equal(rasterize_polygons_lazy([square], [7], shape=(8, 8)).compute(), expected)
-    # coordinates in µm with 0.5 µm pixels
-    half = shapely.box(0.5, 1, 1.5, 2.5)
-    np.testing.assert_array_equal(rasterize_polygons_lazy([half], [7], shape=(8, 8), scale=2).compute(), expected)
     # pixel centres on the shared diagonal go to the higher id
     halves = [shapely.Polygon([(0, 0), (4, 0), (0, 4)]), shapely.Polygon([(4, 0), (4, 4), (0, 4)])]
     labels = rasterize_polygons_lazy(halves, [1, 2], shape=(4, 4)).compute()

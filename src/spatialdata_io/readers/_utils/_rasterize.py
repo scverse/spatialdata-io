@@ -28,7 +28,6 @@ def rasterize_polygons_lazy(
     ids: Sequence[int],
     shape: tuple[int, int],
     chunks: tuple[int, int] = (4096, 4096),
-    scale: float = 1.0,
 ) -> da.Array:
     """Rasterise polygons into a lazy ``uint32`` labels array, one chunk at a time.
 
@@ -41,15 +40,13 @@ def rasterize_polygons_lazy(
     Parameters
     ----------
     polygons
-        The polygons, in pixel units after multiplying by ``scale``.
+        The polygons, in pixels.
     ids
         The label of each polygon, between 1 and ``2**32 - 1``.
     shape
         The ``(y, x)`` shape of the labels.
     chunks
         The ``(y, x)`` chunk size.
-    scale
-        The number of pixels per polygon coordinate unit, e.g. ``1 / pixel_size_um`` for coordinates in µm.
 
     Returns
     -------
@@ -61,8 +58,6 @@ def rasterize_polygons_lazy(
     if len(labels) and (labels.min() < 1 or labels.max() > _MAX_ID):
         raise ValueError(f"Polygon ids must be between 1 and {_MAX_ID}; got {labels.min()} to {labels.max()}.")
     geometries = np.asarray(polygons, dtype=object)
-    if scale != 1.0:
-        geometries = shapely.transform(geometries, lambda xy: xy * scale)
     labels = labels.astype(np.uint32)
     sizes = normalize_chunks(chunks, shape, dtype=np.uint32)
     name = f"rasterize-polygons-{_token(geometries, labels, sizes)}"
