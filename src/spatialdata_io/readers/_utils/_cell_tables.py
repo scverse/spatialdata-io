@@ -210,7 +210,9 @@ def detect_table_format(path: Path) -> str:
     Parameters
     ----------
     path
-        The ``.fcs``, ``.csv``, ``.tsv`` or ``.txt`` (tab-separated) cell table.
+        The ``.fcs``, ``.csv``, ``.tsv`` or ``.txt`` cell table. A text table is tab-separated if its header has a
+        tab, else semicolon-separated (with decimal commas or points) if it has more semicolons than commas, else
+        comma-separated.
 
     Returns
     -------
@@ -363,11 +365,7 @@ def read_cell_table(
     if path.suffix.lower() == CodexKeys.FCS_FILE.value:
         df = _read_fcs(path)
     else:
-        _, sep = _read_header(path)
-        df = pd.read_csv(path, sep=sep, engine="pyarrow")
-        # inForm writes some column names with trailing spaces; pyarrow keeps repeated names, which are made unique
-        # like the marker names
-        df.columns = pd.Index(dedupe_channel_names([str(column).strip() for column in df.columns]))
+        df = _read_text_table(path)
     reader = {
         "codex": _codex_roles,
         "qupath": _qupath_roles,
@@ -1120,11 +1118,39 @@ def _drop_key_columns(obs: pd.DataFrame, instance_column: str | None, region_col
 
 
 def _read_header(path: Path) -> tuple[list[str], str]:
-    """The column names of a delimited text table and its delimiter (tab if the header has one, else comma)."""
+    """The column names of a delimited text table and its delimiter.
+
+    The delimiter is a tab if the header has one, else a semicolon if it has more semicolons than commas, else a comma.
+    """
     with path.open(encoding="utf-8-sig", errors="replace") as f:
         header = f.readline().rstrip("\r\n")
-    sep = "\t" if "\t" in header else ","
+    sep = "\t" if "\t" in header else ";" if header.count(";") > header.count(",") else ","
     return [column.strip().strip('"') for column in header.split(sep)], sep
+
+
+def _read_text_table(path: Path) -> pd.DataFrame:
+    """Read a delimited text table with the delimiter of :func:`_read_header`, with unique column names.
+
+    Semicolon-separated tables (European locales) are read with decimal commas; their columns with decimal points,
+    which that leaves as text, are converted to numbers too.
+    """
+    names, sep = _read_header(path)
+    if sep == ";":
+        # the C engine keeps the header's repeated names apart only by renaming them, so the names come from the header
+        df = pd.read_csv(path, sep=sep, decimal=",", engine="c", header=None, skiprows=1)
+        df.columns = pd.Index(names)
+        for i in range(df.shape[1]):
+            if not pd.api.types.is_numeric_dtype(df.iloc[:, i]):
+                try:
+                    df.isetitem(i, pd.to_numeric(df.iloc[:, i]).to_numpy())
+                except (ValueError, TypeError):
+                    pass
+    else:
+        df = pd.read_csv(path, sep=sep, engine="pyarrow")
+    # inForm writes some column names with trailing spaces; pyarrow keeps repeated names, which are made unique like
+    # the marker names
+    df.columns = pd.Index(dedupe_channel_names([str(column).strip() for column in df.columns]))
+    return df
 
 
 def resolve_per_region(

@@ -135,6 +135,29 @@ def test_read_codex_table_delimiters_like_detection(tmp_path: Path, sep: str) ->
     np.testing.assert_array_equal(table.centroids_px, [[1, 2]])
 
 
+@pytest.mark.parametrize("decimal", [",", "."])
+@pytest.mark.parametrize(
+    ("header", "row", "fmt"),
+    [
+        ("cell_id;region;x;y;size;cyc001_ch001:DAPI", "1;2;1{d}5;2{d}0;3{d}0;4{d}25", "codex"),
+        ("CellID;DAPI;X_centroid;Y_centroid;Area", "1;4{d}25;1{d}5;2{d}0;3{d}0", "mcquant"),
+        ("Image;Object ID;Centroid X px;Centroid Y px;DAPI: Cell: Mean", "reg002;a;1{d}5;2{d}0;4{d}25", "qupath"),
+    ],
+)
+def test_semicolon_tables_read_comma_decimals(tmp_path: Path, header: str, row: str, fmt: str, decimal: str) -> None:
+    path = tmp_path / "cells.csv"
+    path.write_text(f"{header}\n{row.format(d=decimal)}\n", encoding="utf-8")
+
+    assert detect_table_format(path) == fmt
+    table = read_cell_table(path, "auto", pixel_size_um=None, default_region="reg002", cells_table_kwargs={})
+
+    assert list(table.var.index) == ["DAPI"]
+    assert list(table.region) == ["reg002"]
+    assert table.centroids_px is not None
+    np.testing.assert_allclose(table.centroids_px, [[1.5, 2]])
+    np.testing.assert_allclose(table.X, [[4.25]])
+
+
 def test_read_codex_table_cells_table_kwargs(tmp_path: Path) -> None:
     path = tmp_path / "cells.csv"
     path.write_text("cell_id,label,Sample,x,y,CD3,CD8\n1,7,A,1.0,2.0,3.0,4.0\n2,8,B,5.0,6.0,7.0,8.0\n")

@@ -54,6 +54,7 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   are skipped with a warning; a GeoJSON found next to a QuPath table that holds none of its cells (e.g. an
   annotation export) is ignored with a warning, and `cells_table_kwargs["geojson"]=False` reads no outlines. A region
   whose cells lie mostly outside its image raises a warning.
+- The Akoya cell tables may be semicolon-separated (European locales); their numbers may have decimal commas.
 
 ### Changed
 
