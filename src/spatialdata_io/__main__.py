@@ -97,7 +97,7 @@ def _parse_path_or_mapping_param(value: str | None, param_name: str) -> str | di
     "--imread-kwargs",
     type=str,
     default="{}",
-    help="JSON string of keyword arguments passed to imread. [default: {}]",
+    help="Ignored, with a warning; kept for backward compatibility. [default: {}]",
 )
 @click.option(
     "--image-models-kwargs",

@@ -158,8 +158,7 @@ def codex(
         Whether to prefer ``{vx.FCS_FILE!r}`` cell tables over ``{vx.FCS_FILE_CSV!r}`` ones when both exist. With
         `False`, a region that only has a ``{vx.FCS_FILE!r}`` table is read from it, with a warning.
     imread_kwargs
-        Keyword arguments passed to :func:`dask_image.imread.imread`, which is only used for ``{vx.IMAGE_TIF}(f)``
-        files that ``tifffile`` cannot read lazily (e.g. unsupported compression).
+        Ignored, with a warning: every image is read lazily with ``tifffile``. Kept for backward compatibility.
     regions
         Regions to read, e.g. ``["reg001"]``, including only their cells. If `None`, all regions are read.
     channel_names
@@ -208,6 +207,10 @@ def codex(
     -------
     :class:`spatialdata.SpatialData`
     """
+    if imread_kwargs:
+        warnings.warn(
+            "`imread_kwargs` is ignored: every image is read lazily with tifffile.", UserWarning, stacklevel=2
+        )
     regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
@@ -230,7 +233,7 @@ def codex(
             arrays[region] = read_qptiff_image(files[0])
             continue
         arrays[region], channels = _read_legacy_image(
-            files, layout.channel_names_txt, imread_kwargs, image_models_kwargs=image_models_kwargs
+            files, layout.channel_names_txt, image_models_kwargs=image_models_kwargs
         )
         scans.append(
             AkoyaScan(
@@ -356,7 +359,6 @@ def _discover_legacy(path: Path, fcs: bool) -> _LegacyLayout:
 def _read_legacy_image(
     files: list[Path],
     channel_names_txt: Path | None,
-    imread_kwargs: Mapping[str, Any],
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> tuple[da.Array, list[AkoyaChannel]]:
     """Lazily read the image of one legacy CODEX region.
@@ -367,8 +369,6 @@ def _read_legacy_image(
         The per-marker images of the region, or its single hyperstack, as returned by :func:`_discover_legacy`.
     channel_names_txt
         Optional ``channelNames.txt`` naming the hyperstack channels when the file has no ImageJ ``Labels``.
-    imread_kwargs
-        Keyword arguments passed to :func:`dask_image.imread.imread` for files :mod:`tifffile` cannot read lazily.
     image_models_kwargs
         Keyword arguments for :class:`spatialdata.models.Image2DModel`; their ``chunks`` set the spatial chunks of
         uncompressed files, which are memory-mapped.
@@ -380,14 +380,11 @@ def _read_legacy_image(
     chunks = _spatial_chunks(image_models_kwargs)
     markers = [(match, file) for file in files if (match := _PER_MARKER.search(file.name)) is not None]
     if len(markers) == len(files):
-        image, channels, read_by_tifffile = _read_per_marker(markers, imread_kwargs, chunks)
-        _warn_unused_imread_kwargs(imread_kwargs, read_by_tifffile)
-        return image, channels
+        return _read_per_marker(markers, chunks)
     if len(files) != 1:
         raise ValueError(f"Expected per-marker images or a single hyperstack, got {[str(f) for f in files]}.")
 
-    image, leading_shape, labels, read_by_tifffile = read_tiff(files[0], imread_kwargs, chunks)
-    _warn_unused_imread_kwargs(imread_kwargs, read_by_tifffile)
+    image, leading_shape, labels = read_tiff(files[0], chunks)
     n_planes = image.shape[0]
     # the last non-spatial axis holds the channels of a cycle; ImageJ axis labels are unreliable (cycles as Z)
     n_channels = leading_shape[-1] if leading_shape else 1
@@ -411,15 +408,13 @@ def _read_legacy_image(
 
 
 def _read_per_marker(
-    markers: list[tuple[re.Match[str], Path]], imread_kwargs: Mapping[str, Any], chunks: tuple[int, int]
-) -> tuple[da.Array, list[AkoyaChannel], bool]:
+    markers: list[tuple[re.Match[str], Path]], chunks: tuple[int, int]
+) -> tuple[da.Array, list[AkoyaChannel]]:
     parsed = sorted((int(match.group(2)), int(match.group(3)), match.group(4), file) for match, file in markers)
 
     planes = []
-    read_by_tifffile = False
     for _, _, _, file in parsed:
-        plane, _, _, lazy = read_tiff(file, imread_kwargs, chunks)
-        read_by_tifffile |= lazy
+        plane, _, _ = read_tiff(file, chunks)
         if plane.shape[0] != 1:
             raise ValueError(f"{file} holds {plane.shape[0]} planes; expected a single 2-D marker image.")
         planes.append(plane[0])
@@ -430,7 +425,7 @@ def _read_per_marker(
         AkoyaChannel(name=marker, cycle=cycle, channel=channel, extra={"file": file.name})
         for cycle, channel, marker, file in parsed
     ]
-    return da.stack(planes), channels, read_by_tifffile
+    return da.stack(planes), channels
 
 
 def _spatial_chunks(image_models_kwargs: Mapping[str, Any]) -> tuple[int, int]:
@@ -438,16 +433,6 @@ def _spatial_chunks(image_models_kwargs: Mapping[str, Any]) -> tuple[int, int]:
     default, _ = _initialize_raster_models_kwargs({}, {})
     chunks = _initialize_raster_models_kwargs(image_models_kwargs, {})[0]["chunks"]
     return spatial_chunks(chunks, default["chunks"][-2:])
-
-
-def _warn_unused_imread_kwargs(imread_kwargs: Mapping[str, Any], read_by_tifffile: bool) -> None:
-    if imread_kwargs and read_by_tifffile:
-        warnings.warn(
-            "`imread_kwargs` is ignored for files read lazily with tifffile; it is only used by the "
-            "dask_image.imread fallback for files tifffile cannot read lazily.",
-            UserWarning,
-            stacklevel=3,
-        )
 
 
 def _walk(root: Path) -> list[Path]:

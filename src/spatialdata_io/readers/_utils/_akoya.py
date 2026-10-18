@@ -17,7 +17,6 @@ import numpy as np
 import tifffile
 import zarr
 from dask.base import tokenize
-from dask_image.imread import imread
 from spatialdata import sanitize_name
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel
@@ -220,16 +219,13 @@ def read_json_object(path: Path) -> dict[str, Any] | None:
     return content
 
 
-def read_tiff(
-    path: Path, imread_kwargs: Mapping[str, Any], chunks: tuple[int, int]
-) -> tuple[da.Array, tuple[int, ...], list[str] | None, bool]:
+def read_tiff(path: Path, chunks: tuple[int, int]) -> tuple[da.Array, tuple[int, ...], list[str] | None]:
     """Lazily read a tiff as ``(c, y, x)``, all non-spatial axes flattened into ``c``.
 
     Uncompressed contiguous data (e.g. ImageJ hyperstacks and per-marker images, often a single strip per plane)
     is memory-mapped and split into ``chunks``, so a chunk never needs a whole plane in memory; other layouts keep
-    their native tiles via zarr. Returns the image, the shape of the flattened axes, the ImageJ ``Labels`` (if
-    any) and whether tifffile, rather than the :func:`dask_image.imread.imread` fallback, read the file. The
-    array opens the file only when its chunks are read and can be pickled, e.g. for ``dask.distributed``.
+    their native tiles via zarr. Returns the image, the shape of the flattened axes and the ImageJ ``Labels`` (if
+    any). The array opens the file only when its chunks are read and can be pickled, e.g. for ``dask.distributed``.
     """
     with tifffile.TiffFile(path) as tf:
         series = tf.series[0]
@@ -238,24 +234,16 @@ def read_tiff(
         dtype = series.dtype.newbyteorder(tf.byteorder)
         metadata = tf.imagej_metadata or {}
     labels = list(metadata["Labels"]) if isinstance(metadata.get("Labels"), list | tuple) else None
-    read_by_tifffile = True
     if offset is not None:
         source = _ContiguousTiff(path, offset, shape, dtype)
         tiles = dict.fromkeys(range(source.ndim), 1) | {axes.index("Y"): chunks[0], axes.index("X"): chunks[1]}
         tile_chunks = tuple(tiles[i] for i in range(source.ndim))
         image = da.from_array(source, chunks=tile_chunks, name=f"{source.name}-{tokenize(tile_chunks)}")
     else:
-        try:
-            image = lazy_tiff_array(path, series=0, chunks=chunks)
-        except ValueError as e:  # e.g. a compression tifffile cannot decode chunk-wise
-            logger.info("Reading %s with dask_image.imread because tifffile cannot read it lazily: %s", path, e)
-            image = imread(str(path), **imread_kwargs)
-            axes = "Q" * (image.ndim - 2) + "YX"
-            labels = None
-            read_by_tifffile = False
+        image = lazy_tiff_array(path, series=0, chunks=chunks)
     image = da.moveaxis(image, [axes.index("Y"), axes.index("X")], [-2, -1])
     leading_shape = tuple(image.shape[:-2])
-    return image.reshape((math.prod(leading_shape), *image.shape[-2:])), leading_shape, labels, read_by_tifffile
+    return image.reshape((math.prod(leading_shape), *image.shape[-2:])), leading_shape, labels
 
 
 class _ContiguousTiff:

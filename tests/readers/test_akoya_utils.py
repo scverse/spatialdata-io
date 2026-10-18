@@ -162,9 +162,8 @@ def test_read_tiff_is_picklable(tmp_path: Path, compression: str | None) -> None
     data = np.arange(2 * 64 * 96, dtype=np.uint16).reshape(2, 64, 96)
     tifffile.imwrite(path, data, compression=compression, tile=(32, 32) if compression else None)
 
-    image, _, _, read_by_tifffile = read_tiff(path, {}, (16, 16))
+    image, _, _ = read_tiff(path, (16, 16))
 
-    assert read_by_tifffile
     restored = pickle.loads(pickle.dumps(image))
     np.testing.assert_array_equal(restored[0, :8, :8].compute(), data[0, :8, :8])
     np.testing.assert_array_equal(restored.compute(), data)
@@ -195,7 +194,7 @@ def test_read_tiff_big_endian(tmp_path: Path, imagej: bool, data: np.ndarray) ->
     path = tmp_path / "x.tif"
     tifffile.imwrite(path, data, byteorder=">", imagej=imagej)
 
-    image, _, _, _ = read_tiff(path, {}, (16, 16))
+    image, _, _ = read_tiff(path, (16, 16))
 
     assert image.dtype == np.dtype("uint16")
     np.testing.assert_array_equal(image.compute(), data)
@@ -209,7 +208,7 @@ def test_read_tiff_does_not_keep_files_open(tmp_path: Path, compression: str | N
     images = []
     for i in range(20):
         tifffile.imwrite(tmp_path / f"{i}.tif", data, compression=compression, tile=(16, 16) if compression else None)
-        images.append(read_tiff(tmp_path / f"{i}.tif", {}, (16, 16))[0])
+        images.append(read_tiff(tmp_path / f"{i}.tif", (16, 16))[0])
     n_open = len(os.listdir("/dev/fd"))
 
     # the chunks as computed, before dask assembles them (e.g. while ``compute`` or ``sdata.write`` runs)
@@ -230,7 +229,7 @@ def test_read_tiff_groups_native_chunks(tmp_path: Path, layout: dict[str, Any], 
     data = np.arange(256 * 64, dtype=np.uint16).reshape(256, 64)
     tifffile.imwrite(path, data, compression="zlib", **layout)
 
-    image, _, _, _ = read_tiff(path, {}, (32, 32))
+    image, _, _ = read_tiff(path, (32, 32))
 
     assert image.chunksize == chunksize
     np.testing.assert_array_equal(image.compute()[0], data)
@@ -243,8 +242,8 @@ def test_read_tiff_names_depend_on_chunks(tmp_path: Path, compression: str | Non
     data = np.arange(64 * 64, dtype=np.uint16).reshape(64, 64)
     tifffile.imwrite(path, data, compression=compression, tile=(16, 16) if compression else None)
 
-    small, _, _, _ = read_tiff(path, {}, (16, 16))
-    large, _, _, _ = read_tiff(path, {}, (32, 32))
+    small, _, _ = read_tiff(path, (16, 16))
+    large, _, _ = read_tiff(path, (32, 32))
 
     assert small.name != large.name
     np.testing.assert_array_equal(da.stack([small.rechunk(large.chunks), large]).compute()[:, 0], [data, data])

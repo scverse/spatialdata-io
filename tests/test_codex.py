@@ -309,7 +309,7 @@ def test_read_legacy_image_tiles_uncompressed_planes(tmp_path: Path, imagej: boo
     tifffile.imwrite(hyperstack, stack[None], imagej=True, metadata={"axes": "TCYX"})
 
     for source in (files, [hyperstack]):
-        image, _ = _read_legacy_image(source, None, {}, image_models_kwargs={"chunks": (1, 32, 64)})
+        image, _ = _read_legacy_image(source, None, image_models_kwargs={"chunks": (1, 32, 64)})
         assert max(image.chunks[-2]) <= 32
         assert max(image.chunks[-1]) <= 64
         np.testing.assert_array_equal(image.compute(), stack)
@@ -361,8 +361,13 @@ def test_codex_region_named_non_cell_csv_is_ignored(tmp_path: Path, with_table: 
     assert list(sdata.images) == ["reg001_image"]
 
 
-def test_codex_imread_kwargs_warns_when_unused(tmp_path: Path) -> None:
-    write_legacy_processor_tree(tmp_path, layout="per_marker")
+@pytest.mark.parametrize("qptiff", [False, True])
+def test_codex_imread_kwargs_warns_when_unused(tmp_path: Path, qptiff: bool) -> None:
+    # every image is read lazily with tifffile, so `imread_kwargs` of the old dask_image reader are ignored
+    if qptiff:
+        write_qptiff(tmp_path / "Tonsil_Scan1.qptiff", biomarkers=["DAPI"])
+    else:
+        write_legacy_processor_tree(tmp_path, layout="per_marker")
     with pytest.warns(UserWarning, match="imread_kwargs"):
         codex(tmp_path, imread_kwargs={"nframes": 1}, image_models_kwargs=_FAST)
 

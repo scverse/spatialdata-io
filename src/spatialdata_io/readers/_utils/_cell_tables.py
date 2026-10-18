@@ -1184,7 +1184,7 @@ def read_labels(
     The labels element.
     """
     labels_models_kwargs, chunks = _labels_models_kwargs(labels_models_kwargs)
-    image, _, _, _ = read_tiff(path, {}, chunks)
+    image, _, _ = read_tiff(path, chunks)
     if not np.issubdtype(image.dtype, np.integer):
         raise ValueError(f"{path} has dtype {image.dtype}; a segmentation mask must have an integer dtype.")
 
