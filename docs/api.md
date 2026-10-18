@@ -25,6 +25,7 @@ I/O for the `spatialdata` project.
     experimental.iss
     mcmicro
     merscope
+    phenocycler
     seqfish
     steinbock
     stereoseq

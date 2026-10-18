@@ -10,7 +10,7 @@ from h5py import File
 from spatialdata._logging import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterator, Mapping
 
     from anndata import AnnData
     from ome_types.model import Pixels
@@ -116,6 +116,24 @@ def _set_reader_metadata(sdata: SpatialData, reader: str) -> SpatialData:
     sdata.attrs["spatialdata_io_software_version"] = __version__
     sdata.attrs["spatialdata_io_reader"] = reader
     return sdata
+
+
+def walk_visible(root: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
+    """Like :func:`os.walk` of ``root`` in sorted order, without hidden files and folders, following symlinks.
+
+    Hidden are names starting with ``.`` (also macOS AppleDouble ``._*`` files and ``.Trash-*`` folders) and
+    ``__MACOSX`` folders. A folder reached a second time through a symlink (e.g. a link to an ancestor) is skipped.
+    The directory names can be pruned in place, as with :func:`os.walk`.
+    """
+    visited = set()
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+        real = os.path.realpath(dirpath)
+        if real in visited:
+            dirnames.clear()
+            continue
+        visited.add(real)
+        dirnames[:] = sorted(name for name in dirnames if not name.startswith(".") and name != "__MACOSX")
+        yield Path(dirpath), dirnames, sorted(name for name in filenames if not name.startswith("."))
 
 
 def parse_physical_size(path: Path | None = None, ome_pixels: Pixels | None = None) -> float:
