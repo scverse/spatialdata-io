@@ -275,6 +275,7 @@ def test_ignores_acquisition_files(tmp_path: Path) -> None:
     write_qptiff(acquisition / "S.raw.qptiff", biomarkers=["DAPI"])
     write_qptiff(acquisition / "S_Scan1_Cycle1.qptiff", biomarkers=["DAPI"])
     write_qptiff(images / "S_Scan1.qptiff.intermediate", biomarkers=["DAPI"])
+    write_qptiff(images / "S_Scan1.raw.qptiff", biomarkers=["DAPI"])
 
     sdata = phenocycler(tmp_path, image_models_kwargs=_FAST)
 
