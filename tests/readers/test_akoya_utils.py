@@ -9,6 +9,7 @@ from typing import Any
 import dask
 import dask.array as da
 import numpy as np
+import pandas as pd
 import pytest
 import tifffile
 from spatialdata.transformations import Identity, Translation, get_transformation
@@ -145,6 +146,14 @@ def test_scans_to_attrs_json_serialisable():
 def test_select_regions():
     assert select_regions(["a", "b"], None) == ["a", "b"]
     assert select_regions(["a", "b"], ["b"]) == ["b"]
+
+
+def test_select_regions_array_like():
+    # e.g. `sdata.tables["table"].obs["region"].unique()` or a `pd.Index`
+    assert select_regions(["a", "b"], np.array(["b"])) == ["b"]  # type: ignore[arg-type]
+    assert select_regions(["a", "b"], pd.Index(["a", "b"])) == ["a", "b"]  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="empty"):
+        select_regions(["a", "b"], np.array([], dtype=str))  # type: ignore[arg-type]
 
 
 def test_select_regions_deduplicates():

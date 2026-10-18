@@ -200,9 +200,10 @@ def normalize_regions(regions: str | Sequence[str] | None) -> list[str] | None:
         return [sanitize_name(regions)]
     if isinstance(regions, Mapping):
         raise TypeError(f"`regions` must be a sequence of region ids, got {type(regions).__name__}.")
-    if not regions:
+    sanitized = list(dict.fromkeys(sanitize_name(str(region)) for region in regions))
+    if not sanitized:
         raise ValueError("`regions` is empty; pass `None` to read all regions.")
-    return list(dict.fromkeys(sanitize_name(str(region)) for region in regions))
+    return sanitized
 
 
 def select_regions(available: Sequence[str], regions: str | Sequence[str] | None) -> list[str]:
