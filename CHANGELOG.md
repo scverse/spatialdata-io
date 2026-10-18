@@ -80,7 +80,8 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   - `channelNames.txt` and `experiment.json` are found in any case (e.g. SPACEc's `channelnames.txt`); CSV and FCS
     files that are not CODEX Processor cell tables are ignored, also when their name holds a region id. Compensated
     tables are preferred; other tables of the same region (e.g. of two segmentation runs) raise a `ValueError`.
-    A `cells_table` disables table discovery, and the `labels` masks are not read as images.
+    A `cells_table` disables table discovery, and the `labels` masks are not read as images. Without `labels`, a
+    `.tif(f)` ending in `_mask` or `_labels` and named after a region (e.g. `reg001_mask.ome.tiff`) is its mask.
   - Region ids `regNNN` are taken from `reg` and digits not preceded by a letter (`exp_reg001`, not `Treg2`). A CIM
     `.qptiff` without one is named as `phenocycler()` names it (without the suffix and a trailing `_Scan<N>`), and its
     `.er.qptiff` is preferred. Top-level `.tif` files of the original layout are named after their sanitised stems.

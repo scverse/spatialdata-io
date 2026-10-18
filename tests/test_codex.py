@@ -347,6 +347,50 @@ def test_codex_explicit_inputs_disable_discovery(tmp_path: Path) -> None:
     assert not sdata.tables
 
 
+@pytest.mark.parametrize(
+    ("image", "mask", "region"),
+    [
+        ("expr/reg001_expr.ome.tiff", "mask/reg001_mask.ome.tiff", "reg001"),
+        ("Kidney sample.tif", "Kidney sample_labels.tif", "Kidney_sample"),
+    ],
+)
+def test_codex_discovers_the_mask_of_a_region(tmp_path: Path, image: str, mask: str, region: str) -> None:
+    for name in (image, mask):
+        (tmp_path / name).parent.mkdir(exist_ok=True)
+    tifffile.imwrite(tmp_path / image, np.zeros((2, 16, 16), dtype=np.uint16))
+    tifffile.imwrite(tmp_path / mask, np.arange(256, dtype=np.uint16).reshape(16, 16))
+    (tmp_path / "cells.csv").write_text("cell_id,x,y,cyc001_ch001\n1,0.0,0.0,1.0\n2,1.0,0.0,2.0\n")
+
+    sdata = codex(tmp_path, image_models_kwargs=_FAST, labels_models_kwargs=_FAST)
+
+    assert list(sdata.images) == [f"{region}_image"]
+    assert list(sdata.labels) == [f"{region}_labels"]
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == [f"{region}_labels"]
+    assert sdata.attrs["akoya"]["labels"] == {region: str(tmp_path / mask)}
+
+    # an explicit mask wins
+    other = tmp_path / "other.tif"
+    tifffile.imwrite(other, np.ones((16, 16), dtype=np.uint16))
+    sdata = codex(tmp_path, labels=other, image_models_kwargs=_FAST, labels_models_kwargs=_FAST)
+    assert list(sdata.images) == [f"{region}_image"]
+    assert sdata.attrs["akoya"]["labels"] == {region: str(other)}
+
+
+def test_codex_masks_of_no_region_or_one_region_twice(tmp_path: Path) -> None:
+    tifffile.imwrite(tmp_path / "reg001.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+    tifffile.imwrite(tmp_path / "Other_mask.tif", np.zeros((16, 16), dtype=np.uint16))
+
+    with pytest.warns(UserWarning, match="Ignoring the mask .*Other_mask.tif"):
+        sdata = codex(tmp_path, image_models_kwargs=_FAST)
+    assert list(sdata.images) == ["reg001_image"]
+    assert not sdata.labels
+
+    for name in ("reg001_mask.tif", "reg001_labels.tif"):
+        tifffile.imwrite(tmp_path / name, np.zeros((16, 16), dtype=np.uint16))
+    with pytest.raises(ValueError, match="several masks for region 'reg001'"):
+        codex(tmp_path, image_models_kwargs=_FAST)
+
+
 def test_codex_regions_of_regionless_table_are_available(tmp_path: Path) -> None:
     data = write_legacy_processor_tree(tmp_path, regions=1, fcs=False, csv=False, n_cells=5)
     pd.concat([data["cells"], data["cells"].assign(region=2.0)]).to_csv(tmp_path / "cells.csv", index=False)

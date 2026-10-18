@@ -57,6 +57,9 @@ _TILE_STACK = re.compile(r"reg\d+_X\d+_Y\d+_Z\d+\.tiff?$", re.IGNORECASE)
 # raw Keyence acquisition folders, e.g. `cyc001_reg001/1_00001_Z001_CH1.tif`
 _RAW_CYCLE_DIR = re.compile(r"cyc\d+_reg\d+", re.IGNORECASE)
 _TIFF_SUFFIXES = (".tif", ".tiff")
+# the segmentation mask of a region, e.g. HuBMAP's `reg001_mask.ome.tiff` next to `reg001_expr.ome.tiff`
+_MASK = re.compile(r"[_-](?:mask|labels)(?:\.ome)?\.tiff?$", re.IGNORECASE)
+_TIFF_NAME = re.compile(r"(?:\.ome)?\.tiff?$", re.IGNORECASE)
 _TABLE_SUFFIXES = (CodexKeys.FCS_FILE.value, CodexKeys.FCS_FILE_CSV.value)
 # deep enough for `<experiment>/processed_<date>/segm/segm-1/fcs/compensated/<table>`
 _MAX_DEPTH = 8
@@ -76,11 +79,12 @@ class _LegacyLayout:
 
     ``images`` maps each region to its per-marker images (sorted by cycle and channel), to its single hyperstack
     or to its single ``.qptiff``. ``tables`` maps each region, or ``"*"`` for a table without a region in its
-    file name, to its ``.fcs``/``.csv`` cell table.
+    file name, to its ``.fcs``/``.csv`` cell table. ``masks`` maps regions to their segmentation mask.
     """
 
     images: dict[str, list[Path]]
     tables: dict[str, Path]
+    masks: dict[str, Path]
     channel_names_txt: Path | None
     experiment_json: Path | None
 
@@ -185,7 +189,10 @@ def codex(
         (columns given by ``cells_table_kwargs``).
     labels
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
-        mapping from region id to path; a mask inside ``path`` is not read as an image. Each mask is stored lazily as
+        mapping from region id to path; a mask inside ``path`` is not read as an image. If `None`, a TIFF named after
+        a region image or with its region id, ending in ``_mask`` or ``_labels`` (e.g. ``reg001_mask.ome.tiff`` or
+        ``Kidney_labels.tif`` next to ``Kidney.tif``), is the mask of that region; such files are never read as images.
+        Each mask is stored lazily as
         the labels ``<region>_labels`` with the transformation of the region's image; the cells of the region annotate
         it instead of circles, and their instance ids must be the mask values. A mask whose shape is the region image's
         divided by an integer factor ``f`` (exactly, or rounded up) is scaled onto the image (``Scale([f, f])`` before
@@ -239,7 +246,10 @@ def codex(
     selected = select_regions(available, regions)
     _warn_fcs_fallback([file for key, file in layout.tables.items() if key == "*" or key in selected], fcs)
     table_files = resolve_per_region(cells_table, selected, available)
-    mask_files = resolve_per_region(labels, selected, available)
+    if labels is None:
+        mask_files = {region: file for region, file in layout.masks.items() if region in selected}
+    else:
+        mask_files = resolve_per_region(labels, selected, available)
     experiment = read_json_object(layout.experiment_json) if layout.experiment_json is not None else None
     names_txt = _read_channel_names_txt(layout.channel_names_txt) if layout.channel_names_txt is not None else None
 
@@ -369,10 +379,12 @@ def _discover_legacy(
     files = [path] if path.is_file() else _walk(path)
     if masks:
         files = [file for file in files if file.resolve() not in masks]
-    images = _discover_images(files)
+    # masks named after their region are never images
+    image_files = [file for file in files if not (_is_tiff(file) and _MASK.search(file.name))]
+    images = _discover_images(image_files)
     if not images:
         # the original (2019) layout: one stitched `.tif` next to its table, without a region in the file name
-        top_level = files if path.is_file() else [file for file in files if file.parent == path]
+        top_level = image_files if path.is_file() else [file for file in image_files if file.parent == path]
         images = {sanitize_name(file.stem): [file] for file in top_level if _is_tiff(file)}
     tables = _discover_tables(files, fcs) if find_tables else {}
     if not images and not tables:
@@ -380,6 +392,7 @@ def _discover_legacy(
     return _LegacyLayout(
         images=dict(sorted(images.items())),
         tables=dict(sorted(tables.items())),
+        masks=_discover_masks([file for file in files if file not in image_files], images),
         channel_names_txt=_find_sidecar(path, files, CodexKeys.CHANNEL_NAMES_FILE.value),
         experiment_json=_find_sidecar(path, files, CodexKeys.EXPERIMENT_FILE.value),
     )
@@ -514,6 +527,32 @@ def _discover_images(files: Sequence[Path]) -> dict[str, list[Path]]:
         else:
             images[region] = [qptiffs[region]]
     return images
+
+
+def _discover_masks(files: Sequence[Path], images: Mapping[str, Sequence[Path]]) -> dict[str, Path]:
+    """The masks among ``files`` (``<image>_mask.tif`` or ``_labels``, also ``.ome.tiff``) of the regions of ``images``.
+
+    A mask belongs to the region in its file name (``regNNN``), else to the region of the image it is named after.
+    """
+    by_image = {_TIFF_NAME.sub("", file.name): region for region, paths in images.items() for file in paths}
+    masks: dict[str, list[Path]] = {}
+    for file in files:
+        region = region_id(file.name) or by_image.get(_MASK.sub("", file.name))
+        if region is None or region not in images:
+            warnings.warn(
+                f"Ignoring the mask {file}: it is named after no region image. Pass it as `labels` to read it.",
+                UserWarning,
+                stacklevel=4,
+            )
+            continue
+        masks.setdefault(region, []).append(file)
+    for region, paths in masks.items():
+        if len(paths) > 1:
+            raise ValueError(
+                f"Found several masks for region '{region}': {[str(p) for p in paths]}. Pass the mask to read as "
+                "`labels`."
+            )
+    return {region: paths[0] for region, paths in sorted(masks.items())}
 
 
 def _preferred_stacks(files: list[Path]) -> list[Path]:
