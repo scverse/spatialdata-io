@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import pickle
 from pathlib import Path
 
+import dask
 import dask.array as da
 import numpy as np
 import pytest
@@ -196,3 +198,21 @@ def test_read_tiff_big_endian(tmp_path: Path, imagej: bool, data: np.ndarray) ->
 
     assert image.dtype == np.dtype("uint16")
     np.testing.assert_array_equal(image.compute(), data)
+
+
+@pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="needs /dev/fd to count open files")
+@pytest.mark.parametrize("compression", [None, "zlib"])
+def test_read_tiff_does_not_keep_files_open(tmp_path: Path, compression: str | None) -> None:
+    # computed chunks and arrays kept alive must not hold a file descriptor each (EMFILE on large reads)
+    data = np.arange(64 * 96, dtype=np.uint16).reshape(64, 96)
+    images = []
+    for i in range(20):
+        tifffile.imwrite(tmp_path / f"{i}.tif", data, compression=compression, tile=(16, 16) if compression else None)
+        images.append(read_tiff(tmp_path / f"{i}.tif", {}, (16, 16))[0])
+    n_open = len(os.listdir("/dev/fd"))
+
+    # the chunks as computed, before dask assembles them (e.g. while ``compute`` or ``sdata.write`` runs)
+    chunks = dask.compute(*[chunk for image in images for chunk in image.to_delayed().ravel()])
+
+    assert len(os.listdir("/dev/fd")) - n_open <= 2
+    np.testing.assert_array_equal(chunks[-1][0], data[48:, 80:])

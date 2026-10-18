@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import threading
@@ -274,7 +275,8 @@ class _ContiguousTiff:
 
     def __getitem__(self, key: Any) -> np.ndarray:
         data = np.memmap(self.path, dtype=self._file_dtype, mode="r", offset=self.offset, shape=self.shape)
-        return np.asarray(data[key], dtype=self.dtype)
+        # a copy, as a view would keep the memory map and its file descriptor open as long as the chunk lives
+        return np.array(data[key], dtype=self.dtype)
 
 
 def lazy_tiff_array(path: Path, *, series: int = 0, page: int | None = None) -> da.Array:
@@ -305,8 +307,9 @@ def lazy_tiff_array(path: Path, *, series: int = 0, page: int | None = None) -> 
 class _TiffZarrSource:
     """Picklable array-like view of a tiff series (level 0) or page, read chunk-wise through tifffile's zarr store.
 
-    Neither the ``TiffFile`` nor its zarr store are pickled: they are opened on the first read in each process and
-    closed with the object, so dask graphs built on it work across processes and leave no file handle unclosed.
+    Neither the ``TiffFile`` nor its zarr store are pickled, but opened again in each process that reads chunks, so
+    dask graphs built on it work across processes. The file is read through a :class:`_TransientFile`, so the parsed
+    tiff stays cached without holding a file descriptor.
     """
 
     def __init__(self, path: Path, *, series: int = 0, page: int | None = None) -> None:
@@ -314,56 +317,64 @@ class _TiffZarrSource:
         self.series = series
         self.page = page
         self._lock = threading.Lock()
-        self._tiff: tifffile.TiffFile | None = None
         self._array: zarr.Array | None = None
-        try:
-            array = self._open()
-            self.shape = tuple(array.shape)
-            self.chunks = tuple(array.chunks)
-            self.dtype = array.dtype
-        finally:
-            # the metadata is all a lazy read needs; the file is opened again once chunks are read
-            self.close()
+        array = self._open()
+        self.shape = tuple(array.shape)
+        self.chunks = tuple(array.chunks)
+        self.dtype = array.dtype
         self.ndim = len(self.shape)
         token = tokenize(str(path), path.stat().st_mtime_ns, series, page, self.shape, str(self.dtype))
         self.name = f"akoya-tiff-zarr-{token}"
 
     def _open(self) -> zarr.Array:
         with self._lock:
-            if self._array is not None:
-                return self._array
-            tiff = tifffile.TiffFile(self.path)
-            try:
+            if self._array is None:
+                tiff = tifffile.TiffFile(io.BufferedReader(_TransientFile(self.path)))
                 if self.page is not None:
                     store = tiff.pages[self.page].aszarr()
                 else:
                     store = tiff.series[self.series].aszarr(level=0)
-                array = zarr.open_array(store, mode="r")
-            except BaseException:
-                tiff.close()
-                raise
-            self._tiff, self._array = tiff, array
-            return array
+                self._array = zarr.open_array(store, mode="r")
+            return self._array
 
     def __getitem__(self, key: Any) -> np.ndarray:
         return np.asarray(self._open()[key])
 
-    def close(self) -> None:
-        """Close the file; it is opened again by the next read."""
-        with self._lock:
-            if self._tiff is not None:
-                self._tiff.close()
-            self._tiff, self._array = None, None
-
     def __getstate__(self) -> dict[str, Any]:
-        return {key: value for key, value in self.__dict__.items() if key not in ("_lock", "_tiff", "_array")}
+        return {key: value for key, value in self.__dict__.items() if key not in ("_lock", "_array")}
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        self.__dict__.update(state, _lock=threading.Lock(), _tiff=None, _array=None)
+        self.__dict__.update(state, _lock=threading.Lock(), _array=None)
 
-    def __del__(self) -> None:
-        if getattr(self, "_tiff", None) is not None:
-            self.close()
+
+class _TransientFile(io.RawIOBase):
+    """Read-only binary file that opens ``path`` for every read, so it holds no file descriptor in between."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self.name = str(path)
+        self._size = path.stat().st_size
+        self._position = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self._position
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        self._position = (0, self._position, self._size)[whence] + offset
+        return self._position
+
+    def readinto(self, buffer: Any) -> int:
+        with open(self.name, "rb") as f:
+            f.seek(self._position)
+            n = f.readinto(buffer)
+        self._position += n
+        return n
 
 
 def spatial_chunks(chunks: Any, default: Sequence[int]) -> tuple[int, int]:
