@@ -193,6 +193,17 @@ def test_read_all_bit_depths_shares_stage_placement(tmp_path: Path) -> None:
     assert sorted(sdata.images) == ["B_8bit_image", "B_image"]
     assert get_transformation(sdata["B_8bit_image"], get_all=True) == get_transformation(sdata["B_image"], get_all=True)
 
+    # with both regions placed by their stage positions, the 8-bit image gets the translation of its region
+    sdata = phenocycler(tmp_path, read_all_bit_depths=True, image_models_kwargs=_FAST)
+
+    assert sorted(sdata.images) == ["A_8bit_image", "A_image", "B_8bit_image", "B_image"]
+    translation = get_transformation(sdata["B_image"], "global")
+    assert isinstance(translation, Translation)
+    assert translation.translation[0] > 0
+    for region in ("A", "B"):
+        expected = get_transformation(sdata[f"{region}_image"], get_all=True)
+        assert get_transformation(sdata[f"{region}_8bit_image"], get_all=True) == expected
+
 
 def test_read_all_bit_depths_with_labels_and_cells_table(tmp_path: Path) -> None:
     for suffix, dtype in ((".qptiff", "uint8"), (".er.qptiff", "uint16")):
