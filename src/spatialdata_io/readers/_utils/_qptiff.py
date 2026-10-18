@@ -64,7 +64,8 @@ class AkoyaScan:
     ``generation`` is one of ``"fusion1"``, ``"fusion2"``, ``"cim_qptiff"``, ``"qpi_other"`` or
     ``"legacy_processor"``. ``pixel_size_um`` is the calibrated pixel size, ``nominal_pixel_size_um`` the one
     the acquisition software reports. ``stage_position_um`` is the ``(x, y)`` stage position of the upper-left
-    corner. ``raw`` keeps the unparsed source metadata (JSON-serialisable).
+    corner. ``raw`` keeps the unparsed source metadata (JSON-serialisable). ``pages`` are the indices of the
+    full-resolution pages of a QPTIFF, the image's channels.
     """
 
     path: Path
@@ -78,6 +79,7 @@ class AkoyaScan:
     channels: list[AkoyaChannel]
     rgb: bool
     raw: dict[str, Any]
+    pages: list[int] = field(default_factory=list)
 
 
 def read_qptiff_metadata(path: Path, region: str | None = None) -> AkoyaScan:
@@ -140,10 +142,11 @@ def read_qptiff_metadata(path: Path, region: str | None = None) -> AkoyaScan:
             "scan_profile": scan_profile,
             "image_types": dict(Counter(_text(xml, "ImageType") or "unknown" for xml in page_xml)),
         },
+        pages=full_res,
     )
 
 
-def read_qptiff_image(path: Path) -> da.Array:
+def read_qptiff_image(scan: AkoyaScan) -> da.Array:
     """Lazily read the full-resolution image of a PerkinElmer/Akoya QPTIFF.
 
     The array keeps the native tile chunks of the file, opens the file only when its chunks are read and can be
@@ -151,34 +154,23 @@ def read_qptiff_image(path: Path) -> da.Array:
 
     Parameters
     ----------
-    path
-        Path to the ``.qptiff`` file.
+    scan
+        The metadata of the ``.qptiff`` file, see :func:`read_qptiff_metadata`.
 
     Returns
     -------
     ``(c, y, x)`` array, or ``(y, x, 3)`` for a brightfield RGB scan.
     """
-    with _open_qpi(path) as tf:
-        full_res = [
-            i
-            for i in range(len(tf.pages))
-            if _text(_parse_description(_page(tf, i).description), "ImageType") == _FULL_RESOLUTION
-        ]
-        if not full_res:
-            raise ValueError(f"{path} has no page with <ImageType>{_FULL_RESOLUTION}</ImageType>.")
-        first = _page(tf, full_res[0])
-        page_shape = first.shape
-        if len(full_res) == 1 and first.samplesperpixel == 3:
-            expected_shape: tuple[int, ...] = page_shape
-        else:
-            expected_shape = (len(full_res), *page_shape)
+    with _open_qpi(scan.path) as tf:
+        page_shape = _page(tf, scan.pages[0]).shape
+    expected_shape = page_shape if scan.rgb else (len(scan.pages), *page_shape)
 
-    image = lazy_tiff_array(path, series=0)
+    image = lazy_tiff_array(scan.path, series=0)
     if image.shape == expected_shape:
         return image
     # tifffile groups pages into series by shape heuristics; fall back to the pages the XML says are full-res
-    pages = [lazy_tiff_array(path, page=i) for i in full_res]
-    return pages[0] if len(expected_shape) == len(page_shape) else da.stack(pages)
+    pages = [lazy_tiff_array(scan.path, page=i) for i in scan.pages]
+    return pages[0] if scan.rgb else da.stack(pages)
 
 
 def qpi_pixel_size_um(page: tifffile.TiffPage) -> float | None:

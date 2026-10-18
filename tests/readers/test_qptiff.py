@@ -3,6 +3,7 @@ import json
 import pickle
 import warnings
 from pathlib import Path
+from typing import Any
 
 import dask.array as da
 import numpy as np
@@ -92,7 +93,7 @@ def test_cim_without_label_page_counts_pages_by_imagetype(tmp_path: Path) -> Non
         label_page=False,
         resolution_px_per_cm=1e4 / 0.37739,
     )
-    image = read_qptiff_image(p)
+    image = read_qptiff_image(read_qptiff_metadata(p))
     assert image.shape == (5, 256, 320)
     assert np.array_equal(image.compute(), written)
     scan = read_qptiff_metadata(p)
@@ -205,7 +206,7 @@ def test_profile_record_without_marker_skipped(tmp_path: Path) -> None:
 def test_image_is_lazy_and_correct(tmp_path: Path, dtype: str, name: str) -> None:
     p = tmp_path / name
     written = write_qptiff(p, biomarkers=["DAPI", "CD3"], dtype=dtype)
-    arr = read_qptiff_image(p)
+    arr = read_qptiff_image(read_qptiff_metadata(p))
     assert isinstance(arr, da.Array)
     assert arr.chunksize != arr.shape
     assert arr.dtype == np.dtype(dtype)
@@ -218,7 +219,7 @@ def test_image_is_picklable_and_closes_its_file(tmp_path: Path) -> None:
     written = write_qptiff(p, biomarkers=["DAPI", "CD3"])
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always", ResourceWarning)
-        arr = read_qptiff_image(p)
+        arr = read_qptiff_image(read_qptiff_metadata(p))
         restored = pickle.loads(pickle.dumps(arr))
         np.testing.assert_array_equal(restored[0, :8, :8].compute(), written[0, :8, :8])
         np.testing.assert_array_equal(arr.compute(), written)
@@ -237,9 +238,28 @@ def test_image_pages_are_picklable(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         return real(path, series=series, page=page) if page is not None else da.zeros((1, 1, 1))
 
     monkeypatch.setattr(_qptiff, "lazy_tiff_array", wrong_series)
-    arr = read_qptiff_image(p)
+    arr = read_qptiff_image(read_qptiff_metadata(p))
     assert arr.shape == written.shape
     np.testing.assert_array_equal(pickle.loads(pickle.dumps(arr))[1, :8, :8].compute(), written[1, :8, :8])
+
+
+def test_image_does_not_parse_the_page_xml_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    p = tmp_path / "x.qptiff"
+    written = write_qptiff(p, biomarkers=["DAPI", "CD3"])
+    scan = read_qptiff_metadata(p)
+    parsed = []
+    parse = _qptiff._parse_description
+
+    def counting_parse(description: str) -> Any:
+        parsed.append(description)
+        return parse(description)
+
+    monkeypatch.setattr(_qptiff, "_parse_description", counting_parse)
+
+    image = read_qptiff_image(scan)
+
+    assert not parsed
+    np.testing.assert_array_equal(image.compute(), written)
 
 
 def test_three_channel_not_rgb(tmp_path: Path) -> None:
@@ -247,7 +267,7 @@ def test_three_channel_not_rgb(tmp_path: Path) -> None:
     written = write_qptiff(p, biomarkers=["DAPI", "CD3", "CD8"])
     scan = read_qptiff_metadata(p)
     assert scan.rgb is False
-    image = read_qptiff_image(p)
+    image = read_qptiff_image(read_qptiff_metadata(p))
     assert image.ndim == 3
     assert image.shape == (3, 256, 320)
     assert np.array_equal(image.compute(), written)
@@ -258,7 +278,7 @@ def test_brightfield_rgb(tmp_path: Path) -> None:
     written = write_qptiff(p, biomarkers=[None], names=["BF"], rgb=True, software="VectraPolaris 1.0")
     scan = read_qptiff_metadata(p)
     assert scan.rgb is True
-    image = read_qptiff_image(p)
+    image = read_qptiff_image(read_qptiff_metadata(p))
     assert image.shape == (256, 320, 3)
     assert np.array_equal(image.compute(), written)
 
@@ -268,8 +288,6 @@ def test_not_qpi_raises(tmp_path: Path) -> None:
     tifffile.imwrite(p, np.zeros((16, 16), dtype=np.uint8))
     with pytest.raises(ValueError, match="not a PerkinElmer"):
         read_qptiff_metadata(p)
-    with pytest.raises(ValueError, match="not a PerkinElmer"):
-        read_qptiff_image(p)
 
 
 def test_missing_file_raises(tmp_path: Path) -> None:
@@ -284,4 +302,4 @@ def test_classic_tiff_and_stripped_level(tmp_path: Path) -> None:
         warnings.simplefilter("error")
         scan = read_qptiff_metadata(p)
     assert len(scan.channels) == 2
-    assert np.array_equal(read_qptiff_image(p).compute(), written)
+    assert np.array_equal(read_qptiff_image(read_qptiff_metadata(p)).compute(), written)

@@ -217,7 +217,7 @@ def phenocycler(
         pixel_sizes={scan.region: scan.pixel_size_um for scan in scans},
         cells_table_kwargs=cells_table_kwargs,
     )
-    images = {scan.region: read_qptiff_image(scan.path) for scan in [*scans, *duplicates.values()]}
+    images = {scan.region: read_qptiff_image(scan) for scan in [*scans, *duplicates.values()]}
     for region, duplicate in duplicates.items():
         if images[region].shape[-2:] != images[duplicate.region].shape[-2:]:
             warnings.warn(

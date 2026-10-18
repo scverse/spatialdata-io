@@ -249,7 +249,7 @@ def codex(
         files = layout.images[region]
         if _is_qptiff(files[0]):
             scans.append(read_qptiff_metadata(files[0], region=region))
-            arrays[region] = read_qptiff_image(files[0])
+            arrays[region] = read_qptiff_image(scans[-1])
             continue
         arrays[region], channels = _read_legacy_image(
             files, layout.channel_names_txt, image_models_kwargs=image_models_kwargs
