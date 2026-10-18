@@ -245,7 +245,7 @@ def read_tiff(
         image = da.from_array(source, chunks=tuple(tiles[i] for i in range(source.ndim)), name=source.name)
     else:
         try:
-            image = lazy_tiff_array(path, series=0)
+            image = lazy_tiff_array(path, series=0, chunks=chunks)
         except ValueError as e:  # e.g. a compression tifffile cannot decode chunk-wise
             logger.info("Reading %s with dask_image.imread because tifffile cannot read it lazily: %s", path, e)
             image = imread(str(path), **imread_kwargs)
@@ -279,8 +279,10 @@ class _ContiguousTiff:
         return np.array(data[key], dtype=self.dtype)
 
 
-def lazy_tiff_array(path: Path, *, series: int = 0, page: int | None = None) -> da.Array:
-    """Lazily read the level 0 of a tiff series, or one page, with the native tile chunks of the file.
+def lazy_tiff_array(
+    path: Path, *, series: int = 0, page: int | None = None, chunks: tuple[int, int] = (4096, 4096)
+) -> da.Array:
+    """Lazily read the level 0 of a tiff series, or one page, in chunks of whole native tiles or strips.
 
     The array can be pickled (e.g. for ``dask.distributed`` or process-based schedulers): its chunks are read by a
     :class:`_TiffZarrSource`, which opens the file in each process that reads them.
@@ -293,14 +295,22 @@ def lazy_tiff_array(path: Path, *, series: int = 0, page: int | None = None) -> 
         The index of the series to read, if ``page`` is `None`.
     page
         The index of the page to read instead of a series.
+    chunks
+        The ``(y, x)`` chunk size to aim for: the native tiles or strips are grouped into chunks of about as many
+        pixels (the default is that of the raster models), so the graph does not get one task per strip.
 
     Returns
     -------
     The array, with the shape of the series or page.
     """
     source = _TiffZarrSource(path, series=series, page=page)
+    y, x = source.axes.index("Y"), source.axes.index("X")
+    grouped = list(source.chunks)
+    native_y, native_x = grouped[y], grouped[x]
+    grouped[x] = min(source.shape[x], max(native_x, chunks[1] // native_x * native_x))
+    grouped[y] = min(source.shape[y], max(native_y, chunks[0] * chunks[1] // grouped[x] // native_y * native_y))
     return da.from_array(
-        source, chunks=source.chunks, name=source.name, meta=np.empty((0,) * source.ndim, dtype=source.dtype)
+        source, chunks=tuple(grouped), name=source.name, meta=np.empty((0,) * source.ndim, dtype=source.dtype)
     )
 
 
@@ -330,11 +340,9 @@ class _TiffZarrSource:
         with self._lock:
             if self._array is None:
                 tiff = tifffile.TiffFile(io.BufferedReader(_TransientFile(self.path)))
-                if self.page is not None:
-                    store = tiff.pages[self.page].aszarr()
-                else:
-                    store = tiff.series[self.series].aszarr(level=0)
-                self._array = zarr.open_array(store, mode="r")
+                data = tiff.pages[self.page] if self.page is not None else tiff.series[self.series]
+                self.axes = data.axes
+                self._array = zarr.open_array(data.aszarr(level=0), mode="r")
             return self._array
 
     def __getitem__(self, key: Any) -> np.ndarray:

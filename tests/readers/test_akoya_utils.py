@@ -4,6 +4,7 @@ import json
 import os
 import pickle
 from pathlib import Path
+from typing import Any
 
 import dask
 import dask.array as da
@@ -216,3 +217,20 @@ def test_read_tiff_does_not_keep_files_open(tmp_path: Path, compression: str | N
 
     assert len(os.listdir("/dev/fd")) - n_open <= 2
     np.testing.assert_array_equal(chunks[-1][0], data[48:, 80:])
+
+
+@pytest.mark.parametrize(
+    ("layout", "chunksize"),
+    [({"rowsperstrip": 2}, (1, 16, 64)), ({"tile": (16, 16)}, (1, 32, 32)), ({"tile": (64, 64)}, (1, 64, 64))],
+    ids=["strips", "small_tiles", "large_tiles"],
+)
+def test_read_tiff_groups_native_chunks(tmp_path: Path, layout: dict[str, Any], chunksize: tuple[int, ...]) -> None:
+    # one dask chunk per strip or tile makes huge graphs; chunks group whole strips/tiles to about `chunks` pixels
+    path = tmp_path / "x.tif"
+    data = np.arange(256 * 64, dtype=np.uint16).reshape(256, 64)
+    tifffile.imwrite(path, data, compression="zlib", **layout)
+
+    image, _, _, _ = read_tiff(path, {}, (32, 32))
+
+    assert image.chunksize == chunksize
+    np.testing.assert_array_equal(image.compute()[0], data)
