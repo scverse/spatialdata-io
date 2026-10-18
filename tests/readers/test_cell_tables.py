@@ -214,7 +214,24 @@ def test_read_codex_table_markers_by_name_header_or_column(
         ("generic", "cx,cy,DAPI,CD3,DAPI", ["DAPI", "CD3", "DAPI (2)"]),
     ],
 )
-def test_repeated_column_names_are_deduplicated(tmp_path: Path, fmt: str, header: str, markers: list[str]) -> None:
+@pytest.mark.parametrize("mangled", [False, True])
+def test_repeated_column_names_are_deduplicated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fmt: str, header: str, markers: list[str], mangled: bool
+) -> None:
+    if mangled:  # pandas >= 3.1 renames repeated names (DAPI.1) with the pyarrow engine too
+        read_csv = pd.read_csv
+
+        def mangling_read_csv(*args: Any, **kwargs: Any) -> pd.DataFrame:
+            df = read_csv(*args, **kwargs)
+            seen: dict[str, int] = {}
+            columns = []
+            for column in df.columns:
+                columns.append(f"{column}.{seen[column]}" if column in seen else column)
+                seen[column] = seen.get(column, 0) + 1
+            df.columns = pd.Index(columns)
+            return df
+
+        monkeypatch.setattr(pd, "read_csv", mangling_read_csv)
     path = tmp_path / "cells.csv"
     n = header.count(",") + 1
     path.write_text(f"{header}\n{','.join(str(i + 1) for i in range(n))}\n", encoding="utf-8")
@@ -226,6 +243,17 @@ def test_repeated_column_names_are_deduplicated(tmp_path: Path, fmt: str, header
 
     assert list(table.var.index) == markers
     assert table.X.shape == (1, len(markers))
+
+
+def test_quoted_column_names_may_hold_the_delimiter(tmp_path: Path) -> None:
+    path = tmp_path / "cells.csv"
+    path.write_text('cx,cy,"CD3, mean",DAPI\n1,2,3,4\n', encoding="utf-8")
+
+    table = read_cell_table(
+        path, "generic", pixel_size_um=None, default_region="S", cells_table_kwargs={"x": "cx", "y": "cy"}
+    )
+
+    assert list(table.var.index) == ["CD3, mean", "DAPI"]
 
 
 @pytest.mark.parametrize("cell_id", ["", "1.5", "a"])

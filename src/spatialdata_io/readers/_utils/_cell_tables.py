@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 import warnings
@@ -1152,7 +1153,7 @@ def _read_header(path: Path) -> tuple[list[str], str]:
     with path.open(encoding="utf-8-sig", errors="replace") as f:
         header = f.readline().rstrip("\r\n")
     sep = "\t" if "\t" in header else ";" if header.count(";") > header.count(",") else ","
-    return [column.strip().strip('"') for column in header.split(sep)], sep
+    return [column.strip() for column in next(csv.reader([header], delimiter=sep))], sep
 
 
 def _read_text_table(path: Path) -> pd.DataFrame:
@@ -1163,9 +1164,7 @@ def _read_text_table(path: Path) -> pd.DataFrame:
     """
     names, sep = _read_header(path)
     if sep == ";":
-        # the C engine keeps the header's repeated names apart only by renaming them, so the names come from the header
         df = pd.read_csv(path, sep=sep, decimal=",", engine="c", header=None, skiprows=1)
-        df.columns = pd.Index(names)
         for i in range(df.shape[1]):
             if not pd.api.types.is_numeric_dtype(df.iloc[:, i]):
                 try:
@@ -1174,9 +1173,9 @@ def _read_text_table(path: Path) -> pd.DataFrame:
                     pass
     else:
         df = pd.read_csv(path, sep=sep, engine="pyarrow")
-    # inForm writes some column names with trailing spaces; pyarrow keeps repeated names, which are made unique like
-    # the marker names
-    df.columns = pd.Index(dedupe_channel_names([str(column).strip() for column in df.columns]))
+    # pandas renames repeated names (DAPI.1; with the pyarrow engine since 3.1), so the names come from the header and
+    # are made unique like the marker names
+    df.columns = pd.Index(dedupe_channel_names(names))
     return df
 
 
