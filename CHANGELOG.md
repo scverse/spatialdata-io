@@ -82,7 +82,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
     tables are preferred; other tables of the same region (e.g. of two segmentation runs) raise a `ValueError`.
     A `cells_table` disables table discovery, and the `labels` masks are not read as images. `cells_table_kwargs`
     (e.g. `markers`, `region_column`) apply to the discovered tables too. The CSV and FCS tables of one marker panel (e.g. with
-    `fcs=False` and a region with only an FCS table) share one `table`, without `var["source_column"]`. Without `labels`, a
+    `fcs=False` and a region with only an FCS table) share one `table`, without `var["source_column"]`.
+    `cells_table_kwargs["markers"]` names a CODEX marker by its name (`DAPI1`), CSV header (`cyc001_ch001:DAPI1`)
+    or column (`cyc001_ch001`); a listed marker that the table does not have raises a `ValueError`. Without `labels`, a
     `.tif(f)` ending in `_mask` or `_labels` and named after a region (e.g. `reg001_mask.ome.tiff`) is its mask.
   - Region ids `regNNN` are taken from `reg` and digits not preceded by a letter (`exp_reg001`, not `Treg2`), also
     by `phenocycler()` for a `.qptiff`. A CIM `.qptiff` without one is named as `phenocycler()` names it (without the

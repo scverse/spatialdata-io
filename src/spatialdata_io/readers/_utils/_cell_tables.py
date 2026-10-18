@@ -337,8 +337,10 @@ def read_cell_table(
     cells_table_kwargs
         Optional keys: ``region_column`` (the column holding the region of each cell; QuPath default ``Image``),
         and for ``"generic"`` tables ``x`` and ``y`` (required centroid columns), ``instance_id`` (else the row
-        number in the file, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
-        default: all other numeric columns; also for ``"qupath"`` and ``"codex"`` tables) and ``coordinates_unit`` (``"px"``,
+        number in the file, from 1), ``markers`` (a list of columns or a regular expression matching the full
+        column name; default: all other numeric columns; also for ``"qupath"`` and ``"codex"`` tables, a CODEX
+        marker named by its name ``DAPI1``, its CSV header ``cyc001_ch001:DAPI1`` or its column ``cyc001_ch001``)
+        and ``coordinates_unit`` (``"px"``,
         default, or ``"um"``; for ``"qupath"`` and ``"inform"`` tables the unit of centroid columns whose name
         has none) and ``coordinates_space`` (the pixels of ``"px"`` centroids: ``"image"``, default, those of the
         full-resolution region image, or ``"mask"``, those of the region's mask, scaled to image pixels like the
@@ -686,7 +688,8 @@ def _read_fcs(path: Path) -> pd.DataFrame:
 
 def _codex_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dict[str, Any]:
     """The roles of a CODEX table; renames the columns of ``df`` to the name part of ``cycCCC_chHHH:<marker>``."""
-    split = [str(column).partition(":") for column in df.columns]
+    headers = [str(column) for column in df.columns]
+    split = [header.partition(":") for header in headers]
     # the source of an FCS column is its `$PnN`
     fcs = path.suffix.lower() == CodexKeys.FCS_FILE.value
     sources = [name if fcs else str(column) for column, (name, _, _) in zip(df.columns, split, strict=True)]
@@ -705,9 +708,20 @@ def _codex_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dic
     area = columns.get("size")
 
     matches = [_MARKER_COLUMN.fullmatch(name) for name in names]
-    if kwargs.get("markers") is not None:
-        selected = set(_select_markers(df, kwargs["markers"], {x, y, instance_column, region_column, area}))
-        is_marker = [name in selected for name in names]
+    if (selection := kwargs.get("markers")) is not None:
+        # a marker is named by its column (`cyc001_ch001`), its CSV header (`cyc001_ch001:DAPI1`) or its name (`DAPI1`)
+        forms = [{*form} for form in zip(names, headers, displays, dedupe_channel_names(displays), strict=True)]
+        if isinstance(selection, str):
+            exclude = {x, y, instance_column, region_column, area}
+            is_marker = [
+                name not in exclude and any(re.fullmatch(selection, form) for form in aliases)
+                for name, aliases in zip(names, forms, strict=True)
+            ]
+        else:
+            wanted = {str(marker) for marker in selection}
+            if missing := wanted.difference(*forms):
+                raise ValueError(f"{path} has no marker column(s) {sorted(missing)}; found {headers}.")
+            is_marker = [bool(aliases & wanted) for aliases in forms]
     elif any(matches):
         is_marker = [match is not None for match in matches]
     else:

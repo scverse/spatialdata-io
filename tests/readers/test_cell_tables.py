@@ -177,6 +177,35 @@ def test_read_codex_table_cells_table_kwargs(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("markers", "expected"),
+    [
+        (["DAPI1", "CD3"], ["DAPI1", "CD3"]),
+        (["cyc001_ch001:DAPI1"], ["DAPI1"]),
+        (["cyc001_ch001", "cyc002_ch001"], ["DAPI1", "DAPI"]),
+        (["DAPI (2)"], ["DAPI"]),
+        ("DAPI.*", ["DAPI1", "DAPI", "DAPI (2)"]),
+        ("cyc00\\d_ch001", ["DAPI1", "DAPI"]),
+    ],
+)
+def test_read_codex_table_markers_by_name_header_or_column(
+    tmp_path: Path, markers: str | list[str], expected: list[str]
+) -> None:
+    path = tmp_path / "cells.csv"
+    path.write_text(
+        "cell_id,x,y,cyc001_ch001:DAPI1,cyc001_ch002:CD3,cyc002_ch001:DAPI,cyc002_ch002:DAPI\n1,1.0,2.0,3.0,4.0,5.0,6.0\n"
+    )
+
+    table = read_cell_table(
+        path, "codex", pixel_size_um=None, default_region="A", cells_table_kwargs={"markers": markers}
+    )
+
+    assert list(table.var.index) == expected
+
+    with pytest.raises(ValueError, match=r"no marker column\(s\) \['CD99'\]"):
+        read_cell_table(path, "codex", pixel_size_um=None, default_region="A", cells_table_kwargs={"markers": ["CD99"]})
+
+
+@pytest.mark.parametrize(
     ("fmt", "header", "markers"),
     [
         ("mcquant", "CellID,DNA,CD3,DNA,X_centroid,Y_centroid,Area", ["DNA", "CD3", "DNA (2)"]),

@@ -167,7 +167,8 @@ def phenocycler(
         Keyword arguments passed to :class:`spatialdata.models.Labels2DModel`.
     cells_table_kwargs
         Options for reading ``cells_table`` and ``labels``: ``region_column``; for ``"generic"`` tables ``x``,
-        ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath and CODEX tables),
+        ``y``, ``instance_id``, ``markers`` (list or regular expression; also for QuPath and CODEX tables, whose
+        markers are named by their name, ``cycCCC_chHHH:<name>`` header or ``cycCCC_chHHH``),
         ``coordinates_unit`` (``"px"`` or ``"um"``; for QuPath ``X``/``Y`` and inForm ``Cell X Position`` columns
         without a unit, which are otherwise read in the unit of the table's other columns) and
         ``coordinates_space`` (``"image"``, default, or ``"mask"``: whether the pixel centroids of a generic table
