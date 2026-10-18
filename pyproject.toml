@@ -28,7 +28,7 @@ dependencies = [
   "anndata",
   "click",
   "dask-image",
-  "flowio",
+  "flowio>=1.4",
   "h5py",
   "imagecodecs",
   "joblib",

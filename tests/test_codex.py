@@ -934,3 +934,18 @@ def test_codex_csv_and_fcs_tables_of_one_panel_share_a_table(tmp_path: Path) -> 
     assert list(table.var_names) == dedupe_channel_names(data["markers"])
     # the markers were read from columns of other names
     assert "source_column" not in table.var
+
+
+@pytest.mark.parametrize("corrupt", ["truncated", "no_datatype"])
+def test_codex_ignores_malformed_fcs_files(tmp_path: Path, corrupt: str) -> None:
+    tifffile.imwrite(tmp_path / "reg001_montage.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+    fcs = tmp_path / "reg001.fcs"
+    write_fcs(fcs, pd.DataFrame({"cell_id": [1.0], "x": [1.0], "y": [2.0], "cyc001_ch001": [3.0]}))
+    content = fcs.read_bytes()
+    # flowio raises an EOFError and a KeyError for these
+    fcs.write_bytes(content[:100] if corrupt == "truncated" else content.replace(b"$DATATYPE", b"$DATATYPX"))
+
+    sdata = codex(tmp_path, image_models_kwargs=_FAST)
+
+    assert list(sdata.images) == ["reg001_image"]
+    assert not sdata.tables

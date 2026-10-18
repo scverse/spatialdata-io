@@ -62,6 +62,7 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   documentation builds, `mypy` type checking of `src` and `tests`, `biome`/`pyproject-fmt`/`zizmor` pre-commit hooks,
   and Dependabot updates.
 - Requires `tifffile>=2026.5.2` and `zarr>=3.2`, the first versions whose zarr store the lazy Akoya TIFF reads work with.
+- Requires `flowio>=1.4`, the first version with `FlowData.pnn_labels`, with which `codex()` detects CODEX FCS tables.
 - `codex()` was rewritten to read CODEX Processor, CODEX Uploader and CODEX Instrument Manager outputs. This changes
   its output and signature:
   - Element names are now `{region}_image`, `{region}_cells` (circles), `{region}_labels`, `{region}_polygons` and

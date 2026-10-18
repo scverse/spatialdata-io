@@ -229,7 +229,8 @@ def detect_table_format(path: Path) -> str:
     if path.suffix.lower() == CodexKeys.FCS_FILE.value:
         try:
             columns = list(flowio.read_multiple_data_sets(str(path), only_text=True)[0].pnn_labels)
-        except (ValueError, flowio.exceptions.FlowIOException) as e:
+        # flowio raises these, not only its own exceptions, for malformed files (e.g. truncated, without `$DATATYPE`)
+        except (ValueError, KeyError, IndexError, EOFError, OSError, flowio.exceptions.FlowIOException) as e:
             raise ValueError(f"{path} is not a readable FCS file: {e}") from e
         if _detect_header_format(columns) != "codex":
             raise ValueError(f"{path} is not a CODEX cell table: its channels are {columns}.")
