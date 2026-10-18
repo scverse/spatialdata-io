@@ -1040,3 +1040,20 @@ def test_cells_without_region_are_ignored(tmp_path: Path) -> None:
         sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
 
     assert list(sdata.tables["table"].obs["region"]) == ["A_cells", "B_cells"]
+
+
+def test_tables_with_different_marker_metadata_are_not_merged(tmp_path: Path) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI"])
+    header = "Object ID\tCentroid X px\tCentroid Y px\tCD3: Nucleus: Mean"
+    (tmp_path / "a.tsv").write_text(f"{header}\tCD3: Cell: Mean\na1\t10\t10\t1\t100\n", encoding="utf-8")
+    (tmp_path / "b.tsv").write_text(f"{header}\nb1\t10\t10\t2\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(
+            tmp_path, cells_table={"A": tmp_path / "a.tsv", "B": tmp_path / "b.tsv"}, image_models_kwargs=_FAST
+        )
+
+    assert sorted(sdata.tables) == ["A_table", "B_table"]
+    assert list(sdata.tables["A_table"].var["compartment"]) == ["Cell"]
+    assert list(sdata.tables["B_table"].var["compartment"]) == ["Nucleus"]

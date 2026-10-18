@@ -1549,7 +1549,7 @@ def build_cells(
 
     Returns
     -------
-    The table elements, ``{"table": ...}`` if all tables have the same markers, else ``{"<region>_table": ...}``
+    The table elements, ``{"table": ...}`` if all tables have the same ``var``, else ``{"<region>_table": ...}``
     per region, and the circle shapes by element name. The circles have the cells' area (radius 1 px without one).
     """
     _check_disjoint_regions(tables)
@@ -1568,7 +1568,8 @@ def build_cells(
             UserWarning,
             stacklevel=3,
         )
-    pieces = _split_by_region(tables) if len({tuple(table.var.index) for table in tables}) > 1 else None
+    # tables with other markers or other marker metadata (e.g. QuPath compartments) are not concatenated
+    pieces = _split_by_region(tables) if any(not table.var.equals(tables[0].var) for table in tables) else None
 
     def element(region: str) -> str:
         if region in region_elements:
