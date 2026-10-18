@@ -280,8 +280,9 @@ def read_cell_table(
 
             - ``"codex"``: a CODEX Processor ``.fcs`` or ``.csv`` table. The markers are ``markers``, else the
               ``cycCCC_chHHH`` columns, named by the FCS ``$PnS`` keywords or by the display part of the Processor
-              CSV header ``cycCCC_chHHH:<marker>`` (in ``var`` with their ``cycle`` and ``channel``), else the
-              numeric columns that are not CODEX Processor columns (``x``, ``size``, ...). Centroids ``x``/``y`` in
+              CSV header ``cycCCC_chHHH:<marker>`` (in ``var`` with their ``cycle`` and ``channel``), else, with a
+              `UserWarning`, the numeric columns that are not CODEX Processor columns (``x``, ``size``, ...).
+              Centroids ``x``/``y`` in
               pixels, instance ids ``cell_id``, the region from ``region`` (a numeric region ``r`` is the region id
               ``regRRR``), the radius from ``size``.
             - ``"qupath"``: a QuPath measurement export, also with R's ``make.names`` column names
@@ -713,6 +714,13 @@ def _codex_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dic
             name.casefold() not in _META_COLUMNS and pd.api.types.is_numeric_dtype(df.iloc[:, i])
             for i, name in enumerate(names)
         ]
+        taken = [name for name, marker in zip(names, is_marker, strict=True) if marker]
+        warnings.warn(
+            f"{path} has no 'cycCCC_chHHH' columns; reading the {len(taken)} numeric columns {taken} that are not "
+            "CODEX Processor columns as the markers. Set `cells_table_kwargs['markers']` to choose the marker columns.",
+            UserWarning,
+            stacklevel=5,
+        )
     positions = [i for i, marker in enumerate(is_marker) if marker]
     var = pd.DataFrame(
         {"source_column": [sources[i] for i in positions]},

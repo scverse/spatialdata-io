@@ -86,7 +86,9 @@ def test_read_codex_csv_colon_header(tmp_path: Path) -> None:
         "2,2,11,21,31,200.5,8\n"
     )
 
-    table = _read_codex(path)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # the markers are the cycCCC_chHHH columns, no heuristic
+        table = _read_codex(path)
 
     assert list(table.var.index) == ["DAPI1", "CD3"]
     assert list(table.var["source_column"]) == ["cyc001_ch001:DAPI1", "cyc001_ch002:CD3"]
@@ -101,7 +103,10 @@ def test_read_codex_csv_marker_name_columns(tmp_path: Path) -> None:
     path = tmp_path / "cells.csv"
     path.write_text("cell_id,x,y,tile_num,CD3,CD8,label\n1,1.0,2.0,1,5.0,6.0,T\n")
 
-    table = _read_codex(path, region="Kidney")
+    with pytest.warns(
+        UserWarning, match=r"no 'cycCCC_chHHH' columns.*\['CD3', 'CD8'\].*cells_table_kwargs\['markers'\]"
+    ):
+        table = _read_codex(path, region="Kidney")
 
     assert list(table.var.index) == ["CD3", "CD8"]
     assert "cycle" not in table.var.columns
