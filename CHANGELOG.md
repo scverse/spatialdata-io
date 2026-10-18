@@ -82,9 +82,10 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
     tables are preferred; other tables of the same region (e.g. of two segmentation runs) raise a `ValueError`.
     A `cells_table` disables table discovery, and the `labels` masks are not read as images. Without `labels`, a
     `.tif(f)` ending in `_mask` or `_labels` and named after a region (e.g. `reg001_mask.ome.tiff`) is its mask.
-  - Region ids `regNNN` are taken from `reg` and digits not preceded by a letter (`exp_reg001`, not `Treg2`). A CIM
-    `.qptiff` without one is named as `phenocycler()` names it (without the suffix and a trailing `_Scan<N>`), and its
-    `.er.qptiff` is preferred. Top-level `.tif` files of the original layout are named after their sanitised stems.
+  - Region ids `regNNN` are taken from `reg` and digits not preceded by a letter (`exp_reg001`, not `Treg2`), also
+    by `phenocycler()` for a `.qptiff`. A CIM `.qptiff` without one is named as `phenocycler()` names it (without the
+    suffix and a trailing `_Scan<N>`), and its `.er.qptiff` is preferred. Top-level `.tif` files of the original
+    layout are named after their sanitised stems.
   - Hidden files and folders (e.g. macOS `._*` files, `__MACOSX/`, `.Trash-*/`) are ignored and symlinked folders
     are followed, by `phenocycler()` too.
 
