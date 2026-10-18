@@ -234,3 +234,17 @@ def test_read_tiff_groups_native_chunks(tmp_path: Path, layout: dict[str, Any], 
 
     assert image.chunksize == chunksize
     np.testing.assert_array_equal(image.compute()[0], data)
+
+
+@pytest.mark.parametrize("compression", [None, "zlib"])
+def test_read_tiff_names_depend_on_chunks(tmp_path: Path, compression: str | None) -> None:
+    # arrays of one file with different chunks must not share dask keys, or computing both mixes their chunks
+    path = tmp_path / "x.tif"
+    data = np.arange(64 * 64, dtype=np.uint16).reshape(64, 64)
+    tifffile.imwrite(path, data, compression=compression, tile=(16, 16) if compression else None)
+
+    small, _, _, _ = read_tiff(path, {}, (16, 16))
+    large, _, _, _ = read_tiff(path, {}, (32, 32))
+
+    assert small.name != large.name
+    np.testing.assert_array_equal(da.stack([small.rechunk(large.chunks), large]).compute()[:, 0], [data, data])

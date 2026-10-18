@@ -242,7 +242,8 @@ def read_tiff(
     if offset is not None:
         source = _ContiguousTiff(path, offset, shape, dtype)
         tiles = dict.fromkeys(range(source.ndim), 1) | {axes.index("Y"): chunks[0], axes.index("X"): chunks[1]}
-        image = da.from_array(source, chunks=tuple(tiles[i] for i in range(source.ndim)), name=source.name)
+        tile_chunks = tuple(tiles[i] for i in range(source.ndim))
+        image = da.from_array(source, chunks=tile_chunks, name=f"{source.name}-{tokenize(tile_chunks)}")
     else:
         try:
             image = lazy_tiff_array(path, series=0, chunks=chunks)
@@ -261,7 +262,7 @@ class _ContiguousTiff:
     """Array-like view of uncompressed contiguous tiff data, memory-mapped anew for every chunk.
 
     Handing an ``np.memmap`` to :func:`dask.array.from_array` would read the whole file (dask hashes and slices
-    numpy arrays eagerly), so dask only gets this lightweight object and a name derived from the file.
+    numpy arrays eagerly), so dask only gets this lightweight object and a name derived from the file and chunks.
     """
 
     def __init__(self, path: Path, offset: int, shape: tuple[int, ...], dtype: np.dtype[Any]) -> None:
@@ -310,7 +311,10 @@ def lazy_tiff_array(
     grouped[x] = min(source.shape[x], max(native_x, chunks[1] // native_x * native_x))
     grouped[y] = min(source.shape[y], max(native_y, chunks[0] * chunks[1] // grouped[x] // native_y * native_y))
     return da.from_array(
-        source, chunks=tuple(grouped), name=source.name, meta=np.empty((0,) * source.ndim, dtype=source.dtype)
+        source,
+        chunks=tuple(grouped),
+        name=f"{source.name}-{tokenize(grouped)}",
+        meta=np.empty((0,) * source.ndim, dtype=source.dtype),
     )
 
 
