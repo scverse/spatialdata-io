@@ -280,6 +280,8 @@ def _write_mcquant(path: Path, n: int = 5, extent: tuple[float, float] = (60, 40
         (_QUPATH_HEADER + "\n", "qupath"),
         ("CellID,DAPI,CD3,X_centroid,Y_centroid,Area\n", "mcquant"),
         ("ID,DAPI,CD3\n", "sprm"),
+        # SPRM means have no centroids
+        ("ID,x,y,CD3\n", "generic"),
         ("Path\tSample Name\tCell ID\tCell X Position\tCell Y Position\n", "inform"),
         ("label,cx,cy,CD3\n", "generic"),
     ],

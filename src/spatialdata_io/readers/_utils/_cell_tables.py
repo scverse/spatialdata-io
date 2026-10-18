@@ -216,7 +216,8 @@ def detect_table_format(path: Path) -> str:
     ``"codex"`` (``x``/``y`` with ``cell_id`` or ``cycCCC_chHHH`` columns, also as the channels of an FCS file),
     ``"qupath"`` (``Centroid X µm``, ``Centroid X px`` or ``Object ID``, also in R's ``make.names`` form, e.g.
     ``Centroid.X.um``), ``"mcquant"`` (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``,
-    optionally followed by its unit in parentheses), ``"sprm"`` (first column ``ID``), else ``"generic"``.
+    optionally followed by its unit in parentheses), ``"sprm"`` (first column ``ID``, no ``x`` or ``y``), else
+    ``"generic"``.
 
     Raises
     ------
@@ -248,7 +249,8 @@ def _detect_header_format(columns: list[str]) -> str:
         return "mcquant"
     if any(_INFORM_POSITION.fullmatch(column) for column in columns):
         return "inform"
-    if columns[:1] == ["ID"]:
+    # SPRM means have no centroids, which are in `*-cell_centers.csv`
+    if columns[:1] == ["ID"] and not {"x", "y"} & names:
         return "sprm"
     return "generic"
 
