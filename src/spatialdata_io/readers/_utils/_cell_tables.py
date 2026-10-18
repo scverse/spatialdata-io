@@ -380,6 +380,13 @@ def read_cell_table(
     mask_pixels = fmt in {"mcquant", "sprm"}
     if fmt == "generic":
         mask_pixels = _coordinates_space(path, roles["in_um"], cells_table_kwargs) == "mask"
+    if roles["region_column"] in df.columns and (empty := df[roles["region_column"]].isna().to_numpy()).any():
+        warnings.warn(
+            f"Ignoring the {empty.sum()} cell(s) of {path} without a region in '{roles['region_column']}'.",
+            UserWarning,
+            stacklevel=4,
+        )
+        df = df.loc[~empty].reset_index(drop=True)
     region = _region_values(df, roles["region_column"], default_region, regions)
     units = cells_table_kwargs.get("geojson_units", "px")
     row_pixel_sizes = None

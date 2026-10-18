@@ -1029,3 +1029,14 @@ def test_selected_region_of_qupath_table_uses_each_rows_pixel_size(tmp_path: Pat
 
     assert list(sdata.labels) == [f"{regions[0]}_labels"]
     np.testing.assert_allclose(np.asarray(sdata.tables["table"].obsm["spatial"])[:, 0], [20, 45, 70, 95])
+
+
+def test_cells_without_region_are_ignored(tmp_path: Path) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_qupath_px(tmp_path / "cells.csv", {"A_Scan1.qptiff": 1, "": 1, "B_Scan1.qptiff": 1})
+
+    with pytest.warns(UserWarning, match=r"Ignoring the 1 cell\(s\) of .*cells\.csv without a region in 'Image'"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
+
+    assert list(sdata.tables["table"].obs["region"]) == ["A_cells", "B_cells"]
