@@ -449,3 +449,18 @@ def test_read_geojson_reads_only_ids_and_object_types(tmp_path: Path, monkeypatc
     assert list(kinds) == ["cell"]
     assert geometries[0].equals(shapely.box(0, 0, 8, 8))
     assert set(frames[0].columns) == {"id", "objectType", "geometry"}
+
+
+def test_read_geojson_array_with_bom_and_properties(tmp_path: Path) -> None:
+    feature = _cell("a", 0, 0)
+    feature["properties"] |= {"nucleusGeometry": feature["geometry"], "measurements": {"CD3: Cell: Mean": 1.0}}
+    path = tmp_path / "cells.json"
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps([feature, _cell(None, 20, 20, "annotation")]).encode())
+
+    ids, geometries, kinds = _read_geojson(path)
+
+    assert ids is not None
+    assert kinds is not None
+    assert list(ids) == ["a", None]
+    assert list(kinds) == ["cell", "annotation"]
+    assert geometries[1].equals(shapely.box(20, 20, 28, 28))

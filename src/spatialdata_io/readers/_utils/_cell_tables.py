@@ -639,13 +639,13 @@ def _read_geojson(path: Path) -> tuple[np.ndarray | None, np.ndarray, np.ndarray
     with path.open("rb") as f:
         is_array = f.read(1024).lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"[")
     if is_array:
-        # QuPath's default export without the FeatureCollection option, which GDAL does not read
-        features = json.loads(path.read_text(encoding="utf-8-sig"))
-        geometries = np.array(
-            [shapely.geometry.shape(f["geometry"]) if f.get("geometry") else None for f in features], dtype=object
-        )
-        ids = [f.get("id") for f in features]
-        types = [(f.get("properties") or {}).get("objectType") for f in features]
+        # QuPath's default export without the FeatureCollection option, which GDAL does not read; each feature is
+        # reduced as soon as it is parsed, so that its other properties are not all held at once
+        with path.open("rb") as f:
+            features = json.load(f, object_hook=_reduce_feature)
+        ids = [feature[0] for feature in features]
+        geometries = np.array([feature[1] for feature in features], dtype=object)
+        types = [feature[2] for feature in features]
     else:
         # QuPath's other properties (measurements, nucleus outlines) would take several times the memory
         frame = gpd.read_file(path, columns=["id", "objectType"])
@@ -662,6 +662,14 @@ def _read_geojson(path: Path) -> tuple[np.ndarray | None, np.ndarray, np.ndarray
         geometries,
         np.asarray(types, dtype=object) if has_types else None,
     )
+
+
+def _reduce_feature(obj: dict[str, Any]) -> Any:
+    """The id, geometry and QuPath object type of a parsed GeoJSON feature; other JSON objects unchanged."""
+    if "geometry" not in obj:
+        return obj
+    geometry = shapely.geometry.shape(obj["geometry"]) if obj.get("geometry") else None
+    return obj.get("id"), geometry, (obj.get("properties") or {}).get("objectType")
 
 
 def _read_fcs(path: Path) -> pd.DataFrame:
