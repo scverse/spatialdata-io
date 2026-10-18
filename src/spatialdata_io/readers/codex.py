@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import warnings
-from collections.abc import Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -176,12 +176,12 @@ def codex(
         (columns given by ``cells_table_kwargs``).
     labels
         A segmentation mask (TIFF/OME-TIFF with integer instance ids) per region: a path for a single region, or a
-        mapping from region id to path. Each mask is stored lazily as the labels ``<region>_labels``
-        with the transformation of the region's image; the cells of the region annotate it instead of circles, and
-        their instance ids must be the mask values. A mask whose shape is the region image's divided by an integer
-        factor ``f`` (exactly, or rounded up) is scaled onto the image (``Scale([f, f])`` before the region's
-        transformation); any other shape mismatch raises a warning. The pixel centroids of ``"mcquant"`` and
-        ``"sprm"`` tables are taken to be in mask pixels, so their centroids (``obsm["spatial"]``) and circle radii
+        mapping from region id to path; a mask inside ``path`` is not read as an image. Each mask is stored lazily as
+        the labels ``<region>_labels`` with the transformation of the region's image; the cells of the region annotate
+        it instead of circles, and their instance ids must be the mask values. A mask whose shape is the region image's
+        divided by an integer factor ``f`` (exactly, or rounded up) is scaled onto the image (``Scale([f, f])`` before
+        the region's transformation); any other shape mismatch raises a warning. The pixel centroids of ``"mcquant"``
+        and ``"sprm"`` tables are taken to be in mask pixels, so their centroids (``obsm["spatial"]``) and circle radii
         are scaled by ``f`` to image pixels; the source columns in ``obs`` are kept as read (mask pixels). The pixel
         centroids of other tables are in image pixels and are not scaled;
         ``cells_table_kwargs["coordinates_space"]="mask"`` scales those of a ``"generic"`` table too.
@@ -215,11 +215,17 @@ def codex(
     regions = normalize_regions(regions)
     channel_names = [channel_names] if isinstance(channel_names, str) else channel_names
     path = Path(path)
-    layout = _discover_legacy(path, fcs)
-    # regions that only have a discovered table exist only while the discovered tables are read
-    table_regions = layout.tables.keys() - {"*"} if cells_table is None else set()
-    available = sorted(layout.images.keys() | table_regions)
+    # explicit beats discovered: a given table disables table discovery, and a given mask is no image
+    masks = labels.values() if isinstance(labels, Mapping) else [] if labels is None else [labels]
+    layout = _discover_legacy(
+        path, fcs, find_tables=cells_table is None, masks={Path(mask).resolve() for mask in masks}
+    )
+    # the regions of a table without a region in its file name are known only once it is read
+    regionless = _read_regionless_table(layout.tables["*"], layout) if "*" in layout.tables else None
+    table_regions = set(regionless.region.unique()) if regionless is not None else set()
+    available = sorted(layout.images.keys() | layout.tables.keys() - {"*"} | table_regions)
     selected = select_regions(available, regions)
+    _warn_fcs_fallback([file for key, file in layout.tables.items() if key == "*" or key in selected], fcs)
     table_files = resolve_per_region(cells_table, selected, available)
     mask_files = resolve_per_region(labels, selected, available)
     experiment = read_json_object(layout.experiment_json) if layout.experiment_json is not None else None
@@ -257,7 +263,7 @@ def codex(
         )
 
     names = {scan.region: apply_channel_names(scan, channel_names) for scan in scans}
-    if table_files:
+    if cells_table is not None:
         cell_tables = read_region_tables(
             table_files,
             cells_table_format,
@@ -268,10 +274,15 @@ def codex(
         )
         table_paths = {key: str(file) for key, file in table_files.items()}
     else:
-        discovered = {key: file for key, file in layout.tables.items() if key == "*" or key in selected}
-        read = _read_tables(discovered, layout, selected if regions is not None else None, fcs)
+        named = {key: read_codex_table(layout.tables[key], region=key) for key in selected if key in layout.tables}
+        read = {"*": regionless, **named} if regionless is not None else named
+        if regions is not None:
+            read = {
+                key: table.take(np.flatnonzero(table.region.isin(selected).to_numpy())) for key, table in read.items()
+            }
+        read = {key: table for key, table in read.items() if len(table.region)}
         cell_tables = list(read.values())
-        table_paths = {key: str(discovered[key]) for key in read}
+        table_paths = {key: str(layout.tables[key]) for key in read}
     sdata = build_spatialdata(
         scans,
         arrays,
@@ -286,45 +297,39 @@ def codex(
     return _set_reader_metadata(sdata, "codex")
 
 
-def _read_tables(
-    files: Mapping[str, Path], layout: _LegacyLayout, regions: Sequence[str] | None, fcs: bool
-) -> dict[str, CellTable]:
-    """Read the cell tables of ``files`` (by region, ``"*"`` for one without a region), keeping only ``regions``.
-
-    Returns the tables that have cells of ``regions``. A table without a region in its file name that cannot be
-    read, or whose cells cannot be assigned to a region, is skipped with a warning.
-    """
-    fallback = [str(file) for file in files.values() if file.suffix.lower() == CodexKeys.FCS_FILE.value]
+def _warn_fcs_fallback(files: Iterable[Path], fcs: bool) -> None:
+    fallback = [str(file) for file in files if file.suffix.lower() == CodexKeys.FCS_FILE.value]
     if not fcs and fallback:
         warnings.warn(
             f"`fcs=False`, but no CSV cell table was found for {fallback}; reading the FCS table(s) instead.",
             UserWarning,
             stacklevel=3,
         )
+
+
+def _read_regionless_table(file: Path, layout: _LegacyLayout) -> CellTable | None:
+    """Read the discovered cell table ``file`` that has no region in its file name.
+
+    A table without a region that cannot be read, or whose cells cannot be assigned to a region, is skipped with a
+    warning (`None` is returned).
+    """
     only_image = next(iter(layout.images)) if len(layout.images) == 1 else None
-    tables = {}
-    for key, file in files.items():
-        if key != "*":
-            table = read_codex_table(file, region=key)
-        else:
-            # a table without a region in its file name may be any CSV: skip it rather than fail the whole read
-            try:
-                table = read_codex_table(file, region=only_image)
-            except ValueError as e:
-                warnings.warn(f"Ignoring the cell table {file}: {e}", UserWarning, stacklevel=3)
-                continue
-            # next to a single image named after its file (e.g. `Kidney.tif`), its cells belong to that image
-            values = table.region.unique()
-            if only_image is not None and len(values) == 1 and values[0] not in layout.images:
-                table.region = pd.Series(only_image, index=table.region.index, name=table.region.name)
-        if regions is not None:
-            table = table.take(np.flatnonzero(table.region.isin(regions).to_numpy()))
-        if len(table.region):
-            tables[key] = table
-    return tables
+    # a table without a region in its file name may be any CSV: skip it rather than fail the whole read
+    try:
+        table = read_codex_table(file, region=only_image)
+    except ValueError as e:
+        warnings.warn(f"Ignoring the cell table {file}: {e}", UserWarning, stacklevel=3)
+        return None
+    # next to a single image named after its file (e.g. `Kidney.tif`), its cells belong to that image
+    values = table.region.unique()
+    if only_image is not None and len(values) == 1 and values[0] not in layout.images:
+        table.region = pd.Series(only_image, index=table.region.index, name=table.region.name)
+    return table
 
 
-def _discover_legacy(path: Path, fcs: bool) -> _LegacyLayout:
+def _discover_legacy(
+    path: Path, fcs: bool, *, find_tables: bool = True, masks: Collection[Path] = frozenset()
+) -> _LegacyLayout:
     """Find the images, cell tables and sidecar files of a CODEX dataset.
 
     Parameters
@@ -333,6 +338,10 @@ def _discover_legacy(path: Path, fcs: bool) -> _LegacyLayout:
         A CODEX output directory, searched recursively in sorted order, or a single image or table file.
     fcs
         Whether to prefer ``.fcs`` over ``.csv`` tables of the same region.
+    find_tables
+        Whether to discover cell tables.
+    masks
+        The resolved paths of the segmentation masks, which are not images.
 
     Returns
     -------
@@ -341,12 +350,14 @@ def _discover_legacy(path: Path, fcs: bool) -> _LegacyLayout:
     if not path.exists():
         raise FileNotFoundError(f"{path} does not exist.")
     files = [path] if path.is_file() else _walk(path)
+    if masks:
+        files = [file for file in files if file.resolve() not in masks]
     images = _discover_images(files)
     if not images:
         # the original (2019) layout: one stitched `.tif` next to its table, without a region in the file name
         top_level = files if path.is_file() else [file for file in files if file.parent == path]
         images = {file.stem: [file] for file in top_level if _is_tiff(file)}
-    tables = _discover_tables(files, fcs)
+    tables = _discover_tables(files, fcs) if find_tables else {}
     if not images and not tables:
         raise FileNotFoundError(f"No CODEX images or cell tables found in {path}. Expected: {'; '.join(_PATTERNS)}.")
     return _LegacyLayout(

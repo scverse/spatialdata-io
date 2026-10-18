@@ -280,6 +280,46 @@ def test_codex_user_cells_table_replaces_discovered(tmp_path: Path) -> None:
     assert sdata.attrs["akoya"]["cell_tables"] == {"reg002": str(tmp_path / "mine.csv")}
 
 
+def test_codex_explicit_inputs_disable_discovery(tmp_path: Path) -> None:
+    # HuBMAP-like: the mask has the region id of its image, and two region-less tables are discoverable
+    for folder in ("expr", "mask"):
+        (tmp_path / folder).mkdir()
+    tifffile.imwrite(tmp_path / "expr" / "reg001_expr.ome.tiff", np.zeros((2, 16, 16), dtype=np.uint16))
+    mask = tmp_path / "mask" / "reg001_mask.ome.tiff"
+    tifffile.imwrite(mask, np.arange(256, dtype=np.uint16).reshape(16, 16))
+    header = "cell_id,x,y,cyc001_ch001\n"
+    (tmp_path / "cells_all.csv").write_text(header + "1,1.0,1.0,1.0\n2,2.0,2.0,2.0\n")
+    (tmp_path / "cells_filtered.csv").write_text(header + "2,2.0,2.0,2.0\n")
+
+    for labels in (mask, {"reg001": mask}):
+        sdata = codex(
+            tmp_path,
+            cells_table=tmp_path / "cells_filtered.csv",
+            labels=labels,
+            image_models_kwargs=_FAST,
+            labels_models_kwargs=_FAST,
+        )
+        assert list(sdata.images) == ["reg001_image"]
+        assert list(sdata.labels) == ["reg001_labels"]
+        assert sdata.tables["table"].n_obs == 1
+
+    # an explicit table of an unselected region does not bring the discovered tables back
+    write_legacy_processor_tree(tmp_path / "tree", regions=2, cycles=1, channels=1, n_cells=5)
+    sdata = codex(tmp_path / "tree", regions=["reg001"], cells_table={"reg002": tmp_path / "cells_all.csv"})
+    assert not sdata.tables
+
+
+def test_codex_regions_of_regionless_table_are_available(tmp_path: Path) -> None:
+    data = write_legacy_processor_tree(tmp_path, regions=1, fcs=False, csv=False, n_cells=5)
+    pd.concat([data["cells"], data["cells"].assign(region=2.0)]).to_csv(tmp_path / "cells.csv", index=False)
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, regions=["reg002"], image_models_kwargs=_FAST)
+
+    assert not sdata.images
+    assert list(sdata.shapes) == ["reg002_cells"]
+
+
 def test_codex_labels_with_discovered_tables(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path, regions=1, layout="per_marker", n_cells=5)
     tifffile.imwrite(tmp_path / "mask.tif", np.zeros((128, 160), dtype=np.uint16))
