@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import dask.array as da
 import numpy as np
 import pandas as pd
-from spatialdata import SpatialData
+from spatialdata import SpatialData, sanitize_name
 
 from spatialdata_io._constants._constants import CodexKeys
 from spatialdata_io._docs import inject_docs
@@ -46,7 +46,8 @@ if TYPE_CHECKING:
 
 __all__ = ["codex"]
 
-_REGION = re.compile(r"reg(\d+)", re.IGNORECASE)
+# `reg001`, `exp_reg001` or `1_reg001`, but not `Treg2` or `coreg1`
+_REGION = re.compile(r"(?<![A-Za-z])reg(\d+)", re.IGNORECASE)
 _PER_MARKER = re.compile(r"reg(\d+)_cyc(\d+)_ch(\d+)_(.+)\.tiff?$", re.IGNORECASE)
 _MONTAGE = re.compile(r"reg\d+_montage\.tiff?$", re.IGNORECASE)
 _TILE_STACK = re.compile(r"reg\d+_X\d+_Y\d+_Z\d+\.tiff?$", re.IGNORECASE)
@@ -120,12 +121,14 @@ def codex(
           ``cell_id`` or ``cycCCC_chHHH`` columns, e.g. antibody lists or HuBMAP SPRM outputs) are ignored; pass them as
           ``cells_table`` to read them. FCS files of other instruments are ignored too.
 
-    Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``,
-    ``bestFocus/``) are ignored. The region id ``regNNN`` is taken from the file names; a ``{vx.QPTIFF!r}`` without
-    one is named as :func:`spatialdata_io.phenocycler` names it: after its file, without the ``.er.qptiff`` or
-    ``{vx.QPTIFF!r}`` suffix and a trailing ``_Scan<N>`` (unless that makes two regions share a name), and the
-    extended-range ``.er.qptiff`` of a scan is preferred. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files
-    are read as hyperstacks named after their files. Each region is stored as the image ``<region>_image`` and its
+    Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``, ``bestFocus/``)
+    are ignored. The region id ``regNNN`` is taken from the file names (``reg`` and digits not preceded by a letter,
+    e.g. ``exp_reg001`` but not ``Treg2``); a ``{vx.QPTIFF!r}`` without one is named as
+    :func:`spatialdata_io.phenocycler` names it: after its file, without the ``.er.qptiff`` or ``{vx.QPTIFF!r}`` suffix
+    and a trailing ``_Scan<N>`` (unless that makes two regions share a name), and the extended-range ``.er.qptiff`` of a
+    scan is preferred. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files are read as
+    hyperstacks named after their files, made valid element names by :func:`spatialdata.sanitize_name` (e.g.
+    ``Kidney sample.tif`` becomes the region ``Kidney_sample``). Each region is stored as the image ``<region>_image`` and its
     metadata in ``sdata.attrs["akoya"]``.
 
     A single region is stored in the ``"global"`` coordinate system. Several CIM scans of the same sample space
@@ -347,7 +350,7 @@ def _discover_legacy(
     if not images:
         # the original (2019) layout: one stitched `.tif` next to its table, without a region in the file name
         top_level = files if path.is_file() else [file for file in files if file.parent == path]
-        images = {file.stem: [file] for file in top_level if _is_tiff(file)}
+        images = {sanitize_name(file.stem): [file] for file in top_level if _is_tiff(file)}
     tables = _discover_tables(files, fcs) if find_tables else {}
     if not images and not tables:
         raise FileNotFoundError(f"No CODEX images or cell tables found in {path}. Expected: {'; '.join(_PATTERNS)}.")

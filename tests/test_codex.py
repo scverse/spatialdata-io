@@ -421,6 +421,29 @@ def test_codex_single_tif_without_region(tmp_path: Path) -> None:
     assert _level0(sdata, "Kidney_image").shape == (3, 32, 48)
 
 
+def test_codex_region_id_needs_reg_without_a_letter_before(tmp_path: Path) -> None:
+    for name in ("reg001_montage.tif", "exp_reg002.tif", "1_reg003.tif", "Treg2.tif", "Preg12.tif", "coreg1.tif"):
+        tifffile.imwrite(tmp_path / name, np.zeros((1, 4, 4), dtype=np.uint8))
+    assert sorted(_discover_legacy(tmp_path, fcs=True).images) == ["reg001", "reg002", "reg003"]
+
+
+def test_codex_flat_layout_ignores_non_region_tifs(tmp_path: Path) -> None:
+    tifffile.imwrite(tmp_path / "Kidney sample.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+    (tmp_path / "analysis").mkdir()
+    tifffile.imwrite(tmp_path / "analysis" / "Treg2_density.tif", np.zeros((16, 16), dtype=np.uint16))
+
+    for regions in (None, ["Kidney sample"], ["Kidney_sample"]):
+        sdata = codex(tmp_path, regions=regions, image_models_kwargs=_FAST)
+        assert list(sdata.images) == ["Kidney_sample_image"]
+
+
+def test_codex_and_phenocycler_name_a_non_region_qptiff_alike(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "Preg12_Scan1.qptiff", biomarkers=["DAPI"], dtype="uint8")
+
+    for reader in (codex, phenocycler):
+        assert list(reader(tmp_path, image_models_kwargs=_FAST).images) == ["Preg12_image"]
+
+
 def test_discover_legacy_regionless_table_ignores_sidecar_csv(tmp_path: Path) -> None:
     write_legacy_processor_tree(tmp_path / "exp", layout="per_marker", fcs=False, csv=False)
     (tmp_path / "antibody_list.csv").write_text("marker,clone\nCD3,UCHT1\n")
