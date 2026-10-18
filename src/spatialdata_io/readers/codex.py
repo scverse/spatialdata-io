@@ -136,8 +136,8 @@ def codex(
     and a trailing ``_Scan<N>`` (unless that makes two regions share a name), and the extended-range ``.er.qptiff`` of a
     scan is preferred, also for one with a region id (``exp_reg001.er.qptiff`` and ``exp_reg001.qptiff`` are region
     ``reg001``). Several scans with the same region id raise an error. If a directory contains no such files, its top-level ``{vx.IMAGE_TIF}(f)`` files are read as
-    hyperstacks named after their files, made valid element names by :func:`spatialdata.sanitize_name` (e.g.
-    ``Kidney sample.tif`` becomes the region ``Kidney_sample``). Each region is stored as the image ``<region>_image``
+    hyperstacks named after their files without the extension (``.ome.tif`` included), made valid element names by
+    :func:`spatialdata.sanitize_name` (e.g. ``Kidney sample.ome.tif`` becomes the region ``Kidney_sample``). Each region is stored as the image ``<region>_image``
     and its metadata in ``sdata.attrs["akoya"]``.
 
     A single region is stored in the ``"global"`` coordinate system. Several CIM scans of the same sample space
@@ -407,7 +407,7 @@ def _discover_legacy(
     if not images:
         # the original (2019) layout: one stitched `.tif` next to its table, without a region in the file name
         top_level = image_files if path.is_file() else [file for file in image_files if file.parent == path]
-        images = {sanitize_name(file.stem): [file] for file in top_level if _is_tiff(file)}
+        images = {sanitize_name(IMAGE_EXTENSION.sub("", file.name)): [file] for file in top_level if _is_tiff(file)}
     tables = _discover_tables(files, fcs) if find_tables else {}
     if not images and not tables:
         raise FileNotFoundError(f"No CODEX images or cell tables found in {path}. Expected: {'; '.join(_PATTERNS)}.")

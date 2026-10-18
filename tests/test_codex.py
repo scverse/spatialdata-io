@@ -745,8 +745,10 @@ def test_codex_unreadable_regionless_table_raises(tmp_path: Path) -> None:
         codex(tmp_path / "Kidney.fcs")
 
 
-def test_codex_regionless_table_belongs_to_single_stem_image(tmp_path: Path) -> None:
-    tifffile.imwrite(tmp_path / "Kidney.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+@pytest.mark.parametrize("file_name", ["Kidney.tif", "Kidney.ome.tif", "Kidney.OME.TIFF"])
+def test_codex_regionless_table_belongs_to_single_stem_image(tmp_path: Path, file_name: str) -> None:
+    # the region is the file name without its image extension, `.ome` included
+    tifffile.imwrite(tmp_path / file_name, np.zeros((2, 16, 16), dtype=np.uint16))
     (tmp_path / "cells.csv").write_text("cell_id,region,x,y,size,cyc001_ch001\n1,1,1.0,2.0,3.0,4.0\n")
 
     for regions in (None, ["Kidney"]):
