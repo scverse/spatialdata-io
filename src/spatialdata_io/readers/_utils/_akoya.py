@@ -225,7 +225,8 @@ def read_tiff(path: Path, chunks: tuple[int, int]) -> tuple[da.Array, tuple[int,
     Uncompressed contiguous data (e.g. ImageJ hyperstacks and per-marker images, often a single strip per plane)
     is memory-mapped and split into ``chunks``, so a chunk never needs a whole plane in memory; other layouts keep
     their native tiles via zarr. Returns the image, the shape of the flattened axes and the ImageJ ``Labels`` (if
-    any). The array opens the file only when its chunks are read and can be pickled, e.g. for ``dask.distributed``.
+    every plane has a non-blank one). The array opens the file only when its chunks are read and can be pickled,
+    e.g. for ``dask.distributed``.
     """
     with tifffile.TiffFile(path) as tf:
         series = tf.series[0]
@@ -234,6 +235,9 @@ def read_tiff(path: Path, chunks: tuple[int, int]) -> tuple[da.Array, tuple[int,
         dtype = series.dtype.newbyteorder(tf.byteorder)
         metadata = tf.imagej_metadata or {}
     labels = list(metadata["Labels"]) if isinstance(metadata.get("Labels"), list | tuple) else None
+    # ImageJ writes an empty label for every slice without one, so partial labels do not name the channels
+    if labels is not None and not all(isinstance(label, str) and label.strip() for label in labels):
+        labels = None
     if offset is not None:
         source = _ContiguousTiff(path, offset, shape, dtype)
         tiles = dict.fromkeys(range(source.ndim), 1) | {axes.index("Y"): chunks[0], axes.index("X"): chunks[1]}

@@ -100,6 +100,22 @@ def test_codex_hyperstack_imagej_labels_win(tmp_path: Path) -> None:
     assert get_channel_names(sdata.images["reg001_image"]) == labels
 
 
+@pytest.mark.parametrize("labels", [["", "", "", ""], ["cyc1.tif", "", "", ""]], ids=["blank", "partly_blank"])
+def test_codex_hyperstack_blank_imagej_labels_ignored(tmp_path: Path, labels: list[str]) -> None:
+    # ImageJ writes an empty label for every unlabelled slice; such labels must not replace channelNames.txt
+    tifffile.imwrite(
+        tmp_path / "reg001_montage.tif",
+        np.zeros((4, 32, 48), dtype=np.uint16),
+        imagej=True,
+        metadata={"axes": "CYX", "Labels": labels},
+    )
+    (tmp_path / "channelNames.txt").write_text("DAPI\nCD3\nDAPI2\nCD8\n")
+
+    sdata = codex(tmp_path, image_models_kwargs=_FAST)
+
+    assert get_channel_names(sdata.images["reg001_image"]) == ["DAPI", "CD3", "DAPI2", "CD8"]
+
+
 def test_codex_cim_qptiff(tmp_path: Path) -> None:
     path = tmp_path / "experiment_reg001.qptiff"
     data = write_qptiff(
