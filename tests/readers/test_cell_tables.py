@@ -148,6 +148,29 @@ def test_read_codex_table_cells_table_kwargs(tmp_path: Path) -> None:
     assert "CD3" in table.obs.columns
 
 
+@pytest.mark.parametrize(
+    ("fmt", "header", "markers"),
+    [
+        ("mcquant", "CellID,DNA,CD3,DNA,X_centroid,Y_centroid,Area", ["DNA", "CD3", "DNA (2)"]),
+        ("sprm", "ID,DAPI,Blank,CD3,Blank", ["DAPI", "Blank", "CD3", "Blank (2)"]),
+        ("codex", "cell_id,x,y,size,DAPI,CD3,DAPI", ["DAPI", "CD3", "DAPI (2)"]),
+        ("generic", "cx,cy,DAPI,CD3,DAPI", ["DAPI", "CD3", "DAPI (2)"]),
+    ],
+)
+def test_repeated_column_names_are_deduplicated(tmp_path: Path, fmt: str, header: str, markers: list[str]) -> None:
+    path = tmp_path / "cells.csv"
+    n = header.count(",") + 1
+    path.write_text(f"{header}\n{','.join(str(i + 1) for i in range(n))}\n", encoding="utf-8")
+    kwargs = {"x": "cx", "y": "cy"} if fmt == "generic" else {}
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # SPRM without centroids
+        table = read_cell_table(path, fmt, pixel_size_um=None, default_region="S", cells_table_kwargs=kwargs)
+
+    assert list(table.var.index) == markers
+    assert table.X.shape == (1, len(markers))
+
+
 def test_build_cells_single_table_and_circles(tmp_path: Path) -> None:
     write_fcs(tmp_path / "reg001.fcs", _cells(n=3, region=1))
     write_fcs(tmp_path / "reg002.fcs", _cells(n=4, region=2))

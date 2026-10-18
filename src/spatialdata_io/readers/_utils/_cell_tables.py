@@ -365,8 +365,9 @@ def read_cell_table(
     else:
         _, sep = _read_header(path)
         df = pd.read_csv(path, sep=sep, engine="pyarrow")
-        # inForm writes some column names with trailing spaces
-        df.columns = pd.Index([str(column).strip() for column in df.columns])
+        # inForm writes some column names with trailing spaces; pyarrow keeps repeated names, which are made unique
+        # like the marker names
+        df.columns = pd.Index(dedupe_channel_names([str(column).strip() for column in df.columns]))
     reader = {
         "codex": _codex_roles,
         "qupath": _qupath_roles,
@@ -642,8 +643,8 @@ def _codex_roles(path: Path, df: pd.DataFrame, kwargs: Mapping[str, Any]) -> dic
     # the source of an FCS column is its `$PnN`
     fcs = path.suffix.lower() == CodexKeys.FCS_FILE.value
     sources = [name if fcs else str(column) for column, (name, _, _) in zip(df.columns, split, strict=True)]
-    names = [name for name, _, _ in split]
-    displays = [display.strip() or name for name, _, display in split]
+    names = dedupe_channel_names([name for name, _, _ in split])
+    displays = [display.strip() or name for name, (_, _, display) in zip(names, split, strict=True)]
     df.columns = pd.Index(names)
     columns = {column.casefold(): column for column in names}
     x, y = kwargs.get("x", columns.get("x")), kwargs.get("y", columns.get("y"))
