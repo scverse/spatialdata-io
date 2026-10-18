@@ -17,7 +17,13 @@ from spatialdata.transformations import Identity, get_transformation
 from spatialdata_io import codex, phenocycler
 from spatialdata_io.readers._utils._akoya import dedupe_channel_names
 from spatialdata_io.readers.codex import _discover_legacy, _read_legacy_image
-from tests._akoya_data import cim_experiment_v4_xml, forbid_pixel_reads, write_legacy_processor_tree, write_qptiff
+from tests._akoya_data import (
+    cim_experiment_v4_xml,
+    forbid_pixel_reads,
+    write_fcs,
+    write_legacy_processor_tree,
+    write_qptiff,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -212,6 +218,40 @@ def test_discover_legacy_tables_prefer_requested_format(tmp_path: Path) -> None:
         "reg001": ".csv",
         "reg002": ".csv",
     }
+
+
+def test_discover_legacy_tables_ranking(tmp_path: Path) -> None:
+    cells = pd.DataFrame({"cell_id": [1.0, 2.0], "x": [1.0, 2.0], "y": [3.0, 4.0], "cyc001_ch001": [5.0, 6.0]})
+    tifffile.imwrite(tmp_path / "Kidney.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+    cells.to_csv(tmp_path / "Kidney.csv", index=False)
+    # an unrelated flow cytometry tube and a file that is no FCS at all do not replace the CODEX table
+    (tmp_path / "flow").mkdir()
+    write_fcs(tmp_path / "flow" / "tube1.fcs", pd.DataFrame({"FSC-A": [1.0], "SSC-A": [2.0]}))
+    (tmp_path / "flow" / "broken.fcs").write_bytes(b"not an fcs file")
+    assert _discover_legacy(tmp_path, fcs=True).tables == {"*": tmp_path / "Kidney.csv"}
+
+    # a CODEX gate export next to the table: the reader cannot tell which one holds the cells
+    (tmp_path / "gates").mkdir()
+    write_fcs(tmp_path / "gates" / "CD3pos.fcs", cells.iloc[:1])
+    with pytest.raises(ValueError, match=r"CD3pos\.fcs.*Kidney\.csv|Kidney\.csv.*CD3pos\.fcs"):
+        _discover_legacy(tmp_path, fcs=True)
+
+    # compensated beats uncompensated before the file format
+    fcs_dir = tmp_path / "exp" / "segm" / "segm-1" / "fcs"
+    for kind in ("compensated", "uncompensated"):
+        (fcs_dir / kind).mkdir(parents=True)
+    cells.to_csv(fcs_dir / "compensated" / "reg001_compensated.csv", index=False)
+    write_fcs(fcs_dir / "uncompensated" / "reg001_uncompensated.fcs", cells)
+    assert _discover_legacy(tmp_path / "exp", fcs=True).tables == {
+        "reg001": fcs_dir / "compensated" / "reg001_compensated.csv"
+    }
+
+    # two segmentation runs of one region are not resolved by their path
+    segm_10 = tmp_path / "exp" / "segm" / "segm-10" / "fcs" / "compensated"
+    segm_10.mkdir(parents=True)
+    cells.to_csv(segm_10 / "reg001_compensated.csv", index=False)
+    with pytest.raises(ValueError, match=r"segm-1/.*segm-10/|segm-10/.*segm-1/"):
+        _discover_legacy(tmp_path / "exp", fcs=True)
 
 
 def test_codex_user_cells_table_replaces_discovered(tmp_path: Path) -> None:

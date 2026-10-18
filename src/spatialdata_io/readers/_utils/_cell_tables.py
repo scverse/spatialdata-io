@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import anndata as ad
+import flowio  # type: ignore[import-untyped]  # readfcs' parser, for the TEXT segment only
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -301,14 +302,28 @@ def detect_table_format(path: Path) -> str:
 
     Returns
     -------
-    ``"codex"`` (FCS, or ``x``/``y`` with ``cell_id`` or ``cycCCC_chHHH`` columns), ``"qupath"`` (``Centroid X µm``,
-    ``Centroid X px`` or ``Object ID``, also in R's ``make.names`` form, e.g. ``Centroid.X.um``), ``"mcquant"``
-    (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``, optionally followed by its unit in
-    parentheses), ``"sprm"`` (first column ``ID``), else ``"generic"``.
+    ``"codex"`` (``x``/``y`` with ``cell_id`` or ``cycCCC_chHHH`` columns, also as the channels of an FCS file),
+    ``"qupath"`` (``Centroid X µm``, ``Centroid X px`` or ``Object ID``, also in R's ``make.names`` form, e.g.
+    ``Centroid.X.um``), ``"mcquant"`` (``CellID`` and ``X_centroid``), ``"inform"`` (``Cell X Position``,
+    optionally followed by its unit in parentheses), ``"sprm"`` (first column ``ID``), else ``"generic"``.
+
+    Raises
+    ------
+    ValueError
+        If ``path`` is an FCS file that cannot be parsed or is not a CODEX table (its ``$PnN`` channel names).
     """
     if path.suffix.lower() == CodexKeys.FCS_FILE.value:
+        try:
+            columns = list(flowio.read_multiple_data_sets(str(path), only_text=True)[0].pnn_labels)
+        except (ValueError, flowio.exceptions.FlowIOException) as e:
+            raise ValueError(f"{path} is not a readable FCS file: {e}") from e
+        if _detect_header_format(columns) != "codex":
+            raise ValueError(f"{path} is not a CODEX cell table: its channels are {columns}.")
         return "codex"
-    columns, _ = _read_header(path)
+    return _detect_header_format(_read_header(path)[0])
+
+
+def _detect_header_format(columns: list[str]) -> str:
     # the name part of the CODEX Processor header form `cyc001_ch001:DAPI1`
     names = {column.partition(":")[0].casefold() for column in columns}
     if {"x", "y"} <= names and (

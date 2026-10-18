@@ -111,13 +111,14 @@ def codex(
         - ``{vx.EXPERIMENT_FILE!r}``: optional; the pixel size is taken from its ``xyResolution`` (nm). Like
           ``{vx.CHANNEL_NAMES_FILE!r}``, it is found in ``path`` or up to three folders above it, ignoring the case
           of the file name (e.g. ``channelnames.txt``).
-        - ``*{vx.FCS_FILE!r}`` / ``*{vx.FCS_FILE_CSV!r}``: cell tables of the CODEX Processor, one per region (or
-          one for all regions), e.g. ``segm/segm-1/fcs/compensated/regNNN_compensated.fcs``. Compensated tables
-          are preferred over uncompensated ones. The ``cycCCC_chHHH`` marker columns are stored in ``X`` (dense
-          float32) under their marker names, taken from the FCS ``$PnS`` keywords or the CSV header
-          ``cycCCC_chHHH:<marker>``; all other columns go to ``obs``, the ``x``/``y`` pixel centroids to
-          ``obsm["spatial"]``. Other CSV files (without ``x``/``y`` and ``cell_id`` or ``cycCCC_chHHH`` columns,
-          e.g. antibody lists or HuBMAP SPRM outputs) are ignored; pass them as ``cells_table`` to read them.
+        - ``*{vx.FCS_FILE!r}`` / ``*{vx.FCS_FILE_CSV!r}``: cell tables of the CODEX Processor, one per region (or one
+          for all regions), e.g. ``segm/segm-1/fcs/compensated/regNNN_compensated.fcs``. Compensated tables are
+          preferred over uncompensated ones; other tables of the same region (e.g. of a second segmentation run) raise
+          an error. The ``cycCCC_chHHH`` marker columns are stored in ``X`` (dense float32) under their marker names,
+          taken from the FCS ``$PnS`` keywords or the CSV header ``cycCCC_chHHH:<marker>``; all other columns go to
+          ``obs``, the ``x``/``y`` pixel centroids to ``obsm["spatial"]``. Other CSV files (without ``x``/``y`` and
+          ``cell_id`` or ``cycCCC_chHHH`` columns, e.g. antibody lists or HuBMAP SPRM outputs) are ignored; pass them as
+          ``cells_table`` to read them. FCS files of other instruments are ignored too.
 
     Raw acquisition and intermediate folders (``cycCCC_regNNN/``, ``tiles/`` and, next to ``stitched/``,
     ``bestFocus/``) are ignored. The region id ``regNNN`` is taken from the file names; a ``{vx.QPTIFF!r}`` without
@@ -521,29 +522,42 @@ def _discover_tables(files: Sequence[Path], fcs: bool) -> dict[str, Path]:
     preferred = CodexKeys.FCS_FILE.value if fcs else CodexKeys.FCS_FILE_CSV.value
     candidates: dict[str, list[Path]] = {}
     for file in files:
-        if file.suffix.lower() not in _TABLE_SUFFIXES:
-            continue
-        # a CSV may be any sidecar, also with a region in its name (e.g. `reg001_antibodies.csv` or a HuBMAP SPRM
-        # `reg001_...-cell_channel_mean.csv`); only CODEX Processor tables are discovered
-        if detect_table_format(file) != "codex":
-            continue
-        candidates.setdefault(_region_id(file.name) or "*", []).append(file)
+        if file.suffix.lower() in _TABLE_SUFFIXES and _is_codex_table(file):
+            candidates.setdefault(_region_id(file.name) or "*", []).append(file)
 
-    def rank(file: Path) -> tuple[bool, bool]:
-        # the preferred format first, then compensated over uncompensated
-        return file.suffix.lower() != preferred, any("uncompensated" in part.casefold() for part in file.parts)
+    def uncompensated(file: Path) -> bool:
+        return any("uncompensated" in part.casefold() for part in file.parts)
 
     tables = {}
     for region, paths in candidates.items():
-        best = min(rank(path) for path in paths)
-        paths = [path for path in paths if rank(path) == best]
-        if region == "*" and len(paths) > 1:
+        best = min(map(uncompensated, paths))
+        # the same table may be written as both .fcs and .csv: the preferred format is read
+        same_table: dict[Path, list[Path]] = {}
+        for path in sorted(paths):
+            if uncompensated(path) == best:
+                same_table.setdefault(path.with_suffix(""), []).append(path)
+        if len(same_table) > 1:
+            where = "without a region in their file name" if region == "*" else f"of region '{region}'"
             raise ValueError(
-                f"Found several cell tables without a region in their file name: {[str(p) for p in paths]}; "
-                "the reader cannot choose between them. Pass the path of a directory that contains only one."
+                f"Found several cell tables {where}: {[str(p) for group in same_table.values() for p in group]}; the reader cannot "
+                "choose between them. Pass the path of a directory that contains only one, or pass the table as "
+                "`cells_table`."
             )
-        tables[region] = min(paths, key=lambda path: (len(path.parts), str(path)))
+        (formats,) = same_table.values()
+        tables[region] = min(formats, key=lambda path: path.suffix.lower() != preferred)
     return tables
+
+
+def _is_codex_table(file: Path) -> bool:
+    """Whether ``file`` is a CODEX Processor table.
+
+    A CSV may be any sidecar, also with a region in its name (e.g. ``reg001_antibodies.csv`` or a HuBMAP SPRM
+    ``reg001_...-cell_channel_mean.csv``), an FCS file the export of any flow cytometer.
+    """
+    try:
+        return detect_table_format(file) == "codex"
+    except ValueError:
+        return False
 
 
 def _find_sidecar(path: Path, files: Sequence[Path], name: str) -> Path | None:
