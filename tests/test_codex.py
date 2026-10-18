@@ -868,3 +868,17 @@ def test_codex_cells_table_kwargs_apply_to_discovered_tables(tmp_path: Path) -> 
 
     assert list(sdata.tables["table"].var_names) == ["CD3"]
     assert not [warning for warning in record if "cycCCC_chHHH" in str(warning.message)]
+
+
+def test_codex_region_column_of_discovered_regionless_table(tmp_path: Path) -> None:
+    for region in ("reg001", "reg002"):
+        tifffile.imwrite(tmp_path / f"{region}_montage.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+    (tmp_path / "cells.csv").write_text("cell_id,Sample,x,y,cyc001_ch001\n1,reg001,1.0,2.0,3.0\n1,reg002,3.0,4.0,5.0\n")
+
+    with pytest.raises(ValueError, match=r"cannot be assigned to regions.*cells_table_kwargs\['region_column'\]"):
+        codex(tmp_path, image_models_kwargs=_FAST)
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, cells_table_kwargs={"region_column": "Sample"}, image_models_kwargs=_FAST)
+    assert sorted(sdata.shapes) == ["reg001_cells", "reg002_cells"]
+    assert sdata.tables["table"].n_obs == 2
