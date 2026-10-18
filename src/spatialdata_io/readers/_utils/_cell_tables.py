@@ -289,7 +289,7 @@ def read_cell_table(
               ``pixel_size_um``) or ``Centroid X px``/``Centroid Y px``, else ``X``/``Y`` in ``coordinates_unit``
               or, without it, in the unit of the other measurements (e.g. ``Cell: Area µm^2``) with a
               `UserWarning`, raising if that is not unique.
-              Instance ids from a numeric ``Object ID``, else the row number (from 1); the region from the
+              Instance ids from a numeric ``Object ID``, else the row number in the file (from 1); the region from the
               ``Image`` column. The markers are ``markers``, else the ``<marker>: <compartment>: Mean`` columns
               (also ``<marker>..<compartment>..Mean`` and ``<marker>_<compartment>_Mean``), ``<compartment>:
               <marker>: Mean`` (QuPath >= 0.6) and ``<compartment>: <marker> mean`` (built-in cell detection)
@@ -337,7 +337,7 @@ def read_cell_table(
     cells_table_kwargs
         Optional keys: ``region_column`` (the column holding the region of each cell; QuPath default ``Image``),
         and for ``"generic"`` tables ``x`` and ``y`` (required centroid columns), ``instance_id`` (else the row
-        number, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
+        number in the file, from 1), ``markers`` (a list of columns or a regular expression matching the full column name;
         default: all other numeric columns; also for ``"qupath"`` and ``"codex"`` tables) and ``coordinates_unit`` (``"px"``,
         default, or ``"um"``; for ``"qupath"`` and ``"inform"`` tables the unit of centroid columns whose name
         has none) and ``coordinates_space`` (the pixels of ``"px"`` centroids: ``"image"``, default, those of the
@@ -378,12 +378,14 @@ def read_cell_table(
     mask_pixels = fmt in {"mcquant", "sprm"}
     if fmt == "generic":
         mask_pixels = _coordinates_space(path, roles["in_um"], cells_table_kwargs) == "mask"
+    file_rows = None
     if roles["region_column"] in df.columns and (empty := df[roles["region_column"]].isna().to_numpy()).any():
         warnings.warn(
             f"Ignoring the {empty.sum()} cell(s) of {path} without a region in '{roles['region_column']}'.",
             UserWarning,
             stacklevel=4,
         )
+        file_rows = np.flatnonzero(~empty)
         df = df.loc[~empty].reset_index(drop=True)
     region = _region_values(df, roles["region_column"], default_region, regions)
     units = cells_table_kwargs.get("geojson_units", "px")
@@ -397,7 +399,7 @@ def read_cell_table(
                 "pixel size is missing)."
             )
         roles["px_per_unit"] = 1 / row_pixel_sizes
-    table = _from_frame(path, df, region=region, **roles)
+    table = _from_frame(path, df, region=region, file_rows=file_rows, **roles)
     table.mask_pixels = mask_pixels
     if fmt == "sprm":
         table.centroids_px = _read_sprm_centers(path, table)
@@ -1040,10 +1042,12 @@ def _from_frame(
     area_column: str | None,
     region: pd.Series | None,
     px_per_unit: float | np.ndarray = 1.0,
+    file_rows: np.ndarray | None = None,
 ) -> CellTable:
     """Build a `CellTable` from a data frame, the roles of its columns and the region of every row.
 
-    ``px_per_unit`` may be given per row.
+    ``px_per_unit`` may be given per row. ``file_rows`` are the rows of the file that ``df`` holds (from 0), if it
+    holds not all of them.
     """
     roles = [x, y, instance_column, region_column, area_column, *markers]
     missing = [column for column in roles if column is not None and column not in df.columns]
@@ -1053,8 +1057,9 @@ def _from_frame(
     if instance_column is not None:
         instance_id = pd.Series(_instance_ids(path, df[instance_column]))
     else:
-        # label images use 0 for the background, so instance ids start at 1
-        instance_id = pd.Series(np.arange(1, len(df) + 1, dtype=np.int64))
+        # the row numbers in the file; label images use 0 for the background, so instance ids start at 1
+        rows = np.arange(len(df)) if file_rows is None else file_rows
+        instance_id = pd.Series(rows.astype(np.int64) + 1)
     index = pd.Index(instance_id.astype(str))
     instance_id.index = index
     instance_id.name = CodexKeys.INSTANCE_KEY.value

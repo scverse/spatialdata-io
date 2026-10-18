@@ -415,6 +415,20 @@ def test_generic_kwargs(tmp_path: Path) -> None:
     assert list(listed.instance_id) == [1, 2]
 
 
+def test_row_number_ids_count_the_cells_without_a_region(tmp_path: Path) -> None:
+    path = tmp_path / "cells.csv"
+    path.write_text("cx,cy,sample,CD3\n1,2,A,1\n3,4,A,2\n5,6,,3\n7,8,B,4\n9,10,B,5\n")
+    kwargs = {"x": "cx", "y": "cy", "region_column": "sample"}
+
+    with pytest.warns(UserWarning, match=r"Ignoring the 1 cell\(s\)"):
+        table = read_cell_table(path, "generic", pixel_size_um=None, default_region=None, cells_table_kwargs=kwargs)
+
+    # the instance ids are the rows of the file
+    assert list(table.instance_id) == [1, 2, 4, 5]
+    assert list(table.region) == ["A", "A", "B", "B"]
+    assert table.row_instance_ids
+
+
 def test_generic_bad_kwargs_raise(tmp_path: Path) -> None:
     path = tmp_path / "cells.csv"
     path.write_text("cx,cy,CD3\n1,2,3\n")
