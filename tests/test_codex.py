@@ -596,19 +596,26 @@ def test_codex_single_fcs_file(tmp_path: Path) -> None:
     assert sdata.tables["table"].n_obs == 50
 
 
-def test_codex_unreadable_regionless_table_is_skipped(tmp_path: Path) -> None:
+def test_codex_unreadable_regionless_table_raises(tmp_path: Path) -> None:
     tifffile.imwrite(tmp_path / "reg001_montage.tif", np.zeros((2, 16, 16), dtype=np.uint16))
-    # a region-less table that is not assigned to a region: there are two images and no `region` column
+    # a region-less table that cannot be assigned to a region: there are two images and no `region` column
     tifffile.imwrite(tmp_path / "reg002_montage.tif", np.zeros((2, 16, 16), dtype=np.uint16))
     (tmp_path / "cells.csv").write_text("cell_id,x,y,cyc001_ch001\n1,1.0,2.0,3.0\n")
     (tmp_path / "clusters.csv").write_text("cellid,cluster\n1,2\n")
 
-    with pytest.warns(UserWarning, match="Ignoring the cell table"):
-        sdata = codex(tmp_path, image_models_kwargs=_FAST)
+    with pytest.raises(ValueError, match="cannot be assigned to a region"):
+        codex(tmp_path, image_models_kwargs=_FAST)
 
-    assert sorted(sdata.images) == ["reg001_image", "reg002_image"]
-    assert not sdata.tables
-    assert sdata.attrs["akoya"]["cell_tables"] == {}
+    # a CODEX table next to a single image that cannot be read
+    (tmp_path / "reg002_montage.tif").unlink()
+    (tmp_path / "cells.csv").write_text("cell_id,x,y,cyc001_ch001\n1,1.0,2.0,3.0\n1,4.0,5.0,6.0\n")
+    with pytest.raises(ValueError, match="duplicate instance id"):
+        codex(tmp_path, image_models_kwargs=_FAST)
+
+    # a single table file without a region column and no image
+    write_fcs(tmp_path / "Kidney.fcs", pd.DataFrame({"cell_id": [1.0], "x": [1.0], "y": [2.0], "cyc001_ch001": [3.0]}))
+    with pytest.raises(ValueError, match="cannot be assigned to a region"):
+        codex(tmp_path / "Kidney.fcs")
 
 
 def test_codex_regionless_table_belongs_to_single_stem_image(tmp_path: Path) -> None:

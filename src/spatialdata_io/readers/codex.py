@@ -307,19 +307,10 @@ def _warn_fcs_fallback(files: Iterable[Path], fcs: bool) -> None:
         )
 
 
-def _read_regionless_table(file: Path, layout: _LegacyLayout) -> CellTable | None:
-    """Read the discovered cell table ``file`` that has no region in its file name.
-
-    A table without a region that cannot be read, or whose cells cannot be assigned to a region, is skipped with a
-    warning (`None` is returned).
-    """
+def _read_regionless_table(file: Path, layout: _LegacyLayout) -> CellTable:
+    """Read the discovered cell table ``file`` that has no region in its file name."""
     only_image = next(iter(layout.images)) if len(layout.images) == 1 else None
-    # a table without a region in its file name may be any CSV: skip it rather than fail the whole read
-    try:
-        table = read_codex_table(file, region=only_image)
-    except ValueError as e:
-        warnings.warn(f"Ignoring the cell table {file}: {e}", UserWarning, stacklevel=3)
-        return None
+    table = read_codex_table(file, region=only_image)
     # next to a single image named after its file (e.g. `Kidney.tif`), its cells belong to that image
     values = table.region.unique()
     if only_image is not None and len(values) == 1 and values[0] not in layout.images:
