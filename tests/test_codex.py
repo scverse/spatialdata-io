@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import warnings
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -882,3 +883,22 @@ def test_codex_region_column_of_discovered_regionless_table(tmp_path: Path) -> N
         sdata = codex(tmp_path, cells_table_kwargs={"region_column": "Sample"}, image_models_kwargs=_FAST)
     assert sorted(sdata.shapes) == ["reg001_cells", "reg002_cells"]
     assert sdata.tables["table"].n_obs == 2
+
+
+def test_codex_labels_disable_mask_discovery(tmp_path: Path) -> None:
+    for region in ("reg001", "reg002"):
+        tifffile.imwrite(tmp_path / f"{region}_montage.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+    for name in ("reg002_mask.tif", "reg002_labels.tif", "Other_mask.tif", "mask.tif"):
+        tifffile.imwrite(tmp_path / name, np.ones((16, 16), dtype=np.uint16))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        sdata = codex(
+            tmp_path,
+            labels={"reg001": tmp_path / "mask.tif"},
+            image_models_kwargs=_FAST,
+            labels_models_kwargs=_FAST,
+        )
+
+    assert sorted(sdata.images) == ["reg001_image", "reg002_image"]
+    assert list(sdata.labels) == ["reg001_labels"]

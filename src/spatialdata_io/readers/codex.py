@@ -237,7 +237,11 @@ def codex(
     # explicit beats discovered: a given table disables table discovery, and a given mask is no image
     masks = labels.values() if isinstance(labels, Mapping) else [] if labels is None else [labels]
     layout = _discover_legacy(
-        path, fcs, find_tables=cells_table is None, masks={Path(mask).resolve() for mask in masks}
+        path,
+        fcs,
+        find_tables=cells_table is None,
+        find_masks=labels is None,
+        masks={Path(mask).resolve() for mask in masks},
     )
     # the regions of a table without a region in its file name are known only once it is read
     regionless = (
@@ -362,7 +366,12 @@ def _read_regionless_table(file: Path, layout: _LegacyLayout, cells_table_kwargs
 
 
 def _discover_legacy(
-    path: Path, fcs: bool, *, find_tables: bool = True, masks: Collection[Path] = frozenset()
+    path: Path,
+    fcs: bool,
+    *,
+    find_tables: bool = True,
+    find_masks: bool = True,
+    masks: Collection[Path] = frozenset(),
 ) -> _LegacyLayout:
     """Find the images, cell tables and sidecar files of a CODEX dataset.
 
@@ -374,6 +383,8 @@ def _discover_legacy(
         Whether to prefer ``.fcs`` over ``.csv`` tables of the same region.
     find_tables
         Whether to discover cell tables.
+    find_masks
+        Whether to discover the segmentation masks of the regions.
     masks
         The resolved paths of the segmentation masks, which are not images.
 
@@ -387,7 +398,9 @@ def _discover_legacy(
     if masks:
         files = [file for file in files if file.resolve() not in masks]
     # masks named after their region are never images
-    image_files = [file for file in files if not (_is_tiff(file) and _MASK.search(file.name))]
+    named_masks = [_is_tiff(file) and _MASK.search(file.name) is not None for file in files]
+    image_files = [file for file, is_mask in zip(files, named_masks, strict=True) if not is_mask]
+    mask_files = [file for file, is_mask in zip(files, named_masks, strict=True) if is_mask]
     images = _discover_images(image_files)
     if not images:
         # the original (2019) layout: one stitched `.tif` next to its table, without a region in the file name
@@ -399,7 +412,7 @@ def _discover_legacy(
     return _LegacyLayout(
         images=dict(sorted(images.items())),
         tables=dict(sorted(tables.items())),
-        masks=_discover_masks([file for file in files if file not in image_files], images),
+        masks=_discover_masks(mask_files, images) if find_masks else {},
         channel_names_txt=_find_sidecar(path, files, CodexKeys.CHANNEL_NAMES_FILE.value),
         experiment_json=_find_sidecar(path, files, CodexKeys.EXPERIMENT_FILE.value),
     )
