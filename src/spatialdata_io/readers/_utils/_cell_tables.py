@@ -298,8 +298,9 @@ def read_cell_table(
               ``Max diameter µm`` or ``Circularity``). The radius comes from ``Cell: Area µm^2`` (or
               ``px^2``) in the unit of the centroids. A table split into centroids and measurements (two files)
               must be joined on the object id first. The cell outlines are read from a QuPath GeoJSON export, see
-              :func:`read_qupath_polygons`: ``cells_table_kwargs["geojson"]``, else ``<table stem>.geojson`` or
-              ``<table stem>_cells.geojson`` next to the table, if it exists.
+              :func:`read_qupath_polygons`: ``cells_table_kwargs["geojson"]`` (``False`` for none), else
+              ``<table stem>.geojson`` or ``<table stem>_cells.geojson`` next to the table, if it exists and holds
+              any of the table's cells.
             - ``"mcquant"``: an MCMICRO ``mcquant`` table. Instance ids ``CellID``, pixel centroids
               ``X_centroid``/``Y_centroid``, the markers are the columns between ``CellID`` and ``X_centroid``, the
               radius comes from ``Area``.
@@ -352,7 +353,7 @@ def read_cell_table(
         # centroid columns given by the user make a generic table
         fmt = "generic" if {"x", "y"} <= cells_table_kwargs.keys() else detect_table_format(path)
         logger.info("Reading %s as a %r cell table.", path, fmt)
-    if fmt != "qupath" and cells_table_kwargs.get("geojson") is not None:
+    if fmt != "qupath" and cells_table_kwargs.get("geojson") not in (None, False):
         raise ValueError(f"`cells_table_kwargs['geojson']` is only read with QuPath cell tables; {path} is {fmt!r}.")
     if fmt != "generic" and cells_table_kwargs.get("coordinates_space") is not None:
         raise ValueError(
@@ -403,11 +404,13 @@ def read_cell_table(
     if fmt == "sprm":
         table.centroids_px = _read_sprm_centers(path, table)
     if fmt == "qupath":
-        geojson = cells_table_kwargs.get("geojson")
-        geojson = _find_geojson(path) if geojson is None else Path(geojson)
+        option = cells_table_kwargs.get("geojson")
+        geojson = _find_geojson(path) if option is None else None if option is False else Path(option)
         if geojson is not None:
-            table.polygons_px = read_qupath_polygons(geojson, table, path, units=units, pixel_size_um=row_pixel_sizes)
-            table.geojson = geojson
+            table.polygons_px = read_qupath_polygons(
+                geojson, table, path, units=units, pixel_size_um=row_pixel_sizes, discovered=option is None
+            )
+            table.geojson = None if table.polygons_px is None else geojson
     return table
 
 
@@ -496,7 +499,8 @@ def read_qupath_polygons(
     *,
     units: str = "px",
     pixel_size_um: float | np.ndarray | None = None,
-) -> np.ndarray:
+    discovered: bool = False,
+) -> np.ndarray | None:
     """Read the cell outlines of a QuPath GeoJSON export and match them to the cells of its measurement table.
 
     A feature belongs to the cell whose ``Object ID`` (or R's ``Object.ID``) is the feature ``id`` (the object's
@@ -520,10 +524,14 @@ def read_qupath_polygons(
         The unit of the coordinates: ``"px"`` (of the full-resolution image, what QuPath writes) or ``"um"``.
     pixel_size_um
         The pixel size, to convert ``"um"`` coordinates, or the pixel size of every row of ``table``.
+    discovered
+        Whether ``geojson`` was found next to the table rather than given: if it holds none of the table's cells
+        (e.g. QuPath's export of an annotation), it is ignored with a `UserWarning` instead of raising.
 
     Returns
     -------
-    The polygon of every row of ``table`` in pixels, `None` for rows without one.
+    The polygon of every row of ``table`` in pixels, `None` for rows without one; `None` for an ignored
+    ``geojson``.
     """
     if units not in ("px", "um"):
         raise ValueError(f"`cells_table_kwargs['geojson_units']` must be 'px' or 'um', got {units!r}.")
@@ -541,6 +549,9 @@ def read_qupath_polygons(
             raise ValueError(f"The '{id_column}' column of {table_path} is not unique.")
         rows = object_ids.get_indexer(pd.Index(ids).astype(str))
         found = rows >= 0
+        if not found.any() and discovered:
+            _ignore_geojson(geojson, table_path)
+            return None
         if not found.any():
             raise ValueError(
                 f"{geojson} does not hold the cells of {table_path}: none of the feature ids is an '{id_column}' "
@@ -567,6 +578,9 @@ def read_qupath_polygons(
             )
     else:
         cells = geometries if kinds is None else geometries[np.isin(kinds, list(_QUPATH_CELL_TYPES))]
+        if len(cells) == 0 and discovered:
+            _ignore_geojson(geojson, table_path)
+            return None
         if len(cells) != len(polygons):
             raise ValueError(
                 f"{geojson} has {len(cells)} cell polygons without ids, but {table_path} has {len(polygons)} rows; "
@@ -578,6 +592,15 @@ def read_qupath_polygons(
     if table.centroids_px is not None:
         _check_centroids(polygons, table.centroids_px, geojson, table_path)
     return polygons
+
+
+def _ignore_geojson(geojson: Path, table_path: Path) -> None:
+    warnings.warn(
+        f"Ignoring {geojson}: it holds none of the cells of {table_path}. Pass the cell outlines as "
+        "`cells_table_kwargs['geojson']`.",
+        UserWarning,
+        stacklevel=6,
+    )
 
 
 def _scale_polygons(polygons: np.ndarray, factors: np.ndarray) -> None:
@@ -1174,7 +1197,7 @@ def read_region_tables(
     The cell tables, one per file.
     """
     geojson = cells_table_kwargs.get("geojson")
-    geojson_files = resolve_per_region(geojson, selected, list(available)) if geojson is not None else {}
+    geojson_files = {} if geojson is False else resolve_per_region(geojson, selected, list(available))
     if unknown := sorted(geojson_files.keys() - files.keys()):
         raise ValueError(
             f"`cells_table_kwargs['geojson']` is given for {unknown}, but the cell tables are given for "
@@ -1189,7 +1212,10 @@ def read_region_tables(
             fmt,
             pixel_size_um=sizes,
             default_region=None if key == "*" else key,
-            cells_table_kwargs={**cells_table_kwargs, "geojson": geojson_files.get(key)},
+            cells_table_kwargs={
+                **cells_table_kwargs,
+                "geojson": False if geojson is False else geojson_files.get(key),
+            },
             regions=available,
         )
         tables.append(_assign_regions(table, path, key, available, selected))

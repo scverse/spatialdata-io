@@ -51,7 +51,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   page names of an inForm `*_binary_seg_maps.tif` (`"Tissue"`, `"Nucleus"`, `"Cytoplasm"`, `"Membrane"`); such a
   file reads its `Nucleus` page (whose labels are the `Cell ID`s) by default. With `x` and `y` in
   `cells_table_kwargs`, `cells_table_format="auto"` reads a generic table. QuPath GeoJSON cells without a table row
-  are skipped with a warning, and a region whose cells lie mostly outside its image raises a warning.
+  are skipped with a warning; a GeoJSON found next to a QuPath table that holds none of its cells (e.g. an
+  annotation export) is ignored with a warning, and `cells_table_kwargs["geojson"]=False` reads no outlines. A region
+  whose cells lie mostly outside its image raises a warning.
 
 ### Changed
 

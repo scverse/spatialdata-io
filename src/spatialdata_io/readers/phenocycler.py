@@ -173,7 +173,8 @@ def phenocycler(
         ``"Tissue"``, ``"Nucleus"`` (the default there, its labels are the ``Cell ID`` of every cell),
         ``"Cytoplasm"`` or ``"Membrane"``); for QuPath tables ``geojson`` (the GeoJSON export of the cell
         outlines, a path or a mapping from region id to path like ``cells_table``; default ``<table stem>.geojson``
-        or ``<table stem>_cells.geojson`` next to the table) and ``geojson_units`` (``"px"`` of the
+        or ``<table stem>_cells.geojson`` next to the table, ignored with a warning if it holds none of the
+        table's cells; ``False`` reads none) and ``geojson_units`` (``"px"`` of the
         full-resolution image, default and what QuPath writes, or ``"um"``).
 
     Returns

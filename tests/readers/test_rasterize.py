@@ -366,3 +366,43 @@ def test_qupath_geojson_region_without_polygons_gets_circles(tmp_path: Path) -> 
     assert set(sdata.shapes) == {"A_polygons", "B_cells"}
     assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["A_labels", "B_cells"]
     assert sdata.attrs["akoya"]["geojson"] == {"A": str(tmp_path / "cells.geojson")}
+
+
+@pytest.mark.parametrize("object_ids", [True, False])
+def test_qupath_discovered_annotation_geojson_is_ignored(tmp_path: Path, object_ids: bool) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    if object_ids:
+        _write_qupath_cells(tmp_path / "cells.tsv", ["a", "b"])
+    else:
+        _write_order_table(tmp_path / "cells.tsv")
+    # QuPath's "Export objects as GeoJSON" of the tissue annotation, named after the image like the table
+    _write_geojson(tmp_path / "cells.geojson", [_cell("tissue", 0, 0, "annotation")])
+
+    with pytest.warns(UserWarning, match="Ignoring .*cells.geojson.* none of the cells"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+    assert list(sdata.shapes) == ["S_cells"]
+    assert not sdata.labels
+    assert "geojson" not in sdata.attrs["akoya"]
+    # an explicit GeoJSON must hold the cells
+    with pytest.raises(ValueError, match="cell"):
+        phenocycler(
+            tmp_path,
+            cells_table=tmp_path / "cells.tsv",
+            image_models_kwargs=_FAST,
+            cells_table_kwargs={"geojson": tmp_path / "cells.geojson"},
+        )
+
+
+def test_qupath_geojson_false_reads_no_outlines(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_qupath_cells(tmp_path / "cells.tsv", ["a", "b"])
+    _write_geojson(tmp_path / "cells.geojson", [_cell("a", 0, 0), _cell("b", 20, 20)])
+
+    sdata = phenocycler(
+        tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST, cells_table_kwargs={"geojson": False}
+    )
+
+    assert list(sdata.shapes) == ["S_cells"]
+    assert not sdata.labels
+    assert "geojson" not in sdata.attrs["akoya"]
