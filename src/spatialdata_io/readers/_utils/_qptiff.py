@@ -464,8 +464,8 @@ def _is_blank(marker: str) -> bool:
 
 
 def _name_key(name: str) -> str:
-    # CIM sanitises page Biomarker names (``F4/80`` -> ``F4-80``), so compare alphanumerics only
-    return re.sub(r"[^0-9a-z]", "", name.casefold())
+    # CIM sanitises page Biomarker names (``F4/80`` -> ``F4-80``), so compare alphanumerics only (in any script)
+    return "".join(char for char in name.casefold() if char.isalnum())
 
 
 def _enrich(channels: list[AkoyaChannel], records: list[tuple[str, dict[str, Any]]]) -> None:

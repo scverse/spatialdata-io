@@ -179,6 +179,18 @@ def test_enrichment_not_positional_when_orders_differ(tmp_path: Path) -> None:
     assert [c.channel for c in scan.channels] == [1, 2, 4, 3]
 
 
+def test_enrichment_keeps_non_ascii_names_apart(tmp_path: Path) -> None:
+    # names that differ only in non-ASCII letters must not be paired with each other's records; the ASCII page
+    # descriptions hold them as character references
+    p = tmp_path / "x.qptiff"
+    wells = [[("DAPI", "DAPI"), ("TCRαβ", "ATTO 550"), ("TCRγδ", "CY5")]]
+    biomarkers: list[str | None] = ["DAPI", "TCR&#947;&#948;", "TCR&#945;&#946;"]
+    write_qptiff(p, biomarkers=biomarkers, scan_profile=fusion_scan_profile_json(wells))
+    scan = read_qptiff_metadata(p)
+    assert [c.name for c in scan.channels] == ["DAPI", "TCRγδ", "TCRαβ"]
+    assert [c.channel for c in scan.channels] == [1, 3, 2]
+
+
 def test_profile_record_without_marker_skipped(tmp_path: Path) -> None:
     p = tmp_path / "x.qptiff"
     profile = json.loads(fusion_scan_profile_json([[("DAPI", "DAPI"), ("CD3", "ATTO 550")]]))
