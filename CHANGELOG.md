@@ -68,7 +68,8 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
     (previously `cycCCC_chHHH`); the image channels are named too.
   - The positional signature `codex(path, fcs, imread_kwargs)` is unchanged; all new parameters (`regions`,
     `channel_names`, `cells_table`, `cells_table_format`, `labels` and the `*_models_kwargs` / `cells_table_kwargs`)
-    are keyword-only, and the `codex` CLI command exposes them. An empty `regions` raises a `ValueError`.
+    are keyword-only, and the `codex` CLI command exposes them (`--regions` and `--channel-names` are repeated per
+    value, as in the `phenocycler` command). An empty `regions` raises a `ValueError`.
     `imread_kwargs` is ignored, with a warning: every image is read lazily with `tifffile`.
   - A single region is stored in `"global"`. Several regions are placed at their stage positions in `"global"` only
     when all of them share a sample space (same slide id, stage positions and pixel size); otherwise each region,

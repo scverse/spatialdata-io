@@ -40,10 +40,12 @@ def _input_output_click_options(func: Callable[..., None]) -> Callable[..., None
 
 def _parse_json_param(value: str, param_name: str) -> dict[str, Any]:
     try:
-        result: dict[str, Any] = json.loads(value)
-        return result
+        result = json.loads(value)
     except json.JSONDecodeError as e:
         raise click.BadParameter(f"Invalid JSON for {param_name!r}: {e}") from e
+    if not isinstance(result, dict):
+        raise click.BadParameter(f"{param_name!r} must be a JSON object, got {value!r}.")
+    return result
 
 
 def _parse_path_or_mapping_param(value: str | None, param_name: str) -> str | dict[str, Any] | None:
@@ -51,9 +53,59 @@ def _parse_path_or_mapping_param(value: str | None, param_name: str) -> str | di
     if value is None or not value.lstrip().startswith("{"):
         return value
     mapping = _parse_json_param(value, param_name)
-    if not isinstance(mapping, dict) or not all(isinstance(path, str) for path in mapping.values()):
+    if not all(isinstance(path, str) for path in mapping.values()):
         raise click.BadParameter(f"{param_name!r} must be a path or a JSON object mapping regions to paths.")
     return mapping
+
+
+def _akoya_click_options(func: Callable[..., None]) -> Callable[..., None]:
+    """Decorator adding the options shared by the Akoya readers (``codex``, ``phenocycler``)."""
+    options = [
+        click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True),
+        click.option("--regions", multiple=True, help="A region to read (repeat for several); all if omitted."),
+        click.option(
+            "--channel-names",
+            multiple=True,
+            help="A channel name overriding the discovered ones (repeat for every channel).",
+        ),
+        click.option(
+            "--cells-table",
+            type=str,
+            default=None,
+            help='Path to a cell table, or a JSON mapping from region to path, e.g. \'{"A": "a.csv"}\'. '
+            "[default: None]",
+        ),
+        click.option(
+            "--cells-table-format", type=str, default="auto", help="Format of the cell table. [default: auto]"
+        ),
+        click.option(
+            "--labels",
+            type=str,
+            default=None,
+            help="Path to a segmentation mask, or a JSON mapping from region to path. [default: None]",
+        ),
+        click.option(
+            "--image-models-kwargs",
+            type=str,
+            default="{}",
+            help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
+        ),
+        click.option(
+            "--labels-models-kwargs",
+            type=str,
+            default="{}",
+            help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
+        ),
+        click.option(
+            "--cells-table-kwargs",
+            type=str,
+            default="{}",
+            help="JSON string of keyword arguments for reading the cell table. [default: {}]",
+        ),
+    ]
+    for option in reversed(options):
+        func = option(func)
+    return func
 
 
 @cli.command(name="codex")
@@ -64,7 +116,7 @@ def _parse_path_or_mapping_param(value: str | None, param_name: str) -> str | di
     help="Path to a CODEX output directory or to a single .qptiff/.tif image.",
     required=True,
 )
-@click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
+@_akoya_click_options
 @click.option(
     "--fcs",
     type=bool,
@@ -72,57 +124,17 @@ def _parse_path_or_mapping_param(value: str | None, param_name: str) -> str | di
     help="Whether to prefer .fcs over .csv cell tables when both exist. [default: True]",
 )
 @click.option(
-    "--regions", type=str, default=None, help="Comma-separated regions to read; all if omitted. [default: None]"
-)
-@click.option(
-    "--channel-names",
-    type=str,
-    default=None,
-    help="Comma-separated channel names overriding the discovered ones. [default: None]",
-)
-@click.option(
-    "--cells-table",
-    type=str,
-    default=None,
-    help='Path to a cell table, or a JSON mapping from region to path, e.g. \'{"A": "a.csv"}\'. [default: None]',
-)
-@click.option("--cells-table-format", type=str, default="auto", help="Format of the cell table. [default: auto]")
-@click.option(
-    "--labels",
-    type=str,
-    default=None,
-    help="Path to a segmentation mask, or a JSON mapping from region to path. [default: None]",
-)
-@click.option(
     "--imread-kwargs",
     type=str,
     default="{}",
     help="Ignored, with a warning; kept for backward compatibility. [default: {}]",
 )
-@click.option(
-    "--image-models-kwargs",
-    type=str,
-    default="{}",
-    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
-)
-@click.option(
-    "--labels-models-kwargs",
-    type=str,
-    default="{}",
-    help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
-)
-@click.option(
-    "--cells-table-kwargs",
-    type=str,
-    default="{}",
-    help="JSON string of keyword arguments for reading the cell table. [default: {}]",
-)
 def codex_wrapper(
     input: str,
     output: str,
     fcs: bool = True,
-    regions: str | None = None,
-    channel_names: str | None = None,
+    regions: tuple[str, ...] = (),
+    channel_names: tuple[str, ...] = (),
     cells_table: str | None = None,
     cells_table_format: str = "auto",
     labels: str | None = None,
@@ -137,8 +149,8 @@ def codex_wrapper(
     sdata = codex(
         input,
         fcs=fcs,
-        regions=_parse_list_param(regions),
-        channel_names=_parse_list_param(channel_names),
+        regions=list(regions) or None,
+        channel_names=list(channel_names) or None,
         cells_table=_parse_path_or_mapping_param(cells_table, "cells_table"),
         cells_table_format=cells_table_format,
         labels=_parse_path_or_mapping_param(labels, "labels"),
@@ -434,10 +446,6 @@ def merscope_wrapper(
     sdata.write(output)
 
 
-def _parse_list_param(value: str | None) -> list[str] | None:
-    return None if value is None else [item.strip() for item in value.split(",")]
-
-
 @cli.command(name="phenocycler")
 @click.option(
     "--input",
@@ -446,58 +454,18 @@ def _parse_list_param(value: str | None) -> list[str] | None:
     help="Path to a .qptiff file or to a directory containing .qptiff files.",
     required=True,
 )
-@click.option("--output", "-o", type=click.Path(), help="Path to the output.zarr file.", required=True)
-@click.option(
-    "--regions", type=str, default=None, help="Comma-separated regions to read; all if omitted. [default: None]"
-)
-@click.option(
-    "--channel-names",
-    type=str,
-    default=None,
-    help="Comma-separated channel names overriding the ones in the qptiff. [default: None]",
-)
-@click.option(
-    "--cells-table",
-    type=str,
-    default=None,
-    help='Path to a cell table, or a JSON mapping from region to path, e.g. \'{"A": "a.csv"}\'. [default: None]',
-)
-@click.option("--cells-table-format", type=str, default="auto", help="Format of the cell table. [default: auto]")
-@click.option(
-    "--labels",
-    type=str,
-    default=None,
-    help="Path to a segmentation mask, or a JSON mapping from region to path. [default: None]",
-)
+@_akoya_click_options
 @click.option(
     "--read-all-bit-depths/--no-read-all-bit-depths",
     default=False,
     help="Read both the 8-bit .qptiff and the extended-range .er.qptiff of a scan (the 8-bit one as region "
     "'<region>_8bit'). [default: no-read-all-bit-depths]",
 )
-@click.option(
-    "--image-models-kwargs",
-    type=str,
-    default="{}",
-    help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
-)
-@click.option(
-    "--labels-models-kwargs",
-    type=str,
-    default="{}",
-    help="JSON string of keyword arguments passed to Labels2DModel. [default: {}]",
-)
-@click.option(
-    "--cells-table-kwargs",
-    type=str,
-    default="{}",
-    help="JSON string of keyword arguments for reading the cell table. [default: {}]",
-)
 def phenocycler_wrapper(
     input: str,
     output: str,
-    regions: str | None = None,
-    channel_names: str | None = None,
+    regions: tuple[str, ...] = (),
+    channel_names: tuple[str, ...] = (),
     cells_table: str | None = None,
     cells_table_format: str = "auto",
     labels: str | None = None,
@@ -511,8 +479,8 @@ def phenocycler_wrapper(
 
     sdata = phenocycler(
         input,
-        regions=_parse_list_param(regions),
-        channel_names=_parse_list_param(channel_names),
+        regions=list(regions) or None,
+        channel_names=list(channel_names) or None,
         cells_table=_parse_path_or_mapping_param(cells_table, "cells_table"),
         cells_table_format=cells_table_format,
         labels=_parse_path_or_mapping_param(labels, "labels"),

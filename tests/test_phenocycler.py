@@ -860,6 +860,35 @@ def test_cli_bad_mapping_is_bad_parameter(runner: CliRunner, tmp_path: Path, val
     assert "cells_table" in result.output
 
 
+def test_cli_regions_and_channel_names_may_hold_commas(runner: CliRunner, tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "A_[1,2].qptiff", biomarkers=["DAPI", "HLA-A"])
+    write_qptiff(tmp_path / "B.qptiff", biomarkers=["DAPI", "CD3"])
+    args = ["--input", str(tmp_path), "--image-models-kwargs", json.dumps(_FAST)]
+    names = ["--channel-names", "DAPI", "--channel-names", "HLA-A,B,C"]
+
+    result = runner.invoke(phenocycler_wrapper, [*args, "-o", str(tmp_path / "a.zarr"), "--regions", "A_[1,2]", *names])
+    assert result.exit_code == 0, result.output
+    sdata = read_zarr(tmp_path / "a.zarr")
+    assert list(sdata.images) == ["A__1_2__image"]
+    assert get_channel_names(sdata.images["A__1_2__image"]) == ["DAPI", "HLA-A,B,C"]
+
+    result = runner.invoke(
+        phenocycler_wrapper, [*args, "-o", str(tmp_path / "b.zarr"), "--regions", "A__1_2_", "--regions", "B"]
+    )
+    assert result.exit_code == 0, result.output
+    assert sorted(read_zarr(tmp_path / "b.zarr").images) == ["A__1_2__image", "B_image"]
+
+
+@pytest.mark.parametrize("option", ["--image-models-kwargs", "--cells-table-kwargs"])
+def test_cli_kwargs_must_be_json_objects(runner: CliRunner, tmp_path: Path, option: str) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+
+    result = runner.invoke(phenocycler_wrapper, ["-i", str(tmp_path), "-o", str(tmp_path / "o.zarr"), option, "null"])
+
+    assert result.exit_code == 2
+    assert "JSON object" in result.output
+
+
 def test_str_regions_and_channel_names(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "AB_Scan1.qptiff", biomarkers=["DAPI"])
     write_qptiff(tmp_path / "C_Scan1.qptiff", biomarkers=["DAPI"])
