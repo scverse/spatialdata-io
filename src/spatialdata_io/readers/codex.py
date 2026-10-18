@@ -190,7 +190,8 @@ def codex(
         divided by an integer factor ``f`` (exactly, or rounded up) is scaled onto the image (``Scale([f, f])`` before
         the region's transformation); any other shape mismatch raises a warning. The pixel centroids of ``"mcquant"``
         and ``"sprm"`` tables are taken to be in mask pixels, so their centroids (``obsm["spatial"]``) and circle radii
-        are scaled by ``f`` to image pixels; the source columns in ``obs`` are kept as read (mask pixels). The pixel
+        are scaled by ``f`` to image pixels (a centroid ``c`` to ``f * c + (f - 1) / 2``, the centre of its mask
+        pixel); the source columns in ``obs`` are kept as read (mask pixels). The pixel
         centroids of other tables are in image pixels and are not scaled;
         ``cells_table_kwargs["coordinates_space"]="mask"`` scales those of a ``"generic"`` table too.
     image_models_kwargs

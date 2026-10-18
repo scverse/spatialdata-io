@@ -1400,14 +1400,19 @@ def mask_downsample_factor(mask_shape: tuple[int, int], image_shape: tuple[int, 
 
 
 def _to_image_pixels(tables: Sequence[CellTable], factors: Mapping[str, int]) -> list[CellTable]:
-    """``tables`` with mask-pixel centroids and radii scaled to image pixels by their region's mask factor."""
+    """``tables`` with mask-pixel centroids and radii scaled to image pixels by their region's mask factor.
+
+    A mask pixel covers ``f x f`` image pixels, so a centroid ``c`` moves to the centre of those, ``f * c + (f - 1) / 2``.
+    """
     scaled = []
     for table in tables:
         if table.mask_pixels and factors:
             row_factors = table.region.map(factors).fillna(1).to_numpy(dtype=np.float64)
             table = replace(
                 table,
-                centroids_px=None if table.centroids_px is None else table.centroids_px * row_factors[:, None],
+                centroids_px=None
+                if table.centroids_px is None
+                else table.centroids_px * row_factors[:, None] + (row_factors[:, None] - 1) / 2,
                 radius_px=None if table.radius_px is None else table.radius_px * row_factors,
             )
         scaled.append(table)
@@ -1629,7 +1634,8 @@ def build_spatialdata(
     the coordinate systems of :func:`region_transformations`; regions with cells or a mask but no image are
     unrelated to the scans. A mask downsampled from its region image by an integer factor is scaled onto the image
     (see :func:`read_region_labels`), and the centroids and radii in mask pixels of its cells (``mask_pixels``, see
-    :class:`CellTable`) are scaled by the same factor, so that the table and circles are in image pixels. A
+    :class:`CellTable`) are scaled by the same factor (see :func:`_to_image_pixels`), so that the table and circles
+    are in image pixels. A
     `UserWarning` is raised for a region if more than 5% of its cells lie outside its image: their coordinates are
     in another unit or relative to another origin (e.g. inForm positions in microns relative to the slide).
 

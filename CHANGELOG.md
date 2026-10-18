@@ -34,8 +34,8 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
   of the `.er` region (a warning is raised if their shapes differ). By default only the extended-range file is read.
 - The Akoya readers (`phenocycler()`, `codex()`) scale a segmentation mask downsampled from its region image by an
   integer factor (exactly, or rounded up) onto the image (a `Scale` before the region's transformation), and scale
-  the centroids (`obsm["spatial"]`) and circle radii of `mcquant` and SPRM tables, which are in mask pixels, by the
-  same factor; the source columns in `obs` are kept as read. Generic pixel tables are in image pixels unless
+  the centroids (`obsm["spatial"]`, to the centre of their mask pixel) and circle radii of `mcquant` and SPRM
+  tables, which are in mask pixels, by the same factor; the source columns in `obs` are kept as read. Generic pixel tables are in image pixels unless
   `cells_table_kwargs["coordinates_space"]="mask"`. Other shape mismatches warn.
 - `phenocycler()` officially supports the PerkinElmer/Akoya QPTIFFs of Vectra Polaris and PhenoImager HT (generation
   `"qpi_other"`): Opal and unmixed (uint16) scans, brightfield RGB scans (channels `r`, `g`, `b`) and inForm component

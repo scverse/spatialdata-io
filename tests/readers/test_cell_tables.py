@@ -1036,9 +1036,11 @@ def test_mask_integer_downsample_autoscaled(tmp_path: Path, mask_shape: tuple[in
         assert labels_extent[axis][1] == pytest.approx(expected_end)
         if image_size % mask_size == 0:
             assert labels_extent[axis][1] == pytest.approx(image_extent[axis][1])
-    # mcquant centroids of the mask are in mask pixels, the table's are in image pixels; obs keeps them as read
+    # mcquant centroids of the mask are in mask pixels, the table's are in image pixels, at the centre of the
+    # factor x factor image pixels of their mask pixel; obs keeps them as read
     table = sdata.tables["table"]
-    np.testing.assert_allclose(table.obsm["spatial"], cells[["X_centroid", "Y_centroid"]].to_numpy() * factor)
+    expected = cells[["X_centroid", "Y_centroid"]].to_numpy() * factor + (factor - 1) / 2
+    np.testing.assert_allclose(table.obsm["spatial"], expected)
     np.testing.assert_allclose(table.obs["X_centroid"], cells["X_centroid"])
 
     # writing may reorder the axes of the translation, so compare the composed affine maps
@@ -1090,7 +1092,8 @@ def test_generic_px_table_coordinates_space(tmp_path: Path, space: str | None, f
         cells_table_kwargs=kwargs,
     )
 
-    np.testing.assert_allclose(sdata.tables["table"].obsm["spatial"], np.array([[6, 6], [12, 12]]) * factor)
+    expected = np.array([[6, 6], [12, 12]]) * factor + (factor - 1) / 2
+    np.testing.assert_allclose(sdata.tables["table"].obsm["spatial"], expected)
 
 
 @pytest.mark.parametrize(

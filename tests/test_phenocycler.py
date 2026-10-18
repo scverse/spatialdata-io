@@ -232,7 +232,8 @@ def test_read_all_bit_depths_with_labels_and_cells_table(tmp_path: Path) -> None
     assert labels_transformation.transformations == [Scale([2, 2], axes=("y", "x")), image_transformations["global"]]
     table = sdata.tables["table"]
     assert table.uns["spatialdata_attrs"]["region"] == ["S_labels"]
-    np.testing.assert_allclose(table.obsm["spatial"], [[6, 6], [12, 12]])
+    # the centre of the 2 x 2 image pixels of each mask pixel
+    np.testing.assert_allclose(table.obsm["spatial"], [[6.5, 6.5], [12.5, 12.5]])
 
     with pytest.raises(ValueError, match=r"Unknown region\(s\) \['S_8bit'\]"):
         phenocycler(tmp_path, labels={"S_8bit": tmp_path / "mask.tif"}, read_all_bit_depths=True)
