@@ -104,6 +104,8 @@ _QUPATH_UNIT = re.compile(r" (µm|um|px)(?:\^2)?$")
 # QuPath shape and detection measurements without a unit, e.g. of a detection export without compartments
 _QUPATH_UNITLESS_MEASUREMENTS = frozenset({"Circularity", "Detection probability", "Eccentricity", "Solidity"})
 _QUPATH_IMAGE = "Image"
+# the extensions of image files, also named in the region column of a table (e.g. QuPath's `Image`)
+_IMAGE_SUFFIX = re.compile(r"(?:\.er)?\.(?:qptiff|ome\.tiff?|tiff?)$", re.IGNORECASE)
 _QUPATH_ID = "Object ID"
 # QuPath's centroid columns by unit; R's `make.names` writes `Centroid X µm` as `Centroid.X.um`
 _QUPATH_CENTROIDS = {"um": ("Centroid X µm", "Centroid Y µm"), "px": ("Centroid X px", "Centroid Y px")}
@@ -258,6 +260,7 @@ def read_cell_table(
     pixel_size_um: float | Mapping[str, float | None] | None,
     default_region: str | None,
     cells_table_kwargs: Mapping[str, Any],
+    regions: Mapping[str, Sequence[Path]] | None = None,
 ) -> CellTable:
     """Read a cell table of any supported format.
 
@@ -315,10 +318,16 @@ def read_cell_table(
 
     pixel_size_um
         The pixel size of the region image, to convert µm centroids to pixels; for a table of several regions, the
-        pixel size of each region, by region id: every cell is converted with the pixel size of the region its
-        region column names (see :func:`read_region_tables`), cells of other regions get NaN coordinates.
+        pixel size of each region, by region id: every cell is converted with the pixel size of its region, cells
+        of other regions get NaN coordinates.
     default_region
         The region id of all cells if the table has no region column.
+    regions
+        The region ids of the dataset with the image files of each, to which the values of the region column are
+        matched, see :func:`_match_region`; values that name none of them are kept. If the table has
+        ``default_region`` and its region column holds a single value that names no region, that value names
+        ``default_region`` (e.g. the source image of a table for one region). If `None`, the values are the
+        region ids.
     cells_table_kwargs
         Optional keys: ``region_column`` (the column holding the region of each cell; QuPath default ``Image``),
         and for ``"generic"`` tables ``x`` and ``y`` (required centroid columns), ``instance_id`` (else the row
@@ -333,7 +342,7 @@ def read_cell_table(
 
     Returns
     -------
-    The cell table. Its regions are the values of the region column, or ``default_region``.
+    The cell table. Its regions are the (matched) values of the region column, or ``default_region``.
     """
     unknown = sorted(set(cells_table_kwargs) - set(CELLS_TABLE_KWARGS))
     if unknown:
@@ -370,10 +379,11 @@ def read_cell_table(
     mask_pixels = fmt in {"mcquant", "sprm"}
     if fmt == "generic":
         mask_pixels = _coordinates_space(path, roles["in_um"], cells_table_kwargs) == "mask"
+    region = _region_values(df, roles["region_column"], default_region, regions)
     units = cells_table_kwargs.get("geojson_units", "px")
     row_pixel_sizes = None
     if roles["in_um"] or (fmt == "qupath" and units == "um"):
-        row_pixel_sizes = _row_pixel_sizes(path, df, roles["region_column"], pixel_size_um)
+        row_pixel_sizes = _row_pixel_sizes(path, region, pixel_size_um)
     if roles.pop("in_um"):
         if row_pixel_sizes is None:
             raise ValueError(
@@ -381,7 +391,7 @@ def read_cell_table(
                 "pixel size is missing)."
             )
         roles["px_per_unit"] = 1 / row_pixel_sizes
-    table = _from_frame(path, df, default_region=default_region, **roles)
+    table = _from_frame(path, df, region=region, **roles)
     table.mask_pixels = mask_pixels
     if fmt == "sprm":
         table.centroids_px = _read_sprm_centers(path, table)
@@ -394,29 +404,46 @@ def read_cell_table(
     return table
 
 
-def _row_pixel_sizes(
-    path: Path, df: pd.DataFrame, region_column: str | None, pixel_size_um: float | Mapping[str, float | None] | None
-) -> float | np.ndarray | None:
-    """The pixel size of every row of ``df``, or one for all rows; `None` if it is unknown.
+def _region_values(
+    df: pd.DataFrame,
+    region_column: str | None,
+    default_region: str | None,
+    regions: Mapping[str, Sequence[Path]] | None,
+) -> pd.Series | None:
+    """The region of every row of ``df``, see :func:`read_cell_table`; `None` if it is unknown."""
+    if region_column is None or region_column not in df.columns:
+        return None if default_region is None else pd.Series(default_region, index=df.index)
+    values = df[region_column].astype(str)
+    if regions is None:
+        return values
+    matched = {value: _match_region(value, regions) for value in values.unique()}
+    if default_region is not None and len(matched) == 1 and None in matched.values():
+        # the region column of a table for one region names its source image only
+        return pd.Series(default_region, index=df.index)
+    return values.map({value: value if region is None else region for value, region in matched.items()})
 
-    For pixel sizes by region id, each row gets that of the region its region column names, NaN if it names none of
-    them (its cells are not read). Raises if a region named by the table has no pixel size.
+
+def _row_pixel_sizes(
+    path: Path, region: pd.Series | None, pixel_size_um: float | Mapping[str, float | None] | None
+) -> float | np.ndarray | None:
+    """The pixel size of every row, by its ``region``, or one for all rows; `None` if it is unknown.
+
+    For pixel sizes by region id, rows of other regions get NaN (their cells are not read). Raises if a region of
+    the rows has no pixel size.
     """
     if not isinstance(pixel_size_um, Mapping):
         return pixel_size_um
-    if region_column is None or region_column not in df.columns:
+    if region is None:
         sizes = set(pixel_size_um.values())
         return sizes.pop() if len(sizes) == 1 else None
-    values = df[region_column].astype(str)
-    regions = {value: _match_region(value, list(pixel_size_um)) for value in values.unique()}
-    unknown = sorted({region for region in regions.values() if region is not None and pixel_size_um[region] is None})
+    unknown = sorted(r for r in region.unique() if r in pixel_size_um and pixel_size_um[r] is None)
     if unknown:
         raise ValueError(
             f"{path} has coordinates in µm, but the pixel size of region(s) {unknown} is unknown, so they cannot be "
             "converted to pixels."
         )
-    sizes_by_value = {value: np.nan if region is None else pixel_size_um[region] for value, region in regions.items()}
-    return values.map(sizes_by_value).to_numpy(dtype=np.float64)
+    sizes_by_region = {r: pixel_size_um.get(r, np.nan) for r in region.unique()}
+    return region.map(sizes_by_region).to_numpy(dtype=np.float64)
 
 
 def _qupath_names(columns: Sequence[str]) -> dict[str, str]:
@@ -958,10 +985,13 @@ def _from_frame(
     instance_column: str | None,
     region_column: str | None,
     area_column: str | None,
-    default_region: str | None,
+    region: pd.Series | None,
     px_per_unit: float | np.ndarray = 1.0,
 ) -> CellTable:
-    """Build a `CellTable` from a data frame and the roles of its columns; ``px_per_unit`` may be given per row."""
+    """Build a `CellTable` from a data frame, the roles of its columns and the region of every row.
+
+    ``px_per_unit`` may be given per row.
+    """
     roles = [x, y, instance_column, region_column, area_column, *markers]
     missing = [column for column in roles if column is not None and column not in df.columns]
     if missing:
@@ -976,17 +1006,13 @@ def _from_frame(
     instance_id.index = index
     instance_id.name = CodexKeys.INSTANCE_KEY.value
 
-    if region_column is not None:
-        region = pd.Series(df[region_column].astype(str).to_numpy(), index=index)
-    elif default_region is not None:
-        region = pd.Series(default_region, index=index)
-    else:
+    if region is None:
         raise ValueError(
             f"{path} has no region column, so its cells cannot be assigned to regions: a table for several regions "
             "needs a region column (`cells_table_kwargs['region_column']`). Alternatively, pass one table per "
             "region as a mapping {region: path}."
         )
-    region.name = CodexKeys.REGION_KEY.value
+    region = pd.Series(region.to_numpy(), index=index, name=CodexKeys.REGION_KEY.value)
     _check_unique_instance_ids(path, region, instance_id)
 
     obs = _drop_key_columns(df.drop(columns=markers), instance_column, region_column)
@@ -1085,18 +1111,17 @@ def read_region_tables(
     files: Mapping[str, Path],
     fmt: str,
     *,
-    available: Sequence[str],
+    available: Mapping[str, Sequence[Path]],
     selected: Sequence[str],
     pixel_sizes: Mapping[str, float | None],
     cells_table_kwargs: Mapping[str, Any],
 ) -> list[CellTable]:
     """Read user-supplied cell tables, as resolved by :func:`resolve_per_region`, and assign their cells to regions.
 
-    A region column value names the region whose id it equals, else the longest region id it starts with followed
-    by a non-alphanumeric character (``A_Scan1.qptiff`` -> ``A``). A table given for one region holds the cells of
-    that region; if its region column matches no region, it holds only cells of that region. Cells of a table for
-    all regions (``"*"``) whose region matches no available region are dropped with a warning; cells of available
-    regions that are not read are dropped silently.
+    The values of a region column are matched to the regions, see :func:`_match_region`. A table given for one
+    region holds the cells of that region; if its region column holds a single value that names no region, it
+    holds only cells of that region. Cells whose region names no available region are dropped with a warning;
+    cells of available regions that are not read are dropped silently.
 
     Parameters
     ----------
@@ -1105,7 +1130,7 @@ def read_region_tables(
     fmt
         The table format, see :func:`read_cell_table`.
     available
-        All region ids of the dataset.
+        All region ids of the dataset, with the image files of each.
     selected
         The region ids read.
     pixel_sizes
@@ -1118,43 +1143,39 @@ def read_region_tables(
     The cell tables, one per file.
     """
     geojson = cells_table_kwargs.get("geojson")
-    geojson_files = resolve_per_region(geojson, selected, available) if geojson is not None else {}
+    geojson_files = resolve_per_region(geojson, selected, list(available)) if geojson is not None else {}
     if unknown := sorted(geojson_files.keys() - files.keys()):
         raise ValueError(
             f"`cells_table_kwargs['geojson']` is given for {unknown}, but the cell tables are given for "
             f"{list(files)}; pass the GeoJSON files in the same form as the tables."
         )
     tables = []
+    # the µm coordinates of each cell are converted with the pixel size of its region
+    sizes = {region: pixel_sizes.get(region) for region in selected}
     for key, path in files.items():
-        # a table for several regions converts the µm coordinates of each cell with the pixel size of its region
-        size = {region: pixel_sizes.get(region) for region in selected} if key == "*" else pixel_sizes.get(key)
         table = read_cell_table(
             path,
             fmt,
-            pixel_size_um=size,
+            pixel_size_um=sizes,
             default_region=None if key == "*" else key,
             cells_table_kwargs={**cells_table_kwargs, "geojson": geojson_files.get(key)},
+            regions=available,
         )
         tables.append(_assign_regions(table, path, key, available, selected))
     return tables
 
 
 def _assign_regions(
-    table: CellTable, path: Path, key: str, available: Sequence[str], selected: Sequence[str]
+    table: CellTable, path: Path, key: str, available: Mapping[str, Sequence[Path]], selected: Sequence[str]
 ) -> CellTable:
     values = list(table.region.unique())
-    matched = {value: _match_region(value, available) for value in values}
-    if key != "*" and all(region is None for region in matched.values()):
-        # the region column of a table for one region names its source image only
-        matched = dict.fromkeys(values, key)
-    unmatched = sorted(value for value, region in matched.items() if region is None)
+    unmatched = sorted(value for value in values if value not in available)
     if unmatched:
         warnings.warn(
             f"Ignoring the cells of {unmatched} in {path}: they match none of the regions {list(available)}.",
             UserWarning,
             stacklevel=4,
         )
-    table.region = table.region.map(matched)
     keep = table.region.isin(selected if key == "*" else [key]).to_numpy()
     if not keep.any():
         target = f"region '{key}'" if key != "*" else f"the regions read {list(selected)}"
@@ -1162,17 +1183,23 @@ def _assign_regions(
     return table.take(np.flatnonzero(keep))
 
 
-def _match_region(value: str, regions: Sequence[str]) -> str | None:
-    """The region named by ``value``: equal to it, else the longest one it starts with before a non-alphanumeric.
+def _match_region(value: str, regions: Mapping[str, Sequence[Path]]) -> str | None:
+    """The region named by ``value``: its id, else the region of an image file with that name or stem, else `None`.
 
-    ``value`` is also matched after :func:`spatialdata.sanitize_name`, as the region ids are, so that e.g. the
-    QuPath ``Image`` value ``A_[1,2].qptiff`` names the region ``A__1_2_``.
+    ``value`` is also matched after :func:`spatialdata.sanitize_name`, as the region ids are, so that e.g. ``A_[1,2]``
+    names the region ``A__1_2_``. A file name may be followed by a non-alphanumeric character and more, e.g. QuPath's
+    ``A_Scan1.qptiff - resolution #1``; a name that merely starts with another region's name (``A_2_Scan1.qptiff``)
+    does not name it.
     """
     candidates = list(dict.fromkeys((value, sanitize_name(value))))
     if exact := next((candidate for candidate in candidates if candidate in regions), None):
         return exact
-    prefixes = [r for r in regions for c in candidates if c.startswith(r) and not c[len(r)].isalnum()]
-    return max(prefixes, key=len, default=None)
+    stem = _IMAGE_SUFFIX.sub("", value)
+    for region, files in regions.items():
+        for name in (file.name for file in files):
+            if stem == _IMAGE_SUFFIX.sub("", name) or (value.startswith(name) and not value[len(name)].isalnum()):
+                return region
+    return None
 
 
 def read_labels(

@@ -16,7 +16,7 @@ from spatialdata import read_zarr
 from spatialdata.models import get_channel_names
 from spatialdata.transformations import Identity, Scale, Sequence, Translation, get_transformation
 
-from spatialdata_io import phenocycler
+from spatialdata_io import codex, phenocycler
 from spatialdata_io.__main__ import phenocycler_wrapper
 from tests._akoya_data import forbid_pixel_reads, write_qptiff
 
@@ -946,3 +946,86 @@ def test_phenocycler_keyword_only(tmp_path: Path) -> None:
     write_qptiff(tmp_path / "A_Scan1.qptiff", biomarkers=["DAPI"])
     with pytest.raises(TypeError, match="positional argument"):
         phenocycler(tmp_path, ["A"])  # type: ignore[misc]
+
+
+def _write_qupath_px(path: Path, images: dict[str, int]) -> None:
+    rows = ["Image,Object ID,Centroid X px,Centroid Y px,CD3: Cell: Mean"]
+    rows += [f"{image},{i},{i},{i},1" for image, n in images.items() for i in range(1, n + 1)]
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def test_region_values_match_image_names_not_prefixes(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "Tonsil_Scan1.qptiff", biomarkers=["DAPI"])
+    images = {"Tonsil_Scan1.qptiff - resolution #1": 3, "Tonsil_2_Scan1.qptiff": 2, "Spleen_Scan1.qptiff": 2}
+    _write_qupath_px(tmp_path / "cells.csv", images)
+
+    with pytest.warns(UserWarning, match=r"Ignoring the cells of \['Spleen_Scan1.qptiff', 'Tonsil_2_Scan1.qptiff'\]"):
+        sdata = phenocycler(
+            tmp_path / "Tonsil_Scan1.qptiff", cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST
+        )
+
+    assert list(sdata.tables["table"].obs["cell_id"]) == [1, 2, 3]
+
+
+@pytest.mark.parametrize("regions", [None, ["A"]])
+def test_region_values_naming_no_image_are_not_assigned_to_the_selected_one(
+    tmp_path: Path, regions: list[str] | None
+) -> None:
+    for region in ("A", "B"):
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI"])
+    _write_qupath_px(tmp_path / "cells.csv", {"Patient 7 tonsil": 2, "Patient 9 lymph node": 2})
+
+    with pytest.warns(UserWarning, match="Ignoring the cells"), pytest.raises(ValueError, match="has no cells of"):
+        phenocycler(tmp_path, regions=regions, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
+
+
+def test_duplicate_instance_ids_are_checked_per_assigned_region(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    # two names of the same image
+    _write_qupath_px(tmp_path / "cells.csv", {"S": 1, "S_Scan1.qptiff": 1})
+
+    with pytest.raises(ValueError, match=r"cells\.csv has 1 duplicate instance id.*region 'S'"):
+        phenocycler(tmp_path, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
+
+
+def test_codex_region_values_match_qptiff_file_names(tmp_path: Path) -> None:
+    for region in ("reg001", "reg002"):
+        write_qptiff(tmp_path / f"exp_{region}.qptiff", biomarkers=["DAPI"], software="Codex Instrument Manager 1.30")
+    _write_qupath_px(tmp_path / "cells.csv", {"exp_reg001.qptiff": 1, "exp_reg002.qptiff": 2})
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = codex(tmp_path, regions=["reg001"], cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
+
+    assert list(sdata.tables["table"].obs["cell_id"]) == [1]
+
+
+@pytest.mark.parametrize("regions", [["A"], ["B"]])
+def test_selected_region_of_qupath_table_uses_each_rows_pixel_size(tmp_path: Path, regions: list[str]) -> None:
+    rows, features = ["Image,Object ID,Centroid X µm,Centroid Y µm,CD3: Cell: Mean"], []
+    for region, pixel_size in (("A", 0.5), ("B", 0.25)):
+        write_qptiff(
+            tmp_path / f"{region}_Scan1.qptiff",
+            biomarkers=["DAPI"],
+            resolution_px_per_cm=1e4 / pixel_size,
+            slide_id=region,
+        )
+        for i in range(4):
+            x, y = 20 + 25 * i, 30 + 15 * i
+            rows.append(f"{region}_Scan1.qptiff,{region}{i},{x * pixel_size},{y * pixel_size},{i}")
+            ring = [[x - 3, y - 3], [x + 3, y - 3], [x + 3, y + 3], [x - 3, y + 3], [x - 3, y - 3]]
+            features.append(
+                {"type": "Feature", "id": f"{region}{i}", "geometry": {"type": "Polygon", "coordinates": [ring]}}
+            )
+    (tmp_path / "cells.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    (tmp_path / "cells.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+
+    sdata = phenocycler(
+        tmp_path,
+        regions=regions,
+        cells_table=tmp_path / "cells.csv",
+        image_models_kwargs=_FAST,
+        labels_models_kwargs=_FAST,
+    )
+
+    assert list(sdata.labels) == [f"{regions[0]}_labels"]
+    np.testing.assert_allclose(np.asarray(sdata.tables["table"].obsm["spatial"])[:, 0], [20, 45, 70, 95])

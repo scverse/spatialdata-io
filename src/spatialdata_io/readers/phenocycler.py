@@ -129,7 +129,8 @@ def phenocycler(
         A cell table: a path, or a mapping from region id to path, e.g. ``{{"A": "A_cells.csv"}}``. A single path
         for several regions needs a region column (``Image`` for QuPath, ``region`` for CODEX tables, else
         ``cells_table_kwargs["region_column"]``); its values are matched to the region ids, also after
-        :func:`spatialdata.sanitize_name`, e.g. ``A_Scan1.qptiff`` to ``A`` and ``A_[1,2].qptiff`` to ``A__1_2_``.
+        :func:`spatialdata.sanitize_name` (``A_[1,2]`` to ``A__1_2_``), or to the names of the region's files
+        (``A_Scan1.qptiff`` or ``A_Scan1`` to ``A``).
     cells_table_format
         The format of ``cells_table``: ``"auto"`` (detected from the header), ``"codex"`` (CODEX Processor),
         ``"qupath"`` (QuPath measurements; µm centroids are converted with the region's pixel size), ``"mcquant"``
@@ -199,7 +200,9 @@ def phenocycler(
     cell_tables = read_region_tables(
         table_files,
         cells_table_format,
-        available=list(qptiffs),
+        available={
+            region: [file, *([eight_bit[region]] if region in eight_bit else [])] for region, file in qptiffs.items()
+        },
         selected=selected,
         pixel_sizes={scan.region: scan.pixel_size_um for scan in scans},
         cells_table_kwargs=cells_table_kwargs,
