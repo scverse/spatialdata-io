@@ -914,3 +914,23 @@ def test_codex_discovers_the_mask_of_a_qptiff_region(tmp_path: Path, mask: str) 
     assert list(sdata.images) == ["Tonsil_image"]
     assert list(sdata.labels) == ["Tonsil_labels"]
     assert sdata.attrs["akoya"]["labels"] == {"Tonsil": str(tmp_path / mask)}
+
+
+def test_codex_csv_and_fcs_tables_of_one_panel_share_a_table(tmp_path: Path) -> None:
+    data = write_legacy_processor_tree(tmp_path, regions=2, layout="per_marker", fcs=True, csv=True, n_cells=5)
+    next(tmp_path.rglob("reg002_compensated.csv")).unlink()
+    # the CODEX Processor names the markers in the CSV header, e.g. `cyc001_ch001:DAPI`
+    csv = next(tmp_path.rglob("reg001_compensated.csv"))
+    cells = pd.read_csv(csv)
+    names = dict(zip(cells.filter(regex="^cyc").columns, data["markers"], strict=True))
+    cells.rename(columns={column: f"{column}:{marker}" for column, marker in names.items()}).to_csv(csv, index=False)
+
+    with pytest.warns(UserWarning, match="CSV"):
+        sdata = codex(tmp_path, fcs=False, image_models_kwargs=_FAST)
+
+    assert list(sdata.tables) == ["table"]
+    table = sdata.tables["table"]
+    assert list(table.obs["region"].cat.categories) == ["reg001_cells", "reg002_cells"]
+    assert list(table.var_names) == dedupe_channel_names(data["markers"])
+    # the markers were read from columns of other names
+    assert "source_column" not in table.var

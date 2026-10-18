@@ -1633,7 +1633,8 @@ def build_cells(
 
     Returns
     -------
-    The table elements, ``{"table": ...}`` if all tables have the same ``var``, else ``{"<region>_table": ...}``
+    The table elements, ``{"table": ...}`` if all tables have the same ``var`` apart from its ``source_column``
+    (dropped if it differs), else ``{"<region>_table": ...}``
     per region, and the circle shapes by element name. The circles have the cells' area (radius 1 px without a
     positive one).
     """
@@ -1653,8 +1654,10 @@ def build_cells(
             UserWarning,
             stacklevel=3,
         )
-    # tables with other markers or other marker metadata (e.g. QuPath compartments) are not concatenated
-    pieces = _split_by_region(tables) if any(not table.var.equals(tables[0].var) for table in tables) else None
+    # tables with other markers or other marker metadata (e.g. QuPath compartments) are not concatenated; the source
+    # columns only record where a marker was read from (e.g. `cyc001_ch001:DAPI1` of a CSV, `cyc001_ch001` of an FCS)
+    panels = [_panel(table.var) for table in tables]
+    pieces = _split_by_region(tables) if any(not panel.equals(panels[0]) for panel in panels) else None
 
     def element(region: str) -> str:
         if region in region_elements:
@@ -1837,6 +1840,11 @@ def _check_disjoint_regions(tables: Sequence[CellTable]) -> None:
         seen |= regions
 
 
+def _panel(var: pd.DataFrame) -> pd.DataFrame:
+    """The marker metadata of ``var`` without the provenance column ``source_column``."""
+    return var.drop(columns="source_column", errors="ignore")
+
+
 def _split_by_region(tables: Sequence[CellTable]) -> dict[str, CellTable]:
     return {region: table.take(rows) for table in tables for region, rows in _region_rows(table).items()}
 
@@ -1860,7 +1868,11 @@ def _to_anndata(tables: Sequence[CellTable], element: Callable[[str], str]) -> a
     if not obs.index.is_unique:
         obs.index = pd.Index(regions.to_numpy(dtype=object) + "_" + obs.index.to_numpy(dtype=object))
     X = np.concatenate([table.X for table in tables]) if len(tables) > 1 else tables[0].X
-    adata = ad.AnnData(X=X, obs=obs, var=tables[0].var.copy())
+    var = tables[0].var.copy()
+    if any(not table.var.equals(tables[0].var) for table in tables):
+        # the same markers read from columns of other names
+        var = _panel(var)
+    adata = ad.AnnData(X=X, obs=obs, var=var)
     centroids = [table.centroids_px for table in tables if table.centroids_px is not None]
     if len(centroids) == len(tables):
         adata.obsm[CodexKeys.SPATIAL_KEY.value] = np.concatenate(centroids)
