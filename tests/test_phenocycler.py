@@ -1058,3 +1058,13 @@ def test_tables_with_different_marker_metadata_are_not_merged(tmp_path: Path) ->
     assert sorted(sdata.tables) == ["A_table", "B_table"]
     assert list(sdata.tables["A_table"].var["compartment"]) == ["Cell"]
     assert list(sdata.tables["B_table"].var["compartment"]) == ["Nucleus"]
+
+
+def test_cells_without_a_positive_area_get_unit_circles(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.qptiff", biomarkers=["DAPI"])
+    (tmp_path / "cells.csv").write_text("CellID,CD3,X_centroid,Y_centroid,Area\n1,1,1,1,0\n2,1,2,2,\n3,1,3,3,3.14159\n")
+
+    with pytest.warns(UserWarning, match="circles"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.csv", image_models_kwargs=_FAST)
+
+    np.testing.assert_allclose(sdata.shapes["S_cells"]["radius"], [1, 1, 1], rtol=1e-5)

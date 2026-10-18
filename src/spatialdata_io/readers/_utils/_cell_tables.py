@@ -1555,7 +1555,8 @@ def build_cells(
     Returns
     -------
     The table elements, ``{"table": ...}`` if all tables have the same ``var``, else ``{"<region>_table": ...}``
-    per region, and the circle shapes by element name. The circles have the cells' area (radius 1 px without one).
+    per region, and the circle shapes by element name. The circles have the cells' area (radius 1 px without a
+    positive one).
     """
     _check_disjoint_regions(tables)
     row_ids = sorted(
@@ -1594,7 +1595,12 @@ def build_cells(
                     "placed; pass a mask as `labels` or a table with centroids."
                 )
             circle_regions.append(region)
-            radius = 1.0 if table.radius_px is None else table.radius_px[rows]
+            radius = np.ones(len(rows)) if table.radius_px is None else table.radius_px[rows]
+            if (no_area := ~(radius > 0)).any():
+                logger.info(
+                    "%d cells of region '%s' have no positive area; their circles get radius 1.", no_area.sum(), region
+                )
+                radius = np.where(no_area, 1.0, radius)
             shapes[element(region)] = ShapesModel.parse(
                 table.centroids_px[rows],
                 geometry=0,
