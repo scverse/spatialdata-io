@@ -47,17 +47,28 @@ __all__ = [
 
 
 def dedupe_channel_names(names: Sequence[str]) -> list[str]:
-    """Make channel names unique as ``name``, ``name (2)``, ``name (3)``; the first occurrence is unchanged."""
+    """Make channel names unique as ``name``, ``name (2)``, ``name (3)``; the first occurrence is unchanged.
+
+    A suffix is skipped if it would repeat a name of the list, e.g. ``["A", "A", "A (2)"]`` -> ``A``, ``A (3)``,
+    ``A (2)``.
+    """
+    taken = set(names)
     seen: Counter[str] = Counter()
     deduped = []
     for name in names:
         seen[name] += 1
-        deduped.append(name if seen[name] == 1 else f"{name} ({seen[name]})")
+        if seen[name] == 1:
+            deduped.append(name)
+            continue
+        while (unique := f"{name} ({seen[name]})") in taken:
+            seen[name] += 1
+        taken.add(unique)
+        deduped.append(unique)
     return deduped
 
 
 def apply_channel_names(scan: AkoyaScan, channel_names: Sequence[str] | None) -> list[str]:
-    """Return the channel names of ``scan``: the user override if given, else the de-duplicated metadata names."""
+    """Return the de-duplicated channel names of ``scan``: the user override if given, else the metadata names."""
     if channel_names is None:
         return dedupe_channel_names([channel.name for channel in scan.channels])
     if isinstance(channel_names, Mapping | Set):
@@ -67,7 +78,7 @@ def apply_channel_names(scan: AkoyaScan, channel_names: Sequence[str] | None) ->
             f"`channel_names` has {len(channel_names)} entries, but region '{scan.region}' ({scan.path}) has "
             f"{len(scan.channels)} channels: expected {len(scan.channels)}."
         )
-    return list(channel_names)
+    return dedupe_channel_names(list(channel_names))
 
 
 def region_transformations(

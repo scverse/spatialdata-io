@@ -54,10 +54,18 @@ def test_dedupe_channel_names():
     assert dedupe_channel_names(["DAPI", "CD3", "DAPI", "DAPI"]) == ["DAPI", "CD3", "DAPI (2)", "DAPI (3)"]
 
 
+def test_dedupe_channel_names_never_collides():
+    # a generated suffix must not repeat a name that is already in the list
+    assert dedupe_channel_names(["DAPI", "DAPI", "DAPI (2)"]) == ["DAPI", "DAPI (3)", "DAPI (2)"]
+    assert dedupe_channel_names(["A (2)", "A", "A"]) == ["A (2)", "A", "A (3)"]
+
+
 def test_apply_channel_names_override_and_default():
     scan = _scan(names=("DAPI", "DAPI", "CD3"))
     assert apply_channel_names(scan, None) == ["DAPI", "DAPI (2)", "CD3"]
     assert apply_channel_names(scan, ["a", "b", "c"]) == ["a", "b", "c"]
+    # an override is de-duplicated like the metadata names, so channels stay selectable by name
+    assert apply_channel_names(scan, ["a", "b", "a"]) == ["a", "b", "a (2)"]
 
 
 @pytest.mark.parametrize("names", [{"a": 0, "b": 1, "c": 2}, {"a", "b", "c"}], ids=["mapping", "set"])
