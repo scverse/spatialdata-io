@@ -260,7 +260,8 @@ def read_codex_table(path: Path, region: str | None = None) -> CellTable:
     else:
         # label images use 0 for the background, so instance ids start at 1
         instance_id = pd.Series(np.arange(1, len(obs) + 1, dtype=np.int64))
-    instance_id.index = pd.Index(instance_id.astype(str))
+    # unnamed, like the index of the other formats: the table element gets an `instance_key` column of that name
+    instance_id.index = pd.Index(instance_id.astype(str).to_numpy())
     obs.index = instance_id.index
     instance_id.name = instance_key
 

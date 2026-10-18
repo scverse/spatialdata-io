@@ -743,3 +743,29 @@ def test_codex_old_positional_call(tmp_path: Path) -> None:
 
     with pytest.warns(UserWarning, match="imread_kwargs"):
         codex(tmp_path, True, {"nframes": 1})
+
+
+@pytest.mark.parametrize("case", ["one_region", "kidney_2019", "regions_subset", "phenocycler_codex_csv"])
+def test_single_region_codex_table_write_roundtrip(tmp_path: Path, case: str) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    if case == "kidney_2019":
+        tifffile.imwrite(data / "Kidney.tif", np.zeros((2, 16, 16), dtype=np.uint16))
+        (data / "Kidney.csv").write_text("cell_id,x,y,size,cyc001_ch001\n1,1.0,2.0,3.0,4.0\n2,5.0,6.0,7.0,8.0\n")
+    elif case == "phenocycler_codex_csv":
+        write_qptiff(data / "S_Scan1.qptiff", biomarkers=["DAPI"])
+        (data / "cells.csv").write_text("cell_id,x,y,size,DAPI\n1,1.0,2.0,3.0,4.0\n2,5.0,6.0,7.0,8.0\n")
+    else:
+        write_legacy_processor_tree(data, regions=1 if case == "one_region" else 2, cycles=1, channels=1, n_cells=5)
+
+    with pytest.warns(UserWarning, match="circles"):
+        if case == "phenocycler_codex_csv":
+            sdata = phenocycler(data, cells_table=data / "cells.csv", image_models_kwargs=_FAST)
+        else:
+            sdata = codex(data, regions=["reg001"] if case == "regions_subset" else None, image_models_kwargs=_FAST)
+    sdata.write(tmp_path / "x.zarr")
+
+    table = read_zarr(tmp_path / "x.zarr").tables["table"]
+    assert table.obs.index.name is None
+    assert table.obs["cell_id"].dtype == np.int64
+    np.testing.assert_array_equal(table.obs["cell_id"], sdata.tables["table"].obs["cell_id"])
