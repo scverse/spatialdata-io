@@ -183,6 +183,18 @@ def test_read_all_bit_depths(tmp_path: Path) -> None:
     assert sdata.attrs["akoya"]["regions"]["S_8bit"]["path"].endswith("S_Scan1.qptiff")
 
 
+def test_read_all_bit_depths_of_an_extended_range_file(tmp_path: Path) -> None:
+    write_qptiff(tmp_path / "S_Scan1.QPTIFF", biomarkers=["DAPI"], dtype="uint8")
+    write_qptiff(tmp_path / "S_Scan1.ER.QPTIFF", biomarkers=["DAPI"], dtype="uint16")
+
+    sdata = phenocycler(tmp_path / "S_Scan1.ER.QPTIFF", read_all_bit_depths=True, image_models_kwargs=_FAST)
+
+    assert sorted(sdata.images) == ["S_8bit_image", "S_image"]
+    assert _level0(sdata, "S_8bit_image").dtype == np.uint8
+    # the 8-bit file alone is read as it is
+    assert list(phenocycler(tmp_path / "S_Scan1.QPTIFF", read_all_bit_depths=True).images) == ["S_image"]
+
+
 def test_read_all_bit_depths_shares_stage_placement(tmp_path: Path) -> None:
     for name, pos in (("A", (0.0, 0.0)), ("B", (0.1, 0.0))):
         write_qptiff(tmp_path / f"{name}.qptiff", biomarkers=["DAPI"], dtype="uint8", stage_position_cm=pos)

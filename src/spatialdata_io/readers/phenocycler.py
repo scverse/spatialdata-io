@@ -27,6 +27,7 @@ from spatialdata_io.readers._utils._cell_tables import (
 from spatialdata_io.readers._utils._qptiff import (
     _fusion_profile_records,
     _is_blank,
+    _is_extended_range,
     qptiff_base_name,
     qptiff_regions_with_duplicates,
     read_qptiff_image,
@@ -153,10 +154,11 @@ def phenocycler(
         scales those of a ``"generic"`` table too.
     read_all_bit_depths
         If `True`, a scan that exists as both ``X{vx.QPTIFF_SUFFIX}`` (8-bit) and ``X{vx.ER_QPTIFF_SUFFIX}``
-        (extended range, e.g. uint16) is read from both files: the extended-range file as region ``X`` and the
-        8-bit file as the image ``X_8bit{vx.IMAGE_SUFFIX}`` (region ``X_8bit`` in ``sdata.attrs[{vx.ATTRS_KEY!r}]``).
-        Both are the same physical scan, so the 8-bit image has exactly the transformations of region ``X`` (a
-        warning is raised if their shapes differ). Cell tables and masks annotate region ``X`` only. If `False`, only the extended-range file is read.
+        (extended range, e.g. uint16) is read from both files, also if ``path`` is the extended-range file: the
+        extended-range file as region ``X`` and the 8-bit file as the image ``X_8bit{vx.IMAGE_SUFFIX}`` (region
+        ``X_8bit`` in ``sdata.attrs[{vx.ATTRS_KEY!r}]``). Both are the same physical scan, so the 8-bit image has
+        exactly the transformations of region ``X`` (a warning is raised if their shapes differ). Cell tables and
+        masks annotate region ``X`` only. If `False`, only the extended-range file is read.
     image_models_kwargs
         Keyword arguments passed to :class:`spatialdata.models.Image2DModel`.
     labels_models_kwargs
@@ -249,7 +251,12 @@ def _discover_qptiffs(path: Path) -> tuple[dict[str, Path], dict[str, Path]]:
     if not path.exists():
         raise FileNotFoundError(f"{path} does not exist.")
     if path.is_file():
-        return qptiff_regions_with_duplicates([path])
+        files = [path]
+        if _is_extended_range(path):
+            # its 8-bit file, read with `read_all_bit_depths`
+            base = qptiff_base_name(path)
+            files.append(path.with_name(base + path.name[len(base) + len(".er") :]))
+        return qptiff_regions_with_duplicates([file for file in files if file.is_file()])
     files = sorted(
         directory / name
         for directory, _, names in walk_visible(path)
