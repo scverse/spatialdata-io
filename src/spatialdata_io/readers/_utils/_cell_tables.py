@@ -1438,7 +1438,7 @@ def polygon_labels(
 
     Where cells overlap, the one with the higher instance id wins. Regions with a mask in ``labels`` keep it, with
     a warning; regions without an image are skipped, their cells become circles. In both cases the polygons are
-    still kept as shapes, see :func:`polygon_shapes`.
+    still kept as shapes, see :func:`polygon_shapes`. Regions none of whose cells has a polygon get no labels.
 
     Parameters
     ----------
@@ -1465,6 +1465,10 @@ def polygon_labels(
         if table.polygons_px is None:
             continue
         for region, rows in _region_rows(table).items():
+            rows = rows[pd.notna(table.polygons_px[rows])]
+            # regions without polygons get circles, like tables without a GeoJSON
+            if len(rows) == 0:
+                continue
             if region in labels:
                 row_ids = " Its cells' instance ids are row numbers and may not match the mask's values."
                 warnings.warn(
@@ -1478,7 +1482,6 @@ def polygon_labels(
             if region not in image_shapes:
                 logger.info("Region '%s' has no image, so its cell polygons are not rasterised.", region)
                 continue
-            rows = rows[pd.notna(table.polygons_px[rows])]
             data = rasterize_polygons_lazy(
                 table.polygons_px[rows], table.instance_id.to_numpy()[rows], image_shapes[region], chunks
             )

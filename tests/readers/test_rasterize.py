@@ -347,3 +347,21 @@ def test_qupath_geojson_partial_and_duplicate_ids(tmp_path: Path) -> None:
     _write_geojson(tmp_path / "cells.geojson", [_cell("a", 0, 0), _cell("b", 20, 20), _cell("a", 40, 40)])
     with pytest.raises(ValueError, match="same id"):
         phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+
+def test_qupath_geojson_region_without_polygons_gets_circles(tmp_path: Path) -> None:
+    for region in "AB":
+        write_qptiff(tmp_path / f"{region}_Scan1.qptiff", biomarkers=["DAPI"])
+    header = "Image\tObject ID\tCentroid X px\tCentroid Y px\tCD3: Cell: Mean"
+    rows = ["A_Scan1.qptiff\ta\t4\t4\t1", "B_Scan1.qptiff\tb\t24\t24\t2"]
+    (tmp_path / "cells.tsv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+    # QuPath exports the GeoJSON of one image: B's cells have no polygon
+    _write_geojson(tmp_path / "cells.geojson", [_cell("a", 0, 0)])
+
+    with pytest.warns(UserWarning, match="have no polygon"):
+        sdata = phenocycler(tmp_path, cells_table=tmp_path / "cells.tsv", image_models_kwargs=_FAST)
+
+    assert list(sdata.labels) == ["A_labels"]
+    assert set(sdata.shapes) == {"A_polygons", "B_cells"}
+    assert sdata.tables["table"].uns["spatialdata_attrs"]["region"] == ["A_labels", "B_cells"]
+    assert sdata.attrs["akoya"]["geojson"] == {"A": str(tmp_path / "cells.geojson")}
