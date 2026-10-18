@@ -1457,7 +1457,7 @@ def polygon_labels(
 
     Returns
     -------
-    The labels elements by region id, and the GeoJSON file of each.
+    The labels elements by region id, and the GeoJSON file of each region with polygons.
     """
     labels_models_kwargs, chunks = _labels_models_kwargs(labels_models_kwargs)
     elements, sources = {}, {}
@@ -1469,6 +1469,7 @@ def polygon_labels(
             # regions without polygons get circles, like tables without a GeoJSON
             if len(rows) == 0:
                 continue
+            sources[region] = str(table.geojson)
             if region in labels:
                 row_ids = " Its cells' instance ids are row numbers and may not match the mask's values."
                 warnings.warn(
@@ -1491,7 +1492,6 @@ def polygon_labels(
                 transformations=_transformations_of(transformations, region),
                 **labels_models_kwargs,
             )
-            sources[region] = str(table.geojson)
     return elements, sources
 
 

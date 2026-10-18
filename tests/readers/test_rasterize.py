@@ -263,6 +263,7 @@ def test_qupath_geojson_mask_wins(tmp_path: Path) -> None:
 
     np.testing.assert_array_equal(sdata.labels["S_labels"]["scale0"]["image"].values, mask)
     assert "S_polygons" in sdata.shapes
+    assert sdata.attrs["akoya"]["geojson"] == {"S": str(tmp_path / "cells_cells.geojson")}
 
 
 def test_qupath_geojson_errors(tmp_path: Path) -> None:
