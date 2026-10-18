@@ -60,6 +60,13 @@ def test_apply_channel_names_override_and_default():
     assert apply_channel_names(scan, ["a", "b", "c"]) == ["a", "b", "c"]
 
 
+@pytest.mark.parametrize("names", [{"a": 0, "b": 1, "c": 2}, {"a", "b", "c"}], ids=["mapping", "set"])
+def test_apply_channel_names_unordered_raises(names: object):
+    # the keys of a mapping or the iteration order of a set would silently become the channel names
+    with pytest.raises(TypeError, match="sequence"):
+        apply_channel_names(_scan(), names)  # type: ignore[arg-type]
+
+
 def test_apply_channel_names_length_mismatch():
     with pytest.raises(ValueError, match="expected 3"):
         apply_channel_names(_scan(), ["a", "b"])

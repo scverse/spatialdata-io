@@ -8,7 +8,7 @@ import math
 import threading
 import warnings
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence, Set
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
@@ -60,6 +60,8 @@ def apply_channel_names(scan: AkoyaScan, channel_names: Sequence[str] | None) ->
     """Return the channel names of ``scan``: the user override if given, else the de-duplicated metadata names."""
     if channel_names is None:
         return dedupe_channel_names([channel.name for channel in scan.channels])
+    if isinstance(channel_names, Mapping | Set):
+        raise TypeError(f"`channel_names` must be a sequence of names, got {type(channel_names).__name__}.")
     if len(channel_names) != len(scan.channels):
         raise ValueError(
             f"`channel_names` has {len(channel_names)} entries, but region '{scan.region}' ({scan.path}) has "
