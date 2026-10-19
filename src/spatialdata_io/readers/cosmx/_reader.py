@@ -1284,8 +1284,12 @@ def _prescan_max_cell_id(
         except Exception as e:  # noqa: BLE001 - best-effort probe; failure handled below
             logger.warning("Could not read max %s from %s: %s", id_col, path, e)
             continue
-        if val is not None:
+        if val is None:
+            continue
+        try:
             max_ids.append(int(val))
+        except (TypeError, ValueError):
+            logger.warning("Non-integer %s in %s (max %r) — skipping for max cell_ID.", id_col, path, val)
 
     if max_ids:
         reader.max_cell_id = max(max_ids)
