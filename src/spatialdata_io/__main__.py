@@ -75,10 +75,16 @@ def codex_wrapper(
 
 @cli.command(name="cosmx")
 @_input_output_click_options
-@click.option("--dataset-id", type=str, default=None, help="Name of the dataset; inferred from file prefixes if omitted.")
+@click.option(
+    "--dataset-id", type=str, default=None, help="Name of the dataset; inferred from file prefixes if omitted."
+)
 @click.option("--read-images", type=bool, default=True, help="Whether to read morphology images. [default: True]")
-@click.option("--read-labels", type=bool, default=True, help="Whether to read or rasterize cell labels. [default: True]")
-@click.option("--read-proteins", type=bool, default=True, help="Whether to include protein image channels. [default: True]")
+@click.option(
+    "--read-labels", type=bool, default=True, help="Whether to read or rasterize cell labels. [default: True]"
+)
+@click.option(
+    "--read-proteins", type=bool, default=True, help="Whether to include protein image channels. [default: True]"
+)
 @click.option("--read-transcripts", type=bool, default=True, help="Whether to read transcripts. [default: True]")
 @click.option("--read-polygons", type=bool, default=True, help="Whether to read cell polygons. [default: True]")
 @click.option("--read-gexp", type=bool, default=True, help="Whether to read the expression matrix. [default: True]")
