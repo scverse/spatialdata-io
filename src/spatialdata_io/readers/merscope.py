@@ -12,6 +12,7 @@ import dask.dataframe as dd
 import geopandas
 import numpy as np
 import pandas as pd
+import shapely
 import xarray
 from dask import array as da
 from dask_image.imread import imread
@@ -330,14 +331,39 @@ def _get_points(transcript_path: Path, transformations: dict[str, BaseTransforma
     return transcripts
 
 
+def _as_multipolygon(geom: Any) -> MultiPolygon:
+    """Valid MultiPolygon of ``geom``'s polygonal parts (empty when it has none).
+
+    Vizgen writes MultiPolygons, but watershed / custom segmentations can contain plain Polygons, and
+    ``make_valid`` can split a self-intersecting ring into a GeometryCollection.
+    """
+    if geom is None or geom.is_empty:
+        return MultiPolygon()
+    if not geom.is_valid:
+        geom = shapely.make_valid(geom)
+    if isinstance(geom, MultiPolygon):
+        return geom
+    parts = geom.geoms if hasattr(geom, "geoms") else [geom]
+    polys = [
+        q
+        for g in parts
+        for q in (g.geoms if isinstance(g, MultiPolygon) else [g])
+        if g.geom_type in ("Polygon", "MultiPolygon")
+    ]
+    return MultiPolygon(polys)
+
+
 def _get_polygons(boundaries_path: Path, transformations: dict[str, BaseTransformation]) -> geopandas.GeoDataFrame:
     geo_df = geopandas.read_parquet(boundaries_path)
     geo_df = geo_df.rename_geometry("geometry")
     geo_df = geo_df[geo_df[MerscopeKeys.Z_INDEX] == 0]  # Avoid duplicate boundaries on all z-levels
-    geo_df = geo_df[geo_df.geometry.is_valid]  # Remove invalid geometries
-    # Normalise every geometry to a MultiPolygon. Vizgen writes MultiPolygons, but watershed / custom
-    # segmentations can contain plain Polygons, for which `x.geoms` would raise.
-    geo_df.geometry = geo_df.geometry.map(lambda x: x if isinstance(x, MultiPolygon) else MultiPolygon([x]))
+    # Repair invalid (e.g. self-intersecting) boundaries instead of dropping them: a dropped polygon leaves
+    # its cell in the table annotating a shape that does not exist.
+    geo_df.geometry = geo_df.geometry.map(_as_multipolygon)
+    empty = geo_df.geometry.is_empty
+    if empty.any():
+        logger.warning(f"Dropping {int(empty.sum())} cell boundaries with no polygonal area after repair.")
+        geo_df = geo_df[~empty]
     geo_df.index = geo_df[MerscopeKeys.METADATA_CELL_KEY].astype(str)
 
     return ShapesModel.parse(geo_df, transformations=transformations)

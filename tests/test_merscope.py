@@ -198,6 +198,27 @@ def test_polygon_boundaries_supported(tmp_path: Path) -> None:
     assert len(gdf) == len(CELL_IDS)
 
 
+def test_invalid_boundaries_are_repaired_not_dropped(tmp_path: Path) -> None:
+    # a self-intersecting (invalid) boundary must be repaired: dropping it leaves its table row
+    # annotating a shape that does not exist
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+
+    region = _write_dataset(tmp_path)
+    gdf = gpd.read_parquet(region / "cell_boundaries.parquet")
+    bowtie = Polygon([(0, 0), (4, 4), (4, 0), (0, 4)])
+    assert not bowtie.is_valid
+    gdf.loc[0, "Geometry"] = MultiPolygon([bowtie])
+    gdf.to_parquet(region / "cell_boundaries.parquet")
+
+    sdata = merscope(region, mosaic_images=False, transcripts=False)
+    shapes = next(iter(sdata.shapes.values()))
+    assert len(shapes) == len(CELL_IDS)
+    assert shapes.geometry.is_valid.all()
+    assert (shapes.geom_type == "MultiPolygon").all()
+    assert set(sdata["table"].obs["EntityID"].astype(str)) <= set(shapes.index)
+
+
 def test_channel_names_sorted_deterministic(tmp_path: Path) -> None:
     # channel order must be deterministic (sorted), independent of set iteration order
     images = tmp_path / "images"
