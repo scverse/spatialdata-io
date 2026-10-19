@@ -19,7 +19,6 @@ CosMxDatasetReader
 from __future__ import annotations
 
 import math
-import re
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1074,7 +1073,7 @@ def _cosmx_multi(
     try:
         reader._get_polygons()
         base_max_cell_id = reader.max_cell_id
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort probe; failure handled below
         logger.debug("Could not pre-load polygons to freeze max_cell_id: %s", e)
 
     def _modality_reader(ds: CosMxDataset) -> CosMxDatasetReader:
@@ -1262,7 +1261,7 @@ def _prescan_max_cell_id(
         try:
             lf = pl.scan_csv(path, n_rows=None)
             cols = lf.collect_schema().names()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - best-effort probe; failure handled below
             # A file that exists but cannot be scanned is a real problem for a pre-scan
             # whose whole job is to establish the max_cell_id invariant — surface it
             # rather than silently dropping the file (which would mis-lock the max).
@@ -1282,7 +1281,7 @@ def _prescan_max_cell_id(
             lf = lf.filter(pl.col(fov_col).is_in(list(fov_set)))
         try:
             val = lf.select(pl.col(id_col).max()).collect().item()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - best-effort probe; failure handled below
             logger.warning("Could not read max %s from %s: %s", id_col, path, e)
             continue
         if val is not None:

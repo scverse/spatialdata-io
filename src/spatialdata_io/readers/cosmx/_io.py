@@ -482,7 +482,7 @@ def _read_polygons_csv(
                     y = y0 + y_local
                 else:
                     y = y0 + (h - y_local)
-            except Exception:
+            except Exception:  # noqa: BLE001 - best-effort probe; failure handled below
                 continue
             if math.isfinite(x) and math.isfinite(y):
                 pts.append((x, y))
@@ -534,7 +534,7 @@ def _is_valid_parquet(path: Path) -> bool:
     try:
         pq.ParquetFile(path)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - best-effort probe; failure handled below
         return False
 
 

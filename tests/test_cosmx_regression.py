@@ -624,7 +624,6 @@ class TestLabelTranscriptCoRegistration:
 
     @staticmethod
     def _stitch_and_lookup(tmp_path: Path, flip_y: bool):
-        import tifffile
 
         from spatialdata_io.readers.cosmx._stitching import _read_stitched_cell_labels_from_dir
 
