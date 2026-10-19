@@ -599,7 +599,9 @@ def _lookup_centres(raster, fov_locs, fov, n_cells, ox, oy):
     row = np.round(placed["y_global_px"].to_numpy() - oy).astype(int)
     H, W = raster.shape[-2:]
     ib = (row >= 0) & (row < H) & (col >= 0) & (col < W)
-    return np.where(ib, raster[np.clip(row, 0, H - 1), np.clip(col, 0, W - 1)], -1).tolist()
+    # int64: label rasters are unsigned (uint16/uint32) and NumPy 2 refuses the -1 sentinel there.
+    hit = raster[np.clip(row, 0, H - 1), np.clip(col, 0, W - 1)].astype(np.int64)
+    return np.where(ib, hit, -1).tolist()
 
 
 class TestLabelTranscriptCoRegistration:
