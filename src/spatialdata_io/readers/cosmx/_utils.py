@@ -178,6 +178,10 @@ def _match_canonical(hdr: list[str], canon: str) -> str | None:
     missing columns one path accepts and another silently drops.
     """
     hdr_stripped = [c.strip() for c in hdr]
+    # An exact (case-sensitive) canonical column wins over the case-insensitive aliases: AtoMx metadata
+    # files carry both ``cell_ID`` (the integer per-FOV id) and ``cell_id`` (the string ``c_1_51_1``).
+    if canon in hdr_stripped:
+        return hdr[hdr_stripped.index(canon)]
     for pat in _CANONICAL.get(canon, []):
         hit = next(
             (

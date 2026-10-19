@@ -437,6 +437,27 @@ class TestGlobalCellId:
         gid = real_reader.global_cell_id(pd.DataFrame({"fov": [1], "cell_ID": [20]}))
         assert gid.iloc[0] == 1 * 21 + 20
 
+    def test_prescan_prefers_integer_cell_ID_over_string_cell_id(self, tmp_path):
+        """AtoMx metadata files carry both ``cell_id`` (string ``c_1_51_1``, earlier in the header) and
+        ``cell_ID`` (the integer per-FOV id); the pre-scan must read ``cell_ID``, not crash on ``cell_id``.
+        """
+        from spatialdata_io.readers.cosmx._reader import _prescan_max_cell_id
+
+        meta_csv = tmp_path / "meta.csv"
+        meta_csv.write_text("fov,Area,cell_id,cell_ID\n51,10,c_1_51_7,7\n51,12,c_1_51_9,9\n")
+
+        class FakeDataset:
+            polygons_file = None
+            exprMat_file = None
+            metadata_file = meta_csv
+
+        class FakeReader:
+            max_cell_id = None
+
+        reader = FakeReader()
+        _prescan_max_cell_id(reader, FakeDataset(), fov_set=None)
+        assert reader.max_cell_id == 9
+
     def test_prescan_matches_aliased_id_and_fov_columns(self, tmp_path):
         """The pre-scan must honour the same column aliases as the header
         canonicaliser. A polygon CSV using ``object_id``/``roi`` (instead of
