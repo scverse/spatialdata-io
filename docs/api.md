@@ -56,6 +56,23 @@ I/O for the `spatialdata` project.
     experimental.to_legacy_anndata
 ```
 
+### Experimental spatial tiling
+
+These opt-in functions currently target Xenium-compatible stores. The canonical profile
+rewrites Points and Shapes Parquet into spatial row groups, stores Shapes as GeoArrow,
+adds table metadata and a gene-major `X_csc` layer, and publishes discovery metadata in
+the root Zarr attributes. It creates no separate visualization directory.
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io
+
+.. autosummary::
+    :toctree: generated
+
+    experimental.add_spatial_tiling
+    experimental.xenium_spatially_tiled
+```
+
 ### Utility functions
 
 ```{eval-rst}
