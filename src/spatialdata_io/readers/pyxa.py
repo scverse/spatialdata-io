@@ -160,11 +160,33 @@ def _get_voxel_size(cell_metadata_path: Path, n_rows: int = 10_000) -> tuple[flo
 
 
 def _polygonal_part(geometry: shapely.Geometry) -> shapely.Geometry:
-    """Keep only the (multi)polygonal part of a geometry, dropping any lines or points."""
+    """Keep only the (multi)polygonal part of a geometry, dropping any lines or points.
+
+    A repair can return a collection whose polygonal part is itself a ``MultiPolygon``. Those
+    parts are kept; only lines and points are dropped.
+    """
     if isinstance(geometry, shapely.Polygon | shapely.MultiPolygon):
         return geometry
-    polygons = [p for p in shapely.get_parts(geometry) if isinstance(p, shapely.Polygon)]
-    return shapely.MultiPolygon(polygons) if len(polygons) > 1 else polygons[0] if polygons else shapely.Polygon()
+    polygons: list[shapely.Polygon] = []
+    for part in shapely.get_parts(geometry):
+        if isinstance(part, shapely.Polygon):
+            polygons.append(part)
+        elif isinstance(part, shapely.MultiPolygon):
+            polygons.extend(shapely.get_parts(part))
+    if not polygons:
+        return shapely.Polygon()
+    return polygons[0] if len(polygons) == 1 else shapely.MultiPolygon(polygons)
+
+
+def _repair_invalid_polygon(geometry: shapely.Geometry) -> shapely.Geometry:
+    """Rebuild one invalid polygon, falling back when GEOS rejects the structure method."""
+    try:
+        repaired = shapely.make_valid(geometry, method="structure", keep_collapsed=False)
+    except shapely.errors.GEOSException:
+        # GEOS 3.13 raises "unable to assign free hole to a shell" for some scaled
+        # self-intersections. Linework still rebuilds them; collapsed lines are dropped below.
+        repaired = shapely.make_valid(geometry, method="linework")
+    return _polygonal_part(repaired)
 
 
 def _make_polygonal_valid(geometries: np.ndarray) -> np.ndarray:
@@ -173,12 +195,18 @@ def _make_polygonal_valid(geometries: np.ndarray) -> np.ndarray:
     Valid geometries are returned untouched. Invalid ones are repaired with
     :func:`shapely.make_valid` (``"structure"`` method), which rebuilds the polygon from its
     rings, and any zero-area parts produced by the repair (lines, points) are discarded.
+    If GEOS rejects that rebuild for a polygon, it is repaired from its linework instead.
     """
     geometries = geometries.copy()
     invalid = ~shapely.is_valid(geometries)
-    if invalid.any():
-        repaired = shapely.make_valid(geometries[invalid], method="structure", keep_collapsed=False)
+    if not invalid.any():
+        return geometries
+    subset = geometries[invalid]
+    try:
+        repaired = shapely.make_valid(subset, method="structure", keep_collapsed=False)
         geometries[invalid] = [_polygonal_part(g) for g in repaired]
+    except shapely.errors.GEOSException:
+        geometries[invalid] = [_repair_invalid_polygon(g) for g in subset]
     return geometries
 
 
