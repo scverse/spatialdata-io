@@ -340,6 +340,42 @@ def test_xenium_csv_only_hex_labels() -> None:
     assert len(_label_ids(sdata["nucleus_labels"])) >= 12  # >= cells (multinucleate)
 
 
+def test_xenium_degenerate_boundary_dropped(tmp_path: Path) -> None:
+    # XOA occasionally emits boundaries with < 4 coordinates, which shapely cannot turn into a ring
+    import shutil
+
+    for f in XENIUM_CSV_ONLY.iterdir():
+        shutil.copy(f, tmp_path / f.name)
+    b = pd.read_csv(XENIUM_CSV_ONLY / "cell_boundaries.csv.gz")
+    first = b["cell_id"].iloc[0]
+    b = pd.concat([b[b["cell_id"] == first].head(3), b[b["cell_id"] != first]])
+    b.to_csv(tmp_path / "cell_boundaries.csv.gz", index=False)
+    with pytest.warns(UserWarning, match="Dropping 1 degenerate polygons"):
+        sdata = xenium(tmp_path, morphology_mip=False, morphology_focus=False, aligned_images=False)
+    assert len(sdata["cell_boundaries"]) == 29
+    assert first not in sdata["cell_boundaries"].index
+    assert sdata["table"].n_obs == 30
+
+
+def test_xenium_csv_only_hex_without_label_id(tmp_path: Path) -> None:
+    # XOA 1.3-1.x deposits stripped of cells.zarr.zip: hex cell_ids but no label_id column. The labels
+    # fall back to the decoded hex prefix, consistently in the raster and in the table.
+    import shutil
+
+    for f in XENIUM_CSV_HEX.iterdir():
+        if f.name.endswith("_boundaries.csv.gz"):
+            pd.read_csv(f).drop(columns="label_id").to_csv(tmp_path / f.name, index=False)
+        else:
+            shutil.copy(f, tmp_path / f.name)
+    sdata = xenium(tmp_path, morphology_mip=False, morphology_focus=False, aligned_images=False, transcripts=False)
+    table = sdata["table"]
+    prefix, _ = prefix_suffix_uint32_from_cell_id_str(table.obs["cell_id"].to_numpy())
+    np.testing.assert_array_equal(table.obs["cell_labels"].to_numpy(), prefix)
+    assert _label_ids(sdata["cell_labels"]) == set(prefix.tolist())
+    assert table.uns["spatialdata_attrs"]["instance_key"] == "cell_labels"
+    assert _label_ids(sdata["nucleus_labels"]) <= set(prefix.tolist())
+
+
 @skip_if_below_python_version()
 @pytest.mark.parametrize(
     (
