@@ -543,7 +543,7 @@ def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     return cell_id_column
 
 
-def _hex_cell_id_to_label_index(cell_ids: pd.Index | pd.Series) -> pd.Series | None:
+def _hex_cell_id_to_label_index(cell_ids: ArrayLike) -> pd.Series | None:
     """cell_id (str) -> label_index (int) for hex cell_ids that have no ``label_id`` mapping.
 
     XOA 1.3-1.x boundary files carry hex cell_ids but no ``label_id``; the mask values live only in
