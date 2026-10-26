@@ -3,12 +3,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
+import pytest
 import zarr
 from anndata.io import write_elem
 from numcodecs import Delta
 
 from spatialdata_io._constants._constants import AteraKeys
+from spatialdata_io.converters import atera_to_parquet as atera_module
 from spatialdata_io.converters.atera_to_parquet import atera_to_parquet
+from spatialdata_io.readers._atera_common import _tile_row_ranges
 
 FEATURE_NAMES = ["GENE_A", "GENE_B"]
 
@@ -71,3 +74,21 @@ def test_generated_transcript_ids_follow_grid_keys(tmp_path: Path) -> None:
 
     assert table["transcript_id"].to_pylist() == list(range(5))
     assert table["fov_name"].to_pylist() == ["1,0"] * 3 + ["0,0"] * 2
+
+
+@pytest.mark.parametrize("with_stored_ids", [True, False])
+def test_chunked_conversion_matches_unchunked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_stored_ids: bool
+) -> None:
+    tile_sizes = {"0,0": 5, "0,1": 0, "1,0": 7}
+    grid_keys = ["1,0", "0,1", "0,0"]
+    ids = {"0,0": [9, 8, 7, 6, 5], "0,1": [], "1,0": list(range(100, 107))} if with_stored_ids else {}
+    _write_atera_dataset(tmp_path, tile_sizes, grid_keys, ids)
+    whole = pq.read_table(atera_to_parquet(tmp_path, tmp_path / "whole.parquet"))
+
+    # 2-row chunks put chunk boundaries inside each gene's row range (the genes split a tile at n // 2).
+    monkeypatch.setattr(atera_module, "_tile_row_ranges", lambda n: _tile_row_ranges(n, 2))
+    chunked = pq.read_table(atera_to_parquet(tmp_path, tmp_path / "chunked.parquet"))
+
+    assert chunked.equals(whole)
+    assert chunked["feature_name"].to_pylist() == ["GENE_A"] * 3 + ["GENE_B"] * 4 + ["GENE_A"] * 2 + ["GENE_B"] * 3

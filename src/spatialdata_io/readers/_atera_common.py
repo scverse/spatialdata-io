@@ -47,6 +47,8 @@ DEFAULT_VAR_COLUMNS = [
 
 # Number of `obs` rows read per `X` chunk in the readers' lazy `dask` array for the table.
 DEFAULT_TABLE_ROW_CHUNK_SIZE = 50_000
+# Max transcripts per `dask` partition / `atera_to_parquet` batch (~130 MB of decoded columns).
+DEFAULT_TRANSCRIPT_CHUNK_ROWS = 5_000_000
 
 _UINT32_SENTINEL = np.iinfo(np.uint32).max
 
@@ -207,8 +209,19 @@ def _get_polygons(
     return _polygons_to_shapes(coords, num_vertices, cell_index, cell_ids, pixel_size, is_nucleus)
 
 
-def _read_transcript_tile(path: Path, tile_key: str, feature_names: list[str]) -> pd.DataFrame:
-    """Read and decode a single spatial tile of transcripts.zarr.zip.
+def _tile_row_ranges(n_rows: int, chunk_rows: int = DEFAULT_TRANSCRIPT_CHUNK_ROWS) -> list[tuple[int, int]]:
+    """Split a tile of ``n_rows`` transcripts into contiguous ``(start, stop)`` row ranges of at most `chunk_rows`.
+
+    A single tile can hold ~100M+ transcripts, so reading it whole takes gigabytes (per concurrently running `dask`
+    task, or per tile in `atera_to_parquet`). An empty tile still yields one empty range, so it keeps a partition.
+    """
+    return [(start, min(start + chunk_rows, n_rows)) for start in range(0, n_rows, chunk_rows)] or [(0, 0)]
+
+
+def _read_transcript_tile(
+    path: Path, tile_key: str, feature_names: list[str], start: int = 0, stop: int | None = None
+) -> pd.DataFrame:
+    """Read and decode rows ``[start, stop)`` of a single spatial tile of transcripts.zarr.zip (default: the whole tile).
 
     Opens its own zip store (rather than sharing one across tiles) so this function can safely
     be called from independent `dask` tasks.
@@ -217,17 +230,22 @@ def _read_transcript_tile(path: Path, tile_key: str, feature_names: list[str]) -
     try:
         group = zarr.open_group(store, mode="r")
         tile = group.get_group(f"{AteraKeys.GRID_GROUP}/{tile_key}")
-        location = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_LOCATION))[...])
+        location_array = tile.get_array(str(AteraKeys.TRANSCRIPTS_LOCATION))
+        stop = location_array.shape[0] if stop is None else min(stop, location_array.shape[0])
+        location = np.asarray(location_array[start:stop])
         gene_offset = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))[...])
-        cell_id_raw = np.asarray(tile.get_array(str(AteraKeys.CELL_ID))[...])
-        overlaps_nucleus = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[...]).reshape(-1)
-        quality_score = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[...]).reshape(-1)
+        cell_id_raw = np.asarray(tile.get_array(str(AteraKeys.CELL_ID))[start:stop])
+        overlaps_nucleus = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:stop]).reshape(
+            -1
+        )
+        quality_score = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:stop]).reshape(-1)
     finally:
         store.close()
 
     # Rows within a tile are sorted by gene; gene_offset[g] = [start, end) gives the row range for
-    # gene g, so the per-row gene index must be reconstructed rather than read directly.
-    gene_index = np.repeat(np.arange(len(gene_offset)), gene_offset[:, 1] - gene_offset[:, 0])
+    # gene g, so the per-row gene index must be reconstructed rather than read directly: row r belongs to
+    # the first gene whose range ends after r.
+    gene_index = np.searchsorted(gene_offset[:, 1], np.arange(start, stop), side="right")
     feature_name = pd.Categorical.from_codes(gene_index, categories=pd.Index(feature_names))
 
     return pd.DataFrame(
@@ -248,7 +266,11 @@ def _get_points(path: Path, pixel_size: float, feature_names: list[str]) -> dd.D
     store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
-        tile_keys = sorted(group.get_group(str(AteraKeys.GRID_GROUP)).group_keys())
+        grid = group.get_group(str(AteraKeys.GRID_GROUP))
+        tile_keys = sorted(grid.group_keys())
+        tile_sizes = {
+            key: grid.get_group(key).get_array(str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0] for key in tile_keys
+        }
     finally:
         store.close()
 
@@ -264,7 +286,13 @@ def _get_points(path: Path, pixel_size: float, feature_names: list[str]) -> dd.D
             "quality_score": pd.array([], dtype="float32"),
         }
     )
-    delayed_tiles = [delayed(_read_transcript_tile)(path, key, feature_names) for key in tile_keys]
+    # One partition per `chunk_rows`-row slice of a tile (not per whole tile), so peak memory is bounded by
+    # `dask`'s number of concurrent tasks times the chunk size, however large a tile is.
+    delayed_tiles = [
+        delayed(_read_transcript_tile)(path, key, feature_names, start, stop)
+        for key in tile_keys
+        for start, stop in _tile_row_ranges(tile_sizes[key])
+    ]
     table = dd.from_delayed(delayed_tiles, meta=meta)
 
     transform = Scale([1.0 / pixel_size, 1.0 / pixel_size], axes=("x", "y"))
