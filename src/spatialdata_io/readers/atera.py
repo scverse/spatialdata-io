@@ -149,8 +149,9 @@ def atera(
         cells_table = True
 
     # Prefer `cell_labels` as the table's annotation target (matching the `xenium` reader's
-    # convention), but fall back to `cell_boundaries` when labels aren't being loaded, so the
-    # table doesn't end up annotating an element that isn't actually present in `sdata`.
+    # convention; instance ids are `obs["label_id"]`), but fall back to `cell_boundaries` (instance ids
+    # are `obs["cell_id"]`) when labels aren't being loaded, so the table doesn't end up annotating an
+    # element that isn't actually present in `sdata`.
     default_region = "cell_labels" if cells_labels else "cell_boundaries" if cells_boundaries else "cell_labels"
 
     table: AnnData | None = None
@@ -234,6 +235,25 @@ def _lazy_x(
     return da.concatenate(blocks, axis=0)
 
 
+def _add_label_id(obs_df: pd.DataFrame) -> None:
+    """Add ``obs["label_id"]``: the value each cell takes in the ``cell_labels`` raster.
+
+    ``cells.zarr.zip`` ``masks/1`` is labelled ``1..n_obs`` by row position, which is *not* the (large,
+    packed) ``obs["cell_id"]``. Must be called on the full `obs` before any row subsetting.
+    """
+    obs_df[str(AteraKeys.LABEL_ID)] = np.arange(1, len(obs_df) + 1, dtype=np.uint32)
+
+
+def _parse_table(adata: AnnData, region: str) -> AnnData:
+    """Annotate `region` with `adata`, using whichever `obs` column holds that element's instance ids.
+
+    ``cell_labels`` raster values are ``label_id``; ``cell_boundaries`` shapes are indexed by ``cell_id``.
+    """
+    instance_key = AteraKeys.LABEL_ID if region == "cell_labels" else AteraKeys.CELL_ID
+    adata.obs["region"] = pd.Categorical([region] * adata.n_obs)
+    return TableModel.parse(adata, region=region, region_key="region", instance_key=str(instance_key))
+
+
 def _get_table(
     path: Path,
     var_columns: list[str] | Literal["all"] = DEFAULT_VAR_COLUMNS,
@@ -265,6 +285,7 @@ def _get_table(
                 var_df = var_df[list(var_columns)]
 
             obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
+            _add_label_id(obs_df)
 
             obsm = (
                 cast(dict[str, Any], read_elem(group[str(AteraKeys.OBSM_GROUP)]))
@@ -284,15 +305,7 @@ def _get_table(
     adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
         [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
     ].to_numpy()
-    adata.obs["region"] = pd.Categorical([region] * n_obs)
-
-    table = TableModel.parse(
-        adata,
-        region=region,
-        region_key="region",
-        instance_key=str(AteraKeys.CELL_ID),
-    )
-    return table, feature_names
+    return _parse_table(adata, region), feature_names
 
 
 def read_var(path: str | Path) -> pd.DataFrame:
@@ -372,6 +385,7 @@ def read_table_for_cells(
             if var_columns != "all":
                 var_df = var_df[list(var_columns)]
             obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
+            _add_label_id(obs_df)
 
         if cell_ids is not None:
             index = pd.Index(obs_df[str(AteraKeys.CELL_ID)].to_numpy())
@@ -389,19 +403,11 @@ def read_table_for_cells(
     finally:
         store.close()
 
-    n_obs = len(obs_subset)
     adata = AnnData(X=x, obs=obs_subset, var=var_df)
     adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
         [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
     ].to_numpy()
-    adata.obs["region"] = pd.Categorical(["cell_labels"] * n_obs)
-
-    return TableModel.parse(
-        adata,
-        region="cell_labels",
-        region_key="region",
-        instance_key=str(AteraKeys.CELL_ID),
-    )
+    return _parse_table(adata, "cell_labels")
 
 
 def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnData:
@@ -452,7 +458,7 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
             var_subset.index = pd.Index(np.asarray(genes), name=str(AteraKeys.FEATURE_NAME))
 
             obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
-            n_obs = len(obs_df)
+            _add_label_id(obs_df)
 
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
         x: csc_matrix = cast(csc_matrix, x_ds[:, col_positions])
@@ -460,11 +466,4 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
         store.close()
 
     adata = AnnData(X=x, obs=obs_df, var=var_subset)
-    adata.obs["region"] = pd.Categorical(["cell_labels"] * n_obs)
-
-    return TableModel.parse(
-        adata,
-        region="cell_labels",
-        region_key="region",
-        instance_key=str(AteraKeys.CELL_ID),
-    )
+    return _parse_table(adata, "cell_labels")

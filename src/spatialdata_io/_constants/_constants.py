@@ -201,6 +201,7 @@ class AteraKeys(ModeEnum):
 
     # obs / cell identifiers
     CELL_ID = "cell_id"
+    LABEL_ID = "label_id"
     CENTROID_X = "centroid_column"
     CENTROID_Y = "centroid_row"
     CELL_AREA = "cell_area"
