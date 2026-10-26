@@ -235,6 +235,27 @@ def _lazy_x(
     return da.concatenate(blocks, axis=0)
 
 
+def _align_index_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Make a column that shares the index's name have the index's dtype.
+
+    The bundles' `obs`/`var` list the index (`barcode`/`feature_id`) as a column too. Under pandas 3,
+    `read_elem` returns that index as `str` but the column as `object`, and `anndata` refuses to write
+    a name that is both index and column unless the two compare equal, which `pd.Series.equals` only does
+    for matching dtypes.
+    """
+    name = df.index.name
+    if name is not None and name in df.columns:
+        df[name] = df[name].astype(df.index.dtype)
+    return df
+
+
+def _read_dataframe(group: zarr.Group, key: AteraKeys) -> pd.DataFrame:
+    """Read ``group[key]`` with `anndata.io.read_elem` as a `DataFrame` that `anndata` can write back."""
+    from anndata.io import read_elem
+
+    return _align_index_column(cast(pd.DataFrame, read_elem(group[str(key)])))
+
+
 def _add_label_id(obs_df: pd.DataFrame) -> None:
     """Add ``obs["label_id"]``: the value each cell takes in the ``cell_labels`` raster.
 
@@ -279,12 +300,12 @@ def _get_table(
         group = zarr.open_group(store, mode="r")
 
         with _patched_ragged_vlen_chunk_decode():
-            var_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.VAR_GROUP)]))
+            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
             feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
             if var_columns != "all":
                 var_df = var_df[list(var_columns)]
 
-            obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
+            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
             _add_label_id(obs_df)
 
             obsm = (
@@ -326,14 +347,12 @@ def read_var(path: str | Path) -> pd.DataFrame:
     -------
     The complete `var` `DataFrame`, indexed by `feature_id`.
     """
-    from anndata.io import read_elem
-
     path = Path(path)
     store = zarr.storage.ZipStore(path / AteraKeys.CELL_FEATURE_MATRIX_FILE, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
         with _patched_ragged_vlen_chunk_decode():
-            var_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.VAR_GROUP)]))
+            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
     finally:
         store.close()
     return var_df
@@ -374,17 +393,17 @@ def read_table_for_cells(
     if (cell_ids is None) == (bbox is None):
         raise ValueError("Exactly one of `cell_ids`/`bbox` must be given.")
     from anndata import AnnData
-    from anndata.io import read_elem, sparse_dataset
+    from anndata.io import sparse_dataset
 
     path = Path(path)
     store = zarr.storage.ZipStore(path / AteraKeys.CELL_FEATURE_MATRIX_FILE, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
         with _patched_ragged_vlen_chunk_decode():
-            var_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.VAR_GROUP)]))
+            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
             if var_columns != "all":
                 var_df = var_df[list(var_columns)]
-            obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
+            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
             _add_label_id(obs_df)
 
         if cell_ids is not None:
@@ -433,7 +452,7 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
     `sdata.tables["table"].obs`/`sdata.shapes["cell_boundaries"]` for plotting).
     """
     from anndata import AnnData
-    from anndata.io import read_elem, sparse_dataset
+    from anndata.io import sparse_dataset
 
     genes = [genes] if isinstance(genes, str) else list(genes)
     path = Path(path)
@@ -442,7 +461,7 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
         group = zarr.open_group(store, mode="r")
 
         with _patched_ragged_vlen_chunk_decode():
-            var_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.VAR_GROUP)]))[
+            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)[
                 [str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME)]
             ]
             feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
@@ -456,8 +475,9 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
 
             var_subset = var_df.iloc[col_positions]
             var_subset.index = pd.Index(np.asarray(genes), name=str(AteraKeys.FEATURE_NAME))
+            _align_index_column(var_subset)
 
-            obs_df = cast(pd.DataFrame, read_elem(group[str(AteraKeys.OBS_GROUP)]))
+            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
             _add_label_id(obs_df)
 
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
