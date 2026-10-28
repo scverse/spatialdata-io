@@ -955,17 +955,20 @@ class CosMxDatasetReader:
 
         adata.obs["region_key"] = pd.Series(region, index=adata.obs.index, dtype="category")
 
+        if bg_df is not None:
+            # var-aligned (genes x FOVs): as an uns DataFrame its gene columns become zarr keys, and probe names
+            # like "Gstp1/2" are not valid keys. Set before sanitize_table so varm follows any var renaming.
+            missing = adata.var_names.difference(bg_df.columns)
+            if len(missing):
+                raise ValueError(f"Background rows lack {len(missing)} gene(s) of the table, e.g. {list(missing[:3])}")
+            adata.varm["fov_bg_signal"] = pd.DataFrame(
+                bg_df[adata.var_names].to_numpy().T, index=adata.var_names, columns=[f"fov_{f}" for f in bg_df.index]
+            )
+
         # Zarr-safe, case-insensitively unique obs/var keys (spatialdata core),
         # then categoricals → string (zarr cannot serialize categoricals).
         sanitize_table(adata)
         _pandas_categoricals_to_string(cast(pd.DataFrame, adata.obs))
-
-        if bg_df is not None:
-            # var-aligned (genes x FOVs): as an uns DataFrame its gene columns become zarr keys, and probe names
-            # like "Gstp1/2" are not valid keys. bg_df columns follow the var order (sanitize_table keeps it).
-            adata.varm["fov_bg_signal"] = pd.DataFrame(
-                bg_df.to_numpy().T, index=adata.var_names, columns=[f"fov_{f}" for f in bg_df.index]
-            )
 
         table = _parse_cell_table(adata, region=region)
         return {"cell_data": table}
