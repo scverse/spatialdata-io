@@ -1762,3 +1762,26 @@ class TestExprMatMetadataColumns:
         assert {"sampleID", "slide", "case"} <= set(adata.obs.columns)
         assert "" not in adata.obs.columns
         assert adata.obs["slide"].tolist() == ["TMA_B_10", "TMA_B_10"]
+
+
+class TestBackgroundSignal:
+    def test_slash_probe_names_round_trip(self, sdio, fixture_a, tmp_path):
+        # Multi-gene probes ("Gstp1/2") are not valid zarr keys, so the per-FOV background (cell_ID=0 rows)
+        # is stored var-aligned in varm instead of as an uns DataFrame with gene columns.
+        import shutil
+
+        import spatialdata as sd
+
+        root = tmp_path / "bg"
+        shutil.copytree(fixture_a, root)
+        expr_path = root / "S0_exprMat_file.csv.gz"
+        expr = pd.read_csv(expr_path)
+        gene = next(c for c in expr.columns if c not in ("fov", "cell_ID"))
+        expr = expr.rename(columns={gene: "Gstp1/2"})
+        bg = expr.iloc[[0, 0]].assign(fov=[1, 2], cell_ID=0, **{"Gstp1/2": [7, 9]})
+        _write_csv(expr_path, pd.concat([bg, expr]), compress=True)
+
+        table = _read(sdio, root, read_images=False)["cell_data"]
+        np.testing.assert_array_equal(table.varm["fov_bg_signal"].loc["Gstp1/2"].to_numpy(), [7, 9])
+        assert list(table.varm["fov_bg_signal"].columns) == ["fov_1", "fov_2"]
+        sd.SpatialData(tables={"t": table}).write(tmp_path / "bg.zarr")

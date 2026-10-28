@@ -960,7 +960,11 @@ class CosMxDatasetReader:
         _pandas_categoricals_to_string(cast(pd.DataFrame, adata.obs))
 
         if bg_df is not None:
-            adata.uns["fov_bg_signal"] = bg_df
+            # var-aligned (genes x FOVs): as an uns DataFrame its gene columns become zarr keys, and probe names
+            # like "Gstp1/2" are not valid keys. bg_df columns follow the var order (sanitize_table keeps it).
+            adata.varm["fov_bg_signal"] = pd.DataFrame(
+                bg_df.to_numpy().T, index=adata.var_names, columns=[f"fov_{f}" for f in bg_df.index]
+            )
 
         table = _parse_cell_table(adata, region=region)
         return {"cell_data": table}
