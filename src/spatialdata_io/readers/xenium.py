@@ -533,10 +533,10 @@ def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 1000) -> N
     np.testing.assert_array_equal(np.asarray(a[idx]), np.asarray(b[idx]))
 
 
-def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
-    if len(cell_id_column) and isinstance(cell_id_column.iloc[0], bytes):
-        return cell_id_column.str.decode("utf-8")
-    return cell_id_column
+def _decode_bytes_column(column: pd.Series) -> pd.Series:
+    if len(column) and isinstance(column.iloc[0], bytes):
+        return column.str.decode("utf-8")
+    return column
 
 
 def _cell_id_to_label_index(indices_mapping: pd.DataFrame) -> pd.Series:
@@ -691,7 +691,7 @@ def _get_polygons(
         #   in that case, which would imply that we don't fall into this slow fallback. This
         #   could be work for a future version.
         unique_ids = id_col.filter(np.concatenate([[True], change_mask])).to_pylist()
-        index = _decode_cell_id_column(pd.Series(unique_ids))
+        index = _decode_bytes_column(pd.Series(unique_ids))
         geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
         geo_df.index.name = "cell_id"
 
@@ -779,6 +779,13 @@ def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     else:
         table[XeniumKeys.FEATURE_NAME] = table[XeniumKeys.FEATURE_NAME].astype(cat_dtype)
 
+    # other string columns (e.g. fov_name in XOA < 1.3) may also be stored as parquet binary; left as
+    # bytes they have object dtype, which cannot be written back to parquet
+    for col in table.select_dtypes(include="object").columns:
+        table[col] = table[col].map_partitions(
+            lambda s: _decode_bytes_column(s).astype("str"), meta=pd.Series(dtype="str", name=col)
+        )
+
     transform = Scale([1.0 / specs["pixel_size"], 1.0 / specs["pixel_size"]], axes=("x", "y"))
     points = PointsModel.parse(
         table,
@@ -820,7 +827,7 @@ def _csv_indices_mapping(path: Path, gz_name: str) -> pd.DataFrame | None:
         return None
     df = pd.read_csv(csv, usecols=[str(XeniumKeys.CELL_ID), "label_id"]).drop_duplicates("label_id")
     return pd.DataFrame(
-        {"cell_id": _decode_cell_id_column(df[XeniumKeys.CELL_ID]).to_numpy(), "label_index": df["label_id"].to_numpy()}
+        {"cell_id": _decode_bytes_column(df[XeniumKeys.CELL_ID]).to_numpy(), "label_index": df["label_id"].to_numpy()}
     )
 
 
@@ -834,7 +841,7 @@ def _read_cell_metadata(path: Path) -> pd.DataFrame:
         metadata = pd.read_parquet(path / XeniumKeys.CELL_METADATA_FILE)
     else:
         metadata = pd.read_csv(_resolve_csv(path, XeniumKeys.CELL_METADATA_FILE_CSV))
-    metadata[XeniumKeys.CELL_ID] = _decode_cell_id_column(metadata[XeniumKeys.CELL_ID])
+    metadata[XeniumKeys.CELL_ID] = _decode_bytes_column(metadata[XeniumKeys.CELL_ID])
     return metadata
 
 
