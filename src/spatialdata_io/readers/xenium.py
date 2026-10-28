@@ -802,6 +802,11 @@ def _get_labels_from_boundaries(
 def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     if (path / XeniumKeys.TRANSCRIPTS_FILE).is_file():
         table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
+    elif (
+        not any((path / n).is_file() for n in (XeniumKeys.TRANSCRIPTS_FILE_CSV, "transcripts.csv"))
+        and (path / XeniumKeys.TRANSCRIPTS_ZARR).is_file()
+    ):
+        table = _read_transcripts_zarr(path / XeniumKeys.TRANSCRIPTS_ZARR)
     else:
         # pre-1.3.0 (XOA < 1.3.0) CSV-only export; gzip is not splittable, so read as one partition.
         table = dask_read_csv(_resolve_csv(path, XeniumKeys.TRANSCRIPTS_FILE_CSV), blocksize=None)
@@ -810,11 +815,14 @@ def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     sample = table[XeniumKeys.FEATURE_NAME].head(1)
     needs_decode = isinstance(sample.iloc[0], bytes)
 
-    # get unique categories (fast)
-    categories = table[XeniumKeys.FEATURE_NAME].drop_duplicates().compute()
-    if needs_decode:
-        categories = categories.str.decode("utf-8")
-    cat_dtype = pd.CategoricalDtype(categories=categories)
+    if isinstance(table[XeniumKeys.FEATURE_NAME].dtype, pd.CategoricalDtype):  # transcripts.zarr.zip: known genes
+        cat_dtype = table[XeniumKeys.FEATURE_NAME].dtype
+    else:
+        # get unique categories (fast)
+        categories = table[XeniumKeys.FEATURE_NAME].drop_duplicates().compute()
+        if needs_decode:
+            categories = categories.str.decode("utf-8")
+        cat_dtype = pd.CategoricalDtype(categories=categories)
 
     # decode column if needed, then convert to categorical
     if needs_decode:
@@ -833,11 +841,65 @@ def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
             "z": XeniumKeys.TRANSCRIPTS_Z,
         },
         feature_key=XeniumKeys.FEATURE_NAME,
-        instance_key=XeniumKeys.CELL_ID,
+        instance_key=XeniumKeys.CELL_ID if XeniumKeys.CELL_ID in table.columns else None,
         transformations={"global": transform},
         sort=True,
     )
     return points
+
+
+def _read_transcripts_zarr(zip_path: Path, rows_per_partition: int = 5_000_000) -> Any:
+    """Read the transcripts of ``transcripts.zarr.zip`` as a dask DataFrame with the parquet column names.
+
+    Level 0 of ``grids/`` holds every transcript once, split into spatial tiles. Tiles are grouped into
+    partitions of about ``rows_per_partition`` rows. The zarr has no per-transcript ``cell_id`` or
+    ``overlaps_nucleus``, so those columns are absent. ``transcript_id`` is rebuilt from the two ``uuid``
+    words as in the parquet.
+
+    See https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#transcripts
+    """
+    import dask
+    import dask.dataframe as dd
+
+    root = zarr.open_group(zarr.storage.ZipStore(zip_path, read_only=True), mode="r")
+    genes = pd.CategoricalDtype(root.attrs["gene_names"])  # type: ignore[arg-type]
+    grid = root["grids/0"]
+    assert isinstance(grid, zarr.Group)
+    tiles = sorted(grid.group_keys())
+
+    def frame(loc: np.ndarray, uuid: np.ndarray, gene: np.ndarray, qv: np.ndarray) -> pd.DataFrame:
+        uuid = uuid.astype(np.uint64)
+        return pd.DataFrame(
+            {
+                "transcript_id": (uuid[:, 1] << np.uint64(32)) | uuid[:, 0],
+                XeniumKeys.FEATURE_NAME: pd.Categorical.from_codes(gene[:, 0].astype(np.int32), dtype=genes),
+                XeniumKeys.TRANSCRIPTS_X: loc[:, 0],
+                XeniumKeys.TRANSCRIPTS_Y: loc[:, 1],
+                XeniumKeys.TRANSCRIPTS_Z: loc[:, 2],
+                XeniumKeys.QUALITY_VALUE: qv[:, 0],
+            }
+        )
+
+    def load(keys: list[str]) -> pd.DataFrame:
+        arrays = ("location", "uuid", "gene_identity", "quality_score")
+        frames = [frame(*(np.asarray(_zarr_array(grid, f"{k}/{a}")[:]) for a in arrays)) for k in keys]
+        return pd.concat(frames, ignore_index=True)
+
+    meta = frame(
+        np.empty((0, 3), np.float32),
+        np.empty((0, 2), np.uint32),
+        np.empty((0, 1), np.uint16),
+        np.empty((0, 1), np.float32),
+    )
+    batches: list[list[str]] = [[]]
+    n = 0
+    for key in tiles:
+        if n >= rows_per_partition:
+            batches.append([])
+            n = 0
+        batches[-1].append(key)
+        n += _zarr_array(grid, f"{key}/location").shape[0]
+    return dd.from_delayed([dask.delayed(load)(b) for b in batches], meta=meta, verify_meta=False)
 
 
 def _resolve_csv(path: Path, gz_name: str) -> Path:

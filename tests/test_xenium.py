@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
 import pytest
+import zarr
 from click.testing import CliRunner
 from pytest_mock import MockerFixture
 from spatialdata import match_table_to_element, read_zarr
@@ -489,3 +490,58 @@ def test_cli_xenium_valid_json_forwarded(
     assert result.exit_code == 0, result.output
     call_kwargs = mock_xenium.call_args.kwargs
     assert call_kwargs[kwarg_param] == {"chunks": 512}
+
+
+def _write_transcripts_zarr(tx: pd.DataFrame, dest: Path, n_tiles: int = 3) -> None:
+    """Write ``tx`` (parquet/csv columns) as an XOA ``transcripts.zarr.zip``: level-0 tiles plus gene_names."""
+    import shutil
+
+    genes = sorted(tx["feature_name"].unique())
+    src = dest.with_suffix("")  # written as a directory store, then zipped (as XOA ships it)
+    root = zarr.group(store=zarr.storage.LocalStore(src), zarr_format=2)
+    root.attrs["gene_names"] = genes
+    grid = root.create_group("grids/0")
+    tid = tx["transcript_id"].to_numpy(np.uint64)
+    for i, chunk in enumerate(np.array_split(np.arange(len(tx)), n_tiles)):
+        t, tile = tx.iloc[chunk], grid.create_group(f"0,{i}")
+        cols = {
+            "location": t[["x_location", "y_location", "z_location"]].to_numpy(np.float32),
+            "uuid": np.stack([tid[chunk] & 0xFFFFFFFF, tid[chunk] >> np.uint64(32)], axis=1).astype(np.uint32),
+            "gene_identity": t["feature_name"].map({g: j for j, g in enumerate(genes)}).to_numpy(np.uint16)[:, None],
+            "quality_score": t[["qv"]].to_numpy(np.float32),
+        }
+        for name, arr in cols.items():
+            tile.create_array(name, data=arr)
+    shutil.make_archive(str(src), "zip", src)
+    shutil.rmtree(src)
+
+
+def test_xenium_transcripts_zarr_only(tmp_path: Path) -> None:
+    # GEO deposits that keep XOA's transcripts.zarr.zip but no transcripts.parquet/csv (GSE296053).
+    import shutil
+
+    for f in XENIUM_CSV_ONLY.iterdir():
+        if f.name != "transcripts.csv.gz":
+            shutil.copy(f, tmp_path / f.name)
+    tx = pd.read_csv(XENIUM_CSV_ONLY / "transcripts.csv.gz")
+    _write_transcripts_zarr(tx, tmp_path / "transcripts.zarr.zip")
+
+    kw = {"morphology_mip": False, "morphology_focus": False, "aligned_images": False}
+    pts = xenium(tmp_path, **kw)["transcripts"].compute()
+    ref = xenium(XENIUM_CSV_ONLY, **kw)["transcripts"].compute()
+    assert "cell_id" not in pts.columns  # the zarr has no per-transcript cell assignment
+    cols = ["transcript_id", "x", "y", "z", "qv"]
+    a = pts.sort_values("transcript_id").reset_index(drop=True)
+    b = ref.sort_values("transcript_id").reset_index(drop=True)
+    np.testing.assert_allclose(a[cols].to_numpy(float), b[cols].to_numpy(float), rtol=1e-6)
+    assert (a["feature_name"].astype(str) == b["feature_name"].astype(str)).all()
+
+
+def test_read_transcripts_zarr_partitions(tmp_path: Path) -> None:
+    from spatialdata_io.readers.xenium import _read_transcripts_zarr
+
+    tx = pd.read_csv(XENIUM_CSV_ONLY / "transcripts.csv.gz")
+    _write_transcripts_zarr(tx, tmp_path / "transcripts.zarr.zip", n_tiles=4)
+    ddf = _read_transcripts_zarr(tmp_path / "transcripts.zarr.zip", rows_per_partition=len(tx) // 3)
+    assert ddf.npartitions > 1
+    assert len(ddf.compute()) == len(tx)
