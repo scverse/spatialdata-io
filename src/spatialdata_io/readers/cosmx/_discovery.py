@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from spatialdata._logging import logger
 
@@ -213,7 +213,13 @@ def _modality_from_ancestors(file: Path, root: Path) -> str | None:
     return None
 
 
-def _discover_modalities(path: Path, base_id: str | None) -> dict[str, dict[str, Path]]:
+class _ModalityInfo(TypedDict):
+    prefix: str
+    exprMat_file: Path
+    flat_root: NotRequired[Path]
+
+
+def _discover_modalities(path: Path, base_id: str | None) -> dict[str, _ModalityInfo]:
     """Detect multiple modality prefixes (e.g. ``S3RNA`` / ``S3Protein``).
 
     Handles two conventions:
@@ -229,7 +235,7 @@ def _discover_modalities(path: Path, base_id: str | None) -> dict[str, dict[str,
     key pointing to the directory that contains the flat files for that
     modality so the scanner can be scoped correctly.
     """
-    modalities: dict[str, dict[str, Path]] = {}
+    modalities: dict[str, _ModalityInfo] = {}
     expr_files = list(path.rglob("*exprMat_file.csv*"))
     for f in expr_files:
         stem = f.name
@@ -257,7 +263,7 @@ def _discover_modalities(path: Path, base_id: str | None) -> dict[str, dict[str,
                 mod = dir_mod
                 flat_root = f.parent
         if mod not in modalities:
-            info: dict[str, Path] = {"prefix": prefix, "exprMat_file": f}
+            info: _ModalityInfo = {"prefix": prefix, "exprMat_file": f}
             if flat_root is not None:
                 info["flat_root"] = flat_root
             modalities[mod] = info

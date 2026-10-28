@@ -8,7 +8,7 @@ import math
 import re
 import shutil
 import subprocess
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import dask.array as da
 import pandas as pd
@@ -151,7 +151,7 @@ def _read_fov_locs(
     df["flip_y"] = bool(needs_extra_flip)
 
     # 7) index + optional subset
-    df = df.set_index("fov", verify_integrity=True).sort_index()
+    df = df.set_index("fov", verify_integrity=True).sort_index()  # type: ignore[call-overload]  # verify_integrity is deprecated in pandas 3, dropped from the stubs
 
     if fovs is not None:
         fovs_sorted = sorted(int(f) for f in fovs)
@@ -174,7 +174,8 @@ def _get_cosmx_morphology_coords(images_dir: Path) -> list[str]:
         raise FileNotFoundError(f"Expected to find images inside {images_dir}")
 
     with tifffile.TiffFile(images_paths[0]) as tif:
-        description = tif.pages[0].description
+        page = cast("tifffile.TiffPage", tif.pages[0])
+        description = page.description
         substrings = re.findall(r'"BiologicalTarget": "(.*?)",', description)
         channels = re.findall(r'"ChannelId": "(.*?)",', description)
         channel_order = list(re.findall(r'"ChannelOrder": "(.*?)",', description)[0])
@@ -183,7 +184,8 @@ def _get_cosmx_morphology_coords(images_dir: Path) -> list[str]:
 
 def _get_cosmx_protein_name(image_path: Path) -> str:
     with tifffile.TiffFile(image_path) as tif:
-        description = tif.pages[0].description
+        page = cast("tifffile.TiffPage", tif.pages[0])
+        description = page.description
         substrings = re.findall(r'"DisplayName": "(.*?)",', description)
         return substrings[0].replace("/", ".")
 
@@ -294,7 +296,7 @@ def _read_expr_mat_polars(
         )
         pdf = pdf.loc[~bg_mask]
 
-    obs = pdf[["fov", "cell_ID", "fov_cellID"]].set_index("fov_cellID", verify_integrity=True)
+    obs = pdf[["fov", "cell_ID", "fov_cellID"]].set_index("fov_cellID", verify_integrity=True)  # type: ignore[call-overload]  # verify_integrity is deprecated in pandas 3, dropped from the stubs
     X = scipy.sparse.csr_matrix(pdf[expr_cols].values)
     var = pd.DataFrame({"gene": expr_cols}).set_index("gene")
 
@@ -316,7 +318,7 @@ def _read_metadata_polars(
     )
 
     pdf = df.to_pandas()
-    return pdf.set_index("fov_cellID", verify_integrity=True)
+    return pdf.set_index("fov_cellID", verify_integrity=True)  # type: ignore[call-overload]  # verify_integrity is deprecated in pandas 3, dropped from the stubs
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +504,7 @@ def _read_polygons_csv(
         else:
             geoms.append(poly)
 
-    pdf["geometry"] = geoms
+    pdf["geometry"] = cast("list[Any]", geoms)
     if bad:
         logger.warning("%s: skipped %d malformed polygon(s).", csv_path.name, bad)
     pdf = pdf.dropna(subset=["geometry"]).reset_index(drop=True)
@@ -550,7 +552,7 @@ def _stream_csvgz_to_parquet(
         raise ValueError(f"{src} appears empty or header-only")
 
     if src.suffix != ".gz":
-        fin: io.BufferedReader | io.RawIOBase = open(src, "rb")
+        fin: io.BufferedReader | io.RawIOBase | gzip.GzipFile = open(src, "rb")
     elif n_workers and n_workers > 1 and shutil.which("pigz"):
         proc = subprocess.Popen(
             ["pigz", f"-p{n_workers}", "-dc", str(src)],

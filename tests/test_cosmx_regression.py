@@ -675,6 +675,7 @@ class TestLabelTranscriptCoRegistration:
             n_workers=1,
             fov_local_to_global=None,
         )
+        assert stitched is not None
         arr = np.asarray(stitched.compute() if hasattr(stitched, "compute") else stitched)
         ox, oy = float(used["xmin"].min()), float(used["ymin"].min())
         looked_up = _lookup_centres(arr, fov_locs, 1, n_cells, ox, oy)

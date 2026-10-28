@@ -20,6 +20,7 @@ import pandas as pd
 import tifffile
 import xarray as xr
 import zarr
+from dask.delayed import Delayed
 from dask.diagnostics import ProgressBar
 from dask.utils import SerializableLock
 from skimage.draw import polygon
@@ -120,8 +121,8 @@ def _snap_fov_grid(
     wanted_h = int(round(fov_size))
 
     for f in fov_locs.index:
-        x0 = int(round(float(fov_locs.at[f, "xmin"]) - x_min))
-        y0 = int(round(float(fov_locs.at[f, "ymin"]) - y_min))
+        x0 = int(round(float(fov_locs["xmin"].loc[f]) - x_min))
+        y0 = int(round(float(fov_locs["ymin"].loc[f]) - y_min))
 
         w = wanted_w
         h = wanted_h
@@ -150,8 +151,8 @@ def _snap_fov_grid(
         fov_locs.at[f, "y0"] = y0
         fov_locs.at[f, "y1"] = y1
 
-        fov_locs.at[f, "xmax"] = float(fov_locs.at[f, "xmin"]) + w
-        fov_locs.at[f, "ymax"] = float(fov_locs.at[f, "ymin"]) + h
+        fov_locs.at[f, "xmax"] = float(fov_locs["xmin"].loc[f]) + w
+        fov_locs.at[f, "ymax"] = float(fov_locs["ymin"].loc[f]) + h
 
     return fov_locs
 
@@ -258,8 +259,8 @@ def _read_stitched_image(
         seen_fovs.append(fov)
 
         _, h, w = img.shape
-        fov_locs.loc[fov, "xmax"] = float(fov_locs.loc[fov, "xmin"]) + w
-        fov_locs.loc[fov, "ymax"] = float(fov_locs.loc[fov, "ymin"]) + h
+        fov_locs.loc[fov, "xmax"] = float(fov_locs["xmin"].loc[fov]) + w
+        fov_locs.loc[fov, "ymax"] = float(fov_locs["ymin"].loc[fov]) + h
 
     if not seen_fovs:
         logger.warning("No matching FOV images found to stitch — skipping images.")
@@ -290,17 +291,17 @@ def _read_stitched_image(
 
     z_img = _open_temp_zarr("cosmx_stitch_", (len(all_channels), H, W), (1, cy, cx), sample_dtype)
 
-    store_ops: list[dask.delayed] = []
+    store_ops: list[Delayed] = []
     lock = SerializableLock()  # shared across tiles: serialises writes to shared zarr chunks
 
     for fov in tqdm(seen_fovs, desc="Reading FOVs", unit="fov"):
         img = fov_images[fov].rechunk((1, cy, cx))
         c_here = fov_channels[fov]
 
-        y0 = int(fov_locs.loc[fov, "y0"])
-        y1 = int(fov_locs.loc[fov, "y1"])
-        x0 = int(fov_locs.loc[fov, "x0"])
-        x1 = int(fov_locs.loc[fov, "x1"])
+        y0 = int(fov_locs["y0"].loc[fov])
+        y1 = int(fov_locs["y1"].loc[fov])
+        x0 = int(fov_locs["x0"].loc[fov])
+        x1 = int(fov_locs["x1"].loc[fov])
 
         slices = _clip_tile_to_canvas(y0, y1, x0, x1, H, W)
         if slices is None:
@@ -313,7 +314,7 @@ def _read_stitched_image(
             src = img[local_ci : local_ci + 1, src_y, src_x]
             region = (slice(global_ci, global_ci + 1), gl_y, gl_x)
 
-            op = da.store(src, z_img, regions=region, lock=lock, compute=False)
+            op = da.store(src, z_img, regions=region, lock=lock, compute=False)  # type: ignore[arg-type]  # dask types reject zarr targets and SerializableLock, both supported
             store_ops.append(op)
 
     with ProgressBar():
@@ -396,8 +397,8 @@ def _read_stitched_cell_labels_from_dir(
         tile = da.from_array(arr, chunks=arr.shape)
 
         h, w = arr.shape
-        fov_locs.loc[fov, "xmax"] = float(fov_locs.loc[fov, "xmin"]) + w
-        fov_locs.loc[fov, "ymax"] = float(fov_locs.loc[fov, "ymin"]) + h
+        fov_locs.loc[fov, "xmax"] = float(fov_locs["xmin"].loc[fov]) + w
+        fov_locs.loc[fov, "ymax"] = float(fov_locs["ymin"].loc[fov]) + h
 
         fov_tiles[fov] = tile
         seen_fovs.append(fov)
@@ -417,23 +418,23 @@ def _read_stitched_cell_labels_from_dir(
 
     z_arr = _open_temp_zarr("cosmx_cell_labels_", (total_y, total_x), (cy, cx), next(iter(fov_tiles.values())).dtype)
 
-    store_ops: list[dask.delayed] = []
+    store_ops: list[Delayed] = []
     lock = SerializableLock()  # shared across tiles: serialises writes to shared zarr chunks
 
     for fov, tile in fov_tiles.items():
         tile = tile.rechunk((cy, cx))
 
-        y0 = int(stitched_fov_locs.loc[fov, "y0"])
-        y1 = int(stitched_fov_locs.loc[fov, "y1"])
-        x0 = int(stitched_fov_locs.loc[fov, "x0"])
-        x1 = int(stitched_fov_locs.loc[fov, "x1"])
+        y0 = int(stitched_fov_locs["y0"].loc[fov])
+        y1 = int(stitched_fov_locs["y1"].loc[fov])
+        x0 = int(stitched_fov_locs["x0"].loc[fov])
+        x1 = int(stitched_fov_locs["x1"].loc[fov])
 
         slices = _clip_tile_to_canvas(y0, y1, x0, x1, total_y, total_x)
         if slices is None:
             continue
         gl_y, gl_x, src_y, src_x = slices
 
-        op = da.store(tile[src_y, src_x], z_arr, regions=(gl_y, gl_x), lock=lock, compute=False)
+        op = da.store(tile[src_y, src_x], z_arr, regions=(gl_y, gl_x), lock=lock, compute=False)  # type: ignore[arg-type]  # dask types reject zarr targets and SerializableLock, both supported
         store_ops.append(op)
 
     with ProgressBar():
@@ -577,7 +578,7 @@ def _polygons_to_label_raster(
 
             z_arr[y0:y1, x0:x1] = tile_canvas
 
-    tasks: list[dask.delayed] = []
+    tasks: list[Delayed] = []
     for ty in range(n_tiles_y):
         tasks.append(dask.delayed(_burn_row)(ty))
 
@@ -794,23 +795,23 @@ def stitch_segmentation_label_image(
 
     z_arr = _open_temp_zarr("cosmx_seg_labels_", (total_y, total_x), (cy, cx), next(iter(fov_tiles.values())).dtype)
 
-    store_ops: list[dask.delayed] = []
+    store_ops: list[Delayed] = []
     lock = SerializableLock()  # shared across tiles: serialises writes to shared zarr chunks
 
     for fov, tile in fov_tiles.items():
         tile = tile.rechunk((cy, cx))
 
-        y0 = int(fov_locs.loc[fov, "y0"])
-        y1 = int(fov_locs.loc[fov, "y1"])
-        x0 = int(fov_locs.loc[fov, "x0"])
-        x1 = int(fov_locs.loc[fov, "x1"])
+        y0 = int(fov_locs["y0"].loc[fov])
+        y1 = int(fov_locs["y1"].loc[fov])
+        x0 = int(fov_locs["x0"].loc[fov])
+        x1 = int(fov_locs["x1"].loc[fov])
 
         slices = _clip_tile_to_canvas(y0, y1, x0, x1, total_y, total_x)
         if slices is None:
             continue
         gl_y, gl_x, src_y, src_x = slices
 
-        op = da.store(tile[src_y, src_x], z_arr, regions=(gl_y, gl_x), lock=lock, compute=False)
+        op = da.store(tile[src_y, src_x], z_arr, regions=(gl_y, gl_x), lock=lock, compute=False)  # type: ignore[arg-type]  # dask types reject zarr targets and SerializableLock, both supported
         store_ops.append(op)
 
     with ProgressBar():
@@ -888,7 +889,7 @@ def _plot_fov_preview(
 
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    for x, y, _f in zip(x0s, y0s, fov_ids, strict=False):
+    for x, y, _f in zip(x0s.tolist(), y0s.tolist(), fov_ids, strict=False):
         rect = Rectangle(
             (x, y),
             fov_size,
@@ -899,13 +900,13 @@ def _plot_fov_preview(
         )
         ax.add_patch(rect)
 
-    text_kwargs = {
+    text_kwargs: dict[str, Any] = {
         "ha": "center",
         "va": "center",
         "color": "black",
         "fontsize": fontsize,
     }
-    for x, y, f in zip(x0s, y0s, fov_ids, strict=False):
+    for x, y, f in zip(x0s.tolist(), y0s.tolist(), fov_ids, strict=False):
         cx = x + fov_size / 2.0
         cy = y + fov_size / 2.0
         ax.text(cx, cy, str(f), **text_kwargs)

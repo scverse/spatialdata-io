@@ -22,7 +22,7 @@ import math
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast, overload
 
 import dask.array as da
 import dask.dataframe as dd
@@ -198,9 +198,10 @@ def _element_name(base: str, fovs: set[int] | None, *, max_listed: int = 8) -> s
 def _global_id_series(table: AnnData) -> pd.Series | None:
     """Return the (Int64-coerced) ``global_cell_id`` column of a table, or ``None``."""
     adata = table.table if hasattr(table, "table") else table
-    if "global_cell_id" not in adata.obs:
+    obs = cast(pd.DataFrame, adata.obs)
+    if "global_cell_id" not in obs:
         return None
-    col = adata.obs["global_cell_id"]
+    col = obs["global_cell_id"]
     return col.astype("Int64") if isinstance(col.dtype, pd.CategoricalDtype) else col
 
 
@@ -488,7 +489,7 @@ class CosMxDatasetReader:
         tighten = not (
             self.dataset.polygons_file is not None and (self.align_rasters_to_polygons or self.polygons_as_labels)
         )
-        image, c_coords, used_ox, used_oy = _read_stitched_image(
+        stitched, c_coords, used_ox, used_oy = _read_stitched_image(
             images_dir,
             sel_locs,
             prot_subset,
@@ -500,11 +501,11 @@ class CosMxDatasetReader:
             tighten_to_seen=tighten,
             **imread_kwargs,
         )
-        if image is None:
+        if stitched is None:
             return {}
         img_transform = _translation_transform(used_ox, used_oy) if tighten else transform
         name = "stitched_image" if not self.fovs else _element_name("image", self.fovs)
-        return {name: self._normalize_and_parse_image(image, c_coords, img_transform, image_models_kwargs)}
+        return {name: self._normalize_and_parse_image(stitched, c_coords, img_transform, image_models_kwargs)}
 
     def _normalize_and_parse_image(
         self,
@@ -666,7 +667,7 @@ class CosMxDatasetReader:
             return {}
 
         poly_df = self._get_polygons()
-        ox, oy = self._origin_x, self._origin_y
+        ox, oy = cast(float, self._origin_x), cast(float, self._origin_y)  # set by _get_polygons()
         gdf = gpd.GeoDataFrame(poly_df.copy(), geometry="geometry").set_index("global_cell_id", drop=False)
 
         return {
@@ -691,11 +692,11 @@ class CosMxDatasetReader:
             xmin = float(row.get("xmin", math.nan))
             ymin = float(row.get("ymin", math.nan))
             if not math.isfinite(xmin) or not math.isfinite(ymin):
-                skipped.append(int(fov))
+                skipped.append(int(cast("int", fov)))
                 continue
             x0, y0 = xmin - ox, ymin - oy
             geoms.append(sgeom.box(x0, y0, x0 + COSMX_FOV_SIZE_PX, y0 + COSMX_FOV_SIZE_PX))
-            fov_vals.append(int(fov))
+            fov_vals.append(int(cast("int", fov)))
 
         if skipped:
             logger.warning("Skipped %d FOV(s) with NaN coords: %s", len(skipped), skipped)
@@ -739,7 +740,7 @@ class CosMxDatasetReader:
     def _labels_from_polygons(self) -> tuple[dict[str, Labels2DModel], set[int]]:
         """Rasterize polygons into a label image."""
         poly_df = self._get_polygons()
-        ox, oy = self._origin_x, self._origin_y
+        ox, oy = cast(float, self._origin_x), cast(float, self._origin_y)  # set by _get_polygons()
 
         if poly_df.empty:
             logger.warning("No polygons left after alignment. Skipping labels.")
@@ -785,7 +786,7 @@ class CosMxDatasetReader:
             fov_local_to_global = self._build_cell_label_luts_from_tiffs()
 
         stitched, present_ids, used_fov_locs = _read_stitched_cell_labels_from_dir(
-            self.dataset.cell_labels_dir,
+            cast(Path, self.dataset.cell_labels_dir),  # checked by read_labels()
             self.fov_locs,
             fovs=self.fovs,
             flip_image=self.flip_image,
@@ -811,10 +812,11 @@ class CosMxDatasetReader:
     def _labels_from_cell_stats_dir(self) -> tuple[dict[str, Labels2DModel], set[int]]:
         """Legacy label stitching from CellStatsDir."""
         ox, oy = self._ensure_origin()
+        cell_stats_dir = cast(Path, self.dataset.cell_stats_dir)  # checked by read_labels()
         stitched, df = stitch_segmentation_label_image(
             path=self.dataset.path,
             fov_position_file=str(self.dataset.fov_positions_file),
-            cell_info_file=str(self.dataset.cell_stats_dir / f"{self.dataset.dataset_id}_cell_info.csv"),
+            cell_info_file=str(cell_stats_dir / f"{self.dataset.dataset_id}_cell_info.csv"),
             dataset_id=self.dataset.dataset_id,
             flip_image=self.flip_image,
             n_workers=self.n_workers,
@@ -930,12 +932,13 @@ class CosMxDatasetReader:
             adata.obs = meta.loc[common]
 
         # Compute global cell IDs
-        if "fov" in adata.obs.columns and "cell_ID" in adata.obs.columns:
-            tmp = adata.obs.reset_index(drop=False)
+        obs = cast(pd.DataFrame, adata.obs)
+        if "fov" in obs.columns and "cell_ID" in obs.columns:
+            tmp = obs.reset_index(drop=False)
             tmp["global_cell_id"] = self.global_cell_id(tmp)
-            adata.obs["global_cell_id"] = tmp.set_index("fov_cellID").loc[adata.obs.index, "global_cell_id"]
+            obs["global_cell_id"] = tmp.set_index("fov_cellID").loc[obs.index, "global_cell_id"]
         else:
-            adata.obs["global_cell_id"] = np.arange(1, adata.n_obs + 1, dtype=int)
+            obs["global_cell_id"] = np.arange(1, adata.n_obs + 1, dtype=int)
 
         # Determine region
         region = regions[0] if regions else "cells"
@@ -952,7 +955,7 @@ class CosMxDatasetReader:
         # Zarr-safe, case-insensitively unique obs/var keys (spatialdata core),
         # then categoricals → string (zarr cannot serialize categoricals).
         sanitize_table(adata)
-        _pandas_categoricals_to_string(adata.obs)
+        _pandas_categoricals_to_string(cast(pd.DataFrame, adata.obs))
 
         if bg_df is not None:
             adata.uns["fov_bg_signal"] = bg_df
@@ -972,8 +975,8 @@ def _read_images_and_shapes(
     read_images: bool,
     read_proteins: bool,
     read_polygons: bool,
-    image_models_kwargs: dict[str, Any] | None,
-    imread_kwargs: dict[str, Any] | None,
+    image_models_kwargs: dict[str, Any],
+    imread_kwargs: dict[str, Any],
     channels: list[str] | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Read morphology/protein images and polygon shapes (gate shared by both paths)."""
@@ -1005,7 +1008,7 @@ def _cosmx_multi(
     read_transcripts: bool,
     read_polygons: bool,
     read_gexp: bool,
-    fovs: list[int] | int | None,
+    fovs: list[int | str] | int | str | None,
     channels: list[str] | None,
     n_workers: int,
     flip_image: bool | None,
@@ -1215,6 +1218,10 @@ def _present_fovs(dataset: CosMxDataset) -> set[int]:
     return present
 
 
+@overload
+def _prune_empty_fovs(dataset: CosMxDataset, fov_locs: pd.DataFrame, fov_set: set[int] | None) -> pd.DataFrame: ...
+@overload
+def _prune_empty_fovs(dataset: CosMxDataset, fov_locs: None, fov_set: set[int] | None) -> None: ...
 def _prune_empty_fovs(
     dataset: CosMxDataset,
     fov_locs: pd.DataFrame | None,
