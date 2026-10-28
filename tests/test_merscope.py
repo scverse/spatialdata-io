@@ -208,7 +208,7 @@ def test_invalid_boundaries_are_repaired_not_dropped(tmp_path: Path) -> None:
     gdf = gpd.read_parquet(region / "cell_boundaries.parquet")
     bowtie = Polygon([(0, 0), (4, 4), (4, 0), (0, 4)])
     assert not bowtie.is_valid
-    gdf.loc[0, "Geometry"] = MultiPolygon([bowtie])
+    gdf.loc[[0], "Geometry"] = gpd.GeoSeries([MultiPolygon([bowtie])], index=[0])
     gdf.to_parquet(region / "cell_boundaries.parquet")
 
     sdata = merscope(region, mosaic_images=False, transcripts=False)
