@@ -929,7 +929,9 @@ class CosMxDatasetReader:
             meta = _read_metadata_polars(self.dataset.metadata_file, n_rows=None)
             common = adata.obs.index.intersection(meta.index)
             adata = adata[common].copy()
-            adata.obs = meta.loc[common]
+            expr_obs = cast(pd.DataFrame, adata.obs)
+            extra = expr_obs.columns.difference(meta.columns)  # exprMat-only metadata (e.g. AtoMx `cell`)
+            adata.obs = meta.loc[common].join(expr_obs[extra])
 
         # Compute global cell IDs
         obs = cast(pd.DataFrame, adata.obs)

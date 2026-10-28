@@ -269,16 +269,21 @@ def _read_expr_mat_polars(
         The cell expression table and, if any cell_ID=0 rows were present,
         a DataFrame of per-FOV background signal indexed by ``fov``.
     """
-    sample = pl.read_csv(expr_path, n_rows=1)
-    expr_cols = [c for c in sample.columns if c not in ("fov", "cell_ID")]
+    schema = pl.read_csv(expr_path, n_rows=100).schema
+    # Genes are the numeric columns after cell_ID. Other columns are cell metadata: AtoMx's string `cell` id, or the
+    # sampleID/slide/case columns R-exported GEO files put before fov (where quoted numbers like case "8" still
+    # parse as ints). The R rowname column (empty header) is dropped.
+    after = list(schema)[list(schema).index("cell_ID") + 1 :]
+    expr_cols = [c for c in after if schema[c].is_numeric()]
+    meta_cols = [c for c in schema if c not in ("fov", "cell_ID", "", *expr_cols)]
 
-    lf = pl.scan_csv(expr_path, n_rows=n_rows)
+    lf = pl.scan_csv(expr_path, n_rows=n_rows, schema_overrides=dict.fromkeys(meta_cols, pl.Utf8))
     if fovs is not None:
         lf = lf.filter(pl.col("fov").is_in(fovs))
 
     lf = lf.with_columns(
         (pl.col("fov").cast(pl.Utf8) + "_" + pl.col("cell_ID").cast(pl.Utf8)).alias("fov_cellID")
-    ).select(["fov", "cell_ID", "fov_cellID"] + expr_cols)
+    ).select(["fov", "cell_ID", "fov_cellID", *meta_cols, *expr_cols])
     pdf = lf.collect().to_pandas()
 
     # Separate background rows (cell_ID=0) before building the AnnData.
@@ -296,7 +301,7 @@ def _read_expr_mat_polars(
         )
         pdf = pdf.loc[~bg_mask]
 
-    obs = pdf[["fov", "cell_ID", "fov_cellID"]].set_index("fov_cellID", verify_integrity=True)  # type: ignore[call-overload]  # verify_integrity is deprecated in pandas 3, dropped from the stubs
+    obs = pdf[["fov", "cell_ID", "fov_cellID", *meta_cols]].set_index("fov_cellID", verify_integrity=True)  # type: ignore[call-overload]  # verify_integrity is deprecated in pandas 3, dropped from the stubs
     X = scipy.sparse.csr_matrix(pdf[expr_cols].values)
     var = pd.DataFrame({"gene": expr_cols}).set_index("gene")
 
@@ -315,6 +320,7 @@ def _read_metadata_polars(
         )
         .with_columns((pl.col("fov").cast(pl.Utf8) + "_" + pl.col("cell_ID").cast(pl.Utf8)).alias("fov_cellID"))
         .filter(pl.col("cell_ID") != 0)
+        .drop("", strict=False)  # R rowname column of GEO re-exports
     )
 
     pdf = df.to_pandas()

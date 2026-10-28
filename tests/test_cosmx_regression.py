@@ -1728,3 +1728,37 @@ class TestImageNormalizationEndToEnd:
     def test_out_of_range_percentile_raises(self, sdio, fixture_lowsig):
         with pytest.raises(ValueError, match="image_normalization_percentile"):
             _read(sdio, fixture_lowsig, fovs=[1], image_normalization_percentile=150.0)
+
+
+class TestExprMatMetadataColumns:
+    """Non-gene columns in exprMat files go to obs, not X (AtoMx ``cell`` column, R-exported GEO files)."""
+
+    def test_atomx_string_cell_column(self, tmp_path):
+        from spatialdata_io.readers.cosmx._io import _read_expr_mat_polars
+
+        p = tmp_path / "x_exprMat_file.csv"
+        pd.DataFrame({"fov": [1, 1], "cell_ID": [0, 1], "cell": ["c_1_1_0", "c_1_1_1"], "GENE1": [3, 4]}).to_csv(
+            p, index=False
+        )
+        adata, bg = _read_expr_mat_polars(p)
+        assert list(adata.var_names) == ["GENE1"]
+        assert adata.obs["cell"].tolist() == ["c_1_1_1"]
+        assert adata.X.toarray().tolist() == [[4]]
+        assert bg.columns.tolist() == ["GENE1"]
+
+    def test_r_exported_rownames_and_metadata(self, tmp_path):
+        from spatialdata_io.readers.cosmx._io import _read_expr_mat_polars
+
+        # R write.csv: quoted rownames under an empty header, metadata before fov/cell_ID, numeric-looking "case"
+        p = tmp_path / "GSM1_exprMat_file.csv"
+        p.write_text(
+            '"","sampleID","slide","case","fov","cell_ID","AATK","ABL1"\n'
+            '"1","TMA_B_10,Case_8,FOV_10","TMA_B_10","8",10,1,2,0\n'
+            '"2","TMA_B_10,Case_8,FOV_10","TMA_B_10","8",10,2,0,5\n'
+        )
+        adata, _ = _read_expr_mat_polars(p)
+        assert list(adata.var_names) == ["AATK", "ABL1"]
+        assert adata.X.toarray().tolist() == [[2, 0], [0, 5]]
+        assert {"sampleID", "slide", "case"} <= set(adata.obs.columns)
+        assert "" not in adata.obs.columns
+        assert adata.obs["slide"].tolist() == ["TMA_B_10", "TMA_B_10"]
