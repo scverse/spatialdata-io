@@ -53,6 +53,7 @@ from ._discovery import (
 )
 from ._io import (
     COSMX_FOV_SIZE_PX,
+    NoFovCoordinatesError,
     _default_image_kwargs,
     _find_matching_fov_file,
     _get_cosmx_morphology_coords,
@@ -1469,7 +1470,13 @@ def cosmx(
     fov_set = _normalize_fovs(fovs)
     image_models_kwargs, imread_kwargs = _default_image_kwargs(image_models_kwargs, imread_kwargs)
 
-    fov_locs = _read_fov_locs(dataset.fov_positions_file) if dataset.fov_positions_file else None
+    try:
+        fov_locs = _read_fov_locs(dataset.fov_positions_file) if dataset.fov_positions_file else None
+    except NoFovCoordinatesError as e:
+        # Nothing per-FOV (images, labels, polygons, transcripts, FOV boxes) can be placed without FOV origins.
+        logger.warning("%s Reading the cell tables only; cell positions stay in the metadata columns.", e)
+        fov_locs = pd.DataFrame({"xmin": [np.nan], "ymin": [np.nan]})
+        read_images = read_labels = read_polygons = read_transcripts = add_fovs_as_shapes = False
 
     if skip_empty_fovs and (read_images or read_labels):
         fov_locs = _prune_empty_fovs(dataset, fov_locs, fov_set)

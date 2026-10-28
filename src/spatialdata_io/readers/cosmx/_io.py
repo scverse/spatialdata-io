@@ -69,6 +69,10 @@ def _default_image_kwargs(
 # ---------------------------------------------------------------------------
 
 
+class NoFovCoordinatesError(ValueError):
+    """The FOV positions file lists FOVs but no pixel or mm coordinates (some GEO re-exports)."""
+
+
 def _read_fov_locs(
     csv_path: Path,
     *,
@@ -123,7 +127,7 @@ def _read_fov_locs(
             y_mm_col = "Y_mm"
 
         if x_mm_col is None or y_mm_col is None:
-            raise ValueError(
+            raise NoFovCoordinatesError(
                 f"{csv_path.name}: neither pixel nor mm coordinate columns found; got columns {list(df.columns)!r}"
             )
 
@@ -270,14 +274,22 @@ def _read_expr_mat_polars(
         a DataFrame of per-FOV background signal indexed by ``fov``.
     """
     schema = pl.read_csv(expr_path, n_rows=100).schema
-    # Genes are the numeric columns after cell_ID. Other columns are cell metadata: AtoMx's string `cell` id, or the
-    # sampleID/slide/case columns R-exported GEO files put before fov (where quoted numbers like case "8" still
+    # Some GEO exports key cells only by the AtoMx string id (`cell_id` = c_<slide>_<fov>_<cell>, no fov column).
+    id_col = next((c for c in ("cell_ID", "cell_id", "cell") if c in schema), None)
+    if id_col is None:
+        raise ValueError(f"{expr_path.name}: no cell_ID / cell_id column in {list(schema)[:10]!r}")
+    parse_ids = "fov" not in schema or not schema[id_col].is_integer()
+    # Genes are the numeric columns after the cell id. Other columns are cell metadata: AtoMx's string `cell` id, or
+    # the sampleID/slide/case columns R-exported GEO files put before fov (where quoted numbers like case "8" still
     # parse as ints). The R rowname column (empty header) is dropped.
-    after = list(schema)[list(schema).index("cell_ID") + 1 :]
+    after = list(schema)[list(schema).index(id_col) + 1 :]
     expr_cols = [c for c in after if schema[c].is_numeric()]
-    meta_cols = [c for c in schema if c not in ("fov", "cell_ID", "", *expr_cols)]
+    meta_cols = [c for c in schema if c not in ("fov", "cell_ID", id_col, "", *expr_cols)]
 
     lf = pl.scan_csv(expr_path, n_rows=n_rows, schema_overrides=dict.fromkeys(meta_cols, pl.Utf8))
+    if parse_ids:
+        lf = _parse_atomx_cell_ids(lf, id_col, expr_path.name)
+        meta_cols = ["cell", *meta_cols]
     if fovs is not None:
         lf = lf.filter(pl.col("fov").is_in(fovs))
 
@@ -308,19 +320,36 @@ def _read_expr_mat_polars(
     return AnnData(X=X, obs=obs, var=var), bg_df
 
 
+_ATOMX_CELL_ID = r"^c_\d+_(\d+)_(\d+)$"  # c_<slide>_<fov>_<cell>
+
+
+def _parse_atomx_cell_ids(lf: pl.LazyFrame, id_col: str, name: str) -> pl.LazyFrame:
+    """Derive integer ``cell_ID`` (and ``fov``, when absent) from AtoMx string ids, kept as ``cell``."""
+    ids = pl.col(id_col).cast(pl.Utf8)
+    cols = [ids.alias("cell"), ids.str.extract(_ATOMX_CELL_ID, 2).cast(pl.Int64).alias("cell_ID")]
+    if "fov" not in lf.collect_schema():
+        cols.append(ids.str.extract(_ATOMX_CELL_ID, 1).cast(pl.Int64).alias("fov"))
+    out = lf.with_columns(cols)
+    if id_col not in ("cell", "cell_ID"):
+        out = out.drop(id_col)
+    bad = out.filter(pl.col("cell_ID").is_null()).select("cell").head(3).collect()["cell"].to_list()
+    if bad:
+        raise ValueError(f"{name}: cell ids are neither integers nor AtoMx c_<slide>_<fov>_<cell> ids, e.g. {bad}")
+    return out
+
+
 def _read_metadata_polars(
     meta_path: Path,
     n_rows: int | None = None,
 ) -> pd.DataFrame:
+    lf = pl.read_csv(meta_path, n_rows=n_rows, infer_schema_length=n_rows).drop("", strict=False).lazy()
+    schema = lf.collect_schema()
+    if "fov" not in schema or not schema["cell_ID"].is_integer():
+        lf = _parse_atomx_cell_ids(lf, "cell_ID", meta_path.name)
     df = (
-        pl.read_csv(
-            meta_path,
-            n_rows=n_rows,
-            infer_schema_length=n_rows,
-        )
-        .with_columns((pl.col("fov").cast(pl.Utf8) + "_" + pl.col("cell_ID").cast(pl.Utf8)).alias("fov_cellID"))
+        lf.with_columns((pl.col("fov").cast(pl.Utf8) + "_" + pl.col("cell_ID").cast(pl.Utf8)).alias("fov_cellID"))
         .filter(pl.col("cell_ID") != 0)
-        .drop("", strict=False)  # R rowname column of GEO re-exports
+        .collect()
     )
 
     pdf = df.to_pandas()

@@ -1785,3 +1785,48 @@ class TestBackgroundSignal:
         np.testing.assert_array_equal(table.varm["fov_bg_signal"].loc["Gstp1/2"].to_numpy(), [7, 9])
         assert list(table.varm["fov_bg_signal"].columns) == ["fov_1", "fov_2"]
         sd.SpatialData(tables={"t": table}).write(tmp_path / "bg.zarr")
+
+
+class TestAtomxStringIdsWithoutPositions:
+    """GSE337336 layout: exprMat keyed only by AtoMx string ids, positions file without coordinates."""
+
+    @staticmethod
+    def _write(root: Path) -> None:
+        root.mkdir()
+        (root / "P6_exprMat_file.csv").write_text("cell_id,AATK,ABL1\nc_4_39_126,1,0\nc_4_39_127,0,2\nc_4_3_5,4,4\n")
+        (root / "P6_fov_positions_file.csv").write_text("fov,slide_ID_numeric,Run_Tissue_name\n1,4,S3\n")
+        (root / "P6_metadata_file.csv").write_text(
+            '"","cell_ID","fov","x_FOV_px","y_FOV_px","x_slide_mm","y_slide_mm","Area"\n'
+            '"c_4_39_126","c_4_39_126",39,741,4078,6.28892,11.23664,5412\n'
+            '"c_4_39_127","c_4_39_127",39,10,20,6.2,11.7,100\n'
+            '"c_4_3_5","c_4_3_5",3,5,5,1.0,2.0,50\n'
+        )
+
+    def test_expr_ids_parsed(self, tmp_path):
+        from spatialdata_io.readers.cosmx._io import _read_expr_mat_polars, _read_metadata_polars
+
+        self._write(tmp_path / "d")
+        adata, _ = _read_expr_mat_polars(tmp_path / "d" / "P6_exprMat_file.csv")
+        assert list(adata.obs_names) == ["39_126", "39_127", "3_5"]
+        assert adata.obs["cell"].tolist() == ["c_4_39_126", "c_4_39_127", "c_4_3_5"]
+        assert list(adata.var_names) == ["AATK", "ABL1"]
+        meta = _read_metadata_polars(tmp_path / "d" / "P6_metadata_file.csv")
+        assert list(meta.index) == ["39_126", "39_127", "3_5"]
+        assert meta["cell_ID"].tolist() == [126, 127, 5]
+
+    def test_tables_only(self, sdio, tmp_path):
+        self._write(tmp_path / "d")
+        sdata = sdio.cosmx(tmp_path / "d", read_transcripts=True, read_images=True, add_fovs_as_shapes=True)
+        assert not sdata.shapes and not sdata.images and not sdata.points
+        table = sdata["cell_data"]
+        assert table.shape == (3, 2)
+        assert table.obs["x_slide_mm"].tolist() == [6.28892, 6.2, 1.0]
+        assert table.obs["cell"].tolist() == ["c_4_39_126", "c_4_39_127", "c_4_3_5"]
+
+    def test_unparseable_ids_raise(self, tmp_path):
+        from spatialdata_io.readers.cosmx._io import _read_expr_mat_polars
+
+        p = tmp_path / "x_exprMat_file.csv"
+        p.write_text("cell_id,AATK\ncell-1,3\n")
+        with pytest.raises(ValueError, match="AtoMx"):
+            _read_expr_mat_polars(p)
