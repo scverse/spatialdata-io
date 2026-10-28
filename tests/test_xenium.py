@@ -14,6 +14,7 @@ from spatialdata.models import get_table_keys
 from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
     _cell_id_str_from_prefix_suffix_uint32_reference,
+    _get_points,
     _warn_if_scaled_protein,
     cell_id_str_from_prefix_suffix_uint32,
     prefix_suffix_uint32_from_cell_id_str,
@@ -292,6 +293,50 @@ def test_xenium_csv_only_mtx_matrix(tmp_path: Path) -> None:
     sdata = xenium(tmp_path, morphology_mip=False, morphology_focus=False, aligned_images=False)
     assert sdata["table"].n_obs == 30
     assert "cell_labels" in sdata.labels
+
+
+def test_get_points_binary_string_columns(tmp_path: Path) -> None:
+    # XOA 1.2.0.3 stores string columns (feature_name, fov_name) as parquet binary with no pandas
+    # metadata; undecoded bytes columns leave object dtype that cannot be written back to parquet
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from spatialdata import SpatialData
+
+    n = 6
+    schema = pa.schema(
+        [
+            ("transcript_id", pa.uint64()),
+            ("cell_id", pa.int32()),
+            ("overlaps_nucleus", pa.uint8()),
+            ("feature_name", pa.binary()),
+            ("x_location", pa.float32()),
+            ("y_location", pa.float32()),
+            ("z_location", pa.float32()),
+            ("qv", pa.float32()),
+            ("fov_name", pa.binary()),
+        ]
+    )
+    data = {
+        "transcript_id": np.arange(n, dtype=np.uint64),
+        "cell_id": np.array([1, 1, 2, -1, 3, 3], dtype=np.int32),
+        "overlaps_nucleus": np.array([1, 0, 1, 0, 0, 1], dtype=np.uint8),
+        "feature_name": [b"GeneA", b"GeneB", b"GeneA", b"NegControlProbe_1", b"GeneC", b"GeneB"],
+        "x_location": np.linspace(0, 10, n, dtype=np.float32),
+        "y_location": np.linspace(0, 20, n, dtype=np.float32),
+        "z_location": np.zeros(n, dtype=np.float32),
+        "qv": np.full(n, 40.0, dtype=np.float32),
+        "fov_name": [b"A1", b"A1", b"A2", b"A2", b"B1", b"B1"],
+    }
+    pq.write_table(pa.table(data, schema=schema), tmp_path / "transcripts.parquet")
+
+    points = _get_points(tmp_path, {"pixel_size": 0.2125})
+    SpatialData(points={"transcripts": points}).write(tmp_path / "data.zarr")
+
+    df = read_zarr(tmp_path / "data.zarr")["transcripts"].compute()
+    assert isinstance(df["feature_name"].dtype, pd.CategoricalDtype)
+    assert set(df["feature_name"].cat.categories) == {"GeneA", "GeneB", "GeneC", "NegControlProbe_1"}
+    assert sorted(df["fov_name"]) == ["A1", "A1", "A2", "A2", "B1", "B1"]
+    assert df["cell_id"].dtype == np.int32
 
 
 def test_warn_if_scaled_protein() -> None:
