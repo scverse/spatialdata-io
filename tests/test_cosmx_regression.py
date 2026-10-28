@@ -1830,3 +1830,39 @@ class TestAtomxStringIdsWithoutPositions:
         p.write_text("cell_id,AATK\ncell-1,3\n")
         with pytest.raises(ValueError, match="AtoMx"):
             _read_expr_mat_polars(p)
+
+
+class TestPrescanTranscripts:
+    def test_prescan_includes_tx_when_read(self, tmp_path):
+        # GSE304160: the tx file assigns transcripts to a cell beyond every polygon/exprMat row (2755 vs 2754).
+        from spatialdata_io.readers.cosmx._reader import _prescan_max_cell_id
+
+        (tmp_path / "poly.csv").write_text("fov,cellID,x,y\n1,10,0,0\n")
+        (tmp_path / "expr.csv").write_text("fov,cell_ID,Gene_0\n1,10,5\n")
+        (tmp_path / "tx.csv").write_text("fov,cell_ID,x_local_px\n1,11,0\n")
+
+        class FakeDataset:
+            polygons_file = tmp_path / "poly.csv"
+            exprMat_file = tmp_path / "expr.csv"
+            metadata_file = None
+            tx_file = tmp_path / "tx.csv"
+
+        class FakeReader:
+            max_cell_id = None
+
+        reader = FakeReader()
+        _prescan_max_cell_id(reader, FakeDataset(), fov_set=None)
+        assert reader.max_cell_id == 10
+        _prescan_max_cell_id(reader, FakeDataset(), fov_set=None, read_transcripts=True)
+        assert reader.max_cell_id == 11
+
+
+def test_metadata_with_only_atomx_cell_column(tmp_path):
+    # GSE305393: the metadata has no cell_ID, only the AtoMx string id in `cell`.
+    from spatialdata_io.readers.cosmx._io import _read_metadata_polars
+
+    p = tmp_path / "m_metadata_file.csv"
+    pd.DataFrame({"fov": [1, 1], "Area": [10, 12], "cell": ["c_1_1_1", "c_1_1_2"]}).to_csv(p, index=False)
+    meta = _read_metadata_polars(p)
+    assert list(meta.index) == ["1_1", "1_2"]
+    assert meta["cell"].tolist() == ["c_1_1_1", "c_1_1_2"]

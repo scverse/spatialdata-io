@@ -1262,17 +1262,21 @@ def _prescan_max_cell_id(
     reader: CosMxDatasetReader,
     dataset: CosMxDataset,
     fov_set: set[int] | None,
+    read_transcripts: bool = False,
 ) -> None:
     """Pre-scan cell_ID column from all available files to lock max_cell_id.
 
     This removes the load-order dependency: without pre-scanning,
     whichever element calls ``global_cell_id()`` first locks the max,
-    and subsequent elements with a higher max will crash.
+    and subsequent elements with a higher max will crash. The transcripts
+    file is included when it will be read: it can assign transcripts to
+    cells beyond any polygon or expression row (GSE304160).
     """
     import polars as pl
 
     max_ids: list[int] = []
-    for path in [dataset.polygons_file, dataset.exprMat_file, dataset.metadata_file]:
+    tx = [dataset.tx_file] if read_transcripts else []
+    for path in [dataset.polygons_file, dataset.exprMat_file, dataset.metadata_file, *tx]:
         if path is None or not path.exists():
             continue
         try:
@@ -1507,7 +1511,7 @@ def cosmx(
 
     # Pre-scan cell_ID max across all available files to avoid
     # load-order dependency crashes in global_cell_id().
-    _prescan_max_cell_id(reader, dataset, fov_set)
+    _prescan_max_cell_id(reader, dataset, fov_set, read_transcripts=read_transcripts)
 
     # --- Read elements ---
     images, shapes = _read_images_and_shapes(

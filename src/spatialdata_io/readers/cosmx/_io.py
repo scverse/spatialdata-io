@@ -344,8 +344,12 @@ def _read_metadata_polars(
 ) -> pd.DataFrame:
     lf = pl.read_csv(meta_path, n_rows=n_rows, infer_schema_length=n_rows).drop("", strict=False).lazy()
     schema = lf.collect_schema()
-    if "fov" not in schema or not schema["cell_ID"].is_integer():
-        lf = _parse_atomx_cell_ids(lf, "cell_ID", meta_path.name)
+    # Some exports carry only the AtoMx string id (as `cell_ID`, or as `cell` with no cell_ID at all).
+    id_col = next((c for c in ("cell_ID", "cell_id", "cell") if c in schema), None)
+    if id_col is None:
+        raise ValueError(f"{meta_path.name}: no cell_ID / cell_id / cell column")
+    if "fov" not in schema or id_col != "cell_ID" or not schema[id_col].is_integer():
+        lf = _parse_atomx_cell_ids(lf, id_col, meta_path.name)
     df = (
         lf.with_columns((pl.col("fov").cast(pl.Utf8) + "_" + pl.col("cell_ID").cast(pl.Utf8)).alias("fov_cellID"))
         .filter(pl.col("cell_ID") != 0)
