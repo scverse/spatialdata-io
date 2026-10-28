@@ -864,7 +864,8 @@ def _read_transcripts_zarr(zip_path: Path, rows_per_partition: int = 5_000_000) 
     root = zarr.open_group(zarr.storage.ZipStore(zip_path, read_only=True), mode="r")
     genes = pd.CategoricalDtype(root.attrs["gene_names"])  # type: ignore[arg-type]
     grid = root["grids/0"]
-    assert isinstance(grid, zarr.Group)
+    if not isinstance(grid, zarr.Group):
+        raise TypeError(f"Expected 'grids/0' in {zip_path.name} to be a zarr group, found {type(grid).__name__}.")
     tiles = sorted(grid.group_keys())
 
     def frame(loc: np.ndarray, uuid: np.ndarray, gene: np.ndarray, qv: np.ndarray) -> pd.DataFrame:
