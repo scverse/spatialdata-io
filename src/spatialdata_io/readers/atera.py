@@ -319,7 +319,11 @@ def _get_table(
         dtype = x_ds.dtype
         # Genes detected per cell is the number of stored entries per row of the CSR matrix, which `indptr`
         # already encodes; this avoids a full pass over the (lazy) counts.
-        n_genes = np.diff(group[str(AteraKeys.X_GROUP)]["indptr"][:]) if x_ds.format == "csr" else None
+        n_genes = (
+            np.diff(cast(zarr.Group, group[str(AteraKeys.X_GROUP)]).get_array("indptr")[:])
+            if x_ds.format == "csr"
+            else None
+        )
     finally:
         store.close()
 

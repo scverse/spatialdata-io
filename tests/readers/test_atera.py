@@ -9,6 +9,7 @@ from anndata.io import write_elem
 from scipy.sparse import csr_matrix
 from spatialdata.models import get_table_keys
 from tests.converters.test_atera_to_parquet import _write_atera_dataset
+from xarray import DataTree
 
 from spatialdata_io._constants._constants import AteraKeys
 from spatialdata_io.readers import _atera_common as common
@@ -145,14 +146,20 @@ def test_morphology_images_use_embedded_pyramid(tmp_path: Path) -> None:
     for idx, name in enumerate(["dapi", "vim"]):
         with tifffile.TiffWriter(tmp_path / f"ch{idx:04d}_{name}.ome.tif", ome=True) as tif:
             levels = [full[:, :: 2**i, :: 2**i] for i in range(3)]
-            tif.write(levels[0], tile=(16, 16), subifds=len(levels) - 1, metadata={"axes": "CYX", "Channel": {"Name": ["dapi", "vim"]}})
+            tif.write(
+                levels[0],
+                tile=(16, 16),
+                subifds=len(levels) - 1,
+                metadata={"axes": "CYX", "Channel": {"Name": ["dapi", "vim"]}},
+            )
             for level in levels[1:]:
                 tif.write(level, tile=(16, 16), subfiletype=1)
 
-    image = common._get_morphology_images(
-        tmp_path, image_models_kwargs={"chunks": (1, 32, 32), "scale_factors": [2, 2]}
+    image = cast(
+        DataTree,
+        common._get_morphology_images(tmp_path, image_models_kwargs={"chunks": (1, 32, 32), "scale_factors": [2, 2]}),
     )
     assert list(image.children) == ["scale0", "scale1", "scale2"]
     assert [image[k]["image"].shape for k in image.children] == [(2, 64, 96), (2, 32, 48), (2, 16, 24)]
     # The lowest level is read from the stored pyramid, not downsampled from `scale0`.
-    np.testing.assert_array_equal(image["scale2"]["image"].values[0], full[0, ::4, ::4])
+    np.testing.assert_array_equal(np.asarray(image["scale2"]["image"])[0], full[0, ::4, ::4])
