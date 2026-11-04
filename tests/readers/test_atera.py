@@ -67,6 +67,8 @@ def test_cell_labels_table_uses_label_id(atera_path: Path) -> None:
     # the `cell_labels` raster is numbered 1..n_obs by row position
     assert table.obs["label_id"].tolist() == [1, 2, 3, 4]
     assert table.obs["cell_id"].tolist() == CELL_IDS
+    # genes detected per cell, read from the CSR `indptr` (cell 0 only has a zero in its first column)
+    assert table.obs["n_genes"].tolist() == [1, 2, 2, 2]
 
 
 def test_cell_boundaries_table_uses_cell_id(atera_path: Path) -> None:
@@ -133,3 +135,24 @@ def test_points_partitions_are_bounded(tmp_path: Path, monkeypatch: pytest.Monke
 
     assert points.npartitions == 4  # tile 0,0 -> 3 chunks (3+3+1), tile 0,1 -> 1 empty partition
     assert len(points) == 7
+
+
+def test_morphology_images_use_embedded_pyramid(tmp_path: Path) -> None:
+    import tifffile
+
+    rng = np.random.default_rng(0)
+    full = rng.integers(0, 255, (2, 64, 96), dtype=np.uint8)
+    for idx, name in enumerate(["dapi", "vim"]):
+        with tifffile.TiffWriter(tmp_path / f"ch{idx:04d}_{name}.ome.tif", ome=True) as tif:
+            levels = [full[:, :: 2**i, :: 2**i] for i in range(3)]
+            tif.write(levels[0], tile=(16, 16), subifds=len(levels) - 1, metadata={"axes": "CYX", "Channel": {"Name": ["dapi", "vim"]}})
+            for level in levels[1:]:
+                tif.write(level, tile=(16, 16), subfiletype=1)
+
+    image = common._get_morphology_images(
+        tmp_path, image_models_kwargs={"chunks": (1, 32, 32), "scale_factors": [2, 2]}
+    )
+    assert list(image.children) == ["scale0", "scale1", "scale2"]
+    assert [image[k]["image"].shape for k in image.children] == [(2, 64, 96), (2, 32, 48), (2, 16, 24)]
+    # The lowest level is read from the stored pyramid, not downsampled from `scale0`.
+    np.testing.assert_array_equal(image["scale2"]["image"].values[0], full[0, ::4, ::4])

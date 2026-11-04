@@ -317,10 +317,16 @@ def _get_table(
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
         n_obs, n_var = x_ds.shape
         dtype = x_ds.dtype
+        # Genes detected per cell is the number of stored entries per row of the CSR matrix, which `indptr`
+        # already encodes; this avoids a full pass over the (lazy) counts.
+        n_genes = np.diff(group[str(AteraKeys.X_GROUP)]["indptr"][:]) if x_ds.format == "csr" else None
     finally:
         store.close()
 
     x = _lazy_x(path, AteraKeys.CELL_FEATURE_MATRIX_FILE, n_obs, n_var, dtype, row_chunk_size)
+
+    if n_genes is not None:
+        obs_df["n_genes"] = n_genes
 
     adata = AnnData(X=x, obs=obs_df, var=var_df, obsm=obsm)
     adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
