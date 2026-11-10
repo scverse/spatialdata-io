@@ -32,6 +32,7 @@ from spatialdata_io.readers._atera_common import (
     read_transcripts_for_genes,
 )
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
+from spatialdata_io.readers.xenium import _add_aligned_images
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -69,6 +70,7 @@ def atera(
     transcripts: bool = False,
     morphology_images: bool = True,
     morphology_3d_images: bool = False,
+    aligned_images: bool = True,
     var_columns: list[str] | Literal["all"] = DEFAULT_VAR_COLUMNS,
     table_row_chunk_size: int = DEFAULT_TABLE_ROW_CHUNK_SIZE,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -115,6 +117,10 @@ def atera(
     morphology_3d_images
         Whether to read the 3D morphology images. This is opt-in and defaults to `False` because these images
         can be very large.
+    aligned_images
+        Whether to read the post-run images aligned to the morphology images (``*he_image.ome.tif`` /
+        ``*if_image.ome.tif`` in the bundle root), placed with their ``*imagealignment.csv`` affine. When a
+        ``keypoints.csv`` is present, a warning is logged if the affine does not map its keypoints onto each other.
     var_columns
         Which columns of `var` to keep, out of the full table (which includes ~135 per-cluster
         differential-expression columns). Defaults to a small subset (`{xx.FEATURE_NAME!r}`,
@@ -206,11 +212,49 @@ def atera(
             path / AteraKeys.MORPHOLOGY_3D_DIR, imread_kwargs, image_models_kwargs, three_d=True
         )
 
+    if aligned_images:
+        # same file conventions (and 3 x 3 image px -> morphology px affine) as the Xenium bundles
+        images |= _add_aligned_images(
+            path, image_models_kwargs=image_models_kwargs
+        )  # imread_kwargs are TiffFile kwargs here
+        _check_keypoints(path)
+
     tables = {"table": table} if table is not None else {}
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
     sdata = _set_reader_metadata(sdata, "atera")
     sdata.attrs[str(AteraKeys.PIXEL_SIZE)] = pixel_size
     return sdata
+
+
+KEYPOINTS_FILE = "keypoints.csv"
+KEYPOINTS_MAX_RESIDUAL_PX = 10.0
+
+
+def _check_keypoints(path: Path) -> float | None:
+    """Warn when an alignment affine does not map ``keypoints.csv`` onto itself; return the median residual (px).
+
+    Xenium Explorer writes keypoints as ``fixedX, fixedY`` (morphology image, px) and ``alignmentX, alignmentY``
+    (aligned image, px). Files with other columns are skipped.
+    """
+    kp_file = path / KEYPOINTS_FILE
+    alignments = sorted(path.glob("*imagealignment.csv"))
+    if not kp_file.exists() or len(alignments) != 1:
+        return None
+    kp = pd.read_csv(kp_file)
+    cols = ["fixedX", "fixedY", "alignmentX", "alignmentY"]
+    if not set(cols) <= set(kp.columns) or kp.empty:
+        logging.info(f"{kp_file.name}: columns {list(kp.columns)} not recognised, keypoints not checked.")
+        return None
+    affine = pd.read_csv(alignments[0], header=None).to_numpy(dtype=float)
+    src = np.c_[kp[["alignmentX", "alignmentY"]].to_numpy(dtype=float), np.ones(len(kp))]
+    residual = np.linalg.norm((src @ affine.T)[:, :2] - kp[["fixedX", "fixedY"]].to_numpy(dtype=float), axis=1)
+    median = float(np.median(residual))
+    if median > KEYPOINTS_MAX_RESIDUAL_PX:
+        logging.warning(
+            f"{alignments[0].name} maps {kp_file.name} with a median residual of {median:.1f} px "
+            f"(> {KEYPOINTS_MAX_RESIDUAL_PX}); the aligned image may be misplaced."
+        )
+    return median
 
 
 def _read_x_chunk(zarr_path: Path, zarr_key: AteraKeys, start: int, stop: int) -> csr_matrix:

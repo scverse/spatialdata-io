@@ -163,3 +163,45 @@ def test_morphology_images_use_embedded_pyramid(tmp_path: Path) -> None:
     assert [image[k]["image"].shape for k in image.children] == [(2, 64, 96), (2, 32, 48), (2, 16, 24)]
     # The lowest level is read from the stored pyramid, not downsampled from `scale0`.
     np.testing.assert_array_equal(np.asarray(image["scale2"]["image"])[0], full[0, ::4, ::4])
+
+
+def _write_he(path: Path, affine: np.ndarray) -> None:
+    import tifffile
+
+    tifffile.imwrite(
+        path / "he_image.ome.tif", np.zeros((3, 40, 60), dtype=np.uint8), ome=True, metadata={"axes": "CYX"}
+    )
+    pd.DataFrame(affine).to_csv(path / "he_imagealignment.csv", header=False, index=False)
+
+
+def test_aligned_he_image_is_placed_by_its_affine(tmp_path: Path) -> None:
+    from spatialdata.transformations import get_transformation
+
+    from spatialdata_io.readers.xenium import _add_aligned_images
+
+    affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
+    _write_he(tmp_path, affine)
+    images = _add_aligned_images(tmp_path)
+    assert list(images) == ["he_image"]
+    he = images["he_image"]
+    assert list(he.coords["c"].values) == ["r", "g", "b"]
+    m = get_transformation(he, "global").to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
+    np.testing.assert_allclose(m, affine)
+
+
+def test_keypoints_check(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    from spatialdata_io.readers.atera import _check_keypoints
+
+    affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
+    _write_he(tmp_path, affine)
+    src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
+    dst = (np.c_[src, np.ones(3)] @ affine.T)[:, :2]
+    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
+    kp.to_csv(tmp_path / "keypoints.csv", index=False)
+    assert _check_keypoints(tmp_path) == pytest.approx(0.0, abs=1e-9)
+    assert "misplaced" not in caplog.text
+    kp.assign(fixedX=kp["fixedX"] + 50).to_csv(tmp_path / "keypoints.csv", index=False)
+    assert _check_keypoints(tmp_path) == pytest.approx(50.0)
+    assert "misplaced" in caplog.text
+    pd.DataFrame({"a": [1]}).to_csv(tmp_path / "keypoints.csv", index=False)  # unknown columns: skipped
+    assert _check_keypoints(tmp_path) is None
