@@ -169,9 +169,9 @@ def _write_he(path: Path, affine: np.ndarray) -> None:
     import tifffile
 
     tifffile.imwrite(
-        path / "he_image.ome.tif", np.zeros((3, 40, 60), dtype=np.uint8), ome=True, metadata={"axes": "CYX"}
+        path / "S1_he_image.ome.tif", np.zeros((3, 40, 60), dtype=np.uint8), ome=True, metadata={"axes": "CYX"}
     )
-    pd.DataFrame(affine).to_csv(path / "he_imagealignment.csv", header=False, index=False)
+    pd.DataFrame(affine).to_csv(path / "S1_he_imagealignment.csv", header=False, index=False)
 
 
 def test_aligned_he_image_is_placed_by_its_affine(tmp_path: Path) -> None:
@@ -197,11 +197,44 @@ def test_keypoints_check(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> No
     src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
     dst = (np.c_[src, np.ones(3)] @ affine.T)[:, :2]
     kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
-    kp.to_csv(tmp_path / "keypoints.csv", index=False)
+    kp.to_csv(tmp_path / "S1_keypoints.csv", index=False)
     assert _check_keypoints(tmp_path) == pytest.approx(0.0, abs=1e-9)
     assert "misplaced" not in caplog.text
-    kp.assign(fixedX=kp["fixedX"] + 50).to_csv(tmp_path / "keypoints.csv", index=False)
+    kp.assign(fixedX=kp["fixedX"] + 50).to_csv(tmp_path / "S1_keypoints.csv", index=False)
     assert _check_keypoints(tmp_path) == pytest.approx(50.0)
     assert "misplaced" in caplog.text
-    pd.DataFrame({"a": [1]}).to_csv(tmp_path / "keypoints.csv", index=False)  # unknown columns: skipped
+    pd.DataFrame({"a": [1]}).to_csv(tmp_path / "S1_keypoints.csv", index=False)  # unknown columns: skipped
     assert _check_keypoints(tmp_path) is None
+
+
+def test_affine_from_keypoints_reproduces_alignment(tmp_path: Path) -> None:
+    from spatialdata_io.readers.xenium import _affine_from_keypoints
+
+    # about the Atera v1 kidney alignment, with 0.2% anisotropy as in the preview scans
+    affine = np.array([[0.0086, 1.2898, 914.1], [-1.2871, 0.0086, 32040.6], [0.0, 0.0, 1.0]])
+    src = np.array([[16690.0, 14065.0], [22114.0, 25667.0], [13029.0, 25846.0], [16798.0, 35944.0]])
+    dst = (np.c_[src, np.ones(len(src))] @ affine.T)[:, :2]
+    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
+    kp.to_csv(tmp_path / "S1_keypoints.csv", index=False)
+    m = _affine_from_keypoints(tmp_path / "S1_keypoints.csv").to_affine_matrix(
+        input_axes=("x", "y"), output_axes=("x", "y")
+    )
+    np.testing.assert_allclose(m, affine, atol=1e-6)
+
+
+def test_he_without_alignment_csv_is_placed_by_keypoints(tmp_path: Path) -> None:
+    from spatialdata.transformations import get_transformation
+
+    from spatialdata_io.readers.atera import _get_aligned_images
+
+    affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
+    _write_he(tmp_path, affine)
+    (tmp_path / "S1_he_imagealignment.csv").unlink()
+    src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
+    dst = (np.c_[src, np.ones(3)] @ affine.T)[:, :2]
+    pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]}).to_csv(
+        tmp_path / "S1_keypoints.csv", index=False
+    )
+    he = _get_aligned_images(tmp_path, {})["he_image"]
+    m = get_transformation(he, "global").to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
+    np.testing.assert_allclose(m, affine, atol=1e-9)

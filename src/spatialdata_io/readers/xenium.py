@@ -38,6 +38,7 @@ from spatialdata.models import (
     ShapesModel,
     TableModel,
 )
+from spatialdata.transformations import set_transformation
 from spatialdata.transformations.transformations import Affine, Identity, Scale, Translation
 from xarray import DataArray, DataTree
 
@@ -1102,8 +1103,26 @@ def _add_aligned_images(
 
             # parse the image
             image = xenium_aligned_image(file, alignment_file, imread_kwargs, image_models_kwargs)
+            keypoints = [f for f in csv_files if f.name.endswith("keypoints.csv")]
+            if alignment_file is None and element_name == "he_image" and len(keypoints) == 1:
+                # bundles with keypoints but no alignment CSV (the Atera previews): 10x's alignment CSV is the
+                # least-squares fit to the keypoints, so an affine fit to them places the image
+                set_transformation(image, _affine_from_keypoints(keypoints[0]), "global")
+                logging.info(f"{file.name} placed by an affine fit to {keypoints[0].name} (no alignment CSV).")
             images[element_name] = image
     return images
+
+
+def _affine_from_keypoints(kp_file: Path) -> Affine:
+    """Fit the least-squares affine from the keypoints' aligned-image px onto their morphology px.
+
+    ``alignmentX/Y`` -> ``fixedX/Y``. A full affine rather than a similarity: the Atera preview scans carry about 0.2% anisotropy, which leaves 22 px
+    residuals under a similarity fit and under 8 px under an affine (the Atera preview bundles).
+    """
+    kp = pd.read_csv(kp_file)
+    src = np.c_[kp[["alignmentX", "alignmentY"]].to_numpy(dtype=float), np.ones(len(kp))]
+    coef, *_ = np.linalg.lstsq(src, kp[["fixedX", "fixedY"]].to_numpy(dtype=float), rcond=None)
+    return Affine(np.r_[coef.T, [[0.0, 0.0, 1.0]]], input_axes=("x", "y"), output_axes=("x", "y"))
 
 
 def xenium_aligned_image(

@@ -120,7 +120,7 @@ def atera(
     aligned_images
         Whether to read the post-run images aligned to the morphology images (``*he_image.ome.tif`` /
         ``*if_image.ome.tif`` in the bundle root), placed with their ``*imagealignment.csv`` affine. When a
-        ``keypoints.csv`` is present, a warning is logged if the affine does not map its keypoints onto each other.
+        ``*keypoints.csv`` is present, a warning is logged if the affine does not map its keypoints onto each other.
     var_columns
         Which columns of `var` to keep, out of the full table (which includes ~135 per-cluster
         differential-expression columns). Defaults to a small subset (`{xx.FEATURE_NAME!r}`,
@@ -213,11 +213,7 @@ def atera(
         )
 
     if aligned_images:
-        # same file conventions (and 3 x 3 image px -> morphology px affine) as the Xenium bundles
-        images |= _add_aligned_images(
-            path, image_models_kwargs=image_models_kwargs
-        )  # imread_kwargs are TiffFile kwargs here
-        _check_keypoints(path)
+        images |= _get_aligned_images(path, image_models_kwargs)
 
     tables = {"table": table} if table is not None else {}
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
@@ -226,8 +222,15 @@ def atera(
     return sdata
 
 
-KEYPOINTS_FILE = "keypoints.csv"
+KEYPOINTS_SUFFIX = "keypoints.csv"
 KEYPOINTS_MAX_RESIDUAL_PX = 10.0
+
+
+def _get_aligned_images(path: Path, image_models_kwargs: Mapping[str, Any]) -> dict[str, DataTree]:
+    """Aligned post-run images (H&E, IF) in the global (morphology px) coordinate system, as in the Xenium bundles."""
+    aligned = _add_aligned_images(path, image_models_kwargs=image_models_kwargs)  # atera's imread_kwargs are TiffFile's
+    _check_keypoints(path)
+    return aligned
 
 
 def _check_keypoints(path: Path) -> float | None:
@@ -236,10 +239,12 @@ def _check_keypoints(path: Path) -> float | None:
     Xenium Explorer writes keypoints as ``fixedX, fixedY`` (morphology image, px) and ``alignmentX, alignmentY``
     (aligned image, px). Files with other columns are skipped.
     """
-    kp_file = path / KEYPOINTS_FILE
-    alignments = sorted(path.glob("*imagealignment.csv"))
-    if not kp_file.exists() or len(alignments) != 1:
+    kp_files, alignments = sorted(path.glob(f"*{KEYPOINTS_SUFFIX}")), sorted(path.glob("*imagealignment.csv"))
+    if (
+        len(kp_files) != 1 or len(alignments) != 1
+    ):  # 10x names them <sample>_keypoints.csv, <sample>_he_imagealignment.csv
         return None
+    kp_file = kp_files[0]
     kp = pd.read_csv(kp_file)
     cols = ["fixedX", "fixedY", "alignmentX", "alignmentY"]
     if not set(cols) <= set(kp.columns) or kp.empty:
