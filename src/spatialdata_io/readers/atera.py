@@ -352,6 +352,28 @@ def _add_label_id(obs_df: pd.DataFrame) -> None:
     obs_df[str(AteraKeys.LABEL_ID)] = np.arange(1, len(obs_df) + 1, dtype=np.uint32)
 
 
+def _xenium_var(var: pd.DataFrame) -> pd.DataFrame:
+    """Lay out `var` as the `xenium` reader does.
+
+    Gene symbols are the index, Ensembl ids go to ``gene_ids`` and the feature type to ``feature_types`` (the
+    bundles index by ``feature_id`` and name the type ``feature_type``). The type values are already the Xenium
+    ones (``Gene Expression``, ``Negative Control Probe``, ...).
+    """
+    from anndata.utils import make_index_unique
+
+    name, ftype = str(AteraKeys.FEATURE_NAME), str(AteraKeys.VAR_FEATURE_TYPE)
+    if name not in var.columns:
+        return var
+    var = var.copy()
+    fid = str(AteraKeys.FEATURE_ID)
+    var["gene_ids"] = (var[fid] if fid in var.columns else var.index.to_series()).astype(str).to_numpy()
+    var.index = pd.Index(var[name].astype(str), name=None)
+    if not var.index.is_unique:
+        logging.warning(f"{int(var.index.duplicated().sum())} duplicate feature names; made unique with a suffix.")
+        var.index = make_index_unique(var.index)
+    return var.rename(columns={ftype: "feature_types"})
+
+
 def _parse_table(adata: AnnData, region: str) -> AnnData:
     """Annotate `region` with `adata`, using whichever `obs` column holds that element's instance ids.
 
@@ -359,6 +381,7 @@ def _parse_table(adata: AnnData, region: str) -> AnnData:
     """
     instance_key = AteraKeys.LABEL_ID if region == "cell_labels" else AteraKeys.CELL_ID
     adata.obs["region"] = pd.Categorical([region] * adata.n_obs)
+    adata.var = _xenium_var(adata.var)
     return TableModel.parse(adata, region=region, region_key="region", instance_key=str(instance_key))
 
 
@@ -538,7 +561,9 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
     genes = [genes] if isinstance(genes, str) else list(genes)
     path = Path(path)
     with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
-        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)[[str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME)]]
+        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)[
+            [str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME), str(AteraKeys.VAR_FEATURE_TYPE)]
+        ]
         feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
         index = pd.Index(feature_names)
         col_positions = index.get_indexer(pd.Index(np.asarray(genes)))

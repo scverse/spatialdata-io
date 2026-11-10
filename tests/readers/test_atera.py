@@ -523,3 +523,19 @@ def test_helpers_map_positions_through_the_bundle_not_the_table(atera_path: Path
     assert shapes.index.tolist() == CELL_IDS
     del sdata.tables["table"]  # nor do they need a table
     assert len(read_transcripts_for_genes(sdata, atera_path, ["GENE_A"]).points["transcripts_subset"]) == 3
+
+
+@pytest.mark.parametrize("table", ["_get_table", "read_table_for_cells", "read_table_for_genes"])
+def test_var_follows_the_xenium_layout(atera_path: Path, table: str) -> None:
+    # The xenium() reader indexes var by gene symbol, with `gene_ids` (Ensembl) and `feature_types`; downstream
+    # (gene search, QC) reads symbols from the index, ids from `gene_ids` and controls from `feature_types`.
+    if table == "_get_table":
+        adata = _get_table(atera_path)[0]
+    elif table == "read_table_for_cells":
+        adata = read_table_for_cells(atera_path, cell_ids=CELL_IDS[:2])
+    else:
+        adata = read_table_for_genes(atera_path, ["GENE_A", "GENE_B"])
+    assert adata.var.index.tolist() == ["GENE_A", "GENE_B"]
+    assert adata.var["gene_ids"].tolist() == ["ID_A", "ID_B"]
+    assert adata.var["feature_types"].tolist() == ["Gene Expression", "Gene Expression"]
+    assert "feature_type" not in adata.var.columns
