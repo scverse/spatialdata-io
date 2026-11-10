@@ -238,3 +238,19 @@ def test_he_without_alignment_csv_is_placed_by_keypoints(tmp_path: Path) -> None
     he = _get_aligned_images(tmp_path, {})["he_image"]
     m = get_transformation(he, "global").to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
     np.testing.assert_allclose(m, affine, atol=1e-9)
+
+
+@pytest.mark.parametrize("planar", [False, True])
+def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool) -> None:
+    import tifffile
+
+    from spatialdata_io.readers.xenium import _add_aligned_images
+
+    rgb = np.arange(3 * 40 * 60, dtype=np.uint32).reshape(3, 40, 60).astype(np.uint8)
+    if planar:  # OME axes SYX, as in the Atera v1 Onboard 1.1.1 H&E
+        tifffile.imwrite(tmp_path / "S1_he_image.ome.tif", rgb, ome=True, photometric="rgb", planarconfig="separate")
+    else:  # YXS, as in the 1.0.4 kidney H&E
+        tifffile.imwrite(tmp_path / "S1_he_image.ome.tif", np.moveaxis(rgb, 0, -1), ome=True, photometric="rgb")
+    he = _add_aligned_images(tmp_path)["he_image"]
+    assert list(he.coords["c"].values) == ["r", "g", "b"]
+    np.testing.assert_array_equal(np.asarray(he.transpose("c", "y", "x").data), rgb)

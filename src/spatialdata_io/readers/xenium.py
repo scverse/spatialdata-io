@@ -1177,9 +1177,13 @@ def xenium_aligned_image(
     if dims is None:
         if len(image.shape) == 4:
             assert image.shape[0] == 1
-            assert image.shape[-1] == 3
             image = image.squeeze(0)
-            dims = ("y", "x", "c")
+            # interleaved RGB reads as (1, y, x, 3); planar RGB (OME axes SYX, Atera v1 Onboard 1.1.1) as (1, 3, y, x)
+            if image.shape[-1] in [3, 4]:
+                dims = ("y", "x", "c")
+            else:
+                assert image.shape[0] in [3, 4]
+                dims = ("c", "y", "x")
         else:
             assert len(image.shape) == 3
             assert image.shape[0] in [3, 4]
