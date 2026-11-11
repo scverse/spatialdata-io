@@ -367,7 +367,7 @@ def _xenium_var(var: pd.DataFrame) -> pd.DataFrame:
     var = var.copy()
     fid = str(AteraKeys.FEATURE_ID)
     var["gene_ids"] = (var[fid] if fid in var.columns else var.index.to_series()).astype(str).to_numpy()
-    var.index = pd.Index(var[name].astype(str), name=None)
+    var.index = pd.Index(var[name].astype(str).to_numpy())  # from a Series, pd.Index would keep its name
     if not var.index.is_unique:
         logging.warning(f"{int(var.index.duplicated().sum())} duplicate feature names; made unique with a suffix.")
         var.index = make_index_unique(var.index)

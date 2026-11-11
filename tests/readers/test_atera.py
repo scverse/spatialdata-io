@@ -536,6 +536,7 @@ def test_var_follows_the_xenium_layout(atera_path: Path, table: str) -> None:
     else:
         adata = read_table_for_genes(atera_path, ["GENE_A", "GENE_B"])
     assert adata.var.index.tolist() == ["GENE_A", "GENE_B"]
+    assert adata.var.index.name is None  # a name shared with the `feature_name` column breaks writes once suffixed
     assert adata.var["gene_ids"].tolist() == ["ID_A", "ID_B"]
     assert adata.var["feature_types"].tolist() == ["Gene Expression", "Gene Expression"]
     assert "feature_type" not in adata.var.columns
