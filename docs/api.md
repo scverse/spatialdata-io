@@ -16,22 +16,22 @@ I/O for the `spatialdata` project.
 
 ```{eval-rst}
 .. autosummary::
-    :toctree: generated
+   :toctree: generated
 
-    atera
-    codex
-    cosmx
-    curio
-    dbit
-    experimental.iss
-    mcmicro
-    merscope
-    seqfish
-    steinbock
-    stereoseq
-    visium
-    visium_hd
-    xenium
+   atera
+   codex
+   cosmx
+   curio
+   dbit
+   experimental.iss
+   mcmicro
+   merscope
+   seqfish
+   steinbock
+   stereoseq
+   visium
+   visium_hd
+   xenium
 ```
 
 #### Data types
@@ -53,9 +53,9 @@ I/O for the `spatialdata` project.
 .. autosummary::
    :toctree: generated
 
-    atera_to_parquet
-    experimental.from_legacy_anndata
-    experimental.to_legacy_anndata
+   atera_to_parquet
+   experimental.from_legacy_anndata
+   experimental.to_legacy_anndata
 ```
 
 ### Utility functions
