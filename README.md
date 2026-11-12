@@ -84,6 +84,7 @@ If you found a bug, please use the [issue tracker][issue-tracker].
 Technologies that can be read into `SpatialData` objects using third-party libraries:
 
 - METASPACE (MALDI, ...): [metaspace-converter](https://github.com/metaspace2020/metaspace-converter)
+- Mass spectrometry imaging with ion mobility and MS/MS (Bruker, Waters, PHI, imzML): [Thyra](https://github.com/M4i-Imaging-Mass-Spectrometry/thyra)
 - PhenoCycler®: [SOPA](https://github.com/gustaveroussy/sopa)
 - MACSima®: [SOPA](https://github.com/gustaveroussy/sopa)
 - Hyperion® (Imaging Mass Cytometry): [SOPA](https://github.com/gustaveroussy/sopa)
