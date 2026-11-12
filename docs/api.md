@@ -16,32 +16,32 @@ I/O for the `spatialdata` project.
 
 ```{eval-rst}
 .. autosummary::
-    :toctree: generated
+   :toctree: generated
 
-    codex
-    cosmx
-    curio
-    dbit
-    experimental.iss
-    mcmicro
-    merscope
-    seqfish
-    steinbock
-    stereoseq
-    visium
-    visium_hd
-    xenium
+   codex
+   cosmx
+   curio
+   dbit
+   experimental.iss
+   mcmicro
+   merscope
+   seqfish
+   steinbock
+   stereoseq
+   visium
+   visium_hd
+   xenium
 ```
 
 #### Data types
 
 ```{eval-rst}
 .. autosummary::
-    :toctree: generated
+   :toctree: generated
 
-    generic
-    image
-    geojson
+   generic
+   image
+   geojson
 ```
 
 ### Conversion functions
@@ -50,10 +50,10 @@ I/O for the `spatialdata` project.
 .. currentmodule:: spatialdata_io
 
 .. autosummary::
-    :toctree: generated
+   :toctree: generated
 
-    experimental.from_legacy_anndata
-    experimental.to_legacy_anndata
+   experimental.from_legacy_anndata
+   experimental.to_legacy_anndata
 ```
 
 ### Utility functions
@@ -62,8 +62,8 @@ I/O for the `spatialdata` project.
 .. currentmodule:: spatialdata_io
 
 .. autosummary::
-    :toctree: generated
+   :toctree: generated
 
-    xenium_aligned_image
-    xenium_explorer_selection
+   xenium_aligned_image
+   xenium_explorer_selection
 ```
