@@ -11,7 +11,9 @@ from spatialdata.models import get_table_keys
 from spatialdata_io.__main__ import visium_hd_wrapper
 from spatialdata_io._constants._constants import VisiumHDKeys
 from spatialdata_io.readers.visium_hd import (
+    DEFAULT_DATASET_ID,
     _decompose_projective_matrix,
+    _get_filename_prefix,
     _projective_matrix_is_affine,
     visium_hd,
 )
@@ -42,6 +44,39 @@ def test_decompose_projective_matrix() -> None:
     assert np.allclose(affine, expected_affine)
     # Recomposing the affine and shift matrices should yield the original projective matrix
     assert np.allclose(affine @ shift, projective_matrix)
+
+
+def test_get_filename_prefix_prefixed_files(tmp_path: Path) -> None:
+    """With prefixed files the prefix and the dataset id are inferred from the feature slice file name."""
+    (tmp_path / f"sample1_{VisiumHDKeys.FEATURE_SLICE_FILE.value}").touch()
+
+    assert _get_filename_prefix(tmp_path, None) == ("sample1_", "sample1")
+    assert _get_filename_prefix(tmp_path, "sample1") == ("sample1_", "sample1")
+
+
+def test_get_filename_prefix_unprefixed_files(tmp_path: Path) -> None:
+    """Without a prefix the dataset id defaults to a non-empty name (#422).
+
+    An empty `dataset_id` would be used as coordinate system name and as element name prefix, which produces an
+    unnamed coordinate system that downstream tools such as napari-spatialdata cannot select.
+    """
+    (tmp_path / VisiumHDKeys.FEATURE_SLICE_FILE.value).touch()
+
+    prefix, dataset_id = _get_filename_prefix(tmp_path, None)
+    assert prefix == ""
+    assert dataset_id == DEFAULT_DATASET_ID
+    assert dataset_id != ""
+
+    # an explicit dataset_id is kept as is
+    assert _get_filename_prefix(tmp_path, "my_sample") == ("", "my_sample")
+
+
+def test_get_filename_prefix_missing_feature_slice_file(tmp_path: Path) -> None:
+    """A missing feature slice file is reported."""
+    with pytest.raises(ValueError, match="Cannot infer `dataset_id`"):
+        _get_filename_prefix(tmp_path, None)
+    with pytest.raises(RuntimeError, match="Cannot locate the feature slice file"):
+        _get_filename_prefix(tmp_path, "sample1")
 
 
 # --- END-TO-END TESTS ON EXAMPLE DATA ---
