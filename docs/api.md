@@ -38,11 +38,11 @@ I/O for the `spatialdata` project.
 
 ```{eval-rst}
 .. autosummary::
-    :toctree: generated
+   :toctree: generated
 
-    generic
-    image
-    geojson
+   generic
+   image
+   geojson
 ```
 
 ### Conversion functions
@@ -51,7 +51,7 @@ I/O for the `spatialdata` project.
 .. currentmodule:: spatialdata_io
 
 .. autosummary::
-    :toctree: generated
+   :toctree: generated
 
     atera_to_parquet
     experimental.from_legacy_anndata
@@ -64,8 +64,8 @@ I/O for the `spatialdata` project.
 .. currentmodule:: spatialdata_io
 
 .. autosummary::
-    :toctree: generated
+   :toctree: generated
 
-    xenium_aligned_image
-    xenium_explorer_selection
+   xenium_aligned_image
+   xenium_explorer_selection
 ```
