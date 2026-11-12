@@ -108,6 +108,22 @@ def test_table_obs_and_var_are_writable(atera_path: Path, table: str) -> None:
         write_elem(zarr.open_group(zarr.storage.MemoryStore(), mode="w", zarr_format=2), name, df)
 
 
+@pytest.mark.parametrize("table", ["_get_table", "read_table_for_cells", "read_table_for_genes"])
+def test_table_obs_index_does_not_shadow_the_barcode_column(atera_path: Path, table: str) -> None:
+    # spatialdata's table joins call `obs.reset_index()` (spatialdata 0.8.0 _core/query/relational_query.py:259),
+    # which fails with "cannot insert barcode, already exists" when the index carries the column's name
+    if table == "_get_table":
+        adata = _get_table(atera_path)[0]
+    elif table == "read_table_for_cells":
+        adata = read_table_for_cells(atera_path, cell_ids=CELL_IDS[:2])
+    else:
+        adata = read_table_for_genes(atera_path, "GENE_B")
+
+    assert adata.obs.index.name is None
+    assert adata.obs["barcode"].tolist() == adata.obs_names.tolist()
+    adata.obs.reset_index()
+
+
 def test_read_var_is_writable(atera_path: Path) -> None:
     write_elem(zarr.open_group(zarr.storage.MemoryStore(), mode="w", zarr_format=2), "var", read_var(atera_path))
 

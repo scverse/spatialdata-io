@@ -292,7 +292,7 @@ def _lazy_x(
 
 
 def _align_index_column(df: pd.DataFrame) -> pd.DataFrame:
-    """Make a column that shares the index's name have the index's dtype.
+    """Make a column that shares the index's name have the index's dtype, and leave the index unnamed.
 
     The bundles' `obs`/`var` list the index (`barcode`/`feature_id`) as a column too. Under pandas 3,
     `read_elem` returns that index as `str` but the column as `object`, and `anndata` refuses to write
@@ -302,6 +302,9 @@ def _align_index_column(df: pd.DataFrame) -> pd.DataFrame:
     name = df.index.name
     if name is not None and name in df.columns:
         df[name] = df[name].astype(df.index.dtype)
+        # the column keeps the values; an index of the same name breaks `obs.reset_index()`, which spatialdata's
+        # table joins call (spatialdata 0.8.0 _core/query/relational_query.py:259): "cannot insert barcode"
+        df.index.name = None
     return df
 
 
