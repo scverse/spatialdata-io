@@ -14,7 +14,7 @@
 [badge-pypi]: https://badge.fury.io/py/spatialdata-io.svg
 [link-pypi]: https://pypi.org/project/spatialdata-io/
 
-_We encourage contributions from the community and from developers of spatial technologies: please read our [**contribution guide for readers and converters**](https://spatialdata.scverse.org/projects/io/en/latest/contributing_io.html) and see the "[How to Contribute](#how-to-contribute)" section below._
+*We encourage contributions from the community and from developers of spatial technologies: please read our [**contribution guide for readers and converters**](https://spatialdata.scverse.org/projects/io/en/latest/contributing_io.html) and see the “[How to Contribute](#how-to-contribute)” section below.*
 
 This package contains reader functions to load common spatial omics formats into SpatialData. Currently, we provide support for:
 
@@ -57,7 +57,7 @@ Please refer to the [documentation][link-docs]. In particular, the
 
 ## Installation
 
-You need to have Python 3.12 or newer installed on your system. If you don't have
+You need to have Python 3.12 or newer installed on your system. If you don’t have
 Python installed, we recommend installing [Miniconda](https://docs.conda.io/en/latest/miniconda.html).
 
 There are several alternative options to install spatialdata-io:
@@ -127,6 +127,6 @@ If you like scverse® and want to support our mission, please consider making a 
   <img
     src="https://raw.githubusercontent.com/numfocus/templates/master/images/numfocus-logo.png"
     width="200"
-  >
+>
 </a>
 </div>

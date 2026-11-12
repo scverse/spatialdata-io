@@ -23,21 +23,20 @@ documented elsewhere:
   `spatialdata-io` specifics.
 - **The SpatialData technical stack** — `spatialdata-io` inherits it, so please also read the
   [contribution guide of the `spatialdata` repository](https://github.com/scverse/spatialdata/blob/main/docs/contributing.md).
-
 :::
 
 ## Adding a new reader
 
 To contribute a reader and make code review efficient, we kindly ask for:
 
-- the **specification** for the raw data: a link to a (ideally) _public_ resource describing how the data is organized, and/or, for a new version of an already supported technology, a changelog describing in detail which changes are introduced;
+- the **specification** for the raw data: a link to a (ideally) *public* resource describing how the data is organized, and/or, for a new version of an already supported technology, a changelog describing in detail which changes are introduced;
 - the **reader** itself: a Python function, generally supported by helper functions/classes/enums, that reads the raw data and returns a `SpatialData` object;
-- example **data**: preferably one or more (very) small _public_ datasets, with a permissive license, to represent the data across various versions and cover potential edge cases of the raw data format. Alternatively (or preferably, in addition), scripts to easily download _public_ and licensed data.
+- example **data**: preferably one or more (very) small *public* datasets, with a permissive license, to represent the data across various versions and cover potential edge cases of the raw data format. Alternatively (or preferably, in addition), scripts to easily download *public* and licensed data.
 - **test** functions: to ensure that the reader parses the data correctly. If helper functions are used, they should also be tested.
 
 ### The specification
 
-In your issue or PR, please include a link to a _public_ specification and/or changelog describing how the raw data is organized on disk and what changes across various versions.
+In your issue or PR, please include a link to a *public* specification and/or changelog describing how the raw data is organized on disk and what changes across various versions.
 
 If the specification cannot (yet) be made public, you can reach out to scverse via [Zulip](https://scverse.zulipchat.com/#narrow/channel/443514-spatialdata-dev) via private message, or via email.
 
@@ -128,7 +127,7 @@ There are several reasons to prefer public datasets provided with a permissive l
 
 ### When only private data is available
 
-Due to the open-source, collaborative nature of our work, developing readers for private datasets is out of our scope. Therefore, we will not be able to consider private datasets. An exception is when developing a reader for a technology whose launch is scheduled and imminent, and for which the data will soon become public. If you find yourself in this scenario, please reach out to scverse via [Zulip](https://scverse.zulipchat.com/#narrow/channel/443514-spatialdata-dev) via private message, or via email. In such cases, we will ask you to give us access to a private repository where you can upload a `download.py` and `to_zarr.py` script working as described above. Alternatively, you can also upload the data privately to the ["SpatialData Submissions" Zenodo community](https://zenodo.org/communities/scverse-spatialdata-submissions/), instead of providing a `download.py` script.
+Due to the open-source, collaborative nature of our work, developing readers for private datasets is out of our scope. Therefore, we will not be able to consider private datasets. An exception is when developing a reader for a technology whose launch is scheduled and imminent, and for which the data will soon become public. If you find yourself in this scenario, please reach out to scverse via [Zulip](https://scverse.zulipchat.com/#narrow/channel/443514-spatialdata-dev) via private message, or via email. In such cases, we will ask you to give us access to a private repository where you can upload a `download.py` and `to_zarr.py` script working as described above. Alternatively, you can also upload the data privately to the [“SpatialData Submissions” Zenodo community](https://zenodo.org/communities/scverse-spatialdata-submissions/), instead of providing a `download.py` script.
 
 **Technical notes**
 
@@ -197,7 +196,7 @@ The naming of the arguments of the readers is not fully consistent across techno
 
 ### Pixel space vs physical space
 
-For certain use cases, the "pixel" space is more convenient, for others the "physical" space. Thanks to the flexibility of coordinate transformations, one can easily handle the data in both spaces. However, for some technologies, the first coordinate system (i.e. the default one) is the "pixel" space, for others the "physical" space. An improvement would be to standardize this across technologies.
+For certain use cases, the “pixel” space is more convenient, for others the “physical” space. Thanks to the flexibility of coordinate transformations, one can easily handle the data in both spaces. However, for some technologies, the first coordinate system (i.e. the default one) is the “pixel” space, for others the “physical” space. An improvement would be to standardize this across technologies.
 
 ### Transformations between coordinate systems
 
@@ -212,31 +211,31 @@ In our README, we list the supported technologies but do not list the supported 
 As a wrap-up, here is a checklist of the main points to consider when contributing a reader.
 
 - Specification
-    - [ ] Provide a link to the public specification/changelog of the raw data format (if no public specification available yet, reach out to scverse privately (Zulip/email))
+  - [ ] Provide a link to the public specification/changelog of the raw data format (if no public specification available yet, reach out to scverse privately (Zulip/email))
 
 - Reader implementation
-    - [ ] Implement reader functions in `src/spatialdata_io/readers/` (if no formal spec available, place under `experimental/`)
-    - [ ] Place string constants in `src/spatialdata_io/_constants/_constants.py`
+  - [ ] Implement reader functions in `src/spatialdata_io/readers/` (if no formal spec available, place under `experimental/`)
+  - [ ] Place string constants in `src/spatialdata_io/_constants/_constants.py`
 
 - Example data
-    - [ ] Provide (very) small public test dataset(s) (~100kB–10MB, preferred), licensed with a permissive license (e.g. CC BY 4.0)
-    - [ ] Ensure dataset(s) cover edge cases of the format
-    - [ ] In addition to the small dataset(s), consider creating scripts for downloading and converting a real dataset in `spatialdata-sandbox`:
-        - [ ] `download.py` (fetch raw data → `data/`)
-        - [ ] `to_zarr.py` (convert raw data → `data.zarr`)
-        - [ ] Include `requirements.txt` (or add PEP 723 metadata to the scripts) for dependencies not included in `spatialdata`
-    - [ ] If the data is not available online, upload it to the ["SpatialData Submissions" Zenodo community](https://zenodo.org/communities/scverse-spatialdata-submissions/)
-    - [ ] We do not support private data, with the exception of data that will soon be made available to the public. In such cases, please reach out to us. Then, please provide a private repo with `download.py` and `to_zarr.py` (or upload the data privately to the "SpatialData Submissions" Zenodo community)
+  - [ ] Provide (very) small public test dataset(s) (~100kB–10MB, preferred), licensed with a permissive license (e.g. CC BY 4.0)
+  - [ ] Ensure dataset(s) cover edge cases of the format
+  - [ ] In addition to the small dataset(s), consider creating scripts for downloading and converting a real dataset in `spatialdata-sandbox`:
+    - [ ] `download.py` (fetch raw data → `data/`)
+    - [ ] `to_zarr.py` (convert raw data → `data.zarr`)
+    - [ ] Include `requirements.txt` (or add PEP 723 metadata to the scripts) for dependencies not included in `spatialdata`
+  - [ ] If the data is not available online, upload it to the ["SpatialData Submissions" Zenodo community](https://zenodo.org/communities/scverse-spatialdata-submissions/)
+  - [ ] We do not support private data, with the exception of data that will soon be made available to the public. In such cases, please reach out to us. Then, please provide a private repo with `download.py` and `to_zarr.py` (or upload the data privately to the "SpatialData Submissions" Zenodo community)
 
 - Tests
-    - [ ] Add test functions for the reader
-    - [ ] Test multiple versions of the raw format if applicable
-    - [ ] Verify visualization/alignment with `spatialdata-plot` or `napari-spatialdata`
-    - [ ] Add proxy tests for spatial extent correctness (`spatialdata.get_extent()`)
-    - [ ] Add proxy tests for coloring/annotations of selected elements/features
-    - [ ] Add tests for auxiliary/helper functions if present
+  - [ ] Add test functions for the reader
+  - [ ] Test multiple versions of the raw format if applicable
+  - [ ] Verify visualization/alignment with `spatialdata-plot` or `napari-spatialdata`
+  - [ ] Add proxy tests for spatial extent correctness (`spatialdata.get_extent()`)
+  - [ ] Add proxy tests for coloring/annotations of selected elements/features
+  - [ ] Add tests for auxiliary/helper functions if present
 
 - Extra
-    - [ ] Update CLI in `src/spatialdata_io/__main__.py` if reader/converter is added/modified
-    - [ ] Consider contributing to the public project board (currently view only, please reach out for edits)
-    - [ ] Provide feedback on this contribution guide to improve it further
+  - [ ] Update CLI in `src/spatialdata_io/__main__.py` if reader/converter is added/modified
+  - [ ] Consider contributing to the public project board (currently view only, please reach out for edits)
+  - [ ] Provide feedback on this contribution guide to improve it further
