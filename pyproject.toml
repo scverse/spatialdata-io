@@ -27,12 +27,14 @@ dynamic = [
 dependencies = [
   "anndata",
   "click",
+  "dask",
   "dask-image",
   "h5py",
   "imagecodecs",
   "joblib",
   "numpy",
   "ome-types",
+  "polars",
   "pyarrow",
   "readfcs",
   "scanpy",
@@ -42,6 +44,7 @@ dependencies = [
   "spatialdata>=0.7.3a0",
   "tifffile>=2023.8.12",
   "xmltodict",
+  "zarr>=3",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://spatialdata-io.readthedocs.io/"

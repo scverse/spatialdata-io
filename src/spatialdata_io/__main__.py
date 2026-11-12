@@ -75,13 +75,28 @@ def codex_wrapper(
 
 @cli.command(name="cosmx")
 @_input_output_click_options
-@click.option("--dataset-id", type=str, default=None, help="Name of the dataset [default: None]")
-@click.option("--transcripts", type=bool, default=True, help="Whether to load transcript information. [default: True]")
 @click.option(
-    "--imread-kwargs",
-    type=str,
-    default="{}",
-    help="JSON string of keyword arguments passed to imread. [default: {}]",
+    "--dataset-id", type=str, default=None, help="Name of the dataset; inferred from file prefixes if omitted."
+)
+@click.option("--read-images", type=bool, default=True, help="Whether to read morphology images. [default: True]")
+@click.option(
+    "--read-labels", type=bool, default=True, help="Whether to read or rasterize cell labels. [default: True]"
+)
+@click.option(
+    "--read-proteins", type=bool, default=True, help="Whether to include protein image channels. [default: True]"
+)
+@click.option("--read-transcripts", type=bool, default=True, help="Whether to read transcripts. [default: True]")
+@click.option("--read-polygons", type=bool, default=True, help="Whether to read cell polygons. [default: True]")
+@click.option("--read-gexp", type=bool, default=True, help="Whether to read the expression matrix. [default: True]")
+@click.option("--fovs", multiple=True, help="A FOV to read (repeat for several); all if omitted.")
+@click.option("--channels", multiple=True, help="An image channel to read (repeat for several); all if omitted.")
+@click.option("--n-workers", type=int, default=None, help="Workers for stitching. [default: 1]")
+@click.option("--flip-image", type=bool, default=None, help="Flip morphology images vertically. [default: True]")
+@click.option(
+    "--image-normalization-percentile",
+    type=float,
+    default=None,
+    help="Per-channel percentile contrast normalization of images. [default: None]",
 )
 @click.option(
     "--image-models-kwargs",
@@ -89,25 +104,80 @@ def codex_wrapper(
     default="{}",
     help="JSON string of keyword arguments passed to Image2DModel. [default: {}]",
 )
+@click.option(
+    "--imread-kwargs",
+    type=str,
+    default="{}",
+    help="JSON string of keyword arguments passed to imread. [default: {}]",
+)
+@click.option("--polygons-as-labels", type=bool, default=True, help="Rasterize polygons into labels. [default: True]")
+@click.option(
+    "--keep-polygons-after-rasterize",
+    type=bool,
+    default=False,
+    help="Keep vector polygons when rasterizing. [default: False]",
+)
+@click.option(
+    "--align-rasters-to-polygons",
+    type=bool,
+    default=None,
+    help="Anchor images and labels to the polygon origin. [default: None]",
+)
+@click.option("--add-fovs-as-shapes", type=bool, default=True, help="Add FOV bounding boxes as shapes. [default: True]")
+@click.option("--skip-empty-fovs", type=bool, default=True, help="Drop FOVs without data files. [default: True]")
+@click.option("--preview-fovs", type=bool, default=False, help="Plot the FOV layout and exit. [default: False]")
 def cosmx_wrapper(
     input: str,
     output: str,
     dataset_id: str | None = None,
-    transcripts: bool = True,
-    imread_kwargs: str = "{}",
+    read_images: bool = True,
+    read_labels: bool = True,
+    read_proteins: bool = True,
+    read_transcripts: bool = True,
+    read_polygons: bool = True,
+    read_gexp: bool = True,
+    fovs: tuple[str, ...] = (),
+    channels: tuple[str, ...] = (),
+    n_workers: int | None = None,
+    flip_image: bool | None = None,
+    image_normalization_percentile: float | None = None,
     image_models_kwargs: str = "{}",
+    imread_kwargs: str = "{}",
+    polygons_as_labels: bool = True,
+    keep_polygons_after_rasterize: bool = False,
+    align_rasters_to_polygons: bool | None = None,
+    add_fovs_as_shapes: bool = True,
+    skip_empty_fovs: bool = True,
+    preview_fovs: bool = False,
 ) -> None:
-    """Cosmic conversion to SpatialData."""
+    """CosMx conversion to SpatialData."""
     from spatialdata_io.readers.cosmx import cosmx
 
     sdata = cosmx(
         input,
         dataset_id=dataset_id,
-        transcripts=transcripts,
-        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        read_images=read_images,
+        read_labels=read_labels,
+        read_proteins=read_proteins,
+        read_transcripts=read_transcripts,
+        read_polygons=read_polygons,
+        read_gexp=read_gexp,
+        fovs=list(fovs) or None,
+        channels=list(channels) or None,
+        n_workers=n_workers,
+        flip_image=flip_image,
+        image_normalization_percentile=image_normalization_percentile,
         image_models_kwargs=_parse_json_param(image_models_kwargs, "image_models_kwargs"),
+        imread_kwargs=_parse_json_param(imread_kwargs, "imread_kwargs"),
+        polygons_as_labels=polygons_as_labels,
+        keep_polygons_after_rasterize=keep_polygons_after_rasterize,
+        align_rasters_to_polygons=align_rasters_to_polygons,
+        add_fovs_as_shapes=add_fovs_as_shapes,
+        skip_empty_fovs=skip_empty_fovs,
+        preview_fovs=preview_fovs,
     )
-    sdata.write(output)
+    if sdata is not None:
+        sdata.write(output)
 
 
 @cli.command(name="curio")
