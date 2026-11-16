@@ -56,7 +56,84 @@ def atera_path(tmp_path: Path) -> Path:
                 elem.attrs["column-order"] = [str(df.index.name), *cast("list[str]", elem.attrs["column-order"])]
         finally:
             store.close()
+    _write_cells_transcripts_and_images(tmp_path, n)
     return tmp_path
+
+
+PIXEL_SIZE = 0.5
+
+
+def _write_cells_transcripts_and_images(path: Path, n: int) -> None:
+    """The rest of a bundle: cell `i` is the 6 x 6 px square at ``10 i + 2``, with one 4-vertex polygon per mask."""
+    import json
+
+    import tifffile
+
+    (path / AteraKeys.SPECS_FILE).write_text(json.dumps({"pixel_size": PIXEL_SIZE}))
+    store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, mode="w")
+    try:
+        root = zarr.open_group(store, mode="w", zarr_format=2)
+        mask = np.zeros((64, 96), dtype=np.uint32)
+        for c in range(n):
+            mask[10 * c + 2 : 10 * c + 8, 10 * c + 2 : 10 * c + 8] = c + 1
+        bboxes = np.array([[10 * c + 2, 10 * c + 2, 10 * c + 8, 10 * c + 8] for c in range(n)], np.float32) * PIXEL_SIZE
+        root.create_array("bboxes", data=bboxes)
+        for i in ("0", "1"):
+            root.create_array(f"masks/{i}", data=mask)
+            square = bboxes[:, [0, 1, 2, 1, 2, 3, 0, 3]]
+            root.create_array(f"polygon_sets/{i}/vertices", data=np.c_[square, np.zeros((n, 2), np.float32)])
+            root.create_array(f"polygon_sets/{i}/num_vertices", data=np.full(n, 4, np.int32))
+            root.create_array(f"polygon_sets/{i}/cell_index", data=np.arange(n, dtype=np.uint32))
+            gridded = root.create_group(f"gridded_polygon_sets/{i}")
+            gridded.attrs["grid_size"] = [100.0, 100.0]
+            for level in range(5):
+                gridded.create_array(f"{level}/0,0/num_vertices", data=np.full(n, 4, np.int32))
+                gridded.create_array(f"{level}/0,0/cell_index", data=np.arange(n, dtype=np.uint32))
+                corners = np.array([0, 0, 255, 0, 255, 255, 0, 255], np.uint8)
+                gridded.create_array(f"{level}/0,0/relative_vertices", data=np.tile(corners, n))
+    finally:
+        store.close()
+
+    # one tile; GENE_A owns rows 0-2 and GENE_B rows 3-5, the first transcript is unassigned
+    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, mode="w")
+    try:
+        grid = zarr.open_group(store, mode="w", zarr_format=2).create_group(str(AteraKeys.GRID_GROUP))
+        grid.attrs[str(AteraKeys.GRID_KEYS)] = ["0,0"]
+        cell_id = np.zeros((6, 2), np.uint32)
+        cell_id[0] = np.iinfo(np.uint32).max
+        arrays = {
+            "location": np.c_[np.arange(6), np.arange(6), np.zeros(6)].astype(np.float32),
+            "gene_offset": np.array([[0, 3], [3, 6]], np.uint32),
+            "cell_id": cell_id,
+            "overlaps_nucleus": np.zeros((6, 1), np.uint8),
+            "quality_score": np.full((6, 1), 30, np.float32),
+            "codeword_identity": np.full((6, 1), 7, np.uint16),
+        }
+        for key, data in arrays.items():
+            grid.create_array(f"0,0/{key}", data=data)
+    finally:
+        store.close()
+
+    # each 2D file holds every channel, the "chNNNN" one carries the data; one 3D file per channel
+    rng = np.random.default_rng(0)
+    planes = rng.integers(0, 255, (2, 64, 96), dtype=np.uint8)
+    (path / AteraKeys.MORPHOLOGY_2D_DIR).mkdir()
+    (path / AteraKeys.MORPHOLOGY_3D_DIR).mkdir()
+    for i, name in enumerate(["DAPI", "VIM"]):
+        tifffile.imwrite(
+            path / AteraKeys.MORPHOLOGY_2D_DIR / f"ch{i:04d}_{name.lower()}.ome.tif",
+            planes,
+            ome=True,
+            tile=(32, 32),
+            metadata={"axes": "CYX", "Channel": {"Name": ["DAPI", "VIM"]}},
+        )
+        tifffile.imwrite(
+            path / AteraKeys.MORPHOLOGY_3D_DIR / f"ch{i:04d}_{name.lower()}_3d.ome.tif",
+            np.stack([planes[i]] * 3),
+            ome=True,
+            tile=(32, 32),
+            metadata={"axes": "ZYX", "Channel": {"Name": [name]}},
+        )
 
 
 def test_cell_labels_table_uses_label_id(atera_path: Path) -> None:
@@ -270,3 +347,22 @@ def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool) ->
     he = _add_aligned_images(tmp_path)["he_image"]
     assert list(he.coords["c"].values) == ["r", "g", "b"]
     np.testing.assert_array_equal(np.asarray(he.transpose("c", "y", "x").data), rgb)
+
+
+def test_atera_reads_writes_and_queries(atera_path: Path, tmp_path: Path) -> None:
+    from spatialdata import bounding_box_query, read_zarr
+
+    from spatialdata_io import atera
+
+    sdata = atera(atera_path, transcripts=True)
+    assert set(sdata.images) == {"morphology"}
+    assert set(sdata.labels) == {"cell_labels", "nucleus_labels"}
+    assert set(sdata.shapes) == {"cell_boundaries", "nucleus_boundaries"}
+    assert len(sdata.points["transcripts"]) == 6
+    sdata.write(tmp_path / "out.zarr")
+    back = read_zarr(tmp_path / "out.zarr")
+    np.testing.assert_array_equal(back.tables["table"].X.toarray(), sdata.tables["table"].X.compute().toarray())
+    crop = bounding_box_query(
+        back, axes=("x", "y"), min_coordinate=[0, 0], max_coordinate=[15, 15], target_coordinate_system="global"
+    )
+    assert crop.tables["table"].obs["cell_id"].tolist() == CELL_IDS[:2]
