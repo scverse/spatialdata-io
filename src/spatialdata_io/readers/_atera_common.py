@@ -79,6 +79,12 @@ _UINT32_SENTINEL = np.iinfo(np.uint32).max
 
 
 @contextlib.contextmanager
+def _open_zip(path: Path) -> Iterator[zarr.Group]:
+    with zarr.storage.ZipStore(path, read_only=True) as store:
+        yield zarr.open_group(store, mode="r")
+
+
+@contextlib.contextmanager
 def _patched_ragged_vlen_chunk_decode() -> Iterator[None]:
     """Work around ``zarr``'s `V2Codec` failing to decode a vlen (string) array's ragged trailing chunk.
 
@@ -243,82 +249,79 @@ def _tile_row_ranges(n_rows: int, chunk_rows: int = DEFAULT_TRANSCRIPT_CHUNK_ROW
     return [(start, min(start + chunk_rows, n_rows)) for start in range(0, n_rows, chunk_rows)] or [(0, 0)]
 
 
-def _read_transcript_tile(
-    path: Path, tile_key: str, feature_names: list[str], start: int = 0, stop: int | None = None
-) -> pd.DataFrame:
-    """Read and decode rows ``[start, stop)`` of a single spatial tile of transcripts.zarr.zip (default: the whole tile).
+def _transcript_rows(tile: zarr.Group, start: int, stop: int, feature_name: pd.Categorical) -> pd.DataFrame:
+    """Decode rows ``[start, stop)`` of one tile of transcripts.zarr.zip, labelled with `feature_name`."""
 
-    Opens its own zip store (rather than sharing one across tiles) so this function can safely
-    be called from independent `dask` tasks.
-    """
-    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        tile = _get_group(group, f"{AteraKeys.GRID_GROUP}/{tile_key}")
-        location_array = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION))
-        stop = location_array.shape[0] if stop is None else min(stop, location_array.shape[0])
-        location = np.asarray(location_array[start:stop])
-        gene_offset = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))[...])
-        cell_id_raw = np.asarray(_get_array(tile, str(AteraKeys.CELL_ID))[start:stop])
-        overlaps_nucleus = np.asarray(
-            _get_array(tile, str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:stop]
-        ).reshape(-1)
-        quality_score = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:stop]).reshape(-1)
-    finally:
-        store.close()
+    def rows(key: AteraKeys) -> np.ndarray:
+        return np.asarray(_get_array(tile, str(key))[start:stop])
 
-    # Rows within a tile are sorted by gene; gene_offset[g] = [start, end) gives the row range for
-    # gene g, so the per-row gene index must be reconstructed rather than read directly: row r belongs to
-    # the first gene whose range ends after r.
-    gene_index = np.searchsorted(gene_offset[:, 1], np.arange(start, stop), side="right")
-    feature_name = pd.Categorical.from_codes(gene_index, categories=pd.Index(feature_names))
-
+    location = rows(AteraKeys.TRANSCRIPTS_LOCATION)
     return pd.DataFrame(
         {
             str(AteraKeys.TRANSCRIPTS_X): location[:, 0].astype(np.float32),
             str(AteraKeys.TRANSCRIPTS_Y): location[:, 1].astype(np.float32),
             str(AteraKeys.TRANSCRIPTS_Z): location[:, 2].astype(np.float32),
             str(AteraKeys.FEATURE_NAME): feature_name,
-            str(AteraKeys.CELL_ID): _decode_packed_cell_id(cell_id_raw),
-            "overlaps_nucleus": overlaps_nucleus.astype(bool),
-            "quality_score": quality_score.astype(np.float32),
+            str(AteraKeys.CELL_ID): _decode_packed_cell_id(rows(AteraKeys.CELL_ID)),
+            "overlaps_nucleus": rows(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS).reshape(-1).astype(bool),
+            "quality_score": rows(AteraKeys.TRANSCRIPTS_QUALITY_SCORE).reshape(-1).astype(np.float32),
+        }
+    )
+
+
+def _read_transcript_tile(
+    grid: zarr.Group, tile_key: str, feature_names: list[str], start: int = 0, stop: int | None = None
+) -> pd.DataFrame:
+    """Read and decode rows ``[start, stop)`` of a single spatial tile of transcripts.zarr.zip (default: the whole tile).
+
+    `grid` is the store's ``grid`` group. All `dask` tasks share it, so the zip is opened once per process, not once
+    per task.
+    """
+    tile = _get_group(grid, tile_key)
+    n_rows = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0]
+    stop = n_rows if stop is None else min(stop, n_rows)
+    gene_offset = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))[...])
+    # Rows within a tile are sorted by gene; gene_offset[g] = [start, end) gives the row range for
+    # gene g, so the per-row gene index must be reconstructed rather than read directly: row r belongs to
+    # the first gene whose range ends after r.
+    gene_index = np.searchsorted(gene_offset[:, 1], np.arange(start, stop), side="right")
+    feature_name = pd.Categorical.from_codes(gene_index, categories=pd.Index(feature_names))
+    return _transcript_rows(tile, start, stop, feature_name)
+
+
+def _transcripts_meta(categories: list[str]) -> pd.DataFrame:
+    """An empty transcripts table with the column dtypes of `_transcript_rows`."""
+    return pd.DataFrame(
+        {
+            str(AteraKeys.TRANSCRIPTS_X): pd.array([], dtype="float32"),
+            str(AteraKeys.TRANSCRIPTS_Y): pd.array([], dtype="float32"),
+            str(AteraKeys.TRANSCRIPTS_Z): pd.array([], dtype="float32"),
+            str(AteraKeys.FEATURE_NAME): pd.Categorical([], categories=categories),
+            str(AteraKeys.CELL_ID): pd.array([], dtype="int64"),
+            "overlaps_nucleus": pd.array([], dtype="bool"),
+            "quality_score": pd.array([], dtype="float32"),
         }
     )
 
 
 def _get_points(path: Path, pixel_size: float, feature_names: list[str]) -> dd.DataFrame:
     """Lazily read transcripts.zarr.zip, one `dask` task per spatial tile."""
-    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        grid = _get_group(group, str(AteraKeys.GRID_GROUP))
-        tile_keys = sorted(grid.group_keys())
-        tile_sizes = {
-            key: _get_array(_get_group(grid, key), str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0] for key in tile_keys
-        }
-    finally:
-        store.close()
+    # the store stays referenced by the graph; it reopens on first use, also after pickling
+    grid = zarr.open_group(zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True), mode="r")
+    grid = _get_group(grid, str(AteraKeys.GRID_GROUP))
+    tile_keys = sorted(grid.group_keys())
+    tile_sizes = {
+        key: _get_array(_get_group(grid, key), str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0] for key in tile_keys
+    }
 
-    cat_dtype = pd.CategoricalDtype(categories=feature_names)
-    meta = pd.DataFrame(
-        {
-            str(AteraKeys.TRANSCRIPTS_X): pd.array([], dtype="float32"),
-            str(AteraKeys.TRANSCRIPTS_Y): pd.array([], dtype="float32"),
-            str(AteraKeys.TRANSCRIPTS_Z): pd.array([], dtype="float32"),
-            str(AteraKeys.FEATURE_NAME): pd.array([], dtype=cat_dtype),
-            str(AteraKeys.CELL_ID): pd.array([], dtype="int64"),
-            "overlaps_nucleus": pd.array([], dtype="bool"),
-            "quality_score": pd.array([], dtype="float32"),
-        }
-    )
     # One partition per `chunk_rows`-row slice of a tile (not per whole tile), so peak memory is bounded by
     # `dask`'s number of concurrent tasks times the chunk size, however large a tile is.
     delayed_tiles = [
-        delayed(_read_transcript_tile)(path, key, feature_names, start, stop)
+        delayed(_read_transcript_tile)(grid, key, feature_names, start, stop)
         for key in tile_keys
         for start, stop in _tile_row_ranges(tile_sizes[key])
     ]
-    table = dd.from_delayed(delayed_tiles, meta=meta)
+    table = dd.from_delayed(delayed_tiles, meta=_transcripts_meta(feature_names))
 
     transform = Scale([1.0 / pixel_size, 1.0 / pixel_size], axes=("x", "y"))
     return PointsModel.parse(
@@ -413,60 +416,24 @@ def read_transcripts_for_genes(
     else:
         categories = genes
 
-    columns = [
-        str(AteraKeys.TRANSCRIPTS_X),
-        str(AteraKeys.TRANSCRIPTS_Y),
-        str(AteraKeys.TRANSCRIPTS_Z),
-        str(AteraKeys.FEATURE_NAME),
-        str(AteraKeys.CELL_ID),
-        "overlaps_nucleus",
-        "quality_score",
-    ]
-    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        tile_keys = sorted(_get_group(group, str(AteraKeys.GRID_GROUP)).group_keys())
-
-        frames = []
-        for tile_key in tile_keys:
-            tile = _get_group(group, f"{AteraKeys.GRID_GROUP}/{tile_key}")
+    frames = []
+    with _open_zip(path / AteraKeys.TRANSCRIPTS_FILE) as group:
+        grid = _get_group(group, str(AteraKeys.GRID_GROUP))
+        for tile_key in sorted(grid.group_keys()):
+            tile = _get_group(grid, tile_key)
             gene_offset = _get_array(tile, str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))
             for gene, gene_idx in gene_indices.items():
-                start, end = np.asarray(gene_offset[gene_idx])
+                start, end = (int(v) for v in np.asarray(gene_offset[gene_idx]))
                 if end <= start:
                     continue
-                location = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION))[start:end])
-                cell_id_raw = np.asarray(_get_array(tile, str(AteraKeys.CELL_ID))[start:end])
-                overlaps_nucleus = np.asarray(
-                    _get_array(tile, str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:end]
-                ).reshape(-1)
-                quality_score = np.asarray(
-                    _get_array(tile, str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:end]
-                ).reshape(-1)
                 if by_codeword:
-                    codeword_identity = np.asarray(
-                        _get_array(tile, str(AteraKeys.CODEWORD_IDENTITY))[start:end]
-                    ).reshape(-1)
-                    feature_name = pd.Categorical([f"{gene}_cw{cw}" for cw in codeword_identity], categories=categories)
+                    codeword = np.asarray(_get_array(tile, str(AteraKeys.CODEWORD_IDENTITY))[start:end]).reshape(-1)
+                    labels = [f"{gene}_cw{cw}" for cw in codeword]
                 else:
-                    feature_name = pd.Categorical([gene] * (end - start), categories=categories)
-                frames.append(
-                    pd.DataFrame(
-                        {
-                            str(AteraKeys.TRANSCRIPTS_X): location[:, 0].astype(np.float32),
-                            str(AteraKeys.TRANSCRIPTS_Y): location[:, 1].astype(np.float32),
-                            str(AteraKeys.TRANSCRIPTS_Z): location[:, 2].astype(np.float32),
-                            str(AteraKeys.FEATURE_NAME): feature_name,
-                            str(AteraKeys.CELL_ID): _decode_packed_cell_id(cell_id_raw),
-                            "overlaps_nucleus": overlaps_nucleus.astype(bool),
-                            "quality_score": quality_score.astype(np.float32),
-                        }
-                    )
-                )
-    finally:
-        store.close()
+                    labels = [gene] * (end - start)
+                frames.append(_transcript_rows(tile, start, end, pd.Categorical(labels, categories=categories)))
 
-    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=list(_transcripts_meta([]).columns))
 
     transform = Scale([1.0 / pixel_size, 1.0 / pixel_size], axes=("x", "y"))
     sdata.points[points_key] = PointsModel.parse(
@@ -504,12 +471,8 @@ def _cell_row_positions_in_bbox(path: Path, bbox: tuple[float, float, float, flo
     pixel_size = _get_pixel_size(path)
     xmin, ymin, xmax, ymax = (v * pixel_size for v in bbox)
 
-    store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
+    with _open_zip(path / AteraKeys.CELLS_FILE) as group:
         cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
-    finally:
-        store.close()
 
     keep = (
         (cell_bboxes[:, 0] < xmax)
@@ -588,9 +551,7 @@ def read_cell_boundaries(
         xmin, ymin, xmax, ymax = bbox
         raw_bbox = (xmin * pixel_size, ymin * pixel_size, xmax * pixel_size, ymax * pixel_size)
 
-    store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
+    with _open_zip(path / AteraKeys.CELLS_FILE) as group:
         cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
         mask_group = _get_group(group, f"{AteraKeys.GRIDDED_POLYGON_SETS_GROUP}/{mask_index}")
         # Each pyramid level merges 2x2 blocks of tiles from the level below, so a tile's spatial
@@ -634,8 +595,6 @@ def read_cell_boundaries(
             coords_parts.append((vertex_mins + relative_vertices / 255 * vertex_spans).astype(np.float32))
             num_vertices_parts.append(num_vertices)
             cell_index_parts.append(cell_index)
-    finally:
-        store.close()
 
     coords = np.concatenate(coords_parts) if coords_parts else np.empty((0, 2), dtype=np.float32)
     num_vertices = np.concatenate(num_vertices_parts) if num_vertices_parts else np.empty((0,), dtype=np.int32)

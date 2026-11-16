@@ -6,10 +6,15 @@ from typing import cast
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-import zarr
 
 from spatialdata_io._constants._constants import AteraKeys
-from spatialdata_io.readers._atera_common import _get_array, _get_group, _read_transcript_tile, _tile_row_ranges
+from spatialdata_io.readers._atera_common import (
+    _get_array,
+    _get_group,
+    _open_zip,
+    _read_transcript_tile,
+    _tile_row_ranges,
+)
 from spatialdata_io.readers.atera import read_var
 
 __all__ = ["atera_to_parquet"]
@@ -77,10 +82,8 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
 
     feature_names = read_var(path)[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
 
-    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    writer = pq.ParquetWriter(output, _PROSEG_SCHEMA)
-    try:
-        grid = _get_group(zarr.open_group(store, mode="r"), str(AteraKeys.GRID_GROUP))
+    with _open_zip(path / AteraKeys.TRANSCRIPTS_FILE) as group, pq.ParquetWriter(output, _PROSEG_SCHEMA) as writer:
+        grid = _get_group(group, str(AteraKeys.GRID_GROUP))
         tile_keys = [str(key) for key in cast("list[str]", grid.attrs[str(AteraKeys.GRID_KEYS)])]
         # Stored IDs are used only if every tile has them; otherwise every transcript is numbered
         # contiguously in `grid_keys` order, so stored and generated IDs never mix.
@@ -92,7 +95,7 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
             n_tile = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0]
             # A tile can hold 100M+ transcripts, so it is read and written in row ranges (one parquet row group each).
             for start, stop in _tile_row_ranges(n_tile):
-                tile_df = _read_transcript_tile(path, tile_key, feature_names, start, stop)
+                tile_df = _read_transcript_tile(grid, tile_key, feature_names, start, stop)
                 n = len(tile_df)
                 if n == 0:
                     continue
@@ -122,8 +125,5 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
                 )
                 writer.write_table(table)
                 offset += n
-    finally:
-        writer.close()
-        store.close()
 
     return output

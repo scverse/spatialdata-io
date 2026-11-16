@@ -214,9 +214,12 @@ def test_tile_row_ranges() -> None:
 def test_chunked_tile_reads_match_whole_tile(tmp_path: Path) -> None:
     _write_atera_dataset(tmp_path, {"0,0": 7}, ["0,0"], ids={})
     feature_names = ["GENE_A", "GENE_B"]
-    whole = _read_transcript_tile(tmp_path, "0,0", feature_names)
+    grid = zarr.open_group(zarr.storage.ZipStore(tmp_path / AteraKeys.TRANSCRIPTS_FILE, read_only=True), mode="r")[
+        "grid"
+    ]
+    whole = _read_transcript_tile(grid, "0,0", feature_names)
     # GENE_A owns rows 0-2 and GENE_B rows 3-6, so the 2-row chunks straddle the gene boundary.
-    parts = [_read_transcript_tile(tmp_path, "0,0", feature_names, a, b) for a, b in _tile_row_ranges(7, 2)]
+    parts = [_read_transcript_tile(grid, "0,0", feature_names, a, b) for a, b in _tile_row_ranges(7, 2)]
 
     assert pd.concat(parts, ignore_index=True).equals(whole)
     assert whole["feature_name"].tolist() == ["GENE_A"] * 3 + ["GENE_B"] * 4

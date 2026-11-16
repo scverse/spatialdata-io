@@ -27,6 +27,7 @@ from spatialdata_io.readers._atera_common import (
     _get_pixel_size,
     _get_points,
     _get_polygons,
+    _open_zip,
     _patched_ragged_vlen_chunk_decode,
     read_cell_boundaries,
     read_transcripts_for_genes,
@@ -180,9 +181,7 @@ def atera(
     images: dict[str, DataArray | DataTree] = {}
 
     if needs_cells_zarr:
-        cells_store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
-        cells_group = zarr.open_group(cells_store, mode="r")
-
+        cells_group = zarr.open_group(zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True), mode="r")
         cell_ids = table.obs[str(AteraKeys.CELL_ID)].to_numpy() if table is not None else None
 
         if nucleus_labels:
@@ -270,12 +269,8 @@ def _read_x_chunk(zarr_path: Path, zarr_key: AteraKeys, start: int, stop: int) -
     """
     from anndata.io import sparse_dataset
 
-    store = zarr.storage.ZipStore(zarr_path / zarr_key, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
+    with _open_zip(zarr_path / zarr_key) as group:
         return cast(csr_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[start:stop])
-    finally:
-        store.close()
 
 
 def _lazy_x(
@@ -388,10 +383,7 @@ def _get_table(
     from anndata import AnnData
     from anndata.io import read_elem, sparse_dataset
 
-    store = zarr.storage.ZipStore(path / AteraKeys.CELL_FEATURE_MATRIX_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
         with _patched_ragged_vlen_chunk_decode():
             var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
             feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
@@ -416,8 +408,6 @@ def _get_table(
         # Genes detected per cell is the number of stored entries per row of the CSR matrix, which `indptr`
         # already encodes; this avoids a full pass over the (lazy) counts.
         n_genes = np.diff(_get_array(group, f"{AteraKeys.X_GROUP}/indptr")[:]) if x_ds.format == "csr" else None
-    finally:
-        store.close()
 
     x = _lazy_x(path, AteraKeys.CELL_FEATURE_MATRIX_FILE, n_obs, n_var, dtype, row_chunk_size)
 
@@ -453,13 +443,9 @@ def read_var(path: str | Path) -> pd.DataFrame:
     The complete `var` `DataFrame`, indexed by `feature_id`.
     """
     path = Path(path)
-    store = zarr.storage.ZipStore(path / AteraKeys.CELL_FEATURE_MATRIX_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
         with _patched_ragged_vlen_chunk_decode():
             var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-    finally:
-        store.close()
     return var_df
 
 
@@ -501,9 +487,7 @@ def read_table_for_cells(
     from anndata.io import sparse_dataset
 
     path = Path(path)
-    store = zarr.storage.ZipStore(path / AteraKeys.CELL_FEATURE_MATRIX_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
         with _patched_ragged_vlen_chunk_decode():
             var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
             if var_columns != "all":
@@ -524,8 +508,6 @@ def read_table_for_cells(
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
         x = cast(csr_matrix, x_ds[row_positions])
         obs_subset = obs_df.iloc[row_positions]
-    finally:
-        store.close()
 
     adata = AnnData(X=x, obs=obs_subset, var=var_df)
     adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
@@ -561,10 +543,7 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
 
     genes = [genes] if isinstance(genes, str) else list(genes)
     path = Path(path)
-    store = zarr.storage.ZipStore(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-
+    with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
         with _patched_ragged_vlen_chunk_decode():
             var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)[
                 [str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME)]
@@ -587,8 +566,6 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
 
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
         x: csc_matrix = cast(csc_matrix, x_ds[:, col_positions])
-    finally:
-        store.close()
 
     adata = AnnData(X=x, obs=obs_df, var=var_subset)
     return _parse_table(adata, "cell_labels")
