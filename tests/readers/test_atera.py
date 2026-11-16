@@ -234,31 +234,43 @@ def test_points_partitions_are_bounded(tmp_path: Path, monkeypatch: pytest.Monke
     assert len(points) == 7
 
 
-def test_morphology_images_use_embedded_pyramid(tmp_path: Path) -> None:
+@pytest.mark.parametrize("scale_factors", [[2, 2], [4]])
+def test_morphology_pyramid_is_built_from_level_0(atera_path: Path, scale_factors: list[int]) -> None:
+    from spatialdata import bounding_box_query
+
+    kwargs = {"chunks": (1, 32, 32), "scale_factors": scale_factors}
+    image = cast(
+        DataTree, common._get_morphology_images(atera_path / AteraKeys.MORPHOLOGY_2D_DIR, image_models_kwargs=kwargs)
+    )
+    factors = np.cumprod([1, *scale_factors])
+    assert [image[f"scale{i}"]["image"].shape for i in range(len(factors))] == [(2, 64 // f, 96 // f) for f in factors]
+    assert image["scale0"]["image"].coords["c"].values.tolist() == ["DAPI", "VIM"]
+    # each scale has coordinates in scale0 px, so a query crops the same region at every scale
+    crop = bounding_box_query(
+        image, axes=("x", "y"), min_coordinate=[0, 0], max_coordinate=[32, 32], target_coordinate_system="global"
+    )
+    assert [crop[k]["image"].shape[1:] for k in crop.children] == [(32 // f, 32 // f) for f in factors]
+
+
+def test_morphology_3d_names_channels_like_2d(atera_path: Path) -> None:
+    image = common._get_morphology_images(atera_path / AteraKeys.MORPHOLOGY_3D_DIR, three_d=True)
+    assert image.coords["c"].values.tolist() == ["DAPI", "VIM"]
+    assert image.dims == ("c", "z", "y", "x")
+
+
+def test_tiled_imread_reads_one_tile_per_task_and_pickles(atera_path: Path) -> None:
+    import pickle
+
+    import dask
     import tifffile
 
-    rng = np.random.default_rng(0)
-    full = rng.integers(0, 255, (2, 64, 96), dtype=np.uint8)
-    for idx, name in enumerate(["dapi", "vim"]):
-        with tifffile.TiffWriter(tmp_path / f"ch{idx:04d}_{name}.ome.tif", ome=True) as tif:
-            levels = [full[:, :: 2**i, :: 2**i] for i in range(3)]
-            tif.write(
-                levels[0],
-                tile=(16, 16),
-                subifds=len(levels) - 1,
-                metadata={"axes": "CYX", "Channel": {"Name": ["dapi", "vim"]}},
-            )
-            for level in levels[1:]:
-                tif.write(level, tile=(16, 16), subfiletype=1)
-
-    image = cast(
-        DataTree,
-        common._get_morphology_images(tmp_path, image_models_kwargs={"chunks": (1, 32, 32), "scale_factors": [2, 2]}),
-    )
-    assert list(image.children) == ["scale0", "scale1", "scale2"]
-    assert [image[k]["image"].shape for k in image.children] == [(2, 64, 96), (2, 32, 48), (2, 16, 24)]
-    # The lowest level is read from the stored pyramid, not downsampled from `scale0`.
-    np.testing.assert_array_equal(np.asarray(image["scale2"]["image"])[0], full[0, ::4, ::4])
+    file = atera_path / AteraKeys.MORPHOLOGY_2D_DIR / "ch0001_vim.ome.tif"
+    image, dims = common._tiled_imread(file)
+    assert dims == ("c", "y", "x")
+    assert image.chunks == ((1, 1), (32, 32), (32, 32, 32))
+    graph = pickle.loads(pickle.dumps(image))
+    with dask.config.set(scheduler="processes", num_workers=2):
+        np.testing.assert_array_equal(graph.compute(), tifffile.imread(file))
 
 
 def _write_he(path: Path, affine: np.ndarray) -> None:
@@ -270,14 +282,13 @@ def _write_he(path: Path, affine: np.ndarray) -> None:
     pd.DataFrame(affine).to_csv(path / "S1_he_imagealignment.csv", header=False, index=False)
 
 
-def test_aligned_he_image_is_placed_by_its_affine(tmp_path: Path) -> None:
+@pytest.mark.parametrize("reader", ["atera", "xenium"])
+def test_aligned_he_image_is_placed_by_its_affine(tmp_path: Path, reader: str) -> None:
     from spatialdata.transformations import get_transformation
-
-    from spatialdata_io.readers.xenium import _add_aligned_images
 
     affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
     _write_he(tmp_path, affine)
-    images = _add_aligned_images(tmp_path)
+    images = _read_aligned(tmp_path, reader)
     assert list(images) == ["he_image"]
     he = images["he_image"]
     assert list(he.coords["c"].values) == ["r", "g", "b"]
@@ -376,23 +387,29 @@ def test_he_without_alignment_csv_is_placed_by_keypoints(tmp_path: Path) -> None
     pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]}).to_csv(
         tmp_path / "S1_keypoints.csv", index=False
     )
-    he = _get_aligned_images(tmp_path, {})["he_image"]
+    he = _get_aligned_images(tmp_path, {}, {})["he_image"]
     m = get_transformation(he, "global").to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
     np.testing.assert_allclose(m, affine, atol=1e-9)
 
 
-@pytest.mark.parametrize("planar", [False, True])
-def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool) -> None:
-    import tifffile
-
+def _read_aligned(path: Path, reader: str) -> dict:
+    from spatialdata_io.readers.atera import _get_aligned_images
     from spatialdata_io.readers.xenium import _add_aligned_images
+
+    return _get_aligned_images(path, {}, {}) if reader == "atera" else _add_aligned_images(path)
+
+
+@pytest.mark.parametrize("reader", ["atera", "xenium"])
+@pytest.mark.parametrize("planar", [False, True])
+def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool, reader: str) -> None:
+    import tifffile
 
     rgb = np.arange(3 * 40 * 60, dtype=np.uint32).reshape(3, 40, 60).astype(np.uint8)
     if planar:  # OME axes SYX, as in the Atera v1 Onboard 1.1.1 H&E
         tifffile.imwrite(tmp_path / "S1_he_image.ome.tif", rgb, ome=True, photometric="rgb", planarconfig="separate")
     else:  # YXS, as in the 1.0.4 kidney H&E
         tifffile.imwrite(tmp_path / "S1_he_image.ome.tif", np.moveaxis(rgb, 0, -1), ome=True, photometric="rgb")
-    he = _add_aligned_images(tmp_path)["he_image"]
+    he = _read_aligned(tmp_path, reader)["he_image"]
     assert list(he.coords["c"].values) == ["r", "g", "b"]
     np.testing.assert_array_equal(np.asarray(he.transpose("c", "y", "x").data), rgb)
 

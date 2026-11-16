@@ -11,7 +11,8 @@ import pandas as pd
 import zarr
 from scipy.sparse import csc_matrix, csr_matrix
 from spatialdata import SpatialData
-from spatialdata.models import TableModel
+from spatialdata.models import Image2DModel, TableModel
+from spatialdata.transformations import Affine, BaseTransformation, Identity
 
 from spatialdata_io._constants._constants import AteraKeys
 from spatialdata_io._docs import inject_docs
@@ -26,12 +27,13 @@ from spatialdata_io.readers._atera_common import (
     _get_points,
     _get_polygons,
     _open_zip,
+    _tiled_imread,
     read_cell_boundaries,
     read_transcripts_for_genes,
 )
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
 from spatialdata_io.readers.xenium import (
-    _add_aligned_images,
+    _affine_from_keypoints,
     _aligned_image_files,
     _get_labels,
     _keypoints_file,
@@ -122,9 +124,11 @@ def atera(
         Whether to read the 3D morphology images. This is opt-in and defaults to `False` because these images
         can be very large.
     aligned_images
-        Whether to read the post-run images aligned to the morphology images (``*he_image.ome.tif`` /
-        ``*if_image.ome.tif`` in the bundle root), placed with their ``*imagealignment.csv`` affine. When a
-        ``*keypoints.csv`` is present, a warning is logged if the affine does not map its keypoints onto each other.
+        Whether to read the post-run images aligned to the morphology images (``<sample>_he_image.ome.tif`` /
+        ``<sample>_if_image.ome.tif`` in the bundle root), placed with their ``*imagealignment.csv`` affine. A
+        warning is logged if that affine does not map ``<sample>_keypoints.csv`` onto itself. An H&E without an
+        alignment CSV is placed by an affine fit to its keypoints, or left unaligned (with a warning) if they are
+        unusable.
     var_columns
         Which columns of `var` to keep, out of the full table (which includes ~135 per-cluster
         differential-expression columns). Defaults to a small subset (`{xx.FEATURE_NAME!r}`,
@@ -136,9 +140,9 @@ def atera(
         Larger values mean fewer, larger `dask` tasks (faster, but more peak memory per chunk);
         smaller values mean more, smaller ones.
     imread_kwargs
-        Keyword arguments passed to `tifffile.TiffFile` when reading the morphology images (see
-        `_tiled_imread`); the images are read tile-by-tile off `tifffile`'s own `zarr` store rather
-        than via `dask_image.imread.imread`, so this only accepts `TiffFile` constructor kwargs.
+        Keyword arguments passed to `tifffile.TiffFile` when reading the morphology and aligned images (see
+        `_tiled_imread`). The images are read one tile per `dask` task rather than with `dask_image.imread.imread`,
+        so this only accepts `TiffFile` constructor kwargs.
     image_models_kwargs
         Keyword arguments to pass to the image models.
     labels_models_kwargs
@@ -215,7 +219,7 @@ def atera(
         )
 
     if aligned_images:
-        images |= _get_aligned_images(path, image_models_kwargs)
+        images |= _get_aligned_images(path, imread_kwargs, image_models_kwargs)
 
     tables = {"table": table} if table is not None else {}
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
@@ -227,13 +231,35 @@ def atera(
 KEYPOINTS_MAX_RESIDUAL_PX = 10.0
 
 
-def _get_aligned_images(path: Path, image_models_kwargs: Mapping[str, Any]) -> dict[str, DataTree]:
-    """Aligned post-run images (H&E, IF) in the global (morphology px) coordinate system, as in the Xenium bundles."""
-    aligned = _add_aligned_images(path, image_models_kwargs=image_models_kwargs)  # atera's imread_kwargs are TiffFile's
+def _get_aligned_images(
+    path: Path, imread_kwargs: Mapping[str, Any], image_models_kwargs: Mapping[str, Any]
+) -> dict[str, DataArray | DataTree]:
+    """The post-run H&E and IF images, read like the morphology images, in the global (morphology px) system.
+
+    Each is placed by its alignment CSV or, for an H&E without one, by an affine fit to its keypoints (as in `xenium`).
+    """
+    images = {}
     for name, file, alignment_file in _aligned_image_files(path):
-        if name == "he_image" and alignment_file is not None:
-            _check_keypoints(alignment_file, _keypoints_file(file))
-    return aligned
+        image, dims = _tiled_imread(file, imread_kwargs)
+        transformation: BaseTransformation = Identity()
+        if alignment_file is not None:
+            affine = pd.read_csv(alignment_file, header=None).to_numpy(dtype=float)
+            transformation = Affine(affine, input_axes=("x", "y"), output_axes=("x", "y"))
+            if name == "he_image":
+                _check_keypoints(alignment_file, _keypoints_file(file))
+        elif name == "he_image":
+            transformation = _affine_from_keypoints(_keypoints_file(file)) or transformation
+        if "c" not in dims:
+            image, dims = image[None], ("c", *dims)
+        n_channels = image.shape[dims.index("c")]
+        images[name] = Image2DModel.parse(
+            image,
+            dims=dims,
+            c_coords=["r", "g", "b", "a"][:n_channels] if name == "he_image" and n_channels in [3, 4] else None,
+            transformations={"global": transformation},
+            **image_models_kwargs,
+        )
+    return images
 
 
 def _check_keypoints(alignment_file: Path, kp_file: Path) -> float | None:

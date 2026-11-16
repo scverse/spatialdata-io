@@ -22,7 +22,6 @@ from spatialdata.models import (
     PointsModel,
     ShapesModel,
 )
-from spatialdata.transformations import set_transformation
 from spatialdata.transformations.transformations import Identity, Scale
 from xarray import DataTree
 
@@ -549,22 +548,6 @@ def read_cell_boundaries(
     return sdata
 
 
-def _parse_morphology_channel_name(filename: str) -> str:
-    """Parse the channel name out of a ``chNNNN_<name>.ome.tif`` morphology image filename."""
-    match = re.match(r"ch\d+_(.+)\.ome\.tif+$", filename)
-    if match is None:
-        raise ValueError(f"Expected a morphology image filename of the form 'chNNNN_<name>.ome.tif', found {filename}")
-    return match.group(1)
-
-
-def _parse_morphology_channel_index(filename: str) -> int:
-    """Parse the channel index out of a ``chNNNN_<name>.ome.tif`` morphology image filename."""
-    match = re.match(r"ch(\d+)_.+\.ome\.tif+$", filename)
-    if match is None:
-        raise ValueError(f"Expected a morphology image filename of the form 'chNNNN_<name>.ome.tif', found {filename}")
-    return int(match.group(1))
-
-
 def _get_pixel_size(path: Path) -> float:
     """Return the dataset's pixel size (microns/pixel).
 
@@ -592,53 +575,57 @@ def _get_pixel_size(path: Path) -> float:
     return parse_physical_size(files[0])
 
 
-def _tiled_imread(
-    path: Path, imread_kwargs: Mapping[str, Any] = MappingProxyType({}), n_levels: int = 1
-) -> list[da.Array]:
-    """Read an OME-TIFF as `dask` arrays (one per pyramid level) chunked by the file's own on-disk tile grid.
+class _TiffTiles:
+    """Level 0 of a TIFF's first series as an array that `dask` slices one tile per task.
 
-    `dask_image.imread.imread` gives each page (e.g. each channel or z-plane) exactly one `dask`
-    chunk -- the whole plane, which for these whole-slide-image morphology files is tens of GB.
-    That single giant chunk then has to be fully decoded before `Image2DModel.parse`/`Image3DModel.parse`
-    can rechunk it into tiles or build a downsampled pyramid level, so even plotting one channel at
-    the lowest pyramid resolution requires materializing the entire full-resolution plane in memory.
-
-    This instead reads through `tifffile.TiffPageSeries.aszarr(level=i)`, which exposes the file's
-    native tile grid (e.g. 1024x1024, matching `p.is_tiled`/`p.tilewidth`/`p.tilelength`) as `zarr`
-    chunks, so only the tiles actually touched downstream get decoded.
-
-    These OME-TIFFs embed their own multi-level pyramid (each level half the size of the previous one).
-    Reading up to `n_levels` of those stored levels, rather than downsampling `level=0` lazily, means
-    a low-resolution level only costs reading that (small) level from disk, not every full-resolution
-    tile. If the file has fewer levels than requested, only the available ones are returned.
+    Each slice opens the file itself, so a `dask` graph holds only the path and pickles (tifffile's zarr store keeps
+    an open file handle and does not), and a task decodes only the tiles it covers, not the whole plane as
+    `dask_image.imread` does. Chunks follow the file's tile grid (strips for an untiled file).
     """
-    import tifffile
 
-    tf = tifffile.TiffFile(path, **imread_kwargs)
-    series = tf.series[0]
-    n_levels = min(n_levels, len(series.levels))
-    return [da.from_zarr(zarr.open(series.aszarr(level=i), mode="r")) for i in range(n_levels)]
+    def __init__(self, path: Path, imread_kwargs: Mapping[str, Any]) -> None:
+        import tifffile
+
+        self.path, self.imread_kwargs = path, dict(imread_kwargs)
+        with tifffile.TiffFile(path, **self.imread_kwargs) as tf:
+            series, page = tf.series[0], tf.series[0].keyframe
+            self.shape, self.dtype, self.axes = tuple(series.shape), series.dtype, series.axes
+            tile = (page.tilelength, page.tilewidth) if page.is_tiled else (page.rowsperstrip, page.imagewidth)
+        self.ndim = len(self.shape)
+        # one tile in y and x, every sample (S) of a pixel, one plane of any other axis
+        self.chunks = tuple(
+            {"Y": tile[0], "X": tile[1], "S": n}.get(axis, 1) for axis, n in zip(self.axes, self.shape, strict=True)
+        )
+
+    def __getitem__(self, key: Any) -> np.ndarray:
+        import tifffile
+
+        with tifffile.TiffFile(self.path, **self.imread_kwargs) as tf:
+            return cast(np.ndarray, zarr.open_array(tf.series[0].aszarr(level=0), mode="r")[key])
 
 
-def _parse_morphology_pyramid(
-    levels: list[da.Array],
-    dims: tuple[str, ...],
-    c_coords: list[str],
-    image_models_kwargs: Mapping[str, Any],
-    model: type[Image2DModel] | type[Image3DModel],
-) -> DataArray | DataTree:
-    """Build a (multiscale) image model from pre-computed pyramid levels instead of downsampling `level=0`."""
-    from xarray import Dataset
+def _tiled_imread(
+    path: Path, imread_kwargs: Mapping[str, Any] = MappingProxyType({})
+) -> tuple[da.Array, tuple[str, ...]]:
+    """Read level 0 of an OME-TIFF lazily, one `dask` task per tile; return it with its dims.
 
-    kwargs = {k: v for k, v in image_models_kwargs.items() if k != "scale_factors"}
-    parsed = [model.parse(level, dims=dims, c_coords=c_coords, **kwargs) for level in levels]
-    if len(parsed) == 1:
-        tree: DataArray | DataTree = parsed[0]
-    else:
-        tree = DataTree.from_dict({f"scale{i}": Dataset({"image": p}) for i, p in enumerate(parsed)})
-    set_transformation(tree, Identity(), "global")
-    model.validate(tree)
-    return tree
+    Stored pyramid levels are not read: the image models build the pyramid from level 0 with `scale_factors`.
+    Axes of length 1 other than y and x are dropped, samples (``S``) and channels (``C``) both become ``c``.
+    """
+    tiles = _TiffTiles(path, imread_kwargs)
+    image = da.from_array(tiles, chunks=tiles.chunks, meta=np.empty((0,) * tiles.ndim, tiles.dtype), lock=False)
+    keep = [i for i, (axis, n) in enumerate(zip(tiles.axes, tiles.shape, strict=True)) if n > 1 or axis in "YX"]
+    image = image.squeeze(axis=tuple(i for i in range(tiles.ndim) if i not in keep))
+    return image, tuple("c" if tiles.axes[i] in "SC" else tiles.axes[i].lower() for i in keep)
+
+
+def _ome_channel_name(path: Path, index: int) -> str:
+    from ome_types import from_tiff
+
+    name = from_tiff(path).images[0].pixels.channels[index].name
+    if name is None:
+        raise ValueError(f"Channel {index} in {path!s} has no name in its OME-XML metadata.")
+    return name
 
 
 def _get_morphology_images(
@@ -647,37 +634,31 @@ def _get_morphology_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     three_d: bool = False,
 ) -> DataArray | DataTree:
-    """Read the morphology OME-TIFF files in a directory as a single multi-channel image."""
+    """Read the ``chNNNN_<name>.ome.tif`` morphology files in a directory as one multi-channel image.
+
+    A 2D file holds a plane per channel of the panel, of which only plane ``NNNN`` carries this file's channel; a 3D
+    file holds the z-stack of its one channel. Channels are named from the OME-XML in both cases.
+    """
     files = sorted(f for f in dir_path.iterdir() if f.name.endswith(".ome.tif") and not f.name.startswith("._"))
     if not files:
         raise FileNotFoundError(f"No morphology OME-TIFF files found in {dir_path}.")
-    # `scale_factors=[2, 2, 2, 2]` (the default) means 5 levels in total; use the file's stored levels for them.
-    n_levels = len(image_models_kwargs.get("scale_factors") or []) + 1
-
-    if three_d:
-        # one file per channel, each file has shape (z, y, x); stack along a new channel axis
-        channel_names = [_parse_morphology_channel_name(f.name) for f in files]
-        per_file_levels = [_tiled_imread(f, imread_kwargs, n_levels) for f in files]
-        n = min(len(lv) for lv in per_file_levels)
-        levels = [da.stack([lv[i] for lv in per_file_levels], axis=0) for i in range(n)]
-        return _parse_morphology_pyramid(levels, ("c", "z", "y", "x"), channel_names, image_models_kwargs, Image3DModel)
-
-    # Each 2D file is itself a multi-page OME-TIFF containing every channel of the panel (shape
-    # (n_channels, y, x)), but only the plane at the index given by the file's own "chNNNN" prefix
-    # holds that channel's real image data; take just that plane from each file.
-    from ome_types import from_tiff
-
-    channel_indices = [_parse_morphology_channel_index(f.name) for f in files]
-    channel_names = []
-    for f, i in zip(files, channel_indices, strict=True):
-        name = from_tiff(f).images[0].pixels.channels[i].name
-        if name is None:
-            raise ValueError(f"Channel {i} in {f!s} has no name in its OME-XML metadata.")
-        channel_names.append(name)
-    per_file_levels = [
-        [level[i] for level in _tiled_imread(f, imread_kwargs, n_levels)]
-        for f, i in zip(files, channel_indices, strict=True)
-    ]
-    n = min(len(lv) for lv in per_file_levels)
-    levels = [da.stack([lv[j] for lv in per_file_levels], axis=0) for j in range(n)]
-    return _parse_morphology_pyramid(levels, ("c", "y", "x"), channel_names, image_models_kwargs, Image2DModel)
+    indices = []
+    for f in files:
+        match = re.match(r"ch(\d+)_.+\.ome\.tif$", f.name)
+        if match is None:
+            raise ValueError(
+                f"Expected a morphology image filename of the form 'chNNNN_<name>.ome.tif', found {f.name}"
+            )
+        indices.append(0 if three_d else int(match.group(1)))
+    planes = []
+    for f, i in zip(files, indices, strict=True):
+        image, dims = _tiled_imread(f, imread_kwargs)
+        planes.append(image if three_d or "c" not in dims else image[i])
+    model = Image3DModel if three_d else Image2DModel
+    return model.parse(
+        da.stack(planes),
+        dims=("c", "z", "y", "x") if three_d else ("c", "y", "x"),
+        c_coords=[_ome_channel_name(f, i) for f, i in zip(files, indices, strict=True)],
+        transformations={"global": Identity()},
+        **image_models_kwargs,
+    )
