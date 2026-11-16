@@ -27,6 +27,8 @@ from spatialdata_io.readers._atera_common import (
     _get_points,
     _get_polygons,
     _open_zip,
+    _read_cell_ids,
+    _read_feature_names,
     _tiled_imread,
     _unique_feature_names,
     read_cell_boundaries,
@@ -167,32 +169,19 @@ def atera(
 
     pixel_size = _get_pixel_size(path)
 
-    needs_cells_zarr = cells_boundaries or nucleus_boundaries or cells_labels or nucleus_labels
-    if not cells_table and (needs_cells_zarr or transcripts):
-        logging.info("Reading the table is required for the requested elements; setting cells_table=True.")
-        cells_table = True
-
-    # Prefer `cell_labels` as the table's annotation target (matching the `xenium` reader's
-    # convention; instance ids are `obs["label_id"]`), but fall back to `cell_boundaries` (instance ids
-    # are `obs["cell_id"]`) when labels aren't being loaded, so the table doesn't end up annotating an
-    # element that isn't actually present in `sdata`.
-    default_region = "cell_labels" if cells_labels else "cell_boundaries" if cells_boundaries else "cell_labels"
-
-    table: AnnData | None = None
-    feature_names: list[str] | None = None
-    if cells_table:
-        table, feature_names = _get_table(
-            path, var_columns=var_columns, row_chunk_size=table_row_chunk_size, region=default_region
-        )
+    # The table annotates `cell_labels` (instance ids `obs["label_id"]`, as in `xenium`), else `cell_boundaries`
+    # (`obs["cell_id"]`), else nothing: the nucleus elements are numbered per nucleus, not per cell.
+    region = "cell_labels" if cells_labels else "cell_boundaries" if cells_boundaries else None
+    table = _get_table(path, var_columns, table_row_chunk_size, region)[0] if cells_table else None
 
     shapes: dict[str, Any] = {}
     labels: dict[str, DataArray | DataTree] = {}
     points: dict[str, Any] = {}
     images: dict[str, DataArray | DataTree] = {}
 
-    if needs_cells_zarr:
+    if cells_boundaries or nucleus_boundaries or cells_labels or nucleus_labels:
         cells_group = zarr.open_group(zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True), mode="r")
-        cell_ids = table.obs[str(AteraKeys.CELL_ID)].to_numpy() if table is not None else None
+        cell_ids = _read_cell_ids(path)
 
         if nucleus_labels:
             labels["nucleus_labels"] = _get_labels(cells_group, mask_index=0, labels_models_kwargs=labels_models_kwargs)
@@ -208,9 +197,7 @@ def atera(
             )
 
     if transcripts:
-        if feature_names is None:
-            raise ValueError("Reading transcripts requires `cells_table=True` (to map gene indices to names).")
-        points["transcripts"] = _get_points(path, pixel_size, feature_names)
+        points["transcripts"] = _get_points(path, pixel_size, _read_feature_names(path))
 
     if morphology_images:
         images["morphology"] = _get_morphology_images(
@@ -391,7 +378,7 @@ def _assemble_table(
     var: pd.DataFrame,
     controls: csr_matrix | csc_matrix,
     var_columns: list[str] | Literal["all"],
-    region: str,
+    region: str | None,
     obsm: Mapping[str, Any] = MappingProxyType({}),
 ) -> AnnData:
     """X and var hold the Gene Expression features, ``obsm["control_counts"]`` the counts of all other features.
@@ -412,13 +399,12 @@ def _assemble_table(
     return _parse_table(AnnData(X=x, obs=obs, var=var.loc[is_gene, list(columns)], obsm=obsm), region)
 
 
-def _parse_table(adata: AnnData, region: str) -> AnnData:
-    """Annotate `region` with `adata`, using whichever `obs` column holds that element's instance ids.
+def _parse_table(adata: AnnData, region: str | None) -> AnnData:
+    """Annotate `region` (if any) with `adata`, using whichever `obs` column holds that element's instance ids.
 
     ``cell_labels`` raster values are ``label_id``; ``cell_boundaries`` shapes are indexed by ``cell_id``.
     """
-    if adata.n_obs == 0:  # spatialdata rejects an annotating table without rows ("Regions ... do not match")
-        logging.info(f"No cells selected; the empty table annotates no element instead of {region!r}.")
+    if region is None or adata.n_obs == 0:  # spatialdata rejects an empty annotating table ("Regions ... do not match")
         return TableModel.parse(adata)
     instance_key = AteraKeys.LABEL_ID if region == "cell_labels" else AteraKeys.CELL_ID
     adata.obs["region"] = pd.Categorical([region] * adata.n_obs)
@@ -429,7 +415,7 @@ def _get_table(
     path: Path,
     var_columns: list[str] | Literal["all"] = DEFAULT_VAR_COLUMNS,
     row_chunk_size: int = DEFAULT_TABLE_ROW_CHUNK_SIZE,
-    region: str = "cell_labels",
+    region: str | None = "cell_labels",
 ) -> tuple[AnnData, list[str]]:
     """Read ``cell_feature_matrix.zarr.zip`` into an AnnData table using native `anndata` zarr IO.
 
@@ -437,9 +423,7 @@ def _get_table(
     indexed by whichever column the store's ``_index`` attr names -- e.g. `barcode`/`feature_id`).
     `X` is a lazy `dask` array of `row_chunk_size`-row CSR chunks (`anndata.experimental.read_elem_lazy`).
 
-    `region` should be the name of a `SpatialElement` that will actually be present in the
-    `SpatialData` object the table is assembled into (see the ``default_region`` logic in
-    `atera`), so the table doesn't end up annotating an element that was never loaded.
+    `region` is the element the table annotates; it must be read too (see `atera`). None annotates nothing.
     """
     from anndata.experimental import read_elem_lazy
     from anndata.io import read_elem, sparse_dataset

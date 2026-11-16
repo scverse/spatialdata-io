@@ -611,3 +611,32 @@ def test_polygons_with_one_or_two_vertices_are_kept_empty(caplog: pytest.LogCapt
     assert shapes.geometry.is_empty.tolist() == [False, True, True, True, False]
     np.testing.assert_array_equal(np.asarray(shapes.geometry.iloc[4].exterior.coords)[:4], coords[6:10])
     assert "2 polygon(s) with 1 or 2 vertices" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "region"),
+    [
+        ({"cells_table": False, "transcripts": True}, None),
+        ({"cells_labels": False, "cells_boundaries": False}, None),
+        ({"cells_labels": False}, "cell_boundaries"),
+        ({}, "cell_labels"),
+    ],
+)
+def test_table_and_its_region_follow_the_flags(atera_path: Path, kwargs: dict, region: str | None) -> None:
+    import warnings
+
+    from spatialdata.models import TableModel
+
+    from spatialdata_io import atera
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        sdata = atera(atera_path, morphology_images=False, aligned_images=False, **kwargs)
+    assert not [w for w in record if "which is not present in the SpatialData object" in str(w.message)]
+    if kwargs.get("cells_table") is False:
+        assert not sdata.tables
+        assert len(sdata.points["transcripts"]) == 6
+        assert sdata.shapes["cell_boundaries"].index.tolist() == CELL_IDS
+    else:
+        attrs = sdata.tables["table"].uns.get(TableModel.ATTRS_KEY, {})
+        assert attrs.get("region") == region
