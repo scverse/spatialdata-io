@@ -119,6 +119,22 @@ def _open_zip(path: Path) -> Iterator[zarr.Group]:
         yield zarr.open_group(_PadRaggedVlenStore(store), mode="r")
 
 
+def _read_feature_names(path: Path) -> list[str]:
+    """The feature names of the bundle in store order, which is the order of each tile's ``gene_offset``."""
+    from anndata.io import read_elem
+
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
+        return np.asarray(read_elem(group[f"{AteraKeys.VAR_GROUP}/{AteraKeys.FEATURE_NAME}"]), dtype=str).tolist()
+
+
+def _read_cell_ids(path: Path) -> np.ndarray:
+    """The cell ids of the bundle in store order, which is the row order of ``cells.zarr.zip``."""
+    from anndata.io import read_elem
+
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
+        return np.asarray(read_elem(group[f"{AteraKeys.OBS_GROUP}/{AteraKeys.CELL_ID}"]))
+
+
 def _decode_packed_cell_id(raw: np.ndarray) -> np.ndarray:
     """Decode a (N, 2) uint32 packed cell id array into the int64 ids used in the cell-feature-matrix obs.
 
@@ -332,8 +348,8 @@ def read_transcripts_for_genes(
     plotting a handful of genes across the whole dataset much cheaper than loading and filtering
     the full transcripts table.
 
-    Requires ``sdata`` to have been read with ``cells_table=True``, to look up gene indices (via
-    the table's `var`) and `pixel_size` (via ``sdata.attrs``).
+    Gene positions come from the bundle's own `var`, so ``sdata`` can hold a filtered table or none; its
+    ``sdata.attrs["pixel_size"]`` is used.
 
     Parameters
     ----------
@@ -359,7 +375,10 @@ def read_transcripts_for_genes(
     if isinstance(genes, str):
         genes = [genes]
     path = Path(path)
-    feature_names = sdata.tables["table"].var[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
+    feature_names = _read_feature_names(path)
+    missing = [gene for gene in genes if gene not in feature_names]
+    if missing:
+        raise ValueError(f"gene(s) not found in {AteraKeys.CELL_FEATURE_MATRIX_FILE!s} var: {missing}")
     gene_indices = {gene: feature_names.index(gene) for gene in genes}
     pixel_size = cast(float, sdata.attrs[str(AteraKeys.PIXEL_SIZE)])
 
@@ -465,9 +484,8 @@ def read_cell_boundaries(
     the top-level ``bboxes`` array); this un-quantizes them via
     ``absolute = cell_min + relative / 255 * (cell_max - cell_min)``.
 
-    Requires ``sdata`` to have been read with ``cells_table=True``, to map row positions in
-    ``gridded_polygon_sets`` to cell ids (via the table's `obs`), and `pixel_size` (via
-    ``sdata.attrs``).
+    Row positions in ``gridded_polygon_sets`` are mapped to cell ids through the bundle's own `obs`, so ``sdata``
+    can hold a filtered table or none; its ``sdata.attrs["pixel_size"]`` is used.
 
     Parameters
     ----------
@@ -493,7 +511,7 @@ def read_cell_boundaries(
     """
     path = Path(path)
     pixel_size = cast(float, sdata.attrs[str(AteraKeys.PIXEL_SIZE)])
-    cell_ids = sdata.tables["table"].obs[str(AteraKeys.CELL_ID)].to_numpy()
+    cell_ids = _read_cell_ids(path)
     is_nucleus = mask_index == 0
 
     raw_bbox = None

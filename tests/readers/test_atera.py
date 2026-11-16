@@ -507,3 +507,19 @@ def test_atera_reads_3d_morphology_with_default_kwargs(atera_path: Path) -> None
     assert image["scale0"]["image"].dims == ("c", "z", "y", "x")
     assert image["scale0"]["image"].data.chunksize[:2] == (1, 1)
     assert [image[k]["image"].shape for k in image.children] == [(2, 3, 64 // f, 96 // f) for f in (1, 2, 4, 8, 16)]
+
+
+def test_helpers_map_positions_through_the_bundle_not_the_table(atera_path: Path) -> None:
+    from spatialdata_io import atera
+    from spatialdata_io.readers.atera import read_cell_boundaries, read_transcripts_for_genes
+
+    sdata = atera(atera_path)
+    table = sdata.tables["table"]
+    # an HVG-style gene subset and a reordered cell subset of the table
+    sdata.tables["table"] = table[[2, 0], (table.var["feature_name"] == "GENE_B").to_numpy()].copy()
+    points = read_transcripts_for_genes(sdata, atera_path, "GENE_B").points["transcripts_subset"].compute()
+    assert points["x"].tolist() == [3.0, 4.0, 5.0]  # GENE_B owns rows 3-5 of the tile
+    shapes = read_cell_boundaries(sdata, atera_path).shapes["cell_boundaries"]
+    assert shapes.index.tolist() == CELL_IDS
+    del sdata.tables["table"]  # nor do they need a table
+    assert len(read_transcripts_for_genes(sdata, atera_path, ["GENE_A"]).points["transcripts_subset"]) == 3
