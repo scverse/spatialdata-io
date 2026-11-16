@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import logging
 import re
 from pathlib import Path
 from types import MappingProxyType
@@ -17,6 +16,7 @@ from dask import delayed
 from geopandas import GeoDataFrame
 from shapely import GeometryType, from_ragged_array
 from spatialdata import SpatialData
+from spatialdata._logging import logger
 from spatialdata.models import (
     Image2DModel,
     Image3DModel,
@@ -126,7 +126,7 @@ def _unique_feature_names(names: Any) -> pd.Index:
 
     names = pd.Index(np.asarray(names, dtype=str))
     if not names.is_unique:
-        logging.warning(f"{int(names.duplicated().sum())} duplicate feature names; made unique with a suffix.")
+        logger.warning(f"{int(names.duplicated().sum())} duplicate feature names; made unique with a suffix.")
     return make_index_unique(names)
 
 
@@ -176,7 +176,7 @@ def _polygons_to_shapes(
     n_polygons = len(num_vertices)
     degenerate = (num_vertices > 0) & (num_vertices < 3)  # shapely needs 3 vertices for a ring
     if degenerate.any():
-        logging.warning(f"{int(degenerate.sum())} polygon(s) with 1 or 2 vertices kept as empty polygons.")
+        logger.warning(f"{int(degenerate.sum())} polygon(s) with 1 or 2 vertices kept as empty polygons.")
         coords = coords[np.repeat(~degenerate, num_vertices)]
         num_vertices = np.where(degenerate, 0, num_vertices)
     ring_offsets = np.concatenate([[0], np.cumsum(num_vertices)])

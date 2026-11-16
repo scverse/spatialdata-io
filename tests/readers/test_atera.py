@@ -322,8 +322,12 @@ def _write_keypoints(path: Path, affine: np.ndarray, name: str = "S1_keypoints.c
     return kp
 
 
-def test_keypoints_check(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_keypoints_check(tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+    from spatialdata._logging import logger
+
     from spatialdata_io.readers.atera import _check_keypoints
+
+    monkeypatch.setattr(logger, "propagate", True)
 
     affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
     _write_he(tmp_path, affine)
@@ -601,8 +605,14 @@ def test_empty_selections(atera_path: Path) -> None:
         read_cell_boundaries(sdata, atera_path, bbox=(80, 0, 90, 5))
 
 
-def test_polygons_with_one_or_two_vertices_are_kept_empty(caplog: pytest.LogCaptureFixture) -> None:
+def test_polygons_with_one_or_two_vertices_are_kept_empty(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import logging
+
+    from spatialdata._logging import logger
+
+    monkeypatch.setattr(logger, "propagate", True)
 
     num_vertices = np.array([3, 2, 1, 0, 4])
     coords = np.arange(2 * num_vertices.sum(), dtype=np.float32).reshape(-1, 2)

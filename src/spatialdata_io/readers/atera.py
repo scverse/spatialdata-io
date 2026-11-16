@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -11,6 +10,7 @@ import pandas as pd
 import zarr
 from scipy.sparse import csc_matrix, csr_matrix
 from spatialdata import SpatialData
+from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, TableModel
 from spatialdata.transformations import Affine, BaseTransformation, Identity
 
@@ -268,7 +268,7 @@ def _check_keypoints(alignment_file: Path, kp_file: Path) -> float | None:
     affine = pd.read_csv(alignment_file, header=None).to_numpy(dtype=float)
     median = float(np.median(np.linalg.norm((np.c_[src, np.ones(len(src))] @ affine.T)[:, :2] - dst, axis=1)))
     if median > KEYPOINTS_MAX_RESIDUAL_PX:
-        logging.warning(
+        logger.warning(
             f"{alignment_file.name} maps {kp_file.name} with a median residual of {median:.1f} px "
             f"(> {KEYPOINTS_MAX_RESIDUAL_PX}); the aligned image may be misplaced."
         )
