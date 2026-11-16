@@ -26,7 +26,6 @@ from spatialdata_io.readers._atera_common import (
     _get_points,
     _get_polygons,
     _open_zip,
-    _patched_ragged_vlen_chunk_decode,
     read_cell_boundaries,
     read_transcripts_for_genes,
 )
@@ -357,22 +356,21 @@ def _get_table(
     from anndata.io import read_elem
 
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
-        with _patched_ragged_vlen_chunk_decode():
-            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-            feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
-            if var_columns != "all":
-                var_df = var_df[list(var_columns)]
-            colors = _read_category_colors(group, AteraKeys.OBS_GROUP)
-            colors.update(_read_category_colors(group, AteraKeys.VAR_GROUP, list(var_df.columns)))
+        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
+        feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
+        if var_columns != "all":
+            var_df = var_df[list(var_columns)]
+        colors = _read_category_colors(group, AteraKeys.OBS_GROUP)
+        colors.update(_read_category_colors(group, AteraKeys.VAR_GROUP, list(var_df.columns)))
 
-            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-            _add_label_id(obs_df)
+        obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
+        _add_label_id(obs_df)
 
-            obsm = (
-                cast(dict[str, Any], read_elem(group[str(AteraKeys.OBSM_GROUP)]))
-                if str(AteraKeys.OBSM_GROUP) in group
-                else {}
-            )
+        obsm = (
+            cast(dict[str, Any], read_elem(group[str(AteraKeys.OBSM_GROUP)]))
+            if str(AteraKeys.OBSM_GROUP) in group
+            else {}
+        )
 
         manifest_extras = _read_manifest_extras(group)
         # the graph keeps the store, which reopens on first use (also after pickling)
@@ -415,8 +413,7 @@ def read_var(path: str | Path) -> pd.DataFrame:
     """
     path = Path(path)
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
-        with _patched_ragged_vlen_chunk_decode():
-            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
+        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
     return var_df
 
 
@@ -459,12 +456,11 @@ def read_table_for_cells(
 
     path = Path(path)
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
-        with _patched_ragged_vlen_chunk_decode():
-            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-            if var_columns != "all":
-                var_df = var_df[list(var_columns)]
-            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-            _add_label_id(obs_df)
+        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
+        if var_columns != "all":
+            var_df = var_df[list(var_columns)]
+        obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
+        _add_label_id(obs_df)
 
         if cell_ids is not None:
             index = pd.Index(obs_df[str(AteraKeys.CELL_ID)].to_numpy())
@@ -515,25 +511,22 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
     genes = [genes] if isinstance(genes, str) else list(genes)
     path = Path(path)
     with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
-        with _patched_ragged_vlen_chunk_decode():
-            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)[
-                [str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME)]
-            ]
-            feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
-            index = pd.Index(feature_names)
-            col_positions = index.get_indexer(pd.Index(np.asarray(genes)))
-            missing = np.asarray(genes)[col_positions == -1]
-            if missing.size:
-                raise ValueError(
-                    f"gene(s) not found in {AteraKeys.VAR_GROUP!s}.{AteraKeys.FEATURE_NAME!s}: {missing.tolist()}"
-                )
+        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)[[str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME)]]
+        feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
+        index = pd.Index(feature_names)
+        col_positions = index.get_indexer(pd.Index(np.asarray(genes)))
+        missing = np.asarray(genes)[col_positions == -1]
+        if missing.size:
+            raise ValueError(
+                f"gene(s) not found in {AteraKeys.VAR_GROUP!s}.{AteraKeys.FEATURE_NAME!s}: {missing.tolist()}"
+            )
 
-            var_subset = var_df.iloc[col_positions]
-            var_subset.index = pd.Index(np.asarray(genes), name=str(AteraKeys.FEATURE_NAME))
-            _align_index_column(var_subset)
+        var_subset = var_df.iloc[col_positions]
+        var_subset.index = pd.Index(np.asarray(genes), name=str(AteraKeys.FEATURE_NAME))
+        _align_index_column(var_subset)
 
-            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-            _add_label_id(obs_df)
+        obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
+        _add_label_id(obs_df)
 
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
         x: csc_matrix = cast(csc_matrix, x_ds[:, col_positions])

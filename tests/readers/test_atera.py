@@ -398,3 +398,41 @@ def test_pixel_size_falls_back_to_the_ome_metadata_in_microns(tmp_path: Path) ->
         },
     )
     assert common._get_pixel_size(tmp_path) == pytest.approx(0.212)
+
+
+@pytest.mark.parametrize("pipeline", ["BatchedCodecPipeline", "FusedCodecPipeline"])
+def test_short_trailing_vlen_chunk_is_padded(tmp_path: Path, pipeline: str) -> None:
+    import json
+    import zipfile
+
+    import zarr.core.codec_pipeline
+    from numcodecs import VLenUTF8, get_codec
+
+    if not hasattr(zarr.core.codec_pipeline, pipeline):
+        pytest.skip(f"zarr {zarr.__version__} has no {pipeline}")
+    root = tmp_path / "s.zarr"
+    zarr.create_array(zarr.storage.LocalStore(root), shape=(5,), chunks=(3,), dtype=str, zarr_format=2)[:] = np.array(
+        ["a", "bb", "ccc", "dd", "e"], dtype=object
+    )
+    meta = json.loads((root / ".zarray").read_text())
+    compressor = get_codec(meta["compressor"]) if meta["compressor"] else None
+
+    def zip_with_trailing_chunk(items: list[str]) -> Path:
+        encoded = VLenUTF8().encode(np.array(items, dtype=object))
+        (root / "1").write_bytes(compressor.encode(encoded) if compressor else encoded)
+        with zipfile.ZipFile(tmp_path / "s.zip", "w") as zf:
+            zf.writestr(".zgroup", json.dumps({"zarr_format": 2}))
+            for f in root.iterdir():
+                zf.write(f, f"s/{f.name}")
+        return tmp_path / "s.zip"
+
+    with zarr.config.set({"codec_pipeline.path": f"zarr.core.codec_pipeline.{pipeline}"}):
+        # 10x's writer stores only the 2 items of the trailing chunk; zarr reads it at the nominal size of 3
+        path = zip_with_trailing_chunk(["dd", "e"])
+        with pytest.raises(ValueError, match="reshape"):
+            zarr.open_group(zarr.storage.ZipStore(path, read_only=True), mode="r")["s"][:]
+        with common._open_zip(path) as group:
+            assert group["s"][:].tolist() == ["a", "bb", "ccc", "dd", "e"]
+        path = zip_with_trailing_chunk(["dd"])  # one item short: corrupt, not padded
+        with common._open_zip(path) as group, pytest.raises(ValueError, match="reshape"):
+            group["s"][:]

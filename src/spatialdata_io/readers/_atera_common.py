@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import re
@@ -34,6 +33,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
     from xarray import DataArray
+    from zarr.abc.buffer import Buffer
+    from zarr.abc.store import ByteRequest
+    from zarr.core.buffer import BufferPrototype
 
 
 # `zarr.Group.get_array` / `zarr.Group.get_group` (typed lookups that raise on a missing node or on the
@@ -76,77 +78,46 @@ DEFAULT_TABLE_ROW_CHUNK_SIZE = 50_000
 DEFAULT_TRANSCRIPT_CHUNK_ROWS = 5_000_000
 
 
+class _PadRaggedVlenStore(zarr.storage.WrapperStore[zarr.storage.ZipStore]):
+    """Pad the short trailing chunk of a 1-D ``vlen-utf8`` zarr v2 array to the nominal chunk size.
+
+    10x writes the last chunk of the `obs`/`var` string columns (e.g. `barcode`, chunks of 1,000,000) with only the
+    items it holds. zarr decodes every v2 chunk at the nominal size and raises "cannot reshape array of size 376951
+    into shape (1000000,)"; zarr's own writer pads that chunk. Only a trailing chunk that holds exactly the remaining
+    items is padded; any other chunk is passed on unchanged, so zarr still raises on a corrupt one.
+    """
+
+    async def get(self, key: str, prototype: BufferPrototype, byte_range: ByteRequest | None = None) -> Buffer | None:
+        buf = await super().get(key, prototype, byte_range)
+        parent, _, name = key.rpartition("/")
+        if buf is None or byte_range is not None or not name.isdigit():
+            return buf
+        meta_buf = await super().get(f"{parent}/.zarray" if parent else ".zarray", prototype)
+        meta = json.loads(meta_buf.to_bytes()) if meta_buf is not None else {}
+        if len(meta.get("shape", ())) != 1 or [f["id"] for f in meta.get("filters") or []] != ["vlen-utf8"]:
+            return buf
+        (size,), (chunk,) = meta["shape"], meta["chunks"]
+        n_items = size - int(name) * chunk
+        if not 0 < n_items < chunk:
+            return buf
+        from numcodecs import VLenUTF8, get_codec
+
+        compressor = get_codec(meta["compressor"]) if meta.get("compressor") else None
+        raw = buf.to_bytes()
+        items = VLenUTF8().decode(compressor.decode(raw) if compressor else raw)
+        if len(items) != n_items:
+            return buf
+        padded = np.full(chunk, meta.get("fill_value") or "", dtype=object)
+        padded[:n_items] = items
+        encoded = VLenUTF8().encode(padded)
+        return prototype.buffer.from_bytes(compressor.encode(encoded) if compressor else encoded)
+
+
 @contextlib.contextmanager
 def _open_zip(path: Path) -> Iterator[zarr.Group]:
+    """Open a zipped zarr store read-only (see `_PadRaggedVlenStore`)."""
     with zarr.storage.ZipStore(path, read_only=True) as store:
-        yield zarr.open_group(store, mode="r")
-
-
-@contextlib.contextmanager
-def _patched_ragged_vlen_chunk_decode() -> Iterator[None]:
-    """Work around ``zarr``'s `V2Codec` failing to decode a vlen (string) array's ragged trailing chunk.
-
-    `obs`/`var`'s string columns (e.g. `barcode`) are stored as 1-D zarr v2 arrays with a fixed
-    chunk size chosen independently of the row count (e.g. `1_000_000`), so the trailing chunk is
-    usually smaller than that nominal size. For fixed-width dtypes this is harmless: `zarr` pads an
-    incomplete edge chunk to the full chunk shape (with the fill value) before compression, so it
-    always decodes back to the full nominal size. Variable-length (`vlen-utf8`/`StringDType`)
-    chunks aren't padded this way -- only the elements actually written are stored -- but
-    `V2Codec._decode_single` unconditionally reshapes the decoded chunk to the nominal chunk shape
-    regardless of dtype, so reading across that trailing chunk raises e.g. ``ValueError: cannot
-    reshape array of size 376951 into shape (1000000,)``. Reproduced against `zarr` 3.1.6 and
-    3.4.0 (the latest release as of writing); no matching issue found upstream yet.
-
-    This patches `V2Codec._decode_single` (the abstract-method entry point present on every
-    `zarr` 3.x release, unlike the private `_decode_sync`/`_decode_single` split introduced partway
-    through the 3.x series) for the duration of the context, falling back to the chunk's actual
-    (smaller) size instead of raising, only for the 1-D case this affects; any other reshape failure
-    (e.g. a genuinely corrupt chunk, or a ragged chunk in more than one dimension) is still raised.
-    """
-    try:
-        from numcodecs.compat import ensure_ndarray_like
-        from zarr.codecs._v2 import V2Codec
-        from zarr.registry import get_ndbuffer_class
-    except ImportError:
-        # `zarr`'s internal layout changed enough that this patch no longer applies; read without
-        # it rather than fail outright (bundles without a ragged vlen chunk are unaffected either way).
-        yield
-        return
-
-    original_decode_single = V2Codec._decode_single
-
-    async def patched_decode_single(self: V2Codec, chunk_bytes: Any, chunk_spec: Any) -> Any:
-        def decode() -> Any:
-            cdata = chunk_bytes.as_array_like()
-            chunk = self.compressor.decode(cdata) if self.compressor else cdata
-            if self.filters:
-                for f in reversed(self.filters):
-                    chunk = f.decode(chunk)
-            chunk = ensure_ndarray_like(chunk)
-            if chunk_spec.dtype.dtype_cls is not np.dtypes.ObjectDType:
-                try:
-                    chunk = chunk.view(chunk_spec.dtype.to_native_dtype())
-                except TypeError:
-                    chunk = np.array(chunk).astype(chunk_spec.dtype.to_native_dtype())
-            elif chunk.dtype != object:
-                raise RuntimeError("cannot read object array without object codec")
-
-            chunk = chunk.reshape(-1, order="A")
-            nominal_size = int(np.prod(chunk_spec.shape))
-            if chunk.size == nominal_size:
-                chunk = chunk.reshape(chunk_spec.shape, order=chunk_spec.order)
-            elif len(chunk_spec.shape) != 1:
-                raise ValueError(f"cannot reshape array of size {chunk.size} into shape {chunk_spec.shape}")
-            # else: ragged trailing chunk of a 1-D vlen array -- keep its natural, smaller size.
-            return get_ndbuffer_class().from_ndarray_like(chunk)
-
-        return await asyncio.to_thread(decode)
-
-    V2Codec._decode_single = patched_decode_single  # type: ignore[method-assign]
-    try:
-        yield
-    finally:
-        V2Codec._decode_single = original_decode_single  # type: ignore[method-assign]
+        yield zarr.open_group(_PadRaggedVlenStore(store), mode="r")
 
 
 def _decode_packed_cell_id(raw: np.ndarray) -> np.ndarray:
