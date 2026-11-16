@@ -46,6 +46,7 @@ from spatialdata_io.readers.xenium import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    import dask.array as da
     from anndata import AnnData
     from xarray import DataArray, DataTree
 
@@ -441,14 +442,15 @@ def _get_table(
         manifest_extras = _read_manifest_extras(group)
         # the graph keeps the store, which reopens on first use (also after pickling)
         x_group = _get_group(group, str(AteraKeys.X_GROUP))
-        x = read_elem_lazy(x_group, chunks=(row_chunk_size, -1))
+        x = cast("da.Array", read_elem_lazy(x_group, chunks=(row_chunk_size, -1)))
         stored_per_row = np.diff(_get_array(x_group, "indptr")[:])
     is_gene = _is_gene(var)
+    controls: csr_matrix | csc_matrix
     if (path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE).is_file():  # column reads are cheap in the CSC copy
         with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
-            controls = sparse_dataset(group[str(AteraKeys.X_GROUP)])[:, np.flatnonzero(~is_gene)]
+            controls = cast(csc_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[:, np.flatnonzero(~is_gene)])
     else:
-        controls = x[:, ~is_gene].compute()
+        controls = cast(csr_matrix, x[:, ~is_gene].compute())
     # genes detected per cell: the stored entries of each CSR row (its `indptr` step) minus those of the controls
     obs["n_genes"] = stored_per_row - controls.getnnz(axis=1)
     table = _assemble_table(x[:, is_gene], obs, var, controls, var_columns, region, obsm)
@@ -520,7 +522,7 @@ def read_table_for_cells(
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
         obs, var = _read_obs_var(group)
         if cell_ids is not None:
-            row_positions = pd.Index(obs[str(AteraKeys.CELL_ID)].to_numpy()).get_indexer(np.asarray(cell_ids))
+            row_positions = pd.Index(obs[str(AteraKeys.CELL_ID)].to_numpy()).get_indexer(pd.Index(np.asarray(cell_ids)))
             missing = np.asarray(cell_ids)[row_positions == -1]
             if missing.size:
                 raise ValueError(f"cell_id(s) not found in {AteraKeys.CELL_FEATURE_MATRIX_FILE!s}: {missing.tolist()}")
@@ -563,12 +565,12 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
     path = Path(path)
     with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
         obs, var = _read_obs_var(group)
-        col_positions = var.index.get_indexer(np.asarray(genes))
+        col_positions = var.index.get_indexer(pd.Index(genes))
         missing = np.asarray(genes)[col_positions == -1]
         if missing.size:
             raise ValueError(
                 f"gene(s) not found in {AteraKeys.VAR_GROUP!s}.{AteraKeys.FEATURE_NAME!s}: {missing.tolist()}"
             )
         x = cast(csc_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[:, col_positions])
-    obsm = {"spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()}
+    obsm: dict[str, Any] = {"spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()}
     return _parse_table(AnnData(X=x, obs=obs, var=var.iloc[col_positions], obsm=obsm), "cell_labels")

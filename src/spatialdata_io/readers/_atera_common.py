@@ -32,6 +32,7 @@ from spatialdata_io.readers._utils._utils import parse_physical_size
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
+    from numpy.typing import ArrayLike
     from xarray import DataArray
     from zarr.abc.buffer import Buffer
     from zarr.abc.store import ByteRequest
@@ -234,7 +235,7 @@ def _tile_row_ranges(n_rows: int, chunk_rows: int = DEFAULT_TRANSCRIPT_CHUNK_ROW
     return [(start, min(start + chunk_rows, n_rows)) for start in range(0, n_rows, chunk_rows)] or [(0, 0)]
 
 
-def _transcript_rows(tile: zarr.Group, start: int, stop: int, feature_name: pd.Categorical) -> pd.DataFrame:
+def _transcript_rows(tile: zarr.Group, start: int, stop: int, feature_name: pd.Categorical[Any]) -> pd.DataFrame:
     """Decode rows ``[start, stop)`` of one tile of transcripts.zarr.zip, labelled with `feature_name`."""
 
     def rows(key: AteraKeys) -> np.ndarray:
@@ -444,7 +445,7 @@ def _tile_bounds(tile_key: str, tile_size: float) -> tuple[float, float, float, 
     return tile_x * tile_size, tile_y * tile_size, (tile_x + 1) * tile_size, (tile_y + 1) * tile_size
 
 
-def _bbox_overlaps(boxes: np.ndarray, bbox: tuple[float, float, float, float]) -> np.ndarray:
+def _bbox_overlaps(boxes: ArrayLike, bbox: tuple[float, float, float, float]) -> np.ndarray:
     """Which of the ``(..., 4)`` (xmin, ymin, xmax, ymax) `boxes` overlap `bbox`."""
     boxes = np.asarray(boxes)
     return (boxes[..., 0] < bbox[2]) & (bbox[0] < boxes[..., 2]) & (boxes[..., 1] < bbox[3]) & (bbox[1] < boxes[..., 3])

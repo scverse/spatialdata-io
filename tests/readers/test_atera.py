@@ -1,13 +1,16 @@
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 import pytest
+import shapely
 import zarr
 from anndata.io import write_elem
 from scipy.sparse import csr_matrix
+from spatialdata import SpatialData
 from spatialdata.models import get_table_keys
+from spatialdata.transformations import Affine
 from tests.converters.test_atera_to_parquet import _write_atera_dataset
 from xarray import DataTree
 
@@ -124,17 +127,17 @@ def _write_cells_transcripts_and_images(path: Path, n: int) -> None:
     planes = rng.integers(0, 255, (2, 64, 96), dtype=np.uint8)
     (path / AteraKeys.MORPHOLOGY_2D_DIR).mkdir()
     (path / AteraKeys.MORPHOLOGY_3D_DIR).mkdir()
-    for i, name in enumerate(["DAPI", "VIM"]):
+    for c, name in enumerate(["DAPI", "VIM"]):
         tifffile.imwrite(
-            path / AteraKeys.MORPHOLOGY_2D_DIR / f"ch{i:04d}_{name.lower()}.ome.tif",
+            path / AteraKeys.MORPHOLOGY_2D_DIR / f"ch{c:04d}_{name.lower()}.ome.tif",
             planes,
             ome=True,
             tile=(32, 32),
             metadata={"axes": "CYX", "Channel": {"Name": ["DAPI", "VIM"]}},
         )
         tifffile.imwrite(
-            path / AteraKeys.MORPHOLOGY_3D_DIR / f"ch{i:04d}_{name.lower()}_3d.ome.tif",
-            np.stack([planes[i]] * 3),
+            path / AteraKeys.MORPHOLOGY_3D_DIR / f"ch{c:04d}_{name.lower()}_3d.ome.tif",
+            np.stack([planes[c]] * 3),
             ome=True,
             tile=(32, 32),
             metadata={"axes": "ZYX", "Channel": {"Name": [name]}},
@@ -214,7 +217,7 @@ def test_table_obs_index_does_not_shadow_the_barcode_column(atera_path: Path, ta
 
     assert adata.obs.index.name is None
     assert adata.obs["barcode"].tolist() == adata.obs_names.tolist()
-    adata.obs.reset_index()
+    cast(pd.DataFrame, adata.obs).reset_index()
 
 
 def test_read_var_is_writable_and_indexed_like_the_table(atera_path: Path) -> None:
@@ -232,9 +235,8 @@ def test_tile_row_ranges() -> None:
 def test_chunked_tile_reads_match_whole_tile(tmp_path: Path) -> None:
     _write_atera_dataset(tmp_path, {"0,0": 7}, ["0,0"], ids={})
     feature_names = ["GENE_A", "GENE_B"]
-    grid = zarr.open_group(zarr.storage.ZipStore(tmp_path / AteraKeys.TRANSCRIPTS_FILE, read_only=True), mode="r")[
-        "grid"
-    ]
+    root = zarr.open_group(zarr.storage.ZipStore(tmp_path / AteraKeys.TRANSCRIPTS_FILE, read_only=True), mode="r")
+    grid = root.get_group("grid")
     whole = _read_transcript_tile(grid, "0,0", feature_names)
     # GENE_A owns rows 0-2 and GENE_B rows 3-6, so the 2-row chunks straddle the gene boundary.
     parts = [_read_transcript_tile(grid, "0,0", feature_names, a, b) for a, b in _tile_row_ranges(7, 2)]
@@ -264,8 +266,11 @@ def test_morphology_pyramid_is_built_from_level_0(atera_path: Path, scale_factor
     assert [image[f"scale{i}"]["image"].shape for i in range(len(factors))] == [(2, 64 // f, 96 // f) for f in factors]
     assert image["scale0"]["image"].coords["c"].values.tolist() == ["DAPI", "VIM"]
     # each scale has coordinates in scale0 px, so a query crops the same region at every scale
-    crop = bounding_box_query(
-        image, axes=("x", "y"), min_coordinate=[0, 0], max_coordinate=[32, 32], target_coordinate_system="global"
+    crop = cast(
+        DataTree,
+        bounding_box_query(
+            image, axes=("x", "y"), min_coordinate=[0, 0], max_coordinate=[32, 32], target_coordinate_system="global"
+        ),
     )
     assert [crop[k]["image"].shape[1:] for k in crop.children] == [(32 // f, 32 // f) for f in factors]
 
@@ -310,7 +315,7 @@ def test_aligned_he_image_is_placed_by_its_affine(tmp_path: Path, reader: str) -
     assert list(images) == ["he_image"]
     he = images["he_image"]
     assert list(he.coords["c"].values) == ["r", "g", "b"]
-    m = get_transformation(he, "global").to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
+    m = cast(Affine, get_transformation(he, "global")).to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
     np.testing.assert_allclose(m, affine)
 
 
@@ -390,7 +395,7 @@ def test_affine_from_keypoints_reproduces_alignment(tmp_path: Path) -> None:
     dst = (np.c_[src, np.ones(len(src))] @ affine.T)[:, :2]
     kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
     kp.to_csv(tmp_path / "S1_keypoints.csv", index=False)
-    m = _affine_from_keypoints(tmp_path / "S1_keypoints.csv").to_affine_matrix(
+    m = cast(Affine, _affine_from_keypoints(tmp_path / "S1_keypoints.csv")).to_affine_matrix(
         input_axes=("x", "y"), output_axes=("x", "y")
     )
     np.testing.assert_allclose(m, affine, atol=1e-6)
@@ -410,7 +415,7 @@ def test_he_without_alignment_csv_is_placed_by_keypoints(tmp_path: Path) -> None
         tmp_path / "S1_keypoints.csv", index=False
     )
     he = _get_aligned_images(tmp_path, {}, {})["he_image"]
-    m = get_transformation(he, "global").to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
+    m = cast(Affine, get_transformation(he, "global")).to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
     np.testing.assert_allclose(m, affine, atol=1e-9)
 
 
@@ -449,12 +454,16 @@ def test_atera_reads_writes_and_queries(atera_path: Path, tmp_path: Path) -> Non
     assert transcripts["cell_id"].tolist() == [-1, 0, 0, 0, 0, 0]  # the packed (uint32 max, uint32 max) is unassigned
     sdata.write(tmp_path / "out.zarr")
     back = read_zarr(tmp_path / "out.zarr")
-    np.testing.assert_array_equal(back.tables["table"].X.toarray(), sdata.tables["table"].X.compute().toarray())
+    table, table_back = sdata.tables["table"], back.tables["table"]
+    np.testing.assert_array_equal(cast(csr_matrix, table_back.X).toarray(), cast(Any, table.X).compute().toarray())
     pd.testing.assert_frame_equal(
-        back.tables["table"].obsm["control_counts"], sdata.tables["table"].obsm["control_counts"]
+        cast(pd.DataFrame, table_back.obsm["control_counts"]), cast(pd.DataFrame, table.obsm["control_counts"])
     )
-    crop = bounding_box_query(
-        back, axes=("x", "y"), min_coordinate=[0, 0], max_coordinate=[15, 15], target_coordinate_system="global"
+    crop = cast(
+        SpatialData,
+        bounding_box_query(
+            back, axes=("x", "y"), min_coordinate=[0, 0], max_coordinate=[15, 15], target_coordinate_system="global"
+        ),
     )
     assert crop.tables["table"].obs["cell_id"].tolist() == CELL_IDS[:2]
 
@@ -462,7 +471,7 @@ def test_atera_reads_writes_and_queries(atera_path: Path, tmp_path: Path) -> Non
 def test_lazy_x_matches_the_store_and_pickles(atera_path: Path) -> None:
     import pickle
 
-    x = _get_table(atera_path, row_chunk_size=3)[0].X
+    x = cast(Any, _get_table(atera_path, row_chunk_size=3)[0].X)
     assert x.chunks[0] == (3, 1)
     expected = np.arange(len(CELL_IDS) * 2, dtype=np.float32).reshape(-1, 2)
     np.testing.assert_array_equal(pickle.loads(pickle.dumps(x)).compute().toarray(), expected)
@@ -517,12 +526,12 @@ def test_short_trailing_vlen_chunk_is_padded(tmp_path: Path, pipeline: str) -> N
         # 10x's writer stores only the 2 items of the trailing chunk; zarr reads it at the nominal size of 3
         path = zip_with_trailing_chunk(["dd", "e"])
         with pytest.raises(ValueError, match="reshape"):
-            zarr.open_group(zarr.storage.ZipStore(path, read_only=True), mode="r")["s"][:]
+            zarr.open_group(zarr.storage.ZipStore(path, read_only=True), mode="r").get_array("s")[:]
         with common._open_zip(path) as group:
-            assert group["s"][:].tolist() == ["a", "bb", "ccc", "dd", "e"]
+            assert np.asarray(group.get_array("s")[:]).tolist() == ["a", "bb", "ccc", "dd", "e"]
         path = zip_with_trailing_chunk(["dd"])  # one item short: corrupt, not padded
         with common._open_zip(path) as group, pytest.raises(ValueError, match="reshape"):
-            group["s"][:]
+            group.get_array("s")[:]
 
 
 def test_atera_reads_3d_morphology_with_default_kwargs(atera_path: Path) -> None:
@@ -581,7 +590,7 @@ def test_duplicate_feature_names_are_made_unique_everywhere(atera_path: Path, tm
     assert transcripts["feature_name"].tolist() == ["GENE_A"] * 3 + ["GENE_A-1"] * 3
     sdata.write(tmp_path / "out.zarr")
     genes = read_table_for_genes(atera_path, ["GENE_A-1", "GENE_A"])
-    np.testing.assert_array_equal(genes.X.toarray(), np.arange(8).reshape(4, 2)[:, ::-1])
+    np.testing.assert_array_equal(cast(csr_matrix, genes.X).toarray(), np.arange(8).reshape(4, 2)[:, ::-1])
     second = read_transcripts_for_genes(sdata, atera_path, "GENE_A-1").points["transcripts_subset"].compute()
     assert second["x"].tolist() == [3.0, 4.0, 5.0]
     table = pq.read_table(atera_to_parquet(atera_path, tmp_path / "t.parquet"))
@@ -589,8 +598,6 @@ def test_duplicate_feature_names_are_made_unique_everywhere(atera_path: Path, tm
 
 
 def test_empty_selections(atera_path: Path) -> None:
-    from spatialdata import SpatialData
-
     from spatialdata_io import atera
     from spatialdata_io.readers.atera import read_cell_boundaries, read_transcripts_for_genes
 
@@ -619,7 +626,7 @@ def test_polygons_with_one_or_two_vertices_are_kept_empty(
     with caplog.at_level(logging.WARNING):
         shapes = common._polygons_to_shapes(coords, num_vertices, np.arange(5), None, 1.0, is_nucleus=False)
     assert shapes.geometry.is_empty.tolist() == [False, True, True, True, False]
-    np.testing.assert_array_equal(np.asarray(shapes.geometry.iloc[4].exterior.coords)[:4], coords[6:10])
+    np.testing.assert_array_equal(shapely.get_coordinates(shapes.geometry.iloc[4])[:4], coords[6:10])
     assert "2 polygon(s) with 1 or 2 vertices" in caplog.text
 
 
