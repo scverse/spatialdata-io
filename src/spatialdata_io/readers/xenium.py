@@ -442,8 +442,12 @@ def xenium(
         # Map the table to the cell_labels element when a label_index mapping exists, so the instance
         # key resolves against the raster labels instead of the circles. If any table cell lacks a
         # boundary (so has no label), warn and leave the table on circles rather than crash.
+        label_index = None
         if cells_labels and cell_im is not None:
             label_index = _cell_id_to_label_index(cell_im)
+        elif cells_labels and cells_zarr_ctx is None:
+            label_index = _hex_cell_id_to_label_index(table.obs[str(XeniumKeys.CELL_ID)])
+        if label_index is not None:
             table_ids = table.obs[str(XeniumKeys.CELL_ID)].to_numpy()
             if pd.Index(table_ids).isin(label_index.index).all():
                 table.obs["cell_labels"] = label_index.loc[table_ids].to_numpy()
@@ -537,6 +541,28 @@ def _decode_cell_id_column(cell_id_column: pd.Series) -> pd.Series:
     if len(cell_id_column) and isinstance(cell_id_column.iloc[0], bytes):
         return cell_id_column.str.decode("utf-8")
     return cell_id_column
+
+
+def _hex_cell_id_to_label_index(cell_ids: ArrayLike) -> pd.Series | None:
+    """cell_id (str) -> label_index (int) for hex cell_ids that have no ``label_id`` mapping.
+
+    XOA 1.3-1.x boundary files carry hex cell_ids but no ``label_id``; the mask values live only in
+    cells.zarr.zip, which stripped (e.g. GEO) deposits omit. The shifted-hex prefix decodes to the
+    cell's integer id, which is unique within a single dataset suffix, so it labels the reconstructed
+    raster and the table consistently. It need not equal the original XOA mask value. Returns None
+    when the ids are not decodable hex ids, span several dataset suffixes, decode to 0 (background)
+    or are not unique.
+    """
+    ids = np.asarray(cell_ids).astype(str)
+    if not len(ids):
+        return None
+    try:
+        prefix, suffix = prefix_suffix_uint32_from_cell_id_str(ids)
+    except (KeyError, ValueError):
+        return None
+    if len(np.unique(suffix)) != 1 or (prefix == 0).any() or len(np.unique(prefix)) != len(prefix):
+        return None
+    return pd.Series(prefix.astype(np.int64), index=ids)
 
 
 def _cell_id_to_label_index(indices_mapping: pd.DataFrame) -> pd.Series:
@@ -637,6 +663,24 @@ def _get_polygons(
 
     group_ends = np.concatenate([group_starts[1:], [n]])
 
+    # A polygon ring needs >= 4 coordinates; XOA occasionally emits 2-3 vertex boundaries, which make
+    # shapely raise. Drop them, except when indices_mapping must align 1:1 with the polygons.
+    sizes = group_ends - group_starts
+    keep = sizes >= 4
+    if not keep.all() and (has_label_id or indices_mapping is None):
+        warnings.warn(
+            f"Dropping {int((~keep).sum())} degenerate polygons with fewer than 4 vertices from {file}.",
+            UserWarning,
+            stacklevel=3,
+        )
+        rows = np.repeat(keep, sizes)
+        coords = coords[rows]
+        id_col = id_col.filter(pa.array(rows))
+        if has_label_id:
+            id_arr = id_arr[rows]
+        group_ends = np.cumsum(sizes[keep])
+        group_starts = group_ends - sizes[keep]
+
     # offsets for ragged array:
     # offsets[0] (ring_offsets): describing to which rings the vertex positions belong to
     # offsets[1] (geom_offsets): describing to which polygons the rings belong to
@@ -690,7 +734,7 @@ def _get_polygons(
         #   fashion to the cells, so we could modify get_indices_mapping NOT to return None
         #   in that case, which would imply that we don't fall into this slow fallback. This
         #   could be work for a future version.
-        unique_ids = id_col.filter(np.concatenate([[True], change_mask])).to_pylist()
+        unique_ids = id_col.take(pa.array(group_starts)).to_pylist()
         index = _decode_cell_id_column(pd.Series(unique_ids))
         geo_df = GeoDataFrame({"geometry": geoms}, index=index.values)
         geo_df.index.name = "cell_id"
@@ -729,10 +773,11 @@ def _get_labels_from_boundaries(
         label = _cell_id_to_label_index(indices_mapping).loc[shapes.index].to_numpy()
     elif pd.api.types.is_integer_dtype(shapes.index):
         label = shapes.index.to_numpy()
+    elif (hex_label := _hex_cell_id_to_label_index(shapes.index)) is not None:
+        label = hex_label.to_numpy()
     else:
-        # Non-integer (hex) cell_ids with no label_index mapping: we have no integer to fill the
-        # raster with. For CSV bundles this cannot happen (hex ids always ship a ``label_id`` column,
-        # so ``indices_mapping`` is set), but guard it rather than crash cryptically on ``astype``.
+        # Non-integer cell_ids that are neither mapped by ``label_id`` nor decodable as 10x hex ids:
+        # we have no integer to fill the raster with, so fail clearly rather than on ``astype``.
         raise ValueError(
             "Cannot build raster labels: boundary polygons have non-integer cell_ids but no "
             "label_index mapping (missing 'label_id' column). Please report this at "
@@ -757,6 +802,11 @@ def _get_labels_from_boundaries(
 def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     if (path / XeniumKeys.TRANSCRIPTS_FILE).is_file():
         table = read_parquet(path / XeniumKeys.TRANSCRIPTS_FILE)
+    elif (
+        not any((path / n).is_file() for n in (XeniumKeys.TRANSCRIPTS_FILE_CSV, "transcripts.csv"))
+        and (path / XeniumKeys.TRANSCRIPTS_ZARR).is_file()
+    ):
+        table = _read_transcripts_zarr(path / XeniumKeys.TRANSCRIPTS_ZARR)
     else:
         # pre-1.3.0 (XOA < 1.3.0) CSV-only export; gzip is not splittable, so read as one partition.
         table = dask_read_csv(_resolve_csv(path, XeniumKeys.TRANSCRIPTS_FILE_CSV), blocksize=None)
@@ -765,11 +815,14 @@ def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
     sample = table[XeniumKeys.FEATURE_NAME].head(1)
     needs_decode = isinstance(sample.iloc[0], bytes)
 
-    # get unique categories (fast)
-    categories = table[XeniumKeys.FEATURE_NAME].drop_duplicates().compute()
-    if needs_decode:
-        categories = categories.str.decode("utf-8")
-    cat_dtype = pd.CategoricalDtype(categories=categories)
+    if isinstance(table[XeniumKeys.FEATURE_NAME].dtype, pd.CategoricalDtype):  # transcripts.zarr.zip: known genes
+        cat_dtype = table[XeniumKeys.FEATURE_NAME].dtype
+    else:
+        # get unique categories (fast)
+        categories = table[XeniumKeys.FEATURE_NAME].drop_duplicates().compute()
+        if needs_decode:
+            categories = categories.str.decode("utf-8")
+        cat_dtype = pd.CategoricalDtype(categories=categories)
 
     # decode column if needed, then convert to categorical
     if needs_decode:
@@ -788,11 +841,66 @@ def _get_points(path: Path, specs: dict[str, Any]) -> pa.Table:
             "z": XeniumKeys.TRANSCRIPTS_Z,
         },
         feature_key=XeniumKeys.FEATURE_NAME,
-        instance_key=XeniumKeys.CELL_ID,
+        instance_key=XeniumKeys.CELL_ID if XeniumKeys.CELL_ID in table.columns else None,
         transformations={"global": transform},
         sort=True,
     )
     return points
+
+
+def _read_transcripts_zarr(zip_path: Path, rows_per_partition: int = 5_000_000) -> Any:
+    """Read the transcripts of ``transcripts.zarr.zip`` as a dask DataFrame with the parquet column names.
+
+    Level 0 of ``grids/`` holds every transcript once, split into spatial tiles. Tiles are grouped into
+    partitions of about ``rows_per_partition`` rows. The zarr has no per-transcript ``cell_id`` or
+    ``overlaps_nucleus``, so those columns are absent. ``transcript_id`` is rebuilt from the two ``uuid``
+    words as in the parquet.
+
+    See https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#transcripts
+    """
+    import dask
+    import dask.dataframe as dd
+
+    root = zarr.open_group(zarr.storage.ZipStore(zip_path, read_only=True), mode="r")
+    genes = pd.CategoricalDtype(root.attrs["gene_names"])  # type: ignore[arg-type]
+    grid = root["grids/0"]
+    if not isinstance(grid, zarr.Group):
+        raise TypeError(f"Expected 'grids/0' in {zip_path.name} to be a zarr group, found {type(grid).__name__}.")
+    tiles = sorted(grid.group_keys())
+
+    def frame(loc: np.ndarray, uuid: np.ndarray, gene: np.ndarray, qv: np.ndarray) -> pd.DataFrame:
+        uuid = uuid.astype(np.uint64)
+        return pd.DataFrame(
+            {
+                "transcript_id": (uuid[:, 1] << np.uint64(32)) | uuid[:, 0],
+                XeniumKeys.FEATURE_NAME: pd.Categorical.from_codes(gene[:, 0].astype(np.int32), dtype=genes),
+                XeniumKeys.TRANSCRIPTS_X: loc[:, 0],
+                XeniumKeys.TRANSCRIPTS_Y: loc[:, 1],
+                XeniumKeys.TRANSCRIPTS_Z: loc[:, 2],
+                XeniumKeys.QUALITY_VALUE: qv[:, 0],
+            }
+        )
+
+    def load(keys: list[str]) -> pd.DataFrame:
+        arrays = ("location", "uuid", "gene_identity", "quality_score")
+        frames = [frame(*(np.asarray(_zarr_array(grid, f"{k}/{a}")[:]) for a in arrays)) for k in keys]
+        return pd.concat(frames, ignore_index=True)
+
+    meta = frame(
+        np.empty((0, 3), np.float32),
+        np.empty((0, 2), np.uint32),
+        np.empty((0, 1), np.uint16),
+        np.empty((0, 1), np.float32),
+    )
+    batches: list[list[str]] = [[]]
+    n = 0
+    for key in tiles:
+        if n >= rows_per_partition:
+            batches.append([])
+            n = 0
+        batches[-1].append(key)
+        n += _zarr_array(grid, f"{key}/location").shape[0]
+    return dd.from_delayed([dask.delayed(load)(b) for b in batches], meta=meta, verify_meta=False)
 
 
 def _resolve_csv(path: Path, gz_name: str) -> Path:

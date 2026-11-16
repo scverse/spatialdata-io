@@ -114,6 +114,8 @@ class XeniumKeys(ModeEnum):
     # transcripts
     TRANSCRIPTS_FILE = "transcripts.parquet"
     TRANSCRIPTS_FILE_CSV = "transcripts.csv.gz"
+    # Fallback when a (GEO) deposit ships only the zarr. It has no per-transcript cell_id or overlaps_nucleus.
+    TRANSCRIPTS_ZARR = "transcripts.zarr.zip"
     TRANSCRIPTS_X = "x_location"
     TRANSCRIPTS_Y = "y_location"
     TRANSCRIPTS_Z = "z_location"
