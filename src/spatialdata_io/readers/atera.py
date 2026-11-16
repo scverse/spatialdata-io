@@ -381,7 +381,7 @@ def _parse_table(adata: AnnData, region: str) -> AnnData:
     """
     instance_key = AteraKeys.LABEL_ID if region == "cell_labels" else AteraKeys.CELL_ID
     adata.obs["region"] = pd.Categorical([region] * adata.n_obs)
-    adata.var = _xenium_var(adata.var)
+    adata.var = _xenium_var(cast(pd.DataFrame, adata.var))
     return TableModel.parse(adata, region=region, region_key="region", instance_key=str(instance_key))
 
 
