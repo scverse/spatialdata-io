@@ -416,7 +416,7 @@ def read_transcripts_for_genes(
                     labels = [gene] * (end - start)
                 frames.append(_transcript_rows(tile, start, end, pd.Categorical(labels, categories=categories)))
 
-    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=list(_transcripts_meta([]).columns))
+    df = pd.concat(frames, ignore_index=True) if frames else _transcripts_meta(categories)
 
     transform = Scale([1.0 / pixel_size, 1.0 / pixel_size], axes=("x", "y"))
     sdata.points[points_key] = PointsModel.parse(
@@ -569,10 +569,10 @@ def read_cell_boundaries(
             num_vertices_parts.append(num_vertices)
             cell_index_parts.append(cell_index)
 
-    coords = np.concatenate(coords_parts) if coords_parts else np.empty((0, 2), dtype=np.float32)
-    num_vertices = np.concatenate(num_vertices_parts) if num_vertices_parts else np.empty((0,), dtype=np.int32)
-    cell_index = np.concatenate(cell_index_parts) if cell_index_parts else np.empty((0,), dtype=np.uint32)
-
+    if not coords_parts:  # spatialdata has no empty shapes element: ShapesModel rejects an empty GeoDataFrame
+        raise ValueError(f"No polygons of {AteraKeys.CELLS_FILE!s} overlap bbox={bbox}.")
+    coords, num_vertices = np.concatenate(coords_parts), np.concatenate(num_vertices_parts)
+    cell_index = np.concatenate(cell_index_parts)
     sdata.shapes[shapes_key] = _polygons_to_shapes(coords, num_vertices, cell_index, cell_ids, pixel_size, is_nucleus)
     return sdata
 

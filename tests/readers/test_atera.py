@@ -582,3 +582,20 @@ def test_duplicate_feature_names_are_made_unique_everywhere(atera_path: Path, tm
     assert second["x"].tolist() == [3.0, 4.0, 5.0]
     table = pq.read_table(atera_to_parquet(atera_path, tmp_path / "t.parquet"))
     assert table["feature_name"].to_pylist() == ["GENE_A"] * 3 + ["GENE_A-1"] * 3
+
+
+def test_empty_selections(atera_path: Path) -> None:
+    from spatialdata import SpatialData
+
+    from spatialdata_io import atera
+    from spatialdata_io.readers.atera import read_cell_boundaries, read_transcripts_for_genes
+
+    sdata = atera(atera_path)
+    points = read_transcripts_for_genes(sdata, atera_path, "NEG_1").points["transcripts_subset"]  # no transcripts
+    assert len(points) == 0
+    assert points["feature_name"].dtype == "category"
+    for table in [read_table_for_cells(atera_path, cell_ids=[]), read_table_for_cells(atera_path, bbox=(80, 0, 90, 5))]:
+        assert table.shape == (0, 2)
+        SpatialData(tables={"table": table})  # a valid element
+    with pytest.raises(ValueError, match="No polygons"):
+        read_cell_boundaries(sdata, atera_path, bbox=(80, 0, 90, 5))

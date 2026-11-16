@@ -417,6 +417,9 @@ def _parse_table(adata: AnnData, region: str) -> AnnData:
 
     ``cell_labels`` raster values are ``label_id``; ``cell_boundaries`` shapes are indexed by ``cell_id``.
     """
+    if adata.n_obs == 0:  # spatialdata rejects an annotating table without rows ("Regions ... do not match")
+        logging.info(f"No cells selected; the empty table annotates no element instead of {region!r}.")
+        return TableModel.parse(adata)
     instance_key = AteraKeys.LABEL_ID if region == "cell_labels" else AteraKeys.CELL_ID
     adata.obs["region"] = pd.Categorical([region] * adata.n_obs)
     return TableModel.parse(adata, region=region, region_key="region", instance_key=str(instance_key))
