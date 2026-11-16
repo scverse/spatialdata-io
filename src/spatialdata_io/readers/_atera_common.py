@@ -20,7 +20,6 @@ from spatialdata import SpatialData
 from spatialdata.models import (
     Image2DModel,
     Image3DModel,
-    Labels2DModel,
     PointsModel,
     ShapesModel,
 )
@@ -29,6 +28,7 @@ from spatialdata.transformations.transformations import Identity, Scale
 from xarray import DataTree
 
 from spatialdata_io._constants._constants import AteraKeys
+from spatialdata_io.readers._utils._utils import parse_physical_size
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -74,8 +74,6 @@ DEFAULT_VAR_COLUMNS = [
 DEFAULT_TABLE_ROW_CHUNK_SIZE = 50_000
 # Max transcripts per `dask` partition / `atera_to_parquet` batch (~130 MB of decoded columns).
 DEFAULT_TRANSCRIPT_CHUNK_ROWS = 5_000_000
-
-_UINT32_SENTINEL = np.iinfo(np.uint32).max
 
 
 @contextlib.contextmanager
@@ -154,25 +152,10 @@ def _patched_ragged_vlen_chunk_decode() -> Iterator[None]:
 def _decode_packed_cell_id(raw: np.ndarray) -> np.ndarray:
     """Decode a (N, 2) uint32 packed cell id array into the int64 ids used in the cell-feature-matrix obs.
 
-    The two uint32 columns pack into an int64 as ``low + (high << 32)``. The sentinel
-    ``(uint32 max, uint32 max)`` marks "no cell assigned" and is decoded to ``-1``.
+    The two uint32 columns pack into an int64 as ``low + (high << 32)``, which is the little-endian int64 view of
+    the pair. The sentinel ``(uint32 max, uint32 max)`` marks "no cell assigned" and so views as ``-1``.
     """
-    low = raw[:, 0].astype(np.int64)
-    high = raw[:, 1].astype(np.int64)
-    packed = low + (high << 32)
-    unassigned = (raw[:, 0] == _UINT32_SENTINEL) & (raw[:, 1] == _UINT32_SENTINEL)
-    packed[unassigned] = -1
-    return packed
-
-
-def _get_labels(
-    cells_group: zarr.Group,
-    mask_index: int,
-    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> DataArray | DataTree:
-    """Read the labels raster from cells.zarr.zip masks/{mask_index} (0 = nucleus, 1 = cell)."""
-    masks = da.from_array(_get_array(cells_group, f"{AteraKeys.MASKS_GROUP}/{mask_index}"))
-    return Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
+    return np.ascontiguousarray(raw, dtype="<u4").view("<i8").reshape(-1)
 
 
 def _polygons_to_shapes(
@@ -456,8 +439,10 @@ def _tile_bounds(tile_key: str, tile_size: float) -> tuple[float, float, float, 
     return tile_x * tile_size, tile_y * tile_size, (tile_x + 1) * tile_size, (tile_y + 1) * tile_size
 
 
-def _bbox_overlaps(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
-    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+def _bbox_overlaps(boxes: np.ndarray, bbox: tuple[float, float, float, float]) -> np.ndarray:
+    """Which of the ``(..., 4)`` (xmin, ymin, xmax, ymax) `boxes` overlap `bbox`."""
+    boxes = np.asarray(boxes)
+    return (boxes[..., 0] < bbox[2]) & (bbox[0] < boxes[..., 2]) & (boxes[..., 1] < bbox[3]) & (bbox[1] < boxes[..., 3])
 
 
 def _cell_row_positions_in_bbox(path: Path, bbox: tuple[float, float, float, float]) -> np.ndarray:
@@ -469,18 +454,13 @@ def _cell_row_positions_in_bbox(path: Path, bbox: tuple[float, float, float, flo
     fact `read_cell_boundaries` relies on for its own `bbox` filtering).
     """
     pixel_size = _get_pixel_size(path)
-    xmin, ymin, xmax, ymax = (v * pixel_size for v in bbox)
-
     with _open_zip(path / AteraKeys.CELLS_FILE) as group:
         cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
-
-    keep = (
-        (cell_bboxes[:, 0] < xmax)
-        & (xmin < cell_bboxes[:, 2])
-        & (cell_bboxes[:, 1] < ymax)
-        & (ymin < cell_bboxes[:, 3])
-    )
-    return np.nonzero(keep)[0]
+    return np.nonzero(
+        _bbox_overlaps(
+            cell_bboxes, (bbox[0] * pixel_size, bbox[1] * pixel_size, bbox[2] * pixel_size, bbox[3] * pixel_size)
+        )
+    )[0]
 
 
 def read_cell_boundaries(
@@ -575,13 +555,7 @@ def read_cell_boundaries(
             relative_vertices = np.asarray(_get_array(tile, str(AteraKeys.RELATIVE_VERTICES))[...]).reshape(-1, 2)
 
             if raw_bbox is not None:
-                tile_cell_bboxes = cell_bboxes[cell_index]
-                keep = (
-                    (tile_cell_bboxes[:, 0] < raw_bbox[2])
-                    & (raw_bbox[0] < tile_cell_bboxes[:, 2])
-                    & (tile_cell_bboxes[:, 1] < raw_bbox[3])
-                    & (raw_bbox[1] < tile_cell_bboxes[:, 3])
-                )
+                keep = _bbox_overlaps(cell_bboxes[cell_index], raw_bbox)
                 if not keep.any():
                     continue
                 relative_vertices = relative_vertices[np.repeat(keep, num_vertices)]
@@ -633,8 +607,6 @@ def _get_pixel_size(path: Path) -> float:
             specs = json.load(f)
         return specs[str(AteraKeys.PIXEL_SIZE)]
 
-    from ome_types import from_tiff
-
     morphology_dir = path / AteraKeys.MORPHOLOGY_2D_DIR
     files = (
         sorted(f for f in morphology_dir.iterdir() if f.name.endswith(".ome.tif") and not f.name.startswith("._"))
@@ -646,10 +618,7 @@ def _get_pixel_size(path: Path) -> float:
             f"Cannot determine the pixel size: {path!s} contains neither {AteraKeys.SPECS_FILE!s} nor any "
             f"morphology OME-TIFF files in {morphology_dir.name!s}/."
         )
-    physical_size_x = from_tiff(files[0]).images[0].pixels.physical_size_x
-    if physical_size_x is None:
-        raise ValueError(f"{files[0]!s} does not specify `PhysicalSizeX` in its OME-XML metadata.")
-    return physical_size_x
+    return parse_physical_size(files[0])
 
 
 def _tiled_imread(

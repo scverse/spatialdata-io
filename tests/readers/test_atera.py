@@ -361,7 +361,8 @@ def test_atera_reads_writes_and_queries(atera_path: Path, tmp_path: Path) -> Non
     assert set(sdata.images) == {"morphology"}
     assert set(sdata.labels) == {"cell_labels", "nucleus_labels"}
     assert set(sdata.shapes) == {"cell_boundaries", "nucleus_boundaries"}
-    assert len(sdata.points["transcripts"]) == 6
+    transcripts = sdata.points["transcripts"].compute()
+    assert transcripts["cell_id"].tolist() == [-1, 0, 0, 0, 0, 0]  # the packed (uint32 max, uint32 max) is unassigned
     sdata.write(tmp_path / "out.zarr")
     back = read_zarr(tmp_path / "out.zarr")
     np.testing.assert_array_equal(back.tables["table"].X.toarray(), sdata.tables["table"].X.compute().toarray())
@@ -378,3 +379,22 @@ def test_lazy_x_matches_the_store_and_pickles(atera_path: Path) -> None:
     assert x.chunks[0] == (3, 1)
     expected = np.arange(len(CELL_IDS) * 2, dtype=np.float32).reshape(-1, 2)
     np.testing.assert_array_equal(pickle.loads(pickle.dumps(x)).compute().toarray(), expected)
+
+
+def test_pixel_size_falls_back_to_the_ome_metadata_in_microns(tmp_path: Path) -> None:
+    import tifffile
+
+    (tmp_path / AteraKeys.MORPHOLOGY_2D_DIR).mkdir()
+    tifffile.imwrite(
+        tmp_path / AteraKeys.MORPHOLOGY_2D_DIR / "ch0000_dapi.ome.tif",
+        np.zeros((1, 8, 8), np.uint8),
+        ome=True,
+        metadata={
+            "axes": "CYX",
+            "PhysicalSizeX": 212.0,
+            "PhysicalSizeXUnit": "nm",
+            "PhysicalSizeY": 212.0,
+            "PhysicalSizeYUnit": "nm",
+        },
+    )
+    assert common._get_pixel_size(tmp_path) == pytest.approx(0.212)

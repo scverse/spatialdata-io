@@ -21,7 +21,6 @@ from spatialdata_io.readers._atera_common import (
     _cell_row_positions_in_bbox,
     _get_array,
     _get_group,
-    _get_labels,
     _get_morphology_images,
     _get_pixel_size,
     _get_points,
@@ -32,7 +31,7 @@ from spatialdata_io.readers._atera_common import (
     read_transcripts_for_genes,
 )
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
-from spatialdata_io.readers.xenium import _add_aligned_images
+from spatialdata_io.readers.xenium import _add_aligned_images, _get_labels
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
