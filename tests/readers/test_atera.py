@@ -498,3 +498,12 @@ def test_short_trailing_vlen_chunk_is_padded(tmp_path: Path, pipeline: str) -> N
         path = zip_with_trailing_chunk(["dd"])  # one item short: corrupt, not padded
         with common._open_zip(path) as group, pytest.raises(ValueError, match="reshape"):
             group["s"][:]
+
+
+def test_atera_reads_3d_morphology_with_default_kwargs(atera_path: Path) -> None:
+    from spatialdata_io import atera
+
+    image = atera(atera_path, morphology_3d_images=True).images["morphology_3d"]
+    assert image["scale0"]["image"].dims == ("c", "z", "y", "x")
+    assert image["scale0"]["image"].data.chunksize[:2] == (1, 1)
+    assert [image[k]["image"].shape for k in image.children] == [(2, 3, 64 // f, 96 // f) for f in (1, 2, 4, 8, 16)]

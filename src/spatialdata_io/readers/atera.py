@@ -214,8 +214,15 @@ def atera(
             path / AteraKeys.MORPHOLOGY_2D_DIR, imread_kwargs, image_models_kwargs
         )
     if morphology_3d_images:
+        # (c, z, y, x): the 3-tuple default chunks gain one z plane per chunk, and z is not downsampled
+        kwargs_3d = dict(image_models_kwargs)
+        if isinstance(chunks := kwargs_3d.get("chunks"), tuple | list) and len(chunks) == 3:
+            kwargs_3d["chunks"] = (chunks[0], 1, *chunks[1:])
+        kwargs_3d["scale_factors"] = [
+            f if isinstance(f, dict) else {"z": 1, "y": f, "x": f} for f in kwargs_3d.get("scale_factors") or []
+        ]
         images["morphology_3d"] = _get_morphology_images(
-            path / AteraKeys.MORPHOLOGY_3D_DIR, imread_kwargs, image_models_kwargs, three_d=True
+            path / AteraKeys.MORPHOLOGY_3D_DIR, imread_kwargs, kwargs_3d, three_d=True
         )
 
     if aligned_images:
