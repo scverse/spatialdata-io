@@ -110,8 +110,9 @@ def atera(
         Path to the dataset.
     cells_table
         Whether to read the cell annotations in the `AnnData` table. As in `xenium`, `X` and `var` hold the Gene
-        Expression features; the counts of the other features (negative control probes and codewords, unassigned
-        codewords) are in ``obsm["control_counts"]``, a `DataFrame` with one column per feature.
+        Expression features. The counts of the other features (negative control probes and codewords, unassigned
+        codewords) go to a second table, ``table_controls``, with the same cells, `obs` index and annotation,
+        a sparse `X` and those features in `var`.
     cells_boundaries
         Whether to read cell boundaries (polygons).
     nucleus_boundaries
@@ -172,7 +173,17 @@ def atera(
     # The table annotates `cell_labels` (instance ids `obs["label_id"]`, as in `xenium`), else `cell_boundaries`
     # (`obs["cell_id"]`), else nothing: the nucleus elements are numbered per nucleus, not per cell.
     region = "cell_labels" if cells_labels else "cell_boundaries" if cells_boundaries else None
-    table = _get_table(path, var_columns, table_row_chunk_size, region)[0] if cells_table else None
+    tables = (
+        dict(
+            zip(
+                ["table", "table_controls"],
+                _get_table(path, var_columns, table_row_chunk_size, region)[:2],
+                strict=True,
+            )
+        )
+        if cells_table
+        else {}
+    )
 
     shapes: dict[str, Any] = {}
     labels: dict[str, DataArray | DataTree] = {}
@@ -218,7 +229,6 @@ def atera(
     if aligned_images:
         images |= _get_aligned_images(path, imread_kwargs, image_models_kwargs)
 
-    tables = {"table": table} if table is not None else {}
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
     sdata = _set_reader_metadata(sdata, "atera")
     sdata.attrs[str(AteraKeys.PIXEL_SIZE)] = pixel_size
@@ -369,10 +379,7 @@ def _read_obs_var(group: zarr.Group) -> tuple[pd.DataFrame, pd.DataFrame]:
     return obs, _xenium_var(_read_dataframe(group, AteraKeys.VAR_GROUP))
 
 
-CONTROL_COUNTS_KEY = "control_counts"
-
-
-def _assemble_table(
+def _assemble_tables(
     x: Any,
     obs: pd.DataFrame,
     var: pd.DataFrame,
@@ -380,23 +387,23 @@ def _assemble_table(
     var_columns: list[str] | Literal["all"],
     region: str | None,
     obsm: Mapping[str, Any] = MappingProxyType({}),
-) -> AnnData:
-    """X and var hold the Gene Expression features, ``obsm["control_counts"]`` the counts of all other features.
+) -> tuple[AnnData, AnnData]:
+    """The Gene Expression table and the ``table_controls`` table of all other features, for the same cells.
 
-    The other features are the negative control probes and codewords and the unassigned codewords, one named
-    column each, so that `X` and ``n_genes`` count genes only. `var_columns` name the store's columns.
+    The other features are the negative control probes and codewords and the unassigned codewords, so `X` and
+    ``n_genes`` of the first table count genes only. The second has a sparse `X` (CSR, as stored), the same `obs`
+    index and instance id columns, and annotates the same element. `var_columns` name the store's columns.
     """
     from anndata import AnnData
 
     is_gene = _is_gene(var)
     renamed = {str(AteraKeys.VAR_FEATURE_TYPE): "feature_types"}
-    columns = var.columns if var_columns == "all" else [renamed.get(c, c) for c in var_columns] + ["gene_ids"]
-    obsm = {
-        **obsm,
-        CONTROL_COUNTS_KEY: pd.DataFrame(controls.toarray(), index=obs.index, columns=var.index[~is_gene]),
-        "spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy(),
-    }
-    return _parse_table(AnnData(X=x, obs=obs, var=var.loc[is_gene, list(columns)], obsm=obsm), region)
+    columns = list(var.columns if var_columns == "all" else [renamed.get(c, c) for c in var_columns] + ["gene_ids"])
+    obsm = {**obsm, "spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()}
+    table = _parse_table(AnnData(X=x, obs=obs, var=var.loc[is_gene, columns], obsm=obsm), region)
+    ids = obs[[str(AteraKeys.CELL_ID), str(AteraKeys.LABEL_ID)]].copy()
+    controls_table = AnnData(X=csr_matrix(controls), obs=ids, var=var.loc[~is_gene, columns])
+    return table, _parse_table(controls_table, region)
 
 
 def _parse_table(adata: AnnData, region: str | None) -> AnnData:
@@ -416,8 +423,8 @@ def _get_table(
     var_columns: list[str] | Literal["all"] = DEFAULT_VAR_COLUMNS,
     row_chunk_size: int = DEFAULT_TABLE_ROW_CHUNK_SIZE,
     region: str | None = "cell_labels",
-) -> tuple[AnnData, list[str]]:
-    """Read ``cell_feature_matrix.zarr.zip`` into an AnnData table using native `anndata` zarr IO.
+) -> tuple[AnnData, AnnData, list[str]]:
+    """Read ``cell_feature_matrix.zarr.zip`` into the gene table and the ``table_controls`` table using native `anndata` zarr IO.
 
     `obs`/`var`/`obsm` are read with `anndata.io.read_elem` (which also means `obs`/`var` come back
     indexed by whichever column the store's ``_index`` attr names -- e.g. `barcode`/`feature_id`).
@@ -453,11 +460,11 @@ def _get_table(
         controls = cast(csr_matrix, x[:, ~is_gene].compute())
     # genes detected per cell: the stored entries of each CSR row (its `indptr` step) minus those of the controls
     obs["n_genes"] = stored_per_row - controls.getnnz(axis=1)
-    table = _assemble_table(x[:, is_gene], obs, var, controls, var_columns, region, obsm)
+    table, controls_table = _assemble_tables(x[:, is_gene], obs, var, controls, var_columns, region, obsm)
     table.uns.update(colors)
     if manifest_extras is not None:
         table.uns[str(AteraKeys.UNS_MANIFEST)] = manifest_extras
-    return table, var.index.tolist()
+    return table, controls_table, var.index.tolist()
 
 
 def read_var(path: str | Path) -> pd.DataFrame:
@@ -512,7 +519,7 @@ def read_table_for_cells(
 
     Returns
     -------
-    An `AnnData` `TableModel` with only the requested cells.
+    An `AnnData` `TableModel` with only the requested cells and the Gene Expression features.
     """
     if (cell_ids is None) == (bbox is None):
         raise ValueError("Exactly one of `cell_ids`/`bbox` must be given.")
@@ -533,7 +540,7 @@ def read_table_for_cells(
     obs = obs.iloc[row_positions].copy()
     is_gene = _is_gene(var)
     obs["n_genes"] = x[:, is_gene].getnnz(axis=1)
-    return _assemble_table(x[:, is_gene], obs, var, x[:, ~is_gene], var_columns, "cell_labels")
+    return _assemble_tables(x[:, is_gene], obs, var, x[:, ~is_gene], var_columns, "cell_labels")[0]
 
 
 def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnData:

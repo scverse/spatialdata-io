@@ -145,7 +145,7 @@ def _write_cells_transcripts_and_images(path: Path, n: int) -> None:
 
 
 def test_cell_labels_table_uses_label_id(atera_path: Path) -> None:
-    table, _ = _get_table(atera_path, region="cell_labels")
+    table = _get_table(atera_path, region="cell_labels")[0]
 
     region, _, instance_key = get_table_keys(table)
     assert region == "cell_labels"
@@ -157,19 +157,27 @@ def test_cell_labels_table_uses_label_id(atera_path: Path) -> None:
     assert table.obs["n_genes"].tolist() == [1, 2, 2, 2]
 
 
-@pytest.mark.parametrize("table", ["_get_table", "read_table_for_cells"])
-def test_x_holds_genes_and_obsm_the_controls(atera_path: Path, table: str) -> None:
-    adata = _get_table(atera_path)[0] if table == "_get_table" else read_table_for_cells(atera_path, cell_ids=CELL_IDS)
+@pytest.mark.parametrize("region", ["cell_labels", "cell_boundaries"])
+def test_x_holds_genes_and_table_controls_the_controls(atera_path: Path, region: str) -> None:
+    from scipy.sparse import issparse
+
+    adata, controls, _ = _get_table(atera_path, region=region)
     assert adata.var_names.tolist() == ["GENE_A", "GENE_B"]
     assert adata.obs["n_genes"].tolist() == [1, 2, 2, 2]
-    controls = adata.obsm["control_counts"]
-    assert isinstance(controls, pd.DataFrame)
-    assert controls.columns.tolist() == ["NEG_1"]
-    assert controls["NEG_1"].tolist() == NEG_COUNTS
+    assert read_table_for_cells(atera_path, cell_ids=CELL_IDS).var_names.tolist() == ["GENE_A", "GENE_B"]
+    assert issparse(controls.X)
+    assert controls.X.dtype == adata.X.dtype  # as stored
+    assert cast(csr_matrix, controls.X).toarray()[:, 0].tolist() == NEG_COUNTS
+    assert controls.var_names.tolist() == ["NEG_1"]
+    assert controls.var["feature_types"].tolist() == ["Negative Control Probe"]
+    assert controls.obs_names.equals(adata.obs_names)
+    assert get_table_keys(controls) == get_table_keys(adata)
+    _, _, instance_key = get_table_keys(adata)
+    assert controls.obs[instance_key].tolist() == adata.obs[instance_key].tolist()
 
 
 def test_cell_boundaries_table_uses_cell_id(atera_path: Path) -> None:
-    table, _ = _get_table(atera_path, region="cell_boundaries")
+    table = _get_table(atera_path, region="cell_boundaries")[0]
 
     assert get_table_keys(table) == ("cell_boundaries", "region", "cell_id")
 
@@ -456,9 +464,9 @@ def test_atera_reads_writes_and_queries(atera_path: Path, tmp_path: Path) -> Non
     back = read_zarr(tmp_path / "out.zarr")
     table, table_back = sdata.tables["table"], back.tables["table"]
     np.testing.assert_array_equal(cast(csr_matrix, table_back.X).toarray(), cast(Any, table.X).compute().toarray())
-    pd.testing.assert_frame_equal(
-        cast(pd.DataFrame, table_back.obsm["control_counts"]), cast(pd.DataFrame, table.obsm["control_counts"])
-    )
+    controls, controls_back = sdata.tables["table_controls"], back.tables["table_controls"]
+    np.testing.assert_array_equal(cast(csr_matrix, controls_back.X).toarray(), cast(csr_matrix, controls.X).toarray())
+    assert controls_back.var_names.tolist() == ["NEG_1"]
     crop = cast(
         SpatialData,
         bounding_box_query(
