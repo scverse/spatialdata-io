@@ -6,11 +6,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-import dask.array as da
 import numpy as np
 import pandas as pd
 import zarr
-from dask import delayed
 from scipy.sparse import csc_matrix, csr_matrix
 from spatialdata import SpatialData
 from spatialdata.models import TableModel
@@ -22,6 +20,7 @@ from spatialdata_io.readers._atera_common import (
     DEFAULT_VAR_COLUMNS,
     _cell_row_positions_in_bbox,
     _get_array,
+    _get_group,
     _get_labels,
     _get_morphology_images,
     _get_pixel_size,
@@ -261,31 +260,6 @@ def _check_keypoints(path: Path) -> float | None:
     return median
 
 
-def _read_x_chunk(zarr_path: Path, zarr_key: AteraKeys, start: int, stop: int) -> csr_matrix:
-    """Read one contiguous row-range of `X` via `anndata.io.sparse_dataset`'s own row slicing.
-
-    Opens its own zip store (rather than sharing one across chunks) so this function can safely be
-    called from independent `dask` tasks.
-    """
-    from anndata.io import sparse_dataset
-
-    with _open_zip(zarr_path / zarr_key) as group:
-        return cast(csr_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[start:stop])
-
-
-def _lazy_x(
-    zarr_path: Path, zarr_key: AteraKeys, n_obs: int, n_var: int, dtype: np.dtype, row_chunk_size: int
-) -> da.Array:
-    """Build a `dask`-backed `n_obs x n_var` CSR array, delegating each chunk's read to `sparse_dataset`."""
-    meta = csr_matrix((0, n_var), dtype=dtype)
-    blocks = []
-    for start in range(0, n_obs, row_chunk_size):
-        stop = min(start + row_chunk_size, n_obs)
-        block = delayed(_read_x_chunk)(zarr_path, AteraKeys.CELL_FEATURE_MATRIX_FILE, start, stop)
-        blocks.append(da.from_delayed(block, shape=(stop - start, n_var), dtype=dtype, meta=meta))
-    return da.concatenate(blocks, axis=0)
-
-
 def _align_index_column(df: pd.DataFrame) -> pd.DataFrame:
     """Make a column that shares the index's name have the index's dtype, and leave the index unnamed.
 
@@ -373,15 +347,15 @@ def _get_table(
 
     `obs`/`var`/`obsm` are read with `anndata.io.read_elem` (which also means `obs`/`var` come back
     indexed by whichever column the store's ``_index`` attr names -- e.g. `barcode`/`feature_id`).
-    `X` is built as a lazily `dask`-backed array in row chunks (see `_lazy_x`), each chunk read via
-    `anndata.io.sparse_dataset` rather than manual `indptr` arithmetic.
+    `X` is a lazy `dask` array of `row_chunk_size`-row CSR chunks (`anndata.experimental.read_elem_lazy`).
 
     `region` should be the name of a `SpatialElement` that will actually be present in the
     `SpatialData` object the table is assembled into (see the ``default_region`` logic in
     `atera`), so the table doesn't end up annotating an element that was never loaded.
     """
     from anndata import AnnData
-    from anndata.io import read_elem, sparse_dataset
+    from anndata.experimental import read_elem_lazy
+    from anndata.io import read_elem
 
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
         with _patched_ragged_vlen_chunk_decode():
@@ -402,14 +376,12 @@ def _get_table(
             )
 
         manifest_extras = _read_manifest_extras(group)
-        x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
-        n_obs, n_var = x_ds.shape
-        dtype = x_ds.dtype
+        # the graph keeps the store, which reopens on first use (also after pickling)
+        x_group = _get_group(group, str(AteraKeys.X_GROUP))
+        x = read_elem_lazy(x_group, chunks=(row_chunk_size, -1))
         # Genes detected per cell is the number of stored entries per row of the CSR matrix, which `indptr`
         # already encodes; this avoids a full pass over the (lazy) counts.
-        n_genes = np.diff(_get_array(group, f"{AteraKeys.X_GROUP}/indptr")[:]) if x_ds.format == "csr" else None
-
-    x = _lazy_x(path, AteraKeys.CELL_FEATURE_MATRIX_FILE, n_obs, n_var, dtype, row_chunk_size)
+        n_genes = np.diff(_get_array(x_group, "indptr")[:]) if x_group.attrs["encoding-type"] == "csr_matrix" else None
 
     if n_genes is not None:
         obs_df["n_genes"] = n_genes

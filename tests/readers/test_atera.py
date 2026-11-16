@@ -369,3 +369,12 @@ def test_atera_reads_writes_and_queries(atera_path: Path, tmp_path: Path) -> Non
         back, axes=("x", "y"), min_coordinate=[0, 0], max_coordinate=[15, 15], target_coordinate_system="global"
     )
     assert crop.tables["table"].obs["cell_id"].tolist() == CELL_IDS[:2]
+
+
+def test_lazy_x_matches_the_store_and_pickles(atera_path: Path) -> None:
+    import pickle
+
+    x = _get_table(atera_path, row_chunk_size=3)[0].X
+    assert x.chunks[0] == (3, 1)
+    expected = np.arange(len(CELL_IDS) * 2, dtype=np.float32).reshape(-1, 2)
+    np.testing.assert_array_equal(pickle.loads(pickle.dumps(x)).compute().toarray(), expected)

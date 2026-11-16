@@ -25,7 +25,7 @@ dynamic = [
   "version", # allow version to be set by git tags
 ]
 dependencies = [
-  "anndata",
+  "anndata>=0.12",
   "click",
   "dask-image",
   "h5py",
