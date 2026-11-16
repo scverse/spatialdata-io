@@ -63,8 +63,7 @@ __all__ = [
 # only works on bundles whose zarr stores carry the standard AnnData `encoding-type`/
 # `encoding-version`/`shape` attrs.
 #
-# Every non-table element (labels/shapes/points/morphology images) lives in `_atera_common.py`
-# rather than duplicated here.
+# The tables are built here; the labels, shapes, points and morphology images in `_atera_common.py`.
 
 
 @inject_docs(xx=AteraKeys)
@@ -489,8 +488,8 @@ def read_table_for_cells(
 ) -> AnnData:
     """Read the cell-by-gene table for only a subset of cells, without loading the full `X`.
 
-    Unlike ``atera(path, cells_table=True)``, which eagerly builds the whole `X`, this reads only
-    the requested rows directly off `anndata.io.sparse_dataset`'s own fancy-indexing support
+    Unlike ``atera(path, cells_table=True)``, whose `X` is lazy over every cell, this reads only
+    the requested rows, in memory, directly off `anndata.io.sparse_dataset`'s own fancy-indexing support
     (``x_ds[row_positions]``), which already handles arbitrary/unsorted row selections internally.
 
     Exactly one of `cell_ids`/`bbox` must be given.

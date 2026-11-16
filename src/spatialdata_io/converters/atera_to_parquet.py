@@ -62,9 +62,9 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
     ``transcript_id`` is taken from each tile's stored ``id`` array when every tile has one, and is
     otherwise assigned contiguously in the order of the grid group's ``grid_keys`` attribute.
 
-    The input is read and written one spatial tile at a time (mirroring how `atera`'s own transcripts
-    reader is built), so converting even a dataset with tens of millions of transcripts does not require
-    holding the whole table in memory at once.
+    The input is read and written one row range of a spatial tile at a time (one parquet row group each,
+    as `atera`'s own transcripts reader partitions it), so converting even a dataset with hundreds of millions
+    of transcripts does not require holding the whole table in memory at once.
 
     Parameters
     ----------

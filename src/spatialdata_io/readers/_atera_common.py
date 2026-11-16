@@ -290,7 +290,7 @@ def _transcripts_meta(categories: list[str]) -> pd.DataFrame:
 
 
 def _get_points(path: Path, pixel_size: float, feature_names: list[str]) -> dd.DataFrame:
-    """Lazily read transcripts.zarr.zip, one `dask` task per spatial tile."""
+    """Lazily read transcripts.zarr.zip, one `dask` task per row range of a spatial tile (see `_tile_row_ranges`)."""
     # the store stays referenced by the graph; it reopens on first use, also after pickling
     grid = zarr.open_group(zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True), mode="r")
     grid = _get_group(grid, str(AteraKeys.GRID_GROUP))
