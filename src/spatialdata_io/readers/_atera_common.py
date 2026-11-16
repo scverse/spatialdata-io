@@ -125,7 +125,7 @@ def _unique_feature_names(names: Any) -> pd.Index:
     """Feature names made unique as anndata does (``G``, ``G-1``), so they can index `var` and label categories."""
     from anndata.utils import make_index_unique
 
-    names = pd.Index(np.asarray(names, dtype=str))
+    names = pd.Index([str(name) for name in names])  # numpy can't cast its StringDType, which zarr may return
     if not names.is_unique:
         logger.warning(f"{int(names.duplicated().sum())} duplicate feature names; made unique with a suffix.")
     return make_index_unique(names)

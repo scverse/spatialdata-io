@@ -657,3 +657,8 @@ def test_table_and_its_region_follow_the_flags(atera_path: Path, kwargs: dict, r
     else:
         attrs = sdata.tables["table"].uns.get(TableModel.ATTRS_KEY, {})
         assert attrs.get("region") == region
+
+
+def test_unique_feature_names_from_a_numpy_string_array() -> None:
+    names = np.array(["G", "G", "NEG_1"], dtype=np.dtypes.StringDType())  # what read_elem gives on real bundles
+    assert common._unique_feature_names(names).tolist() == ["G", "G-1", "NEG_1"]
