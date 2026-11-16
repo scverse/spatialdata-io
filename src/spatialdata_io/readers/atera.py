@@ -30,7 +30,13 @@ from spatialdata_io.readers._atera_common import (
     read_transcripts_for_genes,
 )
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
-from spatialdata_io.readers.xenium import _add_aligned_images, _get_labels
+from spatialdata_io.readers.xenium import (
+    _add_aligned_images,
+    _aligned_image_files,
+    _get_labels,
+    _keypoints_file,
+    _read_keypoints,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -218,41 +224,29 @@ def atera(
     return sdata
 
 
-KEYPOINTS_SUFFIX = "keypoints.csv"
 KEYPOINTS_MAX_RESIDUAL_PX = 10.0
 
 
 def _get_aligned_images(path: Path, image_models_kwargs: Mapping[str, Any]) -> dict[str, DataTree]:
     """Aligned post-run images (H&E, IF) in the global (morphology px) coordinate system, as in the Xenium bundles."""
     aligned = _add_aligned_images(path, image_models_kwargs=image_models_kwargs)  # atera's imread_kwargs are TiffFile's
-    _check_keypoints(path)
+    for name, file, alignment_file in _aligned_image_files(path):
+        if name == "he_image" and alignment_file is not None:
+            _check_keypoints(alignment_file, _keypoints_file(file))
     return aligned
 
 
-def _check_keypoints(path: Path) -> float | None:
-    """Warn when an alignment affine does not map ``keypoints.csv`` onto itself; return the median residual (px).
-
-    Xenium Explorer writes keypoints as ``fixedX, fixedY`` (morphology image, px) and ``alignmentX, alignmentY``
-    (aligned image, px). Files with other columns are skipped.
-    """
-    kp_files, alignments = sorted(path.glob(f"*{KEYPOINTS_SUFFIX}")), sorted(path.glob("*imagealignment.csv"))
-    if (
-        len(kp_files) != 1 or len(alignments) != 1
-    ):  # 10x names them <sample>_keypoints.csv, <sample>_he_imagealignment.csv
+def _check_keypoints(alignment_file: Path, kp_file: Path) -> float | None:
+    """Warn when the alignment affine does not map the keypoints onto each other; return the median residual (px)."""
+    keypoints = _read_keypoints(kp_file)
+    if keypoints is None:
         return None
-    kp_file = kp_files[0]
-    kp = pd.read_csv(kp_file)
-    cols = ["fixedX", "fixedY", "alignmentX", "alignmentY"]
-    if not set(cols) <= set(kp.columns) or kp.empty:
-        logging.info(f"{kp_file.name}: columns {list(kp.columns)} not recognised, keypoints not checked.")
-        return None
-    affine = pd.read_csv(alignments[0], header=None).to_numpy(dtype=float)
-    src = np.c_[kp[["alignmentX", "alignmentY"]].to_numpy(dtype=float), np.ones(len(kp))]
-    residual = np.linalg.norm((src @ affine.T)[:, :2] - kp[["fixedX", "fixedY"]].to_numpy(dtype=float), axis=1)
-    median = float(np.median(residual))
+    src, dst = keypoints
+    affine = pd.read_csv(alignment_file, header=None).to_numpy(dtype=float)
+    median = float(np.median(np.linalg.norm((np.c_[src, np.ones(len(src))] @ affine.T)[:, :2] - dst, axis=1)))
     if median > KEYPOINTS_MAX_RESIDUAL_PX:
         logging.warning(
-            f"{alignments[0].name} maps {kp_file.name} with a median residual of {median:.1f} px "
+            f"{alignment_file.name} maps {kp_file.name} with a median residual of {median:.1f} px "
             f"(> {KEYPOINTS_MAX_RESIDUAL_PX}); the aligned image may be misplaced."
         )
     return median

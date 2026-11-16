@@ -285,22 +285,67 @@ def test_aligned_he_image_is_placed_by_its_affine(tmp_path: Path) -> None:
     np.testing.assert_allclose(m, affine)
 
 
+def _write_keypoints(path: Path, affine: np.ndarray, name: str = "S1_keypoints.csv") -> pd.DataFrame:
+    src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
+    dst = (np.c_[src, np.ones(3)] @ affine.T)[:, :2]
+    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
+    kp.to_csv(path / name, index=False)
+    return kp
+
+
 def test_keypoints_check(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     from spatialdata_io.readers.atera import _check_keypoints
 
     affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
     _write_he(tmp_path, affine)
-    src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
-    dst = (np.c_[src, np.ones(3)] @ affine.T)[:, :2]
-    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
-    kp.to_csv(tmp_path / "S1_keypoints.csv", index=False)
-    assert _check_keypoints(tmp_path) == pytest.approx(0.0, abs=1e-9)
+    kp = _write_keypoints(tmp_path, affine)
+    csv, kp_file = tmp_path / "S1_he_imagealignment.csv", tmp_path / "S1_keypoints.csv"
+    assert _check_keypoints(csv, kp_file) == pytest.approx(0.0, abs=1e-9)
     assert "misplaced" not in caplog.text
-    kp.assign(fixedX=kp["fixedX"] + 50).to_csv(tmp_path / "S1_keypoints.csv", index=False)
-    assert _check_keypoints(tmp_path) == pytest.approx(50.0)
+    kp.assign(fixedX=kp["fixedX"] + 50).to_csv(kp_file, index=False)
+    assert _check_keypoints(csv, kp_file) == pytest.approx(50.0)
     assert "misplaced" in caplog.text
-    pd.DataFrame({"a": [1]}).to_csv(tmp_path / "S1_keypoints.csv", index=False)  # unknown columns: skipped
-    assert _check_keypoints(tmp_path) is None
+    pd.DataFrame({"a": [1]}).to_csv(kp_file, index=False)
+    with pytest.warns(UserWarning, match="expected columns"):
+        assert _check_keypoints(csv, kp_file) is None
+
+
+@pytest.mark.parametrize(
+    "case", ["other_columns", "two_rows", "nan_rows", "collinear", "other_sample", "appledouble", "no_keypoints"]
+)
+def test_he_stays_unaligned_without_usable_keypoints(tmp_path: Path, case: str) -> None:
+    import warnings
+
+    from spatialdata.transformations import Identity, get_transformation
+
+    from spatialdata_io.readers.xenium import _add_aligned_images
+
+    affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
+    _write_he(tmp_path, affine)
+    (tmp_path / "S1_he_imagealignment.csv").unlink()
+    kp = _write_keypoints(tmp_path, affine)
+    kp_file = tmp_path / "S1_keypoints.csv"
+    if case == "other_columns":
+        kp.set_axis(["a", "b", "c", "d"], axis=1).to_csv(kp_file, index=False)
+    elif case == "two_rows":
+        kp.iloc[:2].to_csv(kp_file, index=False)
+    elif case == "nan_rows":
+        kp.assign(fixedX=[1.0, np.nan, "x"]).to_csv(kp_file, index=False)
+    elif case == "collinear":
+        kp.assign(alignmentX=[1.0, 2.0, 3.0], alignmentY=[1.0, 2.0, 3.0]).to_csv(kp_file, index=False)
+    elif case in ["other_sample", "appledouble"]:
+        kp_file.rename(tmp_path / ("S2_keypoints.csv" if case == "other_sample" else "._S1_keypoints.csv"))
+    else:
+        kp_file.unlink()
+    (tmp_path / "._S1_he_image.ome.tif").write_bytes(b"\x00" * 16)  # a macOS tar sidecar, not a TIFF
+
+    expect_warning = case in ["other_columns", "two_rows", "nan_rows", "collinear"]
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        images = _add_aligned_images(tmp_path)
+    assert list(images) == ["he_image"]
+    assert isinstance(get_transformation(images["he_image"], "global"), Identity)
+    assert any("keypoint" in str(w.message) for w in record) == expect_warning
 
 
 def test_affine_from_keypoints_reproduces_alignment(tmp_path: Path) -> None:
