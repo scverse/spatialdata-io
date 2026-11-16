@@ -174,6 +174,11 @@ def _polygons_to_shapes(
     `gridded_polygon_sets`), which differ only in how they produce these ragged arrays.
     """
     n_polygons = len(num_vertices)
+    degenerate = (num_vertices > 0) & (num_vertices < 3)  # shapely needs 3 vertices for a ring
+    if degenerate.any():
+        logging.warning(f"{int(degenerate.sum())} polygon(s) with 1 or 2 vertices kept as empty polygons.")
+        coords = coords[np.repeat(~degenerate, num_vertices)]
+        num_vertices = np.where(degenerate, 0, num_vertices)
     ring_offsets = np.concatenate([[0], np.cumsum(num_vertices)])
     geom_offsets = np.arange(n_polygons + 1)
     geoms = from_ragged_array(GeometryType.POLYGON, coords, offsets=(ring_offsets, geom_offsets))

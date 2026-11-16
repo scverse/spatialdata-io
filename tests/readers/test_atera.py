@@ -599,3 +599,15 @@ def test_empty_selections(atera_path: Path) -> None:
         SpatialData(tables={"table": table})  # a valid element
     with pytest.raises(ValueError, match="No polygons"):
         read_cell_boundaries(sdata, atera_path, bbox=(80, 0, 90, 5))
+
+
+def test_polygons_with_one_or_two_vertices_are_kept_empty(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    num_vertices = np.array([3, 2, 1, 0, 4])
+    coords = np.arange(2 * num_vertices.sum(), dtype=np.float32).reshape(-1, 2)
+    with caplog.at_level(logging.WARNING):
+        shapes = common._polygons_to_shapes(coords, num_vertices, np.arange(5), None, 1.0, is_nucleus=False)
+    assert shapes.geometry.is_empty.tolist() == [False, True, True, True, False]
+    np.testing.assert_array_equal(np.asarray(shapes.geometry.iloc[4].exterior.coords)[:4], coords[6:10])
+    assert "2 polygon(s) with 1 or 2 vertices" in caplog.text
