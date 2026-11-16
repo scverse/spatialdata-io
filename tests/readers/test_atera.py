@@ -18,6 +18,7 @@ from spatialdata_io.readers.atera import _get_table, read_table_for_cells, read_
 
 # Atera `cell_id`s are large packed integers, unrelated to the `1..n_obs` values in the `cell_labels` raster.
 CELL_IDS = [4_320_252_178, 4_975_876_403, 5_016_677_209, 5_217_424_078]
+NEG_COUNTS = [0.0, 1.0, 0.0, 2.0]  # the negative control probe NEG_1, after the genes GENE_A and GENE_B
 
 
 @pytest.fixture
@@ -33,20 +34,20 @@ def atera_path(tmp_path: Path) -> Path:
     )
     var = pd.DataFrame(
         {
-            str(AteraKeys.FEATURE_NAME): ["GENE_A", "GENE_B"],
-            str(AteraKeys.VAR_FILTERED): [False, False],
-            str(AteraKeys.VAR_HIGHLY_VARIABLE): [False, False],
-            str(AteraKeys.VAR_FEATURE_TYPE): ["Gene Expression", "Gene Expression"],
-            str(AteraKeys.VAR_GENOME): ["g", "g"],
+            str(AteraKeys.FEATURE_NAME): ["GENE_A", "GENE_B", "NEG_1"],
+            str(AteraKeys.VAR_FILTERED): [False] * 3,
+            str(AteraKeys.VAR_HIGHLY_VARIABLE): [False] * 3,
+            str(AteraKeys.VAR_FEATURE_TYPE): ["Gene Expression", "Gene Expression", "Negative Control Probe"],
+            str(AteraKeys.VAR_GENOME): ["g"] * 3,
         },
-        index=pd.Index(["ID_A", "ID_B"], dtype=object, name=str(AteraKeys.FEATURE_ID)),
+        index=pd.Index(["ID_A", "ID_B", "ID_NEG"], dtype=object, name=str(AteraKeys.FEATURE_ID)),
     )
-    x = csr_matrix(np.arange(n * 2, dtype=np.float32).reshape(n, 2))
+    x = csr_matrix(np.c_[np.arange(n * 2, dtype=np.float32).reshape(n, 2), NEG_COUNTS])
     for file in (AteraKeys.CELL_FEATURE_MATRIX_FILE, AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE):
         store = zarr.storage.ZipStore(tmp_path / file, mode="w")
         try:
             group = zarr.open_group(store, mode="w", zarr_format=2)
-            write_elem(group, str(AteraKeys.X_GROUP), x)
+            write_elem(group, str(AteraKeys.X_GROUP), x if file == AteraKeys.CELL_FEATURE_MATRIX_FILE else x.tocsc())
             write_elem(group, str(AteraKeys.OBS_GROUP), obs)
             write_elem(group, str(AteraKeys.VAR_GROUP), var)
             # Real bundles also list the index (`barcode`/`feature_id`) in `column-order`, so it comes back from
@@ -103,7 +104,7 @@ def _write_cells_transcripts_and_images(path: Path, n: int) -> None:
         cell_id[0] = np.iinfo(np.uint32).max
         arrays = {
             "location": np.c_[np.arange(6), np.arange(6), np.zeros(6)].astype(np.float32),
-            "gene_offset": np.array([[0, 3], [3, 6]], np.uint32),
+            "gene_offset": np.array([[0, 3], [3, 6], [6, 6]], np.uint32),
             "cell_id": cell_id,
             "overlaps_nucleus": np.zeros((6, 1), np.uint8),
             "quality_score": np.full((6, 1), 30, np.float32),
@@ -145,8 +146,19 @@ def test_cell_labels_table_uses_label_id(atera_path: Path) -> None:
     # the `cell_labels` raster is numbered 1..n_obs by row position
     assert table.obs["label_id"].tolist() == [1, 2, 3, 4]
     assert table.obs["cell_id"].tolist() == CELL_IDS
-    # genes detected per cell, read from the CSR `indptr` (cell 0 only has a zero in its first column)
+    # genes detected per cell (cell 0 only has a zero in its first column); NEG_1 is not a gene
     assert table.obs["n_genes"].tolist() == [1, 2, 2, 2]
+
+
+@pytest.mark.parametrize("table", ["_get_table", "read_table_for_cells"])
+def test_x_holds_genes_and_obsm_the_controls(atera_path: Path, table: str) -> None:
+    adata = _get_table(atera_path)[0] if table == "_get_table" else read_table_for_cells(atera_path, cell_ids=CELL_IDS)
+    assert adata.var_names.tolist() == ["GENE_A", "GENE_B"]
+    assert adata.obs["n_genes"].tolist() == [1, 2, 2, 2]
+    controls = adata.obsm["control_counts"]
+    assert isinstance(controls, pd.DataFrame)
+    assert controls.columns.tolist() == ["NEG_1"]
+    assert controls["NEG_1"].tolist() == NEG_COUNTS
 
 
 def test_cell_boundaries_table_uses_cell_id(atera_path: Path) -> None:
@@ -201,8 +213,10 @@ def test_table_obs_index_does_not_shadow_the_barcode_column(atera_path: Path, ta
     adata.obs.reset_index()
 
 
-def test_read_var_is_writable(atera_path: Path) -> None:
-    write_elem(zarr.open_group(zarr.storage.MemoryStore(), mode="w", zarr_format=2), "var", read_var(atera_path))
+def test_read_var_is_writable_and_indexed_like_the_table(atera_path: Path) -> None:
+    var = read_var(atera_path)
+    assert var.index.tolist() == ["GENE_A", "GENE_B", "NEG_1"]
+    write_elem(zarr.open_group(zarr.storage.MemoryStore(), mode="w", zarr_format=2), "var", var)
 
 
 def test_tile_row_ranges() -> None:
@@ -428,6 +442,9 @@ def test_atera_reads_writes_and_queries(atera_path: Path, tmp_path: Path) -> Non
     sdata.write(tmp_path / "out.zarr")
     back = read_zarr(tmp_path / "out.zarr")
     np.testing.assert_array_equal(back.tables["table"].X.toarray(), sdata.tables["table"].X.compute().toarray())
+    pd.testing.assert_frame_equal(
+        back.tables["table"].obsm["control_counts"], sdata.tables["table"].obsm["control_counts"]
+    )
     crop = bounding_box_query(
         back, axes=("x", "y"), min_coordinate=[0, 0], max_coordinate=[15, 15], target_coordinate_system="global"
     )

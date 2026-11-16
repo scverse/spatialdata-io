@@ -106,7 +106,9 @@ def atera(
     path
         Path to the dataset.
     cells_table
-        Whether to read the cell annotations in the `AnnData` table.
+        Whether to read the cell annotations in the `AnnData` table. As in `xenium`, `X` and `var` hold the Gene
+        Expression features; the counts of the other features (negative control probes and codewords, unassigned
+        codewords) are in ``obsm["control_counts"]``, a `DataFrame` with one column per feature.
     cells_boundaries
         Whether to read cell boundaries (polygons).
     nucleus_boundaries
@@ -353,25 +355,65 @@ def _add_label_id(obs_df: pd.DataFrame) -> None:
 
 
 def _xenium_var(var: pd.DataFrame) -> pd.DataFrame:
-    """Lay out `var` as the `xenium` reader does.
+    """Lay out the store's `var` as the `xenium` reader does.
 
-    Gene symbols are the index, Ensembl ids go to ``gene_ids`` and the feature type to ``feature_types`` (the
-    bundles index by ``feature_id`` and name the type ``feature_type``). The type values are already the Xenium
-    ones (``Gene Expression``, ``Negative Control Probe``, ...).
+    Gene symbols are the index (made unique with a suffix), Ensembl ids go to ``gene_ids`` and the feature type to
+    ``feature_types`` (the bundles index by ``feature_id`` and name the type ``feature_type``). The type values are
+    already the Xenium ones (``Gene Expression``, ``Negative Control Probe``, ...).
     """
     from anndata.utils import make_index_unique
 
-    name, ftype = str(AteraKeys.FEATURE_NAME), str(AteraKeys.VAR_FEATURE_TYPE)
-    if name not in var.columns:
-        return var
-    var = var.copy()
-    fid = str(AteraKeys.FEATURE_ID)
-    var["gene_ids"] = (var[fid] if fid in var.columns else var.index.to_series()).astype(str).to_numpy()
-    var.index = pd.Index(var[name].astype(str).to_numpy())  # from a Series, pd.Index would keep its name
-    if not var.index.is_unique:
-        logging.warning(f"{int(var.index.duplicated().sum())} duplicate feature names; made unique with a suffix.")
-        var.index = make_index_unique(var.index)
-    return var.rename(columns={ftype: "feature_types"})
+    out = var.rename(columns={str(AteraKeys.VAR_FEATURE_TYPE): "feature_types"})
+    out["gene_ids"] = var.index.astype(str).to_numpy()
+    names = pd.Index(var[str(AteraKeys.FEATURE_NAME)].astype(str).to_numpy())  # from a Series, it would keep its name
+    if not names.is_unique:
+        logging.warning(f"{int(names.duplicated().sum())} duplicate feature names; made unique with a suffix.")
+    out.index = make_index_unique(names)
+    return out
+
+
+def _is_gene(var: pd.DataFrame) -> np.ndarray:
+    """Which features are ``Gene Expression``, the only ones `xenium` keeps in `X` by default (``gex_only=True``)."""
+    if "feature_types" not in var.columns:
+        return np.ones(len(var), dtype=bool)
+    return (var["feature_types"] == "Gene Expression").to_numpy()
+
+
+def _read_obs_var(group: zarr.Group) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """`obs` with ``label_id`` and the full `var` in the `xenium` layout, in store order."""
+    obs = _read_dataframe(group, AteraKeys.OBS_GROUP)
+    _add_label_id(obs)
+    return obs, _xenium_var(_read_dataframe(group, AteraKeys.VAR_GROUP))
+
+
+CONTROL_COUNTS_KEY = "control_counts"
+
+
+def _assemble_table(
+    x: Any,
+    obs: pd.DataFrame,
+    var: pd.DataFrame,
+    controls: csr_matrix | csc_matrix,
+    var_columns: list[str] | Literal["all"],
+    region: str,
+    obsm: Mapping[str, Any] = MappingProxyType({}),
+) -> AnnData:
+    """X and var hold the Gene Expression features, ``obsm["control_counts"]`` the counts of all other features.
+
+    The other features are the negative control probes and codewords and the unassigned codewords, one named
+    column each, so that `X` and ``n_genes`` count genes only. `var_columns` name the store's columns.
+    """
+    from anndata import AnnData
+
+    is_gene = _is_gene(var)
+    renamed = {str(AteraKeys.VAR_FEATURE_TYPE): "feature_types"}
+    columns = var.columns if var_columns == "all" else [renamed.get(c, c) for c in var_columns] + ["gene_ids"]
+    obsm = {
+        **obsm,
+        CONTROL_COUNTS_KEY: pd.DataFrame(controls.toarray(), index=obs.index, columns=var.index[~is_gene]),
+        "spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy(),
+    }
+    return _parse_table(AnnData(X=x, obs=obs, var=var.loc[is_gene, list(columns)], obsm=obsm), region)
 
 
 def _parse_table(adata: AnnData, region: str) -> AnnData:
@@ -381,7 +423,6 @@ def _parse_table(adata: AnnData, region: str) -> AnnData:
     """
     instance_key = AteraKeys.LABEL_ID if region == "cell_labels" else AteraKeys.CELL_ID
     adata.obs["region"] = pd.Categorical([region] * adata.n_obs)
-    adata.var = _xenium_var(cast(pd.DataFrame, adata.var))
     return TableModel.parse(adata, region=region, region_key="region", instance_key=str(instance_key))
 
 
@@ -401,46 +442,38 @@ def _get_table(
     `SpatialData` object the table is assembled into (see the ``default_region`` logic in
     `atera`), so the table doesn't end up annotating an element that was never loaded.
     """
-    from anndata import AnnData
     from anndata.experimental import read_elem_lazy
-    from anndata.io import read_elem
+    from anndata.io import read_elem, sparse_dataset
 
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
-        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-        feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
-        if var_columns != "all":
-            var_df = var_df[list(var_columns)]
+        obs, var = _read_obs_var(group)
         colors = _read_category_colors(group, AteraKeys.OBS_GROUP)
-        colors.update(_read_category_colors(group, AteraKeys.VAR_GROUP, list(var_df.columns)))
-
-        obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-        _add_label_id(obs_df)
-
+        colors.update(
+            _read_category_colors(group, AteraKeys.VAR_GROUP, None if var_columns == "all" else list(var_columns))
+        )
         obsm = (
             cast(dict[str, Any], read_elem(group[str(AteraKeys.OBSM_GROUP)]))
             if str(AteraKeys.OBSM_GROUP) in group
             else {}
         )
-
         manifest_extras = _read_manifest_extras(group)
         # the graph keeps the store, which reopens on first use (also after pickling)
         x_group = _get_group(group, str(AteraKeys.X_GROUP))
         x = read_elem_lazy(x_group, chunks=(row_chunk_size, -1))
-        # Genes detected per cell is the number of stored entries per row of the CSR matrix, which `indptr`
-        # already encodes; this avoids a full pass over the (lazy) counts.
-        n_genes = np.diff(_get_array(x_group, "indptr")[:]) if x_group.attrs["encoding-type"] == "csr_matrix" else None
-
-    if n_genes is not None:
-        obs_df["n_genes"] = n_genes
-
-    adata = AnnData(X=x, obs=obs_df, var=var_df, obsm=obsm)
-    adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
-        [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
-    ].to_numpy()
-    adata.uns.update(colors)
+        stored_per_row = np.diff(_get_array(x_group, "indptr")[:])
+    is_gene = _is_gene(var)
+    if (path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE).is_file():  # column reads are cheap in the CSC copy
+        with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
+            controls = sparse_dataset(group[str(AteraKeys.X_GROUP)])[:, np.flatnonzero(~is_gene)]
+    else:
+        controls = x[:, ~is_gene].compute()
+    # genes detected per cell: the stored entries of each CSR row (its `indptr` step) minus those of the controls
+    obs["n_genes"] = stored_per_row - controls.getnnz(axis=1)
+    table = _assemble_table(x[:, is_gene], obs, var, controls, var_columns, region, obsm)
+    table.uns.update(colors)
     if manifest_extras is not None:
-        adata.uns[str(AteraKeys.UNS_MANIFEST)] = manifest_extras
-    return _parse_table(adata, region), feature_names
+        table.uns[str(AteraKeys.UNS_MANIFEST)] = manifest_extras
+    return table, var[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
 
 
 def read_var(path: str | Path) -> pd.DataFrame:
@@ -449,8 +482,8 @@ def read_var(path: str | Path) -> pd.DataFrame:
     Includes the ~135 per-cluster differential-expression columns that `atera` drops by default
     (see `var_columns` on `atera`) to avoid holding that wider table in memory.
 
-    Use this to build your own `var`/`AnnData` with whichever columns you need, e.g.
-    ``sdata.tables["table"].var = read_var(path)[["feature_name", "de_leiden_res_1.0_c0_score"]]``.
+    It has the same index as the table's `var` (gene symbols), plus the non-gene features, so columns can be added
+    by name, e.g. ``table.var["score"] = read_var(path)["de_leiden_res_1.0_c0_score"]``.
 
     Parameters
     ----------
@@ -459,12 +492,10 @@ def read_var(path: str | Path) -> pd.DataFrame:
 
     Returns
     -------
-    The complete `var` `DataFrame`, indexed by `feature_id`.
+    The complete `var` `DataFrame` of every feature, in the `xenium` layout (see `atera`).
     """
-    path = Path(path)
-    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
-        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-    return var_df
+    with _open_zip(Path(path) / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
+        return _xenium_var(_read_dataframe(group, AteraKeys.VAR_GROUP))
 
 
 def read_table_for_cells(
@@ -501,36 +532,24 @@ def read_table_for_cells(
     """
     if (cell_ids is None) == (bbox is None):
         raise ValueError("Exactly one of `cell_ids`/`bbox` must be given.")
-    from anndata import AnnData
     from anndata.io import sparse_dataset
 
     path = Path(path)
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
-        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-        if var_columns != "all":
-            var_df = var_df[list(var_columns)]
-        obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-        _add_label_id(obs_df)
-
+        obs, var = _read_obs_var(group)
         if cell_ids is not None:
-            index = pd.Index(obs_df[str(AteraKeys.CELL_ID)].to_numpy())
-            row_positions = index.get_indexer(pd.Index(np.asarray(cell_ids)))
+            row_positions = pd.Index(obs[str(AteraKeys.CELL_ID)].to_numpy()).get_indexer(np.asarray(cell_ids))
             missing = np.asarray(cell_ids)[row_positions == -1]
             if missing.size:
                 raise ValueError(f"cell_id(s) not found in {AteraKeys.CELL_FEATURE_MATRIX_FILE!s}: {missing.tolist()}")
         else:
             assert bbox is not None
             row_positions = _cell_row_positions_in_bbox(path, bbox)
-
-        x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
-        x = cast(csr_matrix, x_ds[row_positions])
-        obs_subset = obs_df.iloc[row_positions]
-
-    adata = AnnData(X=x, obs=obs_subset, var=var_df)
-    adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
-        [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
-    ].to_numpy()
-    return _parse_table(adata, "cell_labels")
+        x = cast(csr_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[row_positions])
+    obs = obs.iloc[row_positions].copy()
+    is_gene = _is_gene(var)
+    obs["n_genes"] = x[:, is_gene].getnnz(axis=1)
+    return _assemble_table(x[:, is_gene], obs, var, x[:, ~is_gene], var_columns, "cell_labels")
 
 
 def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnData:
@@ -561,27 +580,13 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
     genes = [genes] if isinstance(genes, str) else list(genes)
     path = Path(path)
     with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
-        var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)[
-            [str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME), str(AteraKeys.VAR_FEATURE_TYPE)]
-        ]
-        feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
-        index = pd.Index(feature_names)
-        col_positions = index.get_indexer(pd.Index(np.asarray(genes)))
+        obs, var = _read_obs_var(group)
+        col_positions = var.index.get_indexer(np.asarray(genes))
         missing = np.asarray(genes)[col_positions == -1]
         if missing.size:
             raise ValueError(
                 f"gene(s) not found in {AteraKeys.VAR_GROUP!s}.{AteraKeys.FEATURE_NAME!s}: {missing.tolist()}"
             )
-
-        var_subset = var_df.iloc[col_positions]
-        var_subset.index = pd.Index(np.asarray(genes), name=str(AteraKeys.FEATURE_NAME))
-        _align_index_column(var_subset)
-
-        obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-        _add_label_id(obs_df)
-
-        x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
-        x: csc_matrix = cast(csc_matrix, x_ds[:, col_positions])
-
-    adata = AnnData(X=x, obs=obs_df, var=var_subset)
-    return _parse_table(adata, "cell_labels")
+        x = cast(csc_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[:, col_positions])
+    obsm = {"spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()}
+    return _parse_table(AnnData(X=x, obs=obs, var=var.iloc[col_positions], obsm=obsm), "cell_labels")
