@@ -12,10 +12,10 @@ from spatialdata_io.readers._atera_common import (
     _get_array,
     _get_group,
     _open_zip,
+    _read_feature_names,
     _read_transcript_tile,
     _tile_row_ranges,
 )
-from spatialdata_io.readers.atera import read_var
 
 __all__ = ["atera_to_parquet"]
 
@@ -80,7 +80,7 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
     path = Path(path)
     output = Path(output)
 
-    feature_names = read_var(path)[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
+    feature_names = _read_feature_names(path)
 
     with _open_zip(path / AteraKeys.TRANSCRIPTS_FILE) as group, pq.ParquetWriter(output, _PROSEG_SCHEMA) as writer:
         grid = _get_group(group, str(AteraKeys.GRID_GROUP))

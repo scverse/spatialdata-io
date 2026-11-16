@@ -23,6 +23,12 @@ NEG_COUNTS = [0.0, 1.0, 0.0, 2.0]  # the negative control probe NEG_1, after the
 
 @pytest.fixture
 def atera_path(tmp_path: Path) -> Path:
+    _write_matrices(tmp_path, ["GENE_A", "GENE_B", "NEG_1"])
+    _write_cells_transcripts_and_images(tmp_path, len(CELL_IDS))
+    return tmp_path
+
+
+def _write_matrices(path: Path, feature_names: list[str]) -> None:
     n = len(CELL_IDS)
     obs = pd.DataFrame(
         {
@@ -34,7 +40,7 @@ def atera_path(tmp_path: Path) -> Path:
     )
     var = pd.DataFrame(
         {
-            str(AteraKeys.FEATURE_NAME): ["GENE_A", "GENE_B", "NEG_1"],
+            str(AteraKeys.FEATURE_NAME): feature_names,
             str(AteraKeys.VAR_FILTERED): [False] * 3,
             str(AteraKeys.VAR_HIGHLY_VARIABLE): [False] * 3,
             str(AteraKeys.VAR_FEATURE_TYPE): ["Gene Expression", "Gene Expression", "Negative Control Probe"],
@@ -44,7 +50,7 @@ def atera_path(tmp_path: Path) -> Path:
     )
     x = csr_matrix(np.c_[np.arange(n * 2, dtype=np.float32).reshape(n, 2), NEG_COUNTS])
     for file in (AteraKeys.CELL_FEATURE_MATRIX_FILE, AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE):
-        store = zarr.storage.ZipStore(tmp_path / file, mode="w")
+        store = zarr.storage.ZipStore(path / file, mode="w")
         try:
             group = zarr.open_group(store, mode="w", zarr_format=2)
             write_elem(group, str(AteraKeys.X_GROUP), x if file == AteraKeys.CELL_FEATURE_MATRIX_FILE else x.tocsc())
@@ -57,8 +63,6 @@ def atera_path(tmp_path: Path) -> Path:
                 elem.attrs["column-order"] = [str(df.index.name), *cast("list[str]", elem.attrs["column-order"])]
         finally:
             store.close()
-    _write_cells_transcripts_and_images(tmp_path, n)
-    return tmp_path
 
 
 PIXEL_SIZE = 0.5
@@ -557,3 +561,24 @@ def test_var_follows_the_xenium_layout(atera_path: Path, table: str) -> None:
     assert adata.var["gene_ids"].tolist() == ["ID_A", "ID_B"]
     assert adata.var["feature_types"].tolist() == ["Gene Expression", "Gene Expression"]
     assert "feature_type" not in adata.var.columns
+
+
+def test_duplicate_feature_names_are_made_unique_everywhere(atera_path: Path, tmp_path: Path) -> None:
+    import pyarrow.parquet as pq
+
+    from spatialdata_io import atera
+    from spatialdata_io.converters.atera_to_parquet import atera_to_parquet
+    from spatialdata_io.readers.atera import read_transcripts_for_genes
+
+    _write_matrices(atera_path, ["GENE_A", "GENE_A", "NEG_1"])
+    sdata = atera(atera_path, transcripts=True)
+    assert sdata.tables["table"].var_names.tolist() == ["GENE_A", "GENE_A-1"]
+    transcripts = sdata.points["transcripts"].compute()
+    assert transcripts["feature_name"].tolist() == ["GENE_A"] * 3 + ["GENE_A-1"] * 3
+    sdata.write(tmp_path / "out.zarr")
+    genes = read_table_for_genes(atera_path, ["GENE_A-1", "GENE_A"])
+    np.testing.assert_array_equal(genes.X.toarray(), np.arange(8).reshape(4, 2)[:, ::-1])
+    second = read_transcripts_for_genes(sdata, atera_path, "GENE_A-1").points["transcripts_subset"].compute()
+    assert second["x"].tolist() == [3.0, 4.0, 5.0]
+    table = pq.read_table(atera_to_parquet(atera_path, tmp_path / "t.parquet"))
+    assert table["feature_name"].to_pylist() == ["GENE_A"] * 3 + ["GENE_A-1"] * 3

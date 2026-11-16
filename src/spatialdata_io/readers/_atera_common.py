@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import re
 from pathlib import Path
 from types import MappingProxyType
@@ -119,12 +120,22 @@ def _open_zip(path: Path) -> Iterator[zarr.Group]:
         yield zarr.open_group(_PadRaggedVlenStore(store), mode="r")
 
 
+def _unique_feature_names(names: Any) -> pd.Index:
+    """Feature names made unique as anndata does (``G``, ``G-1``), so they can index `var` and label categories."""
+    from anndata.utils import make_index_unique
+
+    names = pd.Index(np.asarray(names, dtype=str))
+    if not names.is_unique:
+        logging.warning(f"{int(names.duplicated().sum())} duplicate feature names; made unique with a suffix.")
+    return make_index_unique(names)
+
+
 def _read_feature_names(path: Path) -> list[str]:
-    """The feature names of the bundle in store order, which is the order of each tile's ``gene_offset``."""
+    """The unique feature names of the bundle in store order, which is the order of each tile's ``gene_offset``."""
     from anndata.io import read_elem
 
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
-        return np.asarray(read_elem(group[f"{AteraKeys.VAR_GROUP}/{AteraKeys.FEATURE_NAME}"]), dtype=str).tolist()
+        return _unique_feature_names(read_elem(group[f"{AteraKeys.VAR_GROUP}/{AteraKeys.FEATURE_NAME}"])).tolist()
 
 
 def _read_cell_ids(path: Path) -> np.ndarray:

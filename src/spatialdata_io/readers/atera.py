@@ -28,6 +28,7 @@ from spatialdata_io.readers._atera_common import (
     _get_polygons,
     _open_zip,
     _tiled_imread,
+    _unique_feature_names,
     read_cell_boundaries,
     read_transcripts_for_genes,
 )
@@ -361,14 +362,9 @@ def _xenium_var(var: pd.DataFrame) -> pd.DataFrame:
     ``feature_types`` (the bundles index by ``feature_id`` and name the type ``feature_type``). The type values are
     already the Xenium ones (``Gene Expression``, ``Negative Control Probe``, ...).
     """
-    from anndata.utils import make_index_unique
-
     out = var.rename(columns={str(AteraKeys.VAR_FEATURE_TYPE): "feature_types"})
     out["gene_ids"] = var.index.astype(str).to_numpy()
-    names = pd.Index(var[str(AteraKeys.FEATURE_NAME)].astype(str).to_numpy())  # from a Series, it would keep its name
-    if not names.is_unique:
-        logging.warning(f"{int(names.duplicated().sum())} duplicate feature names; made unique with a suffix.")
-    out.index = make_index_unique(names)
+    out.index = _unique_feature_names(var[str(AteraKeys.FEATURE_NAME)])
     return out
 
 
@@ -473,7 +469,7 @@ def _get_table(
     table.uns.update(colors)
     if manifest_extras is not None:
         table.uns[str(AteraKeys.UNS_MANIFEST)] = manifest_extras
-    return table, var[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
+    return table, var.index.tolist()
 
 
 def read_var(path: str | Path) -> pd.DataFrame:
