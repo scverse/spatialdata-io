@@ -86,9 +86,6 @@ if TYPE_CHECKING:
     from spatialdata_io.converters.atera_to_parquet import atera_to_parquet
     from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
 
-    # writers
-    from spatialdata_io.writers.atera import write_atera_cell_feature_matrix
-
     # readers
     from spatialdata_io.readers.atera import atera
     from spatialdata_io.readers.codex import codex
@@ -111,3 +108,6 @@ if TYPE_CHECKING:
         xenium_aligned_image,
         xenium_explorer_selection,
     )
+
+    # writers
+    from spatialdata_io.writers.atera import write_atera_cell_feature_matrix

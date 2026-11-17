@@ -99,8 +99,8 @@ def _validate_manifest(attrs: dict[str, Any]) -> None:
 def test_roundtrip(tmp_path: Path, x_kind: str, chunk_size: int) -> None:
     make = {"csr": None, "dask": _lazy, "dense": lambda c: c}[x_kind]
     table = _make_table(make)
-    expected_x = table.X.compute().toarray() if x_kind == "dask" else (
-        table.X.toarray() if x_kind == "csr" else table.X
+    expected_x = (
+        table.X.compute().toarray() if x_kind == "dask" else (table.X.toarray() if x_kind == "csr" else table.X)
     )
     path = write_atera_cell_feature_matrix(table, tmp_path, chunk_size=chunk_size, row_chunk_size=4)
     assert path == tmp_path / "cell_feature_matrix.zarr.zip"

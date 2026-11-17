@@ -135,9 +135,7 @@ def write_atera_cell_feature_matrix(
 
             _write_x(root, zf, x, (n_obs, n_var), major_axis, chunk_size, row_chunk_size, n_threads, compressor)
 
-            manifest = _build_manifest(
-                table, obs_manifest, var_manifest, obsm_manifest, varm_manifest, var, major_axis
-            )
+            manifest = _build_manifest(table, obs_manifest, var_manifest, obsm_manifest, varm_manifest, var, major_axis)
             root.attrs.update(manifest)
             for key, buffer in entries.items():
                 zf.writestr(key, buffer.to_bytes())
