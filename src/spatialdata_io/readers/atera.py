@@ -268,7 +268,7 @@ def _read_category_colors(
     colors = {}
     for name, elem in cast(zarr.Group, group[str(key)]).members():
         if isinstance(elem, zarr.Group) and "color" in elem and (columns is None or name in columns):
-            colors[f"{name}_colors"] = [f"#{int(c) & 0xFFFFFFFF:08x}" for c in elem["color"][:]]
+            colors[f"{name}_colors"] = [f"#{int(c) & 0xFFFFFFFF:08x}" for c in np.asarray(cast(zarr.Array, elem["color"])[:])]
     return colors
 
 

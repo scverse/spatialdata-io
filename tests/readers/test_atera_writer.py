@@ -1,3 +1,5 @@
+# AnnData types `.X`/`.obs`/`.var` as broad unions; the assertions below intentionally rely on the concrete types.
+# mypy: disable-error-code="union-attr,index,call-overload,arg-type,operator"
 from __future__ import annotations
 
 from pathlib import Path

@@ -15,7 +15,7 @@ import zipfile
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import dask
 import dask.array as da
@@ -103,7 +103,7 @@ def write_atera_cell_feature_matrix(
 
     if x_layer is not None and x_layer not in table.layers:
         raise KeyError(f"`x_layer={x_layer!r}` is not in the table's layers ({list(table.layers)}).")
-    x = table.X if x_layer is None else table.layers[x_layer]
+    x: Any = table.X if x_layer is None else table.layers[x_layer]
     obs, obs_colors = _prepare_obs(table)
     var, var_colors = _prepare_var(table)
     n_obs, n_var = table.shape
@@ -207,7 +207,7 @@ def _colors(table: AnnData, df: pd.DataFrame) -> dict[str, np.ndarray]:
 
 
 def _prepare_obs(table: AnnData) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
-    obs = table.obs.reset_index(drop=True)
+    obs = cast(pd.DataFrame, table.obs).reset_index(drop=True)
     if "barcode" not in obs.columns:
         obs.insert(0, "barcode", table.obs.index.astype(str))
     obs = obs.drop(columns=[c for c in obs.columns if c in _TABLE_ONLY_OBS])
@@ -219,7 +219,7 @@ def _prepare_obs(table: AnnData) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
 
 
 def _prepare_var(table: AnnData) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
-    var = table.var.reset_index(drop=True)
+    var = cast(pd.DataFrame, table.var).reset_index(drop=True)
     if "feature_id" not in var.columns:
         var.insert(0, "feature_id", table.var.index.astype(str))
     for required in (str(AteraKeys.FEATURE_NAME), str(AteraKeys.VAR_FEATURE_TYPE)):
@@ -396,7 +396,7 @@ def _csr_blocks(x: Any, n_obs: int, row_chunk_size: int, n_threads: int | None) 
                     yield sparse.csr_matrix(block)
         return
     if sparse.issparse(x):
-        x = x.tocsr()
+        x = cast(Any, x).tocsr()
     for start in range(0, n_obs, row_chunk_size):
         yield sparse.csr_matrix(x[start : start + row_chunk_size])
 
