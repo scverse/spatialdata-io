@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from types import MappingProxyType
@@ -256,6 +257,38 @@ def _read_dataframe(group: zarr.Group, key: AteraKeys) -> pd.DataFrame:
     return _align_index_column(cast(pd.DataFrame, read_elem(group[str(key)])))
 
 
+def _read_category_colors(
+    group: zarr.Group, key: AteraKeys, columns: Sequence[str] | None = None
+) -> dict[str, list[str]]:
+    """Colors of the categorical columns of ``group[key]`` that have a ``color`` child, as ``#rrggbbaa``.
+
+    ``anndata.io.read_elem`` ignores the ``color`` array (packed int32 ``0xRRGGBBAA``), so they are kept in
+    `uns` (``{column}_colors``, as `scanpy` does) for `write_atera_cell_feature_matrix` to write back.
+    """
+    colors = {}
+    for name, elem in cast(zarr.Group, group[str(key)]).members():
+        if isinstance(elem, zarr.Group) and "color" in elem and (columns is None or name in columns):
+            colors[f"{name}_colors"] = [f"#{int(c) & 0xFFFFFFFF:08x}" for c in elem["color"][:]]
+    return colors
+
+
+def _read_manifest_extras(group: zarr.Group) -> str | None:
+    """The root manifest entries that can't be derived from the table, JSON-encoded for `adata.uns`.
+
+    `uns` holds a string rather than nested lists/dicts so the table stays writable by `anndata`;
+    `write_atera_cell_feature_matrix` writes these entries back out.
+    """
+    keys = (
+        AteraKeys.MANIFEST_CLUSTERINGS,
+        AteraKeys.MANIFEST_CELL_ANNOTATIONS,
+        AteraKeys.MANIFEST_DOWNSAMPLED_OBSM,
+        AteraKeys.MANIFEST_DOWNSAMPLED_VARM,
+    )
+    attrs = dict(group.attrs)
+    extras = {str(k): attrs[str(k)] for k in keys if attrs.get(str(k))}
+    return json.dumps(extras) if extras else None
+
+
 def _add_label_id(obs_df: pd.DataFrame) -> None:
     """Add ``obs["label_id"]``: the value each cell takes in the ``cell_labels`` raster.
 
@@ -304,6 +337,8 @@ def _get_table(
             feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
             if var_columns != "all":
                 var_df = var_df[list(var_columns)]
+            colors = _read_category_colors(group, AteraKeys.OBS_GROUP)
+            colors.update(_read_category_colors(group, AteraKeys.VAR_GROUP, list(var_df.columns)))
 
             obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
             _add_label_id(obs_df)
@@ -314,6 +349,7 @@ def _get_table(
                 else {}
             )
 
+        manifest_extras = _read_manifest_extras(group)
         x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
         n_obs, n_var = x_ds.shape
         dtype = x_ds.dtype
@@ -336,6 +372,9 @@ def _get_table(
     adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
         [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
     ].to_numpy()
+    adata.uns.update(colors)
+    if manifest_extras is not None:
+        adata.uns[str(AteraKeys.UNS_MANIFEST)] = manifest_extras
     return _parse_table(adata, region), feature_names
 
 

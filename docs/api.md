@@ -45,6 +45,17 @@ I/O for the `spatialdata` project.
    geojson
 ```
 
+### Writers
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io
+
+.. autosummary::
+   :toctree: generated
+
+   write_atera_cell_feature_matrix
+```
+
 ### Conversion functions
 
 ```{eval-rst}

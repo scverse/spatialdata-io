@@ -18,6 +18,11 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
 - `spatialdata_io` ships a `py.typed` marker, so downstream type checkers use its annotations.
 - `atera` reader for 10x Genomics Atera bundles: cell-by-gene table, cell/nucleus labels and boundary
   polygons, transcripts, and morphology images, read natively via `anndata`'s zarr IO.
+- `write_atera_cell_feature_matrix`: writes the table of a `SpatialData` object (as read by `atera`) to a
+  `cell_feature_matrix.zarr.zip` in the layout of the public Atera bundles (Zarr v2, `.zattrs` manifest,
+  categorical groups, CSR/CSC `X`); reading a bundle with `atera` and writing it back reproduces the file's
+  tree, dtypes, values and attrs. `X` is streamed in row blocks, so lazy tables are never materialised.
+  `atera` keeps categorical colors and the manifest's clusterings/annotations in `table.uns` for this.
 - `atera_to_parquet` converter: writes an Atera bundle's `transcripts.zarr.zip` to a `proseg`-compatible
   `transcripts.parquet` (readable via `proseg --xenium`), streaming one spatial tile at a time.
 - `xenium` reads pre-1.3.0 (XOA < 1.3.0) and CSV-only bundles: when the parquet files and

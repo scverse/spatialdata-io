@@ -29,6 +29,8 @@ _LAZY_IMPORTS: dict[str, str] = {
     # converters
     "atera_to_parquet": "spatialdata_io.converters.atera_to_parquet",
     "generic_to_zarr": "spatialdata_io.converters.generic_to_zarr",
+    # writers
+    "write_atera_cell_feature_matrix": "spatialdata_io.writers.atera",
 }
 
 __all__ = [
@@ -56,6 +58,8 @@ __all__ = [
     # converters
     "atera_to_parquet",
     "generic_to_zarr",
+    # writers
+    "write_atera_cell_feature_matrix",
 ]
 
 
@@ -81,6 +85,9 @@ if TYPE_CHECKING:
     # converters
     from spatialdata_io.converters.atera_to_parquet import atera_to_parquet
     from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
+
+    # writers
+    from spatialdata_io.writers.atera import write_atera_cell_feature_matrix
 
     # readers
     from spatialdata_io.readers.atera import atera

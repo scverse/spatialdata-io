@@ -196,8 +196,21 @@ class AteraKeys(ModeEnum):
     OBS_GROUP = "obs"
     VAR_GROUP = "var"
     OBSM_GROUP = "obsm"
+    VARM_GROUP = "varm"
     CATEGORIES = "categories"
     CODES = "codes"
+    COLOR = "color"
+
+    # root `.zattrs` manifest (RFC "cell feature anndata", schema anndata_zattrs/v0.1.0)
+    MANIFEST_VERSION = "version"
+    MANIFEST_MATRIX_PROPERTIES = "matrix_properties"
+    MANIFEST_CLUSTERINGS = "clusterings"
+    MANIFEST_CELL_ANNOTATIONS = "cell_annotations"
+    MANIFEST_DOWNSAMPLED_OBSM = "downsampled_obsm"
+    MANIFEST_DOWNSAMPLED_VARM = "downsampled_varm"
+    # `adata.uns` key under which `atera` keeps the (JSON-encoded) optional manifest entries that
+    # can't be derived from the table, so `write_atera_cell_feature_matrix` can write them back out.
+    UNS_MANIFEST = "cell_feature_matrix_attrs"
 
     # obs / cell identifiers
     CELL_ID = "cell_id"
