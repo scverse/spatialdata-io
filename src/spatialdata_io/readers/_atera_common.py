@@ -382,7 +382,7 @@ def read_transcripts_for_genes(
     path = Path(path)
     feature_names = sdata.tables["table"].var[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
     gene_indices = {gene: feature_names.index(gene) for gene in genes}
-    pixel_size = sdata.attrs[str(AteraKeys.PIXEL_SIZE)]
+    pixel_size = cast(float, sdata.attrs[str(AteraKeys.PIXEL_SIZE)])
 
     if by_codeword:
         gene_codewords = _get_gene_codewords(path, genes)
@@ -556,7 +556,7 @@ def read_cell_boundaries(
     ``sdata``, with ``sdata.shapes[shapes_key]`` added (mutated in place, and also returned).
     """
     path = Path(path)
-    pixel_size = sdata.attrs[str(AteraKeys.PIXEL_SIZE)]
+    pixel_size = cast(float, sdata.attrs[str(AteraKeys.PIXEL_SIZE)])
     cell_ids = sdata.tables["table"].obs[str(AteraKeys.CELL_ID)].to_numpy()
     is_nucleus = mask_index == 0
 
