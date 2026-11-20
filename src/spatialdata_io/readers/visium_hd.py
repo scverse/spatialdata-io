@@ -43,6 +43,10 @@ if TYPE_CHECKING:
 
 RNG = default_rng(0)
 
+# used to name the elements and the coordinate system when the Visium HD files have no filename prefix
+# (plain Space Ranger `outs/` layout) and no `dataset_id` is given
+DEFAULT_DATASET_ID = "visium_hd"
+
 
 @inject_docs(vx=VisiumHDKeys)
 def visium_hd(
@@ -69,8 +73,9 @@ def visium_hd(
     path
         Path to directory containing the *10x Genomics* Visium HD output.
     dataset_id
-        Unique identifier of the dataset, used to name the elements of the `SpatialData` object. If `None`, it is
-        inferred from the file name of the feature slice file.
+        Unique identifier of the dataset, used to name the elements and the coordinate system of the `SpatialData`
+        object. If `None`, it is inferred from the file name of the feature slice file; when that file has no prefix
+        (e.g. ``feature_slice.h5``), ``"visium_hd"`` is used.
     filtered_counts_file
         It sets the value of `counts_file` to ``{vx.FILTERED_COUNTS_FILE!r}`` (when `True`) or to
         ``{vx.RAW_COUNTS_FILE!r}`` (when `False`).
@@ -696,7 +701,8 @@ def _get_filename_prefix(path: Path, dataset_id: str | None) -> tuple[str, str]:
     path
         Path to the Visium HD output directory.
     dataset_id
-        Optional identifier for naming elements. If ``None``, inferred from prefixed files.
+        Optional identifier for naming elements. If ``None``, inferred from prefixed files, or set to
+        ``DEFAULT_DATASET_ID`` when the files have no prefix.
 
     Returns
     -------
@@ -708,7 +714,8 @@ def _get_filename_prefix(path: Path, dataset_id: str | None) -> tuple[str, str]:
         If the feature slice file cannot be located.
     """
     if (path / VisiumHDKeys.FEATURE_SLICE_FILE.value).exists():
-        return "", dataset_id if dataset_id is not None else ""
+        # an empty `dataset_id` would name the coordinate system "" and the elements "_hires_image", ...
+        return "", dataset_id if dataset_id is not None else DEFAULT_DATASET_ID
 
     if dataset_id is None:
         dataset_id = _infer_dataset_id(path)
