@@ -51,8 +51,8 @@ RNG = da.random.default_rng(seed=0)
 if not (Path("./data/OMAP10_small").exists() or Path("./data/OMAP23_small").exists()):
     pytest.skip(
         "Requires the OMAP10 or OMAP23 datasets. "
-        "The small OMAP10 dataset can be downloaded from https://zenodo.org/api/records/18196366/files-archive, for the full data see https://zenodo.org/records/7875938"
-        "The small OMAP23 dataset can be downloaded from https://zenodo.org/api/records/18196452/files-archive, for the full data set see https://zenodo.org/records/14008816",
+        "The small OMAP10 dataset can be downloaded from https://zenodo.org/records/18196366, for the full data see https://zenodo.org/records/7875938. "
+        "The small OMAP23 dataset can be downloaded from https://zenodo.org/records/18196452, for the full data set see https://zenodo.org/records/14008816.",
         allow_module_level=True,
     )
 
