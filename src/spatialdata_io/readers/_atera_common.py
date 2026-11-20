@@ -30,7 +30,7 @@ from spatialdata_io._constants._constants import AteraKeys
 from spatialdata_io.readers._utils._utils import parse_physical_size
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Iterator, Mapping, Sequence
 
     from numpy.typing import ArrayLike
     from xarray import DataArray
@@ -445,7 +445,7 @@ def _tile_bounds(tile_key: str, tile_size: float) -> tuple[float, float, float, 
     return tile_x * tile_size, tile_y * tile_size, (tile_x + 1) * tile_size, (tile_y + 1) * tile_size
 
 
-def _bbox_overlaps(boxes: ArrayLike, bbox: tuple[float, float, float, float]) -> np.ndarray:
+def _bbox_overlaps(boxes: ArrayLike, bbox: Sequence[float]) -> np.ndarray:
     """Which of the ``(..., 4)`` (xmin, ymin, xmax, ymax) `boxes` overlap `bbox`."""
     boxes = np.asarray(boxes)
     return (boxes[..., 0] < bbox[2]) & (bbox[0] < boxes[..., 2]) & (boxes[..., 1] < bbox[3]) & (bbox[1] < boxes[..., 3])
@@ -462,11 +462,7 @@ def _cell_row_positions_in_bbox(path: Path, bbox: tuple[float, float, float, flo
     pixel_size = _get_pixel_size(path)
     with _open_zip(path / AteraKeys.CELLS_FILE) as group:
         cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
-    return np.nonzero(
-        _bbox_overlaps(
-            cell_bboxes, (bbox[0] * pixel_size, bbox[1] * pixel_size, bbox[2] * pixel_size, bbox[3] * pixel_size)
-        )
-    )[0]
+    return np.flatnonzero(_bbox_overlaps(cell_bboxes, [v * pixel_size for v in bbox]))
 
 
 def read_cell_boundaries(
@@ -531,10 +527,7 @@ def read_cell_boundaries(
     cell_ids = _read_cell_ids(path)
     is_nucleus = mask_index == 0
 
-    raw_bbox = None
-    if bbox is not None:
-        xmin, ymin, xmax, ymax = bbox
-        raw_bbox = (xmin * pixel_size, ymin * pixel_size, xmax * pixel_size, ymax * pixel_size)
+    raw_bbox = None if bbox is None else [v * pixel_size for v in bbox]
 
     with _open_zip(path / AteraKeys.CELLS_FILE) as group:
         cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)

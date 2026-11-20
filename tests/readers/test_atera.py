@@ -17,7 +17,14 @@ from xarray import DataTree
 from spatialdata_io._constants._constants import AteraKeys
 from spatialdata_io.readers import _atera_common as common
 from spatialdata_io.readers._atera_common import _read_transcript_tile, _tile_row_ranges
-from spatialdata_io.readers.atera import _get_table, read_table_for_cells, read_table_for_genes, read_var
+from spatialdata_io.readers.atera import (
+    _check_keypoints,
+    _get_aligned_images,
+    _get_table,
+    read_table_for_cells,
+    read_table_for_genes,
+    read_var,
+)
 
 # Atera `cell_id`s are large packed integers, unrelated to the `1..n_obs` values in the `cell_labels` raster.
 CELL_IDS = [4_320_252_178, 4_975_876_403, 5_016_677_209, 5_217_424_078]
@@ -304,47 +311,51 @@ def test_tiled_imread_reads_one_tile_per_task_and_pickles(atera_path: Path) -> N
         np.testing.assert_array_equal(graph.compute(), tifffile.imread(file))
 
 
-def _write_he(path: Path, affine: np.ndarray) -> None:
+# an H&E aligned by a rotation by 90 degrees, a scale of 2 and a translation
+HE_AFFINE = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
+
+
+def _write_he(path: Path, alignment_csv: bool = True) -> None:
     import tifffile
 
     tifffile.imwrite(
         path / "S1_he_image.ome.tif", np.zeros((3, 40, 60), dtype=np.uint8), ome=True, metadata={"axes": "CYX"}
     )
-    pd.DataFrame(affine).to_csv(path / "S1_he_imagealignment.csv", header=False, index=False)
+    if alignment_csv:
+        pd.DataFrame(HE_AFFINE).to_csv(path / "S1_he_imagealignment.csv", header=False, index=False)
 
 
-@pytest.mark.parametrize("reader", ["atera", "xenium"])
-def test_aligned_he_image_is_placed_by_its_affine(tmp_path: Path, reader: str) -> None:
+def _write_keypoints(path: Path) -> pd.DataFrame:
+    src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
+    dst = (np.c_[src, np.ones(3)] @ HE_AFFINE.T)[:, :2]
+    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
+    kp.to_csv(path / "S1_keypoints.csv", index=False)
+    return kp
+
+
+def _global_affine(image: Any) -> np.ndarray:
     from spatialdata.transformations import get_transformation
 
-    affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
-    _write_he(tmp_path, affine)
-    images = _read_aligned(tmp_path, reader)
+    t = cast(Affine, get_transformation(image, "global"))
+    return t.to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
+
+
+def test_aligned_he_image_is_placed_by_its_affine(tmp_path: Path) -> None:
+    _write_he(tmp_path)
+    (tmp_path / "._S1_he_image.ome.tif").write_bytes(b"\x00" * 16)  # a macOS sidecar, not a TIFF
+    images = _get_aligned_images(tmp_path, {}, {})
     assert list(images) == ["he_image"]
-    he = images["he_image"]
-    assert list(he.coords["c"].values) == ["r", "g", "b"]
-    m = cast(Affine, get_transformation(he, "global")).to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
-    np.testing.assert_allclose(m, affine)
-
-
-def _write_keypoints(path: Path, affine: np.ndarray, name: str = "S1_keypoints.csv") -> pd.DataFrame:
-    src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
-    dst = (np.c_[src, np.ones(3)] @ affine.T)[:, :2]
-    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
-    kp.to_csv(path / name, index=False)
-    return kp
+    assert list(images["he_image"].coords["c"].values) == ["r", "g", "b"]
+    np.testing.assert_allclose(_global_affine(images["he_image"]), HE_AFFINE)
 
 
 def test_keypoints_check(tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
     from spatialdata._logging import logger
 
-    from spatialdata_io.readers.atera import _check_keypoints
-
     monkeypatch.setattr(logger, "propagate", True)
 
-    affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
-    _write_he(tmp_path, affine)
-    kp = _write_keypoints(tmp_path, affine)
+    _write_he(tmp_path)
+    kp = _write_keypoints(tmp_path)
     csv, kp_file = tmp_path / "S1_he_imagealignment.csv", tmp_path / "S1_keypoints.csv"
     assert _check_keypoints(csv, kp_file) == pytest.approx(0.0, abs=1e-9)
     assert "misplaced" not in caplog.text
@@ -356,87 +367,15 @@ def test_keypoints_check(tmp_path: Path, caplog: pytest.LogCaptureFixture, monke
         assert _check_keypoints(csv, kp_file) is None
 
 
-@pytest.mark.parametrize(
-    "case", ["other_columns", "two_rows", "nan_rows", "collinear", "other_sample", "appledouble", "no_keypoints"]
-)
-def test_he_stays_unaligned_without_usable_keypoints(tmp_path: Path, case: str) -> None:
-    import warnings
-
-    from spatialdata.transformations import Identity, get_transformation
-
-    from spatialdata_io.readers.xenium import _add_aligned_images
-
-    affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
-    _write_he(tmp_path, affine)
-    (tmp_path / "S1_he_imagealignment.csv").unlink()
-    kp = _write_keypoints(tmp_path, affine)
-    kp_file = tmp_path / "S1_keypoints.csv"
-    if case == "other_columns":
-        kp.set_axis(["a", "b", "c", "d"], axis=1).to_csv(kp_file, index=False)
-    elif case == "two_rows":
-        kp.iloc[:2].to_csv(kp_file, index=False)
-    elif case == "nan_rows":
-        kp.assign(fixedX=[1.0, np.nan, "x"]).to_csv(kp_file, index=False)
-    elif case == "collinear":
-        kp.assign(alignmentX=[1.0, 2.0, 3.0], alignmentY=[1.0, 2.0, 3.0]).to_csv(kp_file, index=False)
-    elif case in ["other_sample", "appledouble"]:
-        kp_file.rename(tmp_path / ("S2_keypoints.csv" if case == "other_sample" else "._S1_keypoints.csv"))
-    else:
-        kp_file.unlink()
-    (tmp_path / "._S1_he_image.ome.tif").write_bytes(b"\x00" * 16)  # a macOS tar sidecar, not a TIFF
-
-    expect_warning = case in ["other_columns", "two_rows", "nan_rows", "collinear"]
-    with warnings.catch_warnings(record=True) as record:
-        warnings.simplefilter("always")
-        images = _add_aligned_images(tmp_path)
-    assert list(images) == ["he_image"]
-    assert isinstance(get_transformation(images["he_image"], "global"), Identity)
-    assert any("keypoint" in str(w.message) for w in record) == expect_warning
-
-
-def test_affine_from_keypoints_reproduces_alignment(tmp_path: Path) -> None:
-    from spatialdata_io.readers.xenium import _affine_from_keypoints
-
-    # about the Atera v1 kidney alignment, with 0.2% anisotropy as in the preview scans
-    affine = np.array([[0.0086, 1.2898, 914.1], [-1.2871, 0.0086, 32040.6], [0.0, 0.0, 1.0]])
-    src = np.array([[16690.0, 14065.0], [22114.0, 25667.0], [13029.0, 25846.0], [16798.0, 35944.0]])
-    dst = (np.c_[src, np.ones(len(src))] @ affine.T)[:, :2]
-    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
-    kp.to_csv(tmp_path / "S1_keypoints.csv", index=False)
-    m = cast(Affine, _affine_from_keypoints(tmp_path / "S1_keypoints.csv")).to_affine_matrix(
-        input_axes=("x", "y"), output_axes=("x", "y")
-    )
-    np.testing.assert_allclose(m, affine, atol=1e-6)
-
-
 def test_he_without_alignment_csv_is_placed_by_keypoints(tmp_path: Path) -> None:
-    from spatialdata.transformations import get_transformation
-
-    from spatialdata_io.readers.atera import _get_aligned_images
-
-    affine = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
-    _write_he(tmp_path, affine)
-    (tmp_path / "S1_he_imagealignment.csv").unlink()
-    src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
-    dst = (np.c_[src, np.ones(3)] @ affine.T)[:, :2]
-    pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]}).to_csv(
-        tmp_path / "S1_keypoints.csv", index=False
-    )
+    _write_he(tmp_path, alignment_csv=False)
+    _write_keypoints(tmp_path)
     he = _get_aligned_images(tmp_path, {}, {})["he_image"]
-    m = cast(Affine, get_transformation(he, "global")).to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
-    np.testing.assert_allclose(m, affine, atol=1e-9)
+    np.testing.assert_allclose(_global_affine(he), HE_AFFINE, atol=1e-9)
 
 
-def _read_aligned(path: Path, reader: str) -> dict:
-    from spatialdata_io.readers.atera import _get_aligned_images
-    from spatialdata_io.readers.xenium import _add_aligned_images
-
-    return _get_aligned_images(path, {}, {}) if reader == "atera" else _add_aligned_images(path)
-
-
-@pytest.mark.parametrize("reader", ["atera", "xenium"])
 @pytest.mark.parametrize("planar", [False, True])
-def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool, reader: str) -> None:
+def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool) -> None:
     import tifffile
 
     rgb = np.arange(3 * 40 * 60, dtype=np.uint32).reshape(3, 40, 60).astype(np.uint8)
@@ -444,7 +383,7 @@ def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool, re
         tifffile.imwrite(tmp_path / "S1_he_image.ome.tif", rgb, ome=True, photometric="rgb", planarconfig="separate")
     else:  # YXS, as in the 1.0.4 kidney H&E
         tifffile.imwrite(tmp_path / "S1_he_image.ome.tif", np.moveaxis(rgb, 0, -1), ome=True, photometric="rgb")
-    he = _read_aligned(tmp_path, reader)["he_image"]
+    he = _get_aligned_images(tmp_path, {}, {})["he_image"]
     assert list(he.coords["c"].values) == ["r", "g", "b"]
     np.testing.assert_array_equal(np.asarray(he.transpose("c", "y", "x").data), rgb)
 

@@ -151,9 +151,7 @@ def write_atera_cell_feature_matrix(
 
             _write_x(root, zf, x, (n_obs, n_var), major_axis, chunk_size, row_chunk_size, n_threads, compressor)
 
-            manifest = _build_manifest(
-                table, n_var, obs_manifest, var_manifest, obsm_manifest, varm_manifest, var, major_axis
-            )
+            manifest = _build_manifest(table, obs_manifest, var_manifest, obsm_manifest, varm_manifest, var, major_axis)
             root.attrs.update(manifest)
             for key, buffer in entries.items():
                 zf.writestr(key, buffer.to_bytes())
@@ -241,28 +239,24 @@ def _prepare_obs(table: AnnData) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
 
 
 def _controls_table(sdata: SpatialData | AnnData, controls_table: str | AnnData | None) -> AnnData | None:
-    if controls_table is None or isinstance(controls_table, str):
-        if isinstance(sdata, SpatialData) and controls_table is not None and controls_table in sdata.tables:
-            return sdata.tables[controls_table]
-        return None
+    if isinstance(controls_table, str):
+        return (
+            sdata.tables[controls_table] if isinstance(sdata, SpatialData) and controls_table in sdata.tables else None
+        )
     return controls_table
 
 
 def _append_controls(table: AnnData, controls: AnnData, x: Any) -> Any:
     """`x` with the controls' `X` appended as columns, after checking both tables hold the same cells in order."""
-    if controls.n_obs != table.n_obs or not controls.obs_names.equals(table.obs_names):
+    if not controls.obs_names.equals(table.obs_names):
         raise ValueError("`table_controls` must hold the same cells as the table, in the same order (`obs_names`).")
     cid = str(AteraKeys.CELL_ID)
-    if cid in controls.obs.columns and cid in table.obs.columns:
-        if not np.array_equal(controls.obs[cid].to_numpy(), table.obs[cid].to_numpy()):
-            raise ValueError(f"`table_controls` and the table disagree on obs[{cid!r}].")
+    if cid in controls.obs and cid in table.obs and not np.array_equal(controls.obs[cid], table.obs[cid]):
+        raise ValueError(f"`table_controls` and the table disagree on obs[{cid!r}].")
     c: Any = controls.X
     if isinstance(x, da.Array):
-        c = (
-            c
-            if isinstance(c, da.Array)
-            else da.from_array(sparse.csr_matrix(c), chunks=(x.chunks[0], -1), asarray=False)
-        )
+        if not isinstance(c, da.Array):
+            c = da.from_array(sparse.csr_matrix(c), chunks=(x.chunks[0], -1), asarray=False)
         return da.concatenate([x, c.rechunk({0: x.chunks[0]})], axis=1)
     if isinstance(c, da.Array):
         c = c.compute()
@@ -282,8 +276,7 @@ def _varm(table: AnnData, controls: AnnData | None) -> dict[str, Any]:
 
 
 def _prepare_var(table: AnnData, controls: AnnData | None = None) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
-    frames = [cast(pd.DataFrame, t.var) for t in (table, controls) if t is not None]
-    var = pd.concat(frames) if len(frames) > 1 else frames[0]
+    var = pd.concat([cast(pd.DataFrame, t.var) for t in (table, controls) if t is not None])
     index = var.index.astype(str)
     var = var.reset_index(drop=True)
     sources = {}  # written column -> the table's column, whose `uns[f"{source}_colors"]` holds its colors
@@ -612,7 +605,6 @@ class _ChunkStream:
 
 def _build_manifest(
     table: AnnData,
-    n_var: int,
     obs: list[dict[str, Any]],
     var: list[dict[str, Any]],
     obsm: list[dict[str, Any]],
@@ -627,7 +619,7 @@ def _build_manifest(
         str(AteraKeys.MANIFEST_VERSION): dict(_SCHEMA_VERSION),
         str(AteraKeys.MANIFEST_MATRIX_PROPERTIES): {
             "num_cells": int(table.n_obs),
-            "num_features": int(n_var),
+            "num_features": len(var_df),
             "major_axis": major_axis,
             "feature_types": feature_types,
         },

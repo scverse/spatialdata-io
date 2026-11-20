@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -35,13 +36,7 @@ from spatialdata_io.readers._atera_common import (
     read_transcripts_for_genes,
 )
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
-from spatialdata_io.readers.xenium import (
-    _affine_from_keypoints,
-    _aligned_image_files,
-    _get_labels,
-    _keypoints_file,
-    _read_keypoints,
-)
+from spatialdata_io.readers.xenium import _affine_from_keypoints, _get_labels
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -63,8 +58,6 @@ __all__ = [
 # `anndata`'s own zarr reading functions (`anndata.io.read_elem`/`anndata.io.sparse_dataset`). This
 # only works on bundles whose zarr stores carry the standard AnnData `encoding-type`/
 # `encoding-version`/`shape` attrs.
-#
-# The tables are built here; the labels, shapes, points and morphology images in `_atera_common.py`.
 
 
 @inject_docs(xx=AteraKeys)
@@ -173,17 +166,9 @@ def atera(
     # The table annotates `cell_labels` (instance ids `obs["label_id"]`, as in `xenium`), else `cell_boundaries`
     # (`obs["cell_id"]`), else nothing: the nucleus elements are numbered per nucleus, not per cell.
     region = "cell_labels" if cells_labels else "cell_boundaries" if cells_boundaries else None
-    tables = (
-        dict(
-            zip(
-                ["table", "table_controls"],
-                _get_table(path, var_columns, table_row_chunk_size, region)[:2],
-                strict=True,
-            )
-        )
-        if cells_table
-        else {}
-    )
+    tables: dict[str, AnnData] = {}
+    if cells_table:
+        tables["table"], tables["table_controls"], _ = _get_table(path, var_columns, table_row_chunk_size, region)
 
     shapes: dict[str, Any] = {}
     labels: dict[str, DataArray | DataTree] = {}
@@ -246,16 +231,21 @@ def _get_aligned_images(
     Each is placed by its alignment CSV or, for an H&E without one, by an affine fit to its keypoints (as in `xenium`).
     """
     images = {}
-    for name, file, alignment_file in _aligned_image_files(path):
+    for file in sorted(path.glob("*.ome.tif")):
+        name = next((n for n in ["he_image", "if_image"] if file.name.endswith(f"{n}.ome.tif")), None)
+        if name is None or file.name.startswith("._"):  # macOS sidecars
+            continue
+        alignment_file = file.with_name(file.name.replace(".ome.tif", "alignment.csv"))
+        kp_file = file.with_name(file.name.removesuffix("he_image.ome.tif") + "keypoints.csv")
         image, dims = _tiled_imread(file, imread_kwargs)
         transformation: BaseTransformation = Identity()
-        if alignment_file is not None:
+        if alignment_file.is_file():
             affine = pd.read_csv(alignment_file, header=None).to_numpy(dtype=float)
             transformation = Affine(affine, input_axes=("x", "y"), output_axes=("x", "y"))
             if name == "he_image":
-                _check_keypoints(alignment_file, _keypoints_file(file))
+                _check_keypoints(alignment_file, kp_file)
         elif name == "he_image":
-            transformation = _affine_from_keypoints(_keypoints_file(file)) or transformation
+            transformation = _affine_from_keypoints(kp_file) or transformation
         if "c" not in dims:
             image, dims = image[None], ("c", *dims)
         n_channels = image.shape[dims.index("c")]
@@ -271,11 +261,20 @@ def _get_aligned_images(
 
 def _check_keypoints(alignment_file: Path, kp_file: Path) -> float | None:
     """Warn when the alignment affine does not map the keypoints onto each other; return the median residual (px)."""
-    keypoints = _read_keypoints(kp_file)
-    if keypoints is None:
+    if not kp_file.is_file():
         return None
-    src, dst = keypoints
+    columns = ["fixedX", "fixedY", "alignmentX", "alignmentY"]
+    kp = pd.read_csv(kp_file)
+    if not set(columns) <= set(kp.columns):
+        warnings.warn(f"{kp_file.name}: expected columns {columns}, found {list(kp.columns)}.", stacklevel=2)
+        return None
+    xy = kp[columns].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    xy = xy[np.isfinite(xy).all(axis=1)]
+    if len(xy) < 3:
+        warnings.warn(f"{kp_file.name}: {len(xy)} finite keypoints, at least 3 are needed.", stacklevel=2)
+        return None
     affine = pd.read_csv(alignment_file, header=None).to_numpy(dtype=float)
+    src, dst = xy[:, 2:], xy[:, :2]
     median = float(np.median(np.linalg.norm((np.c_[src, np.ones(len(src))] @ affine.T)[:, :2] - dst, axis=1)))
     if median > KEYPOINTS_MAX_RESIDUAL_PX:
         logger.warning(
