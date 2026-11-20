@@ -102,8 +102,7 @@ jobs:
               unzip "$file" -d "$dir"
               rm "$file"
           done
-          # the Visium archive contains a single `spatial/` directory, extracted next to the `.h5`;
-          # the Atera bundle contains `morphology_2d.tar.gz` and `morphology_3d.tar.gz`, extracted in place
+          # the Visium archive contains a single `spatial/` directory, extracted next to the `.h5`
           for file in */*.tar.gz; do
               tar -xzf "$file" -C "$(dirname "$file")"
               rm "$file"
