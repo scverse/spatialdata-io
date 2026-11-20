@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 import zarr
 
 from spatialdata_io._constants._constants import AteraKeys
-from spatialdata_io.readers._atera_common import _read_transcript_tile, _tile_row_ranges
+from spatialdata_io.readers._atera_common import _get_array, _get_group, _read_transcript_tile, _tile_row_ranges
 from spatialdata_io.readers.atera import read_var
 
 __all__ = ["atera_to_parquet"]
@@ -80,16 +80,16 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
     store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
     writer = pq.ParquetWriter(output, _PROSEG_SCHEMA)
     try:
-        grid = zarr.open_group(store, mode="r").get_group(str(AteraKeys.GRID_GROUP))
+        grid = _get_group(zarr.open_group(store, mode="r"), str(AteraKeys.GRID_GROUP))
         tile_keys = [str(key) for key in cast("list[str]", grid.attrs[str(AteraKeys.GRID_KEYS)])]
         # Stored IDs are used only if every tile has them; otherwise every transcript is numbered
         # contiguously in `grid_keys` order, so stored and generated IDs never mix.
-        use_stored_ids = all(str(AteraKeys.TRANSCRIPTS_ID) in grid.get_group(key) for key in tile_keys)
+        use_stored_ids = all(str(AteraKeys.TRANSCRIPTS_ID) in _get_group(grid, key) for key in tile_keys)
 
         offset = 0
         for tile_key in tile_keys:
-            tile = grid.get_group(tile_key)
-            n_tile = tile.get_array(str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0]
+            tile = _get_group(grid, tile_key)
+            n_tile = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0]
             # A tile can hold 100M+ transcripts, so it is read and written in row ranges (one parquet row group each).
             for start, stop in _tile_row_ranges(n_tile):
                 tile_df = _read_transcript_tile(path, tile_key, feature_names, start, stop)
@@ -98,7 +98,7 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
                     continue
 
                 if use_stored_ids:
-                    stored_ids = tile.get_array(str(AteraKeys.TRANSCRIPTS_ID))[start:stop]
+                    stored_ids = _get_array(tile, str(AteraKeys.TRANSCRIPTS_ID))[start:stop]
                     transcript_id = np.asarray(stored_ids, dtype=np.uint64).reshape(-1)
                 else:
                     transcript_id = np.arange(offset, offset + n, dtype=np.uint64)

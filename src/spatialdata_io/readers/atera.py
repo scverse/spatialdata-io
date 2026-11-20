@@ -21,6 +21,7 @@ from spatialdata_io.readers._atera_common import (
     DEFAULT_TABLE_ROW_CHUNK_SIZE,
     DEFAULT_VAR_COLUMNS,
     _cell_row_positions_in_bbox,
+    _get_array,
     _get_labels,
     _get_morphology_images,
     _get_pixel_size,
@@ -138,6 +139,11 @@ def atera(
     :class:`spatialdata.SpatialData`
     """
     path = Path(path)
+    if not path.is_dir():
+        raise FileNotFoundError(
+            f"The Atera bundle directory {str(path)!r} does not exist (resolved to {str(path.resolve())!r}, "
+            f"relative paths are resolved against the current working directory {str(Path.cwd())!r})."
+        )
     image_models_kwargs, labels_models_kwargs = _initialize_raster_models_kwargs(
         image_models_kwargs, labels_models_kwargs
     )
@@ -357,11 +363,7 @@ def _get_table(
         dtype = x_ds.dtype
         # Genes detected per cell is the number of stored entries per row of the CSR matrix, which `indptr`
         # already encodes; this avoids a full pass over the (lazy) counts.
-        n_genes = (
-            np.diff(cast(zarr.Group, group[str(AteraKeys.X_GROUP)]).get_array("indptr")[:])
-            if x_ds.format == "csr"
-            else None
-        )
+        n_genes = np.diff(_get_array(group, f"{AteraKeys.X_GROUP}/indptr")[:]) if x_ds.format == "csr" else None
     finally:
         store.close()
 

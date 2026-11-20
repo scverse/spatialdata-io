@@ -35,6 +35,29 @@ if TYPE_CHECKING:
 
     from xarray import DataArray
 
+
+# `zarr.Group.get_array` / `zarr.Group.get_group` (typed lookups that raise on a missing node or on the
+# wrong node kind) only exist from zarr 3.3.0. These two helpers provide the same behavior on older zarr
+# 3.x releases. We deliberately do not pin `zarr>=3.3.0` for now: it is a recent release, spatialdata itself
+# only requires `zarr>=3.0.0`, and a higher floor here could conflict with users' environments and other
+# scverse packages. Once spatialdata-io requires `zarr>=3.3.0`, remove the helpers and call the methods directly,
+# e.g. `_get_array(tile, key)` -> `tile.get_array(key)` and `_get_group(group, key)` -> `group.get_group(key)`.
+def _get_array(group: zarr.Group, path: str) -> zarr.Array:
+    """Return the array at ``path`` (relative to ``group``), raising if it is missing or a group."""
+    node = group[path]
+    if not isinstance(node, zarr.Array):
+        raise TypeError(f"Expected a zarr array at {path!r}, found {type(node).__name__}.")
+    return node
+
+
+def _get_group(group: zarr.Group, path: str) -> zarr.Group:
+    """Return the group at ``path`` (relative to ``group``), raising if it is missing or an array."""
+    node = group[path]
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"Expected a zarr group at {path!r}, found {type(node).__name__}.")
+    return node
+
+
 # `var` in cell_feature_matrix.zarr.zip also has ~135 per-cluster differential-expression columns
 # (`de_leiden_res_1.0_c{N}_{logfc,pval,pval_adj,rank,score}`); the readers keep only this small
 # default subset to avoid holding that wide table in memory. Use `read_var` to load the full table.
@@ -142,7 +165,7 @@ def _get_labels(
     labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
 ) -> DataArray | DataTree:
     """Read the labels raster from cells.zarr.zip masks/{mask_index} (0 = nucleus, 1 = cell)."""
-    masks = da.from_array(cells_group.get_array(f"{AteraKeys.MASKS_GROUP}/{mask_index}"))
+    masks = da.from_array(_get_array(cells_group, f"{AteraKeys.MASKS_GROUP}/{mask_index}"))
     return Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
 
 
@@ -197,10 +220,10 @@ def _get_polygons(
     Each row of ``vertices`` is a fixed-width (x, y) pair buffer, padded to a maximum number of
     vertices; ``num_vertices`` gives the number of valid pairs to use.
     """
-    group = cells_group.get_group(f"{AteraKeys.POLYGON_SETS_GROUP}/{mask_index}")
-    vertices = np.asarray(group.get_array(str(AteraKeys.POLYGON_VERTICES))[...])
-    num_vertices = np.asarray(group.get_array(str(AteraKeys.POLYGON_NUM_VERTICES))[...])
-    cell_index = np.asarray(group.get_array(str(AteraKeys.POLYGON_CELL_INDEX))[...])
+    group = _get_group(cells_group, f"{AteraKeys.POLYGON_SETS_GROUP}/{mask_index}")
+    vertices = np.asarray(_get_array(group, str(AteraKeys.POLYGON_VERTICES))[...])
+    num_vertices = np.asarray(_get_array(group, str(AteraKeys.POLYGON_NUM_VERTICES))[...])
+    cell_index = np.asarray(_get_array(group, str(AteraKeys.POLYGON_CELL_INDEX))[...])
 
     n_polygons, max_coords = vertices.shape
     max_vertices = max_coords // 2
@@ -231,16 +254,16 @@ def _read_transcript_tile(
     store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
-        tile = group.get_group(f"{AteraKeys.GRID_GROUP}/{tile_key}")
-        location_array = tile.get_array(str(AteraKeys.TRANSCRIPTS_LOCATION))
+        tile = _get_group(group, f"{AteraKeys.GRID_GROUP}/{tile_key}")
+        location_array = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION))
         stop = location_array.shape[0] if stop is None else min(stop, location_array.shape[0])
         location = np.asarray(location_array[start:stop])
-        gene_offset = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))[...])
-        cell_id_raw = np.asarray(tile.get_array(str(AteraKeys.CELL_ID))[start:stop])
-        overlaps_nucleus = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:stop]).reshape(
-            -1
-        )
-        quality_score = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:stop]).reshape(-1)
+        gene_offset = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))[...])
+        cell_id_raw = np.asarray(_get_array(tile, str(AteraKeys.CELL_ID))[start:stop])
+        overlaps_nucleus = np.asarray(
+            _get_array(tile, str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:stop]
+        ).reshape(-1)
+        quality_score = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:stop]).reshape(-1)
     finally:
         store.close()
 
@@ -268,10 +291,10 @@ def _get_points(path: Path, pixel_size: float, feature_names: list[str]) -> dd.D
     store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
-        grid = group.get_group(str(AteraKeys.GRID_GROUP))
+        grid = _get_group(group, str(AteraKeys.GRID_GROUP))
         tile_keys = sorted(grid.group_keys())
         tile_sizes = {
-            key: grid.get_group(key).get_array(str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0] for key in tile_keys
+            key: _get_array(_get_group(grid, key), str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0] for key in tile_keys
         }
     finally:
         store.close()
@@ -402,28 +425,28 @@ def read_transcripts_for_genes(
     store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
-        tile_keys = sorted(group.get_group(str(AteraKeys.GRID_GROUP)).group_keys())
+        tile_keys = sorted(_get_group(group, str(AteraKeys.GRID_GROUP)).group_keys())
 
         frames = []
         for tile_key in tile_keys:
-            tile = group.get_group(f"{AteraKeys.GRID_GROUP}/{tile_key}")
-            gene_offset = tile.get_array(str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))
+            tile = _get_group(group, f"{AteraKeys.GRID_GROUP}/{tile_key}")
+            gene_offset = _get_array(tile, str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))
             for gene, gene_idx in gene_indices.items():
                 start, end = np.asarray(gene_offset[gene_idx])
                 if end <= start:
                     continue
-                location = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_LOCATION))[start:end])
-                cell_id_raw = np.asarray(tile.get_array(str(AteraKeys.CELL_ID))[start:end])
+                location = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION))[start:end])
+                cell_id_raw = np.asarray(_get_array(tile, str(AteraKeys.CELL_ID))[start:end])
                 overlaps_nucleus = np.asarray(
-                    tile.get_array(str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:end]
+                    _get_array(tile, str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:end]
                 ).reshape(-1)
-                quality_score = np.asarray(tile.get_array(str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:end]).reshape(
-                    -1
-                )
+                quality_score = np.asarray(
+                    _get_array(tile, str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:end]
+                ).reshape(-1)
                 if by_codeword:
-                    codeword_identity = np.asarray(tile.get_array(str(AteraKeys.CODEWORD_IDENTITY))[start:end]).reshape(
-                        -1
-                    )
+                    codeword_identity = np.asarray(
+                        _get_array(tile, str(AteraKeys.CODEWORD_IDENTITY))[start:end]
+                    ).reshape(-1)
                     feature_name = pd.Categorical([f"{gene}_cw{cw}" for cw in codeword_identity], categories=categories)
                 else:
                     feature_name = pd.Categorical([gene] * (end - start), categories=categories)
@@ -484,7 +507,7 @@ def _cell_row_positions_in_bbox(path: Path, bbox: tuple[float, float, float, flo
     store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
-        cell_bboxes = np.asarray(group.get_array(str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
+        cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
     finally:
         store.close()
 
@@ -568,14 +591,14 @@ def read_cell_boundaries(
     store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
     try:
         group = zarr.open_group(store, mode="r")
-        cell_bboxes = np.asarray(group.get_array(str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
-        mask_group = group.get_group(f"{AteraKeys.GRIDDED_POLYGON_SETS_GROUP}/{mask_index}")
+        cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
+        mask_group = _get_group(group, f"{AteraKeys.GRIDDED_POLYGON_SETS_GROUP}/{mask_index}")
         # Each pyramid level merges 2x2 blocks of tiles from the level below, so a tile's spatial
         # extent doubles per level; `grid_size` (attrs, shared across levels) gives level 0's tile
         # size.
         grid_size = cast("list[float]", mask_group.attrs[str(AteraKeys.GRID_SIZE)])
         tile_size = float(grid_size[0]) * (2**pyramid_level)
-        level_group = mask_group.get_group(str(pyramid_level))
+        level_group = _get_group(mask_group, str(pyramid_level))
 
         tile_keys = list(level_group.group_keys())
         if raw_bbox is not None:
@@ -585,10 +608,10 @@ def read_cell_boundaries(
         num_vertices_parts = []
         cell_index_parts = []
         for tile_key in tile_keys:
-            tile = level_group.get_group(tile_key)
-            num_vertices = np.asarray(tile.get_array(str(AteraKeys.POLYGON_NUM_VERTICES))[...])
-            cell_index = np.asarray(tile.get_array(str(AteraKeys.POLYGON_CELL_INDEX))[...])
-            relative_vertices = np.asarray(tile.get_array(str(AteraKeys.RELATIVE_VERTICES))[...]).reshape(-1, 2)
+            tile = _get_group(level_group, tile_key)
+            num_vertices = np.asarray(_get_array(tile, str(AteraKeys.POLYGON_NUM_VERTICES))[...])
+            cell_index = np.asarray(_get_array(tile, str(AteraKeys.POLYGON_CELL_INDEX))[...])
+            relative_vertices = np.asarray(_get_array(tile, str(AteraKeys.RELATIVE_VERTICES))[...]).reshape(-1, 2)
 
             if raw_bbox is not None:
                 tile_cell_bboxes = cell_bboxes[cell_index]
@@ -661,8 +684,8 @@ def _get_pixel_size(path: Path) -> float:
     )
     if not files:
         raise FileNotFoundError(
-            f"Found neither {AteraKeys.SPECS_FILE!s} nor any morphology OME-TIFF files in {morphology_dir!s} "
-            "to read the pixel size from."
+            f"Cannot determine the pixel size: {path!s} contains neither {AteraKeys.SPECS_FILE!s} nor any "
+            f"morphology OME-TIFF files in {morphology_dir.name!s}/."
         )
     physical_size_x = from_tiff(files[0]).images[0].pixels.physical_size_x
     if physical_size_x is None:
