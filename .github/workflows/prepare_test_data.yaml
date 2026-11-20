@@ -73,6 +73,14 @@ jobs:
           curl -O https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Tiny_3prime_Dataset/Visium_HD_Tiny_3prime_Dataset_outs.zip
 
           # -------
+          # the Atera dataset is licensed as CC BY 4.0, as shown here
+          # https://www.10xgenomics.com/support/software/atera-onboard-analysis/latest/resources/example-data
+          # (synthetic dataset demonstrating the Atera Onboard Analysis v1.1 output file format; © 10x Genomics)
+
+          # 10x Genomics Atera tiny dataset
+          curl -O https://cf.10xgenomics.com/samples/atera/1.0.0/tiny_atera_dataset/tiny_atera_dataset_outs.zip
+
+          # -------
           # we received written permission to make the following dataset public and integrate it in the CI system of spatialdata-io
           # Spatial Genomics seqFISH v2
           curl -O https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip
@@ -94,7 +102,8 @@ jobs:
               unzip "$file" -d "$dir"
               rm "$file"
           done
-          # the Visium archive contains a single `spatial/` directory, extracted next to the `.h5`
+          # the Visium archive contains a single `spatial/` directory, extracted next to the `.h5`;
+          # the Atera bundle contains `morphology_2d.tar.gz` and `morphology_3d.tar.gz`, extracted in place
           for file in */*.tar.gz; do
               tar -xzf "$file" -C "$(dirname "$file")"
               rm "$file"
