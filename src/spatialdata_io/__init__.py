@@ -6,6 +6,7 @@ __version__ = version("spatialdata-io")
 
 _LAZY_IMPORTS: dict[str, str] = {
     # readers
+    "atera": "spatialdata_io.readers.atera",
     "codex": "spatialdata_io.readers.codex",
     "cosmx": "spatialdata_io.readers.cosmx",
     "curio": "spatialdata_io.readers.curio",
@@ -26,11 +27,15 @@ _LAZY_IMPORTS: dict[str, str] = {
     "geojson": "spatialdata_io.readers.generic",
     "image": "spatialdata_io.readers.generic",
     # converters
+    "atera_to_parquet": "spatialdata_io.converters.atera_to_parquet",
     "generic_to_zarr": "spatialdata_io.converters.generic_to_zarr",
+    # writers
+    "write_atera_cell_feature_matrix": "spatialdata_io.writers.atera",
 }
 
 __all__ = [
     # readers
+    "atera",
     "codex",
     "cosmx",
     "curio",
@@ -51,7 +56,10 @@ __all__ = [
     "geojson",
     "image",
     # converters
+    "atera_to_parquet",
     "generic_to_zarr",
+    # writers
+    "write_atera_cell_feature_matrix",
 ]
 
 
@@ -75,9 +83,11 @@ def __dir__() -> list[str]:
 
 if TYPE_CHECKING:
     # converters
+    from spatialdata_io.converters.atera_to_parquet import atera_to_parquet
     from spatialdata_io.converters.generic_to_zarr import generic_to_zarr
 
     # readers
+    from spatialdata_io.readers.atera import atera
     from spatialdata_io.readers.codex import codex
     from spatialdata_io.readers.cosmx import cosmx
     from spatialdata_io.readers.curio import curio
@@ -98,3 +108,6 @@ if TYPE_CHECKING:
         xenium_aligned_image,
         xenium_explorer_selection,
     )
+
+    # writers
+    from spatialdata_io.writers.atera import write_atera_cell_feature_matrix
