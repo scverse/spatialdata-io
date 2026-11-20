@@ -18,6 +18,7 @@ from spatialdata_io.readers.xenium import (
     cell_id_str_from_prefix_suffix_uint32,
     prefix_suffix_uint32_from_cell_id_str,
     xenium,
+    xenium_aligned_image,
 )
 from tests._utils import skip_if_below_python_version
 
@@ -458,8 +459,6 @@ def test_cli_xenium_valid_json_forwarded(
 @pytest.mark.parametrize("planar", [False, True])
 def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool) -> None:
     import tifffile
-
-    from spatialdata_io.readers.xenium import xenium_aligned_image
 
     rgb = np.arange(3 * 40 * 60, dtype=np.uint32).reshape(3, 40, 60).astype(np.uint8)
     path = tmp_path / "S1_he_image.ome.tif"
