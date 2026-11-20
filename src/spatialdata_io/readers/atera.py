@@ -352,6 +352,10 @@ def _add_label_id(obs_df: pd.DataFrame) -> None:
     obs_df[str(AteraKeys.LABEL_ID)] = np.arange(1, len(obs_df) + 1, dtype=np.uint32)
 
 
+# store `var` columns that the `xenium` layout renames
+_XENIUM_VAR_NAMES = {str(AteraKeys.VAR_FEATURE_TYPE): "feature_types"}
+
+
 def _xenium_var(var: pd.DataFrame) -> pd.DataFrame:
     """Lay out the store's `var` as the `xenium` reader does.
 
@@ -359,7 +363,7 @@ def _xenium_var(var: pd.DataFrame) -> pd.DataFrame:
     ``feature_types`` (the bundles index by ``feature_id`` and name the type ``feature_type``). The type values are
     already the Xenium ones (``Gene Expression``, ``Negative Control Probe``, ...).
     """
-    out = var.rename(columns={str(AteraKeys.VAR_FEATURE_TYPE): "feature_types"})
+    out = var.rename(columns=_XENIUM_VAR_NAMES)
     out["gene_ids"] = var.index.astype(str).to_numpy()
     out.index = _unique_feature_names(var[str(AteraKeys.FEATURE_NAME)])
     return out
@@ -397,8 +401,9 @@ def _assemble_tables(
     from anndata import AnnData
 
     is_gene = _is_gene(var)
-    renamed = {str(AteraKeys.VAR_FEATURE_TYPE): "feature_types"}
-    columns = list(var.columns if var_columns == "all" else [renamed.get(c, c) for c in var_columns] + ["gene_ids"])
+    columns = list(
+        var.columns if var_columns == "all" else [_XENIUM_VAR_NAMES.get(c, c) for c in var_columns] + ["gene_ids"]
+    )
     obsm = {**obsm, "spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()}
     table = _parse_table(AnnData(X=x, obs=obs, var=var.loc[is_gene, columns], obsm=obsm), region)
     ids = obs[[str(AteraKeys.CELL_ID), str(AteraKeys.LABEL_ID)]].copy()
@@ -438,9 +443,13 @@ def _get_table(
     with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
         obs, var = _read_obs_var(group)
         colors = _read_category_colors(group, AteraKeys.OBS_GROUP)
-        colors.update(
-            _read_category_colors(group, AteraKeys.VAR_GROUP, None if var_columns == "all" else list(var_columns))
-        )
+        # keyed by the column's name in `var` (`feature_types_colors`), as scanpy looks them up
+        var_colors = {
+            f"{_XENIUM_VAR_NAMES.get(k.removesuffix('_colors'), k.removesuffix('_colors'))}_colors": v
+            for k, v in _read_category_colors(
+                group, AteraKeys.VAR_GROUP, None if var_columns == "all" else list(var_columns)
+            ).items()
+        }
         obsm = (
             cast(dict[str, Any], read_elem(group[str(AteraKeys.OBSM_GROUP)]))
             if str(AteraKeys.OBSM_GROUP) in group
@@ -461,7 +470,8 @@ def _get_table(
     # genes detected per cell: the stored entries of each CSR row (its `indptr` step) minus those of the controls
     obs["n_genes"] = stored_per_row - controls.getnnz(axis=1)
     table, controls_table = _assemble_tables(x[:, is_gene], obs, var, controls, var_columns, region, obsm)
-    table.uns.update(colors)
+    table.uns.update({**colors, **var_colors})
+    controls_table.uns.update(var_colors)
     if manifest_extras is not None:
         table.uns[str(AteraKeys.UNS_MANIFEST)] = manifest_extras
     return table, controls_table, var.index.tolist()
