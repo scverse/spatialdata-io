@@ -1073,30 +1073,6 @@ def _get_morphology_focus(
     return result
 
 
-def _aligned_image_files(path: Path) -> list[tuple[str, Path, Path | None]]:
-    """The aligned images in `path` (``*he_image.ome.tif``, ``*if_image.ome.tif``), each with its alignment CSV or None.
-
-    macOS ``._`` sidecars are skipped.
-    """
-    found = []
-    for file in sorted(path.glob("*.ome.tif")):
-        for suffix in [XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX, XeniumKeys.ALIGNED_IF_IMAGE_SUFFIX]:
-            if file.name.endswith(suffix) and not file.name.startswith("._"):
-                csv = file.with_name(
-                    file.name.replace(
-                        XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_REMOVE, XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_ADD
-                    )
-                )
-                found.append(
-                    (
-                        suffix.replace(XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_REMOVE, ""),
-                        file,
-                        csv if csv.is_file() else None,
-                    )
-                )
-    return found
-
-
 def _add_aligned_images(
     path: Path,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -1104,58 +1080,59 @@ def _add_aligned_images(
 ) -> dict[str, DataTree]:
     """Discover and parse aligned images."""
     images = {}
-    for element_name, file, alignment_file in _aligned_image_files(path):
-        image = xenium_aligned_image(file, alignment_file, imread_kwargs, image_models_kwargs)
-        if alignment_file is None and element_name == "he_image":
-            # bundles with keypoints but no alignment CSV (the Atera previews): 10x's alignment CSV is the
-            # least-squares fit to the keypoints, so an affine fit to them places the image
-            affine = _affine_from_keypoints(_keypoints_file(file))
-            if affine is not None:
-                set_transformation(image, affine, "global")
-        images[element_name] = image
+    ome_tif_files = list(path.glob("*.ome.tif"))
+    csv_files = list(path.glob("*.csv"))
+    for file in ome_tif_files:
+        if file.name.startswith("._"):  # macOS sidecar files
+            continue
+        element_name = None
+        for suffix in [
+            XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX,
+            XeniumKeys.ALIGNED_IF_IMAGE_SUFFIX,
+        ]:
+            if file.name.endswith(suffix):
+                element_name = suffix.replace(XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_REMOVE, "")
+                break
+        if element_name is not None:
+            # check if an alignment file exists
+            expected_filename = file.name.replace(
+                XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_REMOVE,
+                XeniumKeys.ALIGNMENT_FILE_SUFFIX_TO_ADD,
+            )
+            alignment_files = [f for f in csv_files if f.name == expected_filename]
+            assert len(alignment_files) <= 1, f"Found more than one alignment file for {file.name}."
+            alignment_file = alignment_files[0] if alignment_files else None
+
+            # parse the image
+            image = xenium_aligned_image(file, alignment_file, imread_kwargs, image_models_kwargs)
+            if alignment_file is None and element_name == "he_image":
+                keypoints = file.with_name(file.name.removesuffix(XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX) + "keypoints.csv")
+                affine = _affine_from_keypoints(keypoints)
+                if affine is not None:
+                    set_transformation(image, affine, "global")
+            images[element_name] = image
     return images
 
 
-KEYPOINT_COLUMNS = ["fixedX", "fixedY", "alignmentX", "alignmentY"]
+def _affine_from_keypoints(kp_file: Path) -> Affine | None:
+    """Least-squares affine from Xenium Explorer keypoints (``alignmentX/Y`` -> ``fixedX/Y``), or None with a warning.
 
-
-def _keypoints_file(he_image: Path) -> Path:
-    """Xenium Explorer's ``<sample>_keypoints.csv`` for ``<sample>_he_image.ome.tif``."""
-    return he_image.with_name(he_image.name.removesuffix(XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX) + "keypoints.csv")
-
-
-def _read_keypoints(kp_file: Path) -> tuple[np.ndarray, np.ndarray] | None:
-    """The finite keypoint pairs (aligned image px, morphology px) in `kp_file`, or None if it is missing or unusable.
-
-    Xenium Explorer writes ``fixedX, fixedY`` (morphology image) and ``alignmentX, alignmentY`` (aligned image). A file
-    without these columns or with fewer than 3 finite rows is reported with a warning.
+    The alignment CSV that Xenium Explorer writes is this fit. A full affine, because a similarity fit leaves about 22 px
+    of error on scans with 0.2% anisotropy.
     """
     if not kp_file.is_file():
         return None
+    columns = ["fixedX", "fixedY", "alignmentX", "alignmentY"]
     kp = pd.read_csv(kp_file)
-    if not set(KEYPOINT_COLUMNS) <= set(kp.columns):
-        warnings.warn(f"{kp_file.name}: expected columns {KEYPOINT_COLUMNS}, found {list(kp.columns)}.", stacklevel=2)
+    if not set(columns) <= set(kp.columns):
+        warnings.warn(f"{kp_file.name}: expected columns {columns}, found {list(kp.columns)}.", stacklevel=2)
         return None
-    xy = kp[KEYPOINT_COLUMNS].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    xy = kp[columns].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
     xy = xy[np.isfinite(xy).all(axis=1)]
     if len(xy) < 3:
         warnings.warn(f"{kp_file.name}: {len(xy)} finite keypoints, at least 3 are needed.", stacklevel=2)
         return None
-    return xy[:, 2:], xy[:, :2]
-
-
-def _affine_from_keypoints(kp_file: Path) -> Affine | None:
-    """Fit the least-squares affine from the keypoints' aligned-image px onto their morphology px.
-
-    ``alignmentX/Y`` -> ``fixedX/Y``. A full affine rather than a similarity: the Atera preview scans carry about 0.2%
-    anisotropy, which leaves 22 px residuals under a similarity fit and under 8 px under an affine (the Atera preview
-    bundles). None, with a warning, if the keypoints are unusable or collinear; the image then stays unaligned.
-    """
-    keypoints = _read_keypoints(kp_file)
-    if keypoints is None:
-        return None
-    src, dst = keypoints
-    coef, _, rank, _ = np.linalg.lstsq(np.c_[src, np.ones(len(src))], dst, rcond=None)
+    coef, _, rank, _ = np.linalg.lstsq(np.c_[xy[:, 2:], np.ones(len(xy))], xy[:, :2], rcond=None)
     if rank < 3:
         warnings.warn(f"{kp_file.name}: the keypoints are collinear, so they fix no affine.", stacklevel=2)
         return None

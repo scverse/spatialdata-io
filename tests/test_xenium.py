@@ -11,9 +11,12 @@ from click.testing import CliRunner
 from pytest_mock import MockerFixture
 from spatialdata import match_table_to_element, read_zarr
 from spatialdata.models import get_table_keys
+from spatialdata.transformations import Affine, Identity, get_transformation
 
 from spatialdata_io.__main__ import xenium_wrapper
 from spatialdata_io.readers.xenium import (
+    _add_aligned_images,
+    _affine_from_keypoints,
     _cell_id_str_from_prefix_suffix_uint32_reference,
     _warn_if_scaled_protein,
     cell_id_str_from_prefix_suffix_uint32,
@@ -479,16 +482,12 @@ def _write_keypoints(path: Path, affine: np.ndarray) -> pd.DataFrame:
 
 
 def _global_affine(image: Any) -> np.ndarray:
-    from spatialdata.transformations import Affine, get_transformation
-
     t = get_transformation(image, "global")
     assert isinstance(t, Affine)
     return t.to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
 
 
 def test_aligned_he_image_is_placed_by_its_alignment_csv(tmp_path: Path) -> None:
-    from spatialdata_io.readers.xenium import _add_aligned_images
-
     _write_he(tmp_path, HE_AFFINE)
     shifted = HE_AFFINE.copy()
     shifted[0, 2] += 100.0
@@ -499,8 +498,6 @@ def test_aligned_he_image_is_placed_by_its_alignment_csv(tmp_path: Path) -> None
 
 
 def test_he_without_alignment_csv_is_placed_by_keypoints(tmp_path: Path) -> None:
-    from spatialdata_io.readers.xenium import _add_aligned_images
-
     _write_he(tmp_path, HE_AFFINE, alignment_csv=False)
     _write_keypoints(tmp_path, HE_AFFINE)
     he = _add_aligned_images(tmp_path)["he_image"]
@@ -508,8 +505,6 @@ def test_he_without_alignment_csv_is_placed_by_keypoints(tmp_path: Path) -> None
 
 
 def test_affine_from_keypoints_reproduces_an_anisotropic_alignment(tmp_path: Path) -> None:
-    from spatialdata_io.readers.xenium import _affine_from_keypoints
-
     # x and y scales differ by 0.2%, which a similarity fit can't reproduce
     affine = np.array([[0.0086, 1.2898, 914.1], [-1.2871, 0.0086, 32040.6], [0.0, 0.0, 1.0]])
     src = np.array([[16690.0, 14065.0], [22114.0, 25667.0], [13029.0, 25846.0], [16798.0, 35944.0]])
@@ -527,10 +522,6 @@ def test_affine_from_keypoints_reproduces_an_anisotropic_alignment(tmp_path: Pat
     "case", ["other_columns", "two_rows", "nan_rows", "collinear", "other_sample", "appledouble", "no_keypoints"]
 )
 def test_he_stays_unaligned_without_usable_keypoints(tmp_path: Path, case: str) -> None:
-    from spatialdata.transformations import Identity, get_transformation
-
-    from spatialdata_io.readers.xenium import _add_aligned_images
-
     _write_he(tmp_path, HE_AFFINE, alignment_csv=False)
     kp = _write_keypoints(tmp_path, HE_AFFINE)
     kp_file = tmp_path / "S1_keypoints.csv"
