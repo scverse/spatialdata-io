@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -92,3 +93,22 @@ def test_chunked_conversion_matches_unchunked(
 
     assert chunked.equals(whole)
     assert chunked["feature_name"].to_pylist() == ["GENE_A"] * 3 + ["GENE_B"] * 4 + ["GENE_A"] * 2 + ["GENE_B"] * 3
+
+
+def test_failed_conversion_keeps_the_earlier_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_atera_dataset(tmp_path, {"0,0": 4, "1,0": 4}, ["0,0", "1,0"], ids={})
+    output = atera_to_parquet(tmp_path, tmp_path / "transcripts.parquet")
+    before = output.read_bytes()
+
+    read_tile = atera_module._read_transcript_tile
+
+    def fail_on_second_tile(grid: zarr.Group, tile_key: str, *args: Any) -> pd.DataFrame:
+        if tile_key == "1,0":
+            raise OSError("disk full")
+        return read_tile(grid, tile_key, *args)
+
+    monkeypatch.setattr(atera_module, "_read_transcript_tile", fail_on_second_tile)
+    with pytest.raises(OSError, match="disk full"):
+        atera_to_parquet(tmp_path, output)
+    assert output.read_bytes() == before
+    assert not (tmp_path / "transcripts.parquet.partial").exists()

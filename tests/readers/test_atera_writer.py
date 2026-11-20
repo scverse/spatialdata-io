@@ -107,8 +107,10 @@ def test_roundtrip(tmp_path: Path, x_kind: str, chunk_size: int) -> None:
     path = write_atera_cell_feature_matrix(table, tmp_path, chunk_size=chunk_size, row_chunk_size=4)
     assert path == tmp_path / "cell_feature_matrix.zarr.zip"
 
-    back, feature_names = _get_table(tmp_path, var_columns="all")
-    assert np.array_equal(back.X.compute().toarray(), expected_x)
+    back, back_controls, feature_names = _get_table(tmp_path, var_columns="all")
+    # `atera` splits the features: Gene Expression in the table, the Negative Control Probe in `table_controls`
+    assert np.array_equal(back.X.compute().toarray(), expected_x[:, :-1])
+    assert np.array_equal(back_controls.X.toarray(), expected_x[:, -1:])
     assert feature_names == [f"G{i}" for i in range(N_VAR)]
     assert back.obs["cell_id"].tolist() == CELL_IDS.tolist()
     assert back.obs["label_id"].tolist() == list(range(1, N_OBS + 1))
@@ -118,7 +120,8 @@ def test_roundtrip(tmp_path: Path, x_kind: str, chunk_size: int) -> None:
     assert np.allclose(back.obs["cell_area"], table.obs["cell_area"])
     assert np.allclose(back.obsm["spatial"], table.obsm["spatial"])
     assert np.allclose(back.obsm["X_umap"], table.obsm["X_umap"])
-    assert back.var["feature_type"].astype(str).tolist() == table.var["feature_type"].tolist()
+    feature_types = [*back.var["feature_types"].astype(str), *back_controls.var["feature_types"].astype(str)]
+    assert feature_types == table.var["feature_type"].tolist()
     assert "de_leiden_res_1.0_c0_logfc" in read_var(tmp_path).columns
     subset = read_table_for_cells(tmp_path, cell_ids=CELL_IDS[[3, 1]])
     assert subset.obs["cell_id"].tolist() == CELL_IDS[[3, 1]].tolist()
@@ -234,13 +237,13 @@ def test_x_layer_writes_raw_counts_when_x_is_normalised(tmp_path: Path) -> None:
         write_atera_cell_feature_matrix(table, tmp_path, x_layer="nope")
 
     write_atera_cell_feature_matrix(table, tmp_path, x_layer="counts")
-    back, _ = _get_table(tmp_path, var_columns="all")
-    assert np.array_equal(back.X.compute().toarray(), counts.toarray())
+    back, _, _ = _get_table(tmp_path, var_columns="all")
+    assert np.array_equal(back.X.compute().toarray(), counts.toarray()[:, :-1])
 
 
 def test_colors_survive_a_roundtrip(tmp_path: Path) -> None:
     write_atera_cell_feature_matrix(_make_table(), tmp_path)
-    back, _ = _get_table(tmp_path, var_columns="all")
+    back, _, _ = _get_table(tmp_path, var_columns="all")
     assert back.uns["leiden_res_1.0_colors"] == ["#ff0000ff", "#00ff00ff", "#0000ffff"]
     assert "many_colors" not in back.uns
 
@@ -250,3 +253,53 @@ def test_non_integer_x_is_rejected(tmp_path: Path) -> None:
     table.X = table.X.astype(np.float32) * 0.5
     with pytest.raises(ValueError, match="integer counts"):
         write_atera_cell_feature_matrix(table, tmp_path)
+
+
+def _interleaved_table() -> ad.AnnData:
+    """`_make_table` with the features interleaved, as a bundle could store them: G0, NEG, G1, CW, G2, G3."""
+    table = _make_table()
+    types = ["Gene Expression", "Negative Control Probe", "Gene Expression", "Negative Control Codeword"]
+    table.var["feature_type"] = pd.Categorical(types + ["Gene Expression"] * 2)
+    table.uns["feature_type_colors"] = ["#111111", "#222222", "#333333"]
+    return table
+
+
+@pytest.mark.parametrize("lazy", [True, False])
+def test_atera_tables_round_trip_genes_first_then_controls(tmp_path: Path, lazy: bool) -> None:
+    source = _interleaved_table()
+    write_atera_cell_feature_matrix(source, tmp_path / "a")
+    table, controls, _ = _get_table(tmp_path / "a", var_columns="all")
+    if not lazy:
+        table.X = table.X.compute()
+    write_atera_cell_feature_matrix(SpatialData(tables={"table": table, "table_controls": controls}), tmp_path / "b")
+
+    counts = source.X.toarray()
+    genes, others = [0, 2, 4, 5], [1, 3]
+    root = _open(tmp_path / "b" / "cell_feature_matrix.zarr.zip")
+    assert dict(root.attrs)["matrix_properties"]["num_features"] == N_VAR
+    assert np.array_equal(sparse_dataset(root["X"])[:].toarray(), counts[:, genes + others])
+    var = ad.io.read_elem(root["var"])
+    assert var.index.tolist() == [f"ENS{i}" for i in genes + others]
+    assert var["feature_name"].tolist() == [f"G{i}" for i in genes + others]
+    assert (
+        var["feature_type"].astype(str).tolist() == source.var["feature_type"].astype(str).iloc[genes + others].tolist()
+    )
+    assert "gene_ids" not in var.columns and "feature_types" not in var.columns
+
+    table_back, controls_back, _ = _get_table(tmp_path / "b", var_columns="all")
+    assert table_back.var_names.tolist() == table.var_names.tolist()
+    assert controls_back.var_names.tolist() == controls.var_names.tolist()
+    assert np.array_equal(table_back.X.compute().toarray(), counts[:, genes])
+    assert np.array_equal(controls_back.X.toarray(), counts[:, others])
+    assert table_back.obs["cell_id"].tolist() == CELL_IDS.tolist()
+    # the var colors are keyed by the column `atera` names `feature_types`, and survive
+    assert table.uns["feature_types_colors"] == ["#111111ff", "#222222ff", "#333333ff"]
+    assert table_back.uns["feature_types_colors"] == table.uns["feature_types_colors"]
+
+
+def test_table_controls_with_other_cells_is_rejected(tmp_path: Path) -> None:
+    write_atera_cell_feature_matrix(_interleaved_table(), tmp_path / "a")
+    table, controls, _ = _get_table(tmp_path / "a", var_columns="all")
+    with pytest.raises(ValueError, match="same cells"):
+        write_atera_cell_feature_matrix(table, tmp_path / "b", controls_table=controls[::-1].copy())
+    assert not (tmp_path / "b").exists() or not list((tmp_path / "b").iterdir())

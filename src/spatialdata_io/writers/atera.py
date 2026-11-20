@@ -52,6 +52,7 @@ def write_atera_cell_feature_matrix(
     path: str | Path,
     *,
     table_name: str = "table",
+    controls_table: str | AnnData | None = "table_controls",
     x_layer: str | None = None,
     major_axis: Literal["cell", "feature"] = "cell",
     chunk_size: int = 1_000_000,
@@ -62,6 +63,14 @@ def write_atera_cell_feature_matrix(
 
     The table's `obs`/`var` columns are written as they are (names, order, dtypes), except for the
     columns `atera` adds on read (``label_id``, ``n_genes``, ``region``) and ``obsm["spatial"]``.
+
+    `atera` reads the Gene Expression features into ``table`` and the other features (negative control probes
+    and codewords, unassigned codewords) into ``table_controls``, with `var` in the `xenium` layout (symbols as
+    the index, ``gene_ids``, ``feature_types``). Both are written back into one matrix with the bundle's `var`
+    columns (``feature_name``, ``feature_id``, ``feature_type``): the genes first, then the controls, each in
+    its table's order. That is the bundles' own order where we checked it (the 10x tiny Atera bundle lists its
+    53 Gene Expression features first); a bundle that interleaves the two is written in a different feature order.
+    A single table with a ``feature_type`` column (the bundle's own `var` layout) is written as it is.
 
     Parameters
     ----------
@@ -74,6 +83,10 @@ def write_atera_cell_feature_matrix(
         ``cell_feature_matrix.zarr.zip``).
     table_name
         Which table of `sdata` to write.
+    controls_table
+        The table of the non-gene features to append to `table_name`'s (same cells, in the same order): its name
+        in `sdata` (skipped if `sdata` has no such table, or is an `AnnData`), or the `AnnData` itself. `None`
+        writes `table_name` alone.
     x_layer
         Write ``table.layers[x_layer]`` as ``X`` instead of ``table.X``. The bundle's ``X`` is raw integer
         counts, so use this (e.g. ``x_layer="counts"``) when ``table.X`` has been normalised in place.
@@ -96,6 +109,7 @@ def write_atera_cell_feature_matrix(
     if major_axis not in ("cell", "feature"):
         raise ValueError(f"`major_axis` must be 'cell' or 'feature', got {major_axis!r}.")
     table = sdata.tables[table_name] if isinstance(sdata, SpatialData) else sdata
+    controls = _controls_table(sdata, controls_table)
     path = Path(path)
     if path.suffix != ".zip":
         path = path / str(AteraKeys.CELL_FEATURE_MATRIX_FILE)
@@ -104,9 +118,11 @@ def write_atera_cell_feature_matrix(
     if x_layer is not None and x_layer not in table.layers:
         raise KeyError(f"`x_layer={x_layer!r}` is not in the table's layers ({list(table.layers)}).")
     x: Any = table.X if x_layer is None else table.layers[x_layer]
+    if controls is not None:
+        x = _append_controls(table, controls, x)
     obs, obs_colors = _prepare_obs(table)
-    var, var_colors = _prepare_var(table)
-    n_obs, n_var = table.shape
+    var, var_colors = _prepare_var(table, controls)
+    n_obs, n_var = table.n_obs, len(var)
     if tuple(x.shape) != (n_obs, n_var):  # pragma: no cover - AnnData enforces this
         raise ValueError("`X` shape does not match `obs`/`var`.")
 
@@ -130,7 +146,7 @@ def write_atera_cell_feature_matrix(
             )
             obsm = _embeddings(table.obsm, n_obs, "obsm")
             obsm_manifest = _write_embeddings(root, str(AteraKeys.OBSM_GROUP), obsm, chunk_size, compressor)
-            varm = _embeddings(table.varm, n_var, "varm")
+            varm = _embeddings(_varm(table, controls), n_var, "varm")
             varm_manifest = _write_embeddings(root, str(AteraKeys.VARM_GROUP), varm, chunk_size, compressor)
 
             _write_x(root, zf, x, (n_obs, n_var), major_axis, chunk_size, row_chunk_size, n_threads, compressor)
@@ -196,11 +212,15 @@ def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(columns)
 
 
-def _colors(table: AnnData, df: pd.DataFrame) -> dict[str, np.ndarray]:
+def _colors(table: AnnData, df: pd.DataFrame, sources: dict[str, str] | None = None) -> dict[str, np.ndarray]:
     colors = {}
     for column in df.columns:
         if isinstance(df[column].dtype, pd.CategoricalDtype):
-            found = _colors_for(table, str(column), len(df[column].cat.categories))
+            k = len(df[column].cat.categories)
+            source = (sources or {}).get(str(column))
+            found = _colors_for(table, source, k) if source is not None else None
+            if found is None:
+                found = _colors_for(table, str(column), k)
             if found is not None:
                 colors[str(column)] = found
     return colors
@@ -218,18 +238,66 @@ def _prepare_obs(table: AnnData) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
     return df, _colors(table, df)
 
 
-def _prepare_var(table: AnnData) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
-    var = cast(pd.DataFrame, table.var).reset_index(drop=True)
+def _controls_table(sdata: SpatialData | AnnData, controls_table: str | AnnData | None) -> AnnData | None:
+    if isinstance(controls_table, str):
+        return (
+            sdata.tables[controls_table] if isinstance(sdata, SpatialData) and controls_table in sdata.tables else None
+        )
+    return controls_table
+
+
+def _append_controls(table: AnnData, controls: AnnData, x: Any) -> Any:
+    """`x` with the controls' `X` appended as columns, after checking both tables hold the same cells in order."""
+    if not controls.obs_names.equals(table.obs_names):
+        raise ValueError("`table_controls` must hold the same cells as the table, in the same order (`obs_names`).")
+    cid = str(AteraKeys.CELL_ID)
+    if cid in controls.obs and cid in table.obs and not np.array_equal(controls.obs[cid], table.obs[cid]):
+        raise ValueError(f"`table_controls` and the table disagree on obs[{cid!r}].")
+    c: Any = controls.X
+    if isinstance(x, da.Array):
+        if not isinstance(c, da.Array):
+            c = da.from_array(sparse.csr_matrix(c), chunks=(x.chunks[0], -1), asarray=False)
+        return da.concatenate([x, c.rechunk({0: x.chunks[0]})], axis=1)
+    if isinstance(c, da.Array):
+        c = c.compute()
+    return sparse.hstack([sparse.csr_matrix(x), sparse.csr_matrix(c)], format="csr")
+
+
+# `var` columns of the `xenium` layout that `atera` reads (symbol index) -> the bundle's own column
+_BUNDLE_VAR_NAMES = {"feature_types": str(AteraKeys.VAR_FEATURE_TYPE), "gene_ids": str(AteraKeys.FEATURE_ID)}
+
+
+def _varm(table: AnnData, controls: AnnData | None) -> dict[str, Any]:
+    if controls is None:
+        return dict(table.varm)
+    if set(table.varm) != set(controls.varm):
+        raise ValueError("The table and `table_controls` must have the same `varm` keys.")
+    return {k: np.concatenate([np.asarray(table.varm[k]), np.asarray(controls.varm[k])]) for k in table.varm}
+
+
+def _prepare_var(table: AnnData, controls: AnnData | None = None) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
+    var = pd.concat([cast(pd.DataFrame, t.var) for t in (table, controls) if t is not None])
+    index = var.index.astype(str)
+    var = var.reset_index(drop=True)
+    sources = {}  # written column -> the table's column, whose `uns[f"{source}_colors"]` holds its colors
+    for column, bundle in _BUNDLE_VAR_NAMES.items():
+        if column in var.columns:
+            var = var.drop(columns=[bundle], errors="ignore").rename(columns={column: bundle})
+            sources[bundle] = column
+    if str(AteraKeys.FEATURE_NAME) not in var.columns and "feature_types" in sources.values():
+        var.insert(0, str(AteraKeys.FEATURE_NAME), index)  # the `xenium` layout's symbols
     if "feature_id" not in var.columns:
-        var.insert(0, "feature_id", table.var.index.astype(str))
+        var.insert(0, "feature_id", index)
     for required in (str(AteraKeys.FEATURE_NAME), str(AteraKeys.VAR_FEATURE_TYPE)):
         if required not in var.columns:
-            raise ValueError(f"The table's var must have a {required!r} column.")
+            raise ValueError(
+                f"The table's var must have a {required!r} column (or `feature_types`, as `atera` reads it)."
+            )
     df = _clean_columns(var)
     for name in (str(AteraKeys.VAR_FEATURE_TYPE), str(AteraKeys.VAR_GENOME)):
         if name in df.columns and not isinstance(df[name].dtype, pd.CategoricalDtype):
             df[name] = df[name].astype("category")
-    return df, _colors(table, df)
+    return df, _colors(table, df, sources)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -551,7 +619,7 @@ def _build_manifest(
         str(AteraKeys.MANIFEST_VERSION): dict(_SCHEMA_VERSION),
         str(AteraKeys.MANIFEST_MATRIX_PROPERTIES): {
             "num_cells": int(table.n_obs),
-            "num_features": int(table.n_vars),
+            "num_features": len(var_df),
             "major_axis": major_axis,
             "feature_types": feature_types,
         },

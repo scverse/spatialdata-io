@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import json
-import logging
+import warnings
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-import dask.array as da
 import numpy as np
 import pandas as pd
 import zarr
-from dask import delayed
 from scipy.sparse import csc_matrix, csr_matrix
 from spatialdata import SpatialData
-from spatialdata.models import TableModel
+from spatialdata._logging import logger
+from spatialdata.models import Image2DModel, TableModel
+from spatialdata.transformations import Affine, BaseTransformation, Identity
 
 from spatialdata_io._constants._constants import AteraKeys
 from spatialdata_io._docs import inject_docs
@@ -22,20 +22,26 @@ from spatialdata_io.readers._atera_common import (
     DEFAULT_VAR_COLUMNS,
     _cell_row_positions_in_bbox,
     _get_array,
-    _get_labels,
+    _get_group,
     _get_morphology_images,
     _get_pixel_size,
     _get_points,
     _get_polygons,
-    _patched_ragged_vlen_chunk_decode,
+    _open_zip,
+    _read_cell_ids,
+    _read_feature_names,
+    _tiled_imread,
+    _unique_feature_names,
     read_cell_boundaries,
     read_transcripts_for_genes,
 )
 from spatialdata_io.readers._utils._utils import _initialize_raster_models_kwargs, _set_reader_metadata
+from spatialdata_io.readers.xenium import _affine_from_keypoints, _get_labels
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    import dask.array as da
     from anndata import AnnData
     from xarray import DataArray, DataTree
 
@@ -52,9 +58,6 @@ __all__ = [
 # `anndata`'s own zarr reading functions (`anndata.io.read_elem`/`anndata.io.sparse_dataset`). This
 # only works on bundles whose zarr stores carry the standard AnnData `encoding-type`/
 # `encoding-version`/`shape` attrs.
-#
-# Every non-table element (labels/shapes/points/morphology images) lives in `_atera_common.py`
-# rather than duplicated here.
 
 
 @inject_docs(xx=AteraKeys)
@@ -69,6 +72,7 @@ def atera(
     transcripts: bool = False,
     morphology_images: bool = True,
     morphology_3d_images: bool = False,
+    aligned_images: bool = True,
     var_columns: list[str] | Literal["all"] = DEFAULT_VAR_COLUMNS,
     table_row_chunk_size: int = DEFAULT_TABLE_ROW_CHUNK_SIZE,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
@@ -98,7 +102,10 @@ def atera(
     path
         Path to the dataset.
     cells_table
-        Whether to read the cell annotations in the `AnnData` table.
+        Whether to read the cell annotations in the `AnnData` table. As in `xenium`, `X` and `var` hold the Gene
+        Expression features. The counts of the other features (negative control probes and codewords, unassigned
+        codewords) go to a second table, ``table_controls``, with the same cells, `obs` index and annotation,
+        a sparse `X` and those features in `var`.
     cells_boundaries
         Whether to read cell boundaries (polygons).
     nucleus_boundaries
@@ -115,6 +122,12 @@ def atera(
     morphology_3d_images
         Whether to read the 3D morphology images. This is opt-in and defaults to `False` because these images
         can be very large.
+    aligned_images
+        Whether to read the post-run images aligned to the morphology images (``<sample>_he_image.ome.tif`` /
+        ``<sample>_if_image.ome.tif`` in the bundle root), placed with their ``*imagealignment.csv`` affine. A
+        warning is logged if that affine does not map ``<sample>_keypoints.csv`` onto itself. An H&E without an
+        alignment CSV is placed by an affine fit to its keypoints, or left unaligned (with a warning) if they are
+        unusable.
     var_columns
         Which columns of `var` to keep, out of the full table (which includes ~135 per-cluster
         differential-expression columns). Defaults to a small subset (`{xx.FEATURE_NAME!r}`,
@@ -126,9 +139,9 @@ def atera(
         Larger values mean fewer, larger `dask` tasks (faster, but more peak memory per chunk);
         smaller values mean more, smaller ones.
     imread_kwargs
-        Keyword arguments passed to `tifffile.TiffFile` when reading the morphology images (see
-        `_tiled_imread`); the images are read tile-by-tile off `tifffile`'s own `zarr` store rather
-        than via `dask_image.imread.imread`, so this only accepts `TiffFile` constructor kwargs.
+        Keyword arguments passed to `tifffile.TiffFile` when reading the morphology and aligned images (see
+        `_tiled_imread`). The images are read one tile per `dask` task rather than with `dask_image.imread.imread`,
+        so this only accepts `TiffFile` constructor kwargs.
     image_models_kwargs
         Keyword arguments to pass to the image models.
     labels_models_kwargs
@@ -150,34 +163,21 @@ def atera(
 
     pixel_size = _get_pixel_size(path)
 
-    needs_cells_zarr = cells_boundaries or nucleus_boundaries or cells_labels or nucleus_labels
-    if not cells_table and (needs_cells_zarr or transcripts):
-        logging.info("Reading the table is required for the requested elements; setting cells_table=True.")
-        cells_table = True
-
-    # Prefer `cell_labels` as the table's annotation target (matching the `xenium` reader's
-    # convention; instance ids are `obs["label_id"]`), but fall back to `cell_boundaries` (instance ids
-    # are `obs["cell_id"]`) when labels aren't being loaded, so the table doesn't end up annotating an
-    # element that isn't actually present in `sdata`.
-    default_region = "cell_labels" if cells_labels else "cell_boundaries" if cells_boundaries else "cell_labels"
-
-    table: AnnData | None = None
-    feature_names: list[str] | None = None
+    # The table annotates `cell_labels` (instance ids `obs["label_id"]`, as in `xenium`), else `cell_boundaries`
+    # (`obs["cell_id"]`), else nothing: the nucleus elements are numbered per nucleus, not per cell.
+    region = "cell_labels" if cells_labels else "cell_boundaries" if cells_boundaries else None
+    tables: dict[str, AnnData] = {}
     if cells_table:
-        table, feature_names = _get_table(
-            path, var_columns=var_columns, row_chunk_size=table_row_chunk_size, region=default_region
-        )
+        tables["table"], tables["table_controls"], _ = _get_table(path, var_columns, table_row_chunk_size, region)
 
     shapes: dict[str, Any] = {}
     labels: dict[str, DataArray | DataTree] = {}
     points: dict[str, Any] = {}
     images: dict[str, DataArray | DataTree] = {}
 
-    if needs_cells_zarr:
-        cells_store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
-        cells_group = zarr.open_group(cells_store, mode="r")
-
-        cell_ids = table.obs[str(AteraKeys.CELL_ID)].to_numpy() if table is not None else None
+    if cells_boundaries or nucleus_boundaries or cells_labels or nucleus_labels:
+        cells_group = zarr.open_group(zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True), mode="r")
+        cell_ids = _read_cell_ids(path)
 
         if nucleus_labels:
             labels["nucleus_labels"] = _get_labels(cells_group, mask_index=0, labels_models_kwargs=labels_models_kwargs)
@@ -193,57 +193,99 @@ def atera(
             )
 
     if transcripts:
-        if feature_names is None:
-            raise ValueError("Reading transcripts requires `cells_table=True` (to map gene indices to names).")
-        points["transcripts"] = _get_points(path, pixel_size, feature_names)
+        points["transcripts"] = _get_points(path, pixel_size, _read_feature_names(path))
 
     if morphology_images:
         images["morphology"] = _get_morphology_images(
             path / AteraKeys.MORPHOLOGY_2D_DIR, imread_kwargs, image_models_kwargs
         )
     if morphology_3d_images:
+        # (c, z, y, x): the 3-tuple default chunks gain one z plane per chunk, and z is not downsampled
+        kwargs_3d = dict(image_models_kwargs)
+        if isinstance(chunks := kwargs_3d.get("chunks"), tuple | list) and len(chunks) == 3:
+            kwargs_3d["chunks"] = (chunks[0], 1, *chunks[1:])
+        kwargs_3d["scale_factors"] = [
+            f if isinstance(f, dict) else {"z": 1, "y": f, "x": f} for f in kwargs_3d.get("scale_factors") or []
+        ]
         images["morphology_3d"] = _get_morphology_images(
-            path / AteraKeys.MORPHOLOGY_3D_DIR, imread_kwargs, image_models_kwargs, three_d=True
+            path / AteraKeys.MORPHOLOGY_3D_DIR, imread_kwargs, kwargs_3d, three_d=True
         )
 
-    tables = {"table": table} if table is not None else {}
+    if aligned_images:
+        images |= _get_aligned_images(path, imread_kwargs, image_models_kwargs)
+
     sdata = SpatialData(images=images, labels=labels, points=points, tables=tables, shapes=shapes)
     sdata = _set_reader_metadata(sdata, "atera")
     sdata.attrs[str(AteraKeys.PIXEL_SIZE)] = pixel_size
     return sdata
 
 
-def _read_x_chunk(zarr_path: Path, zarr_key: AteraKeys, start: int, stop: int) -> csr_matrix:
-    """Read one contiguous row-range of `X` via `anndata.io.sparse_dataset`'s own row slicing.
+KEYPOINTS_MAX_RESIDUAL_PX = 10.0
 
-    Opens its own zip store (rather than sharing one across chunks) so this function can safely be
-    called from independent `dask` tasks.
+
+def _get_aligned_images(
+    path: Path, imread_kwargs: Mapping[str, Any], image_models_kwargs: Mapping[str, Any]
+) -> dict[str, DataArray | DataTree]:
+    """The post-run H&E and IF images, read like the morphology images, in the global (morphology px) system.
+
+    Each is placed by its alignment CSV or, for an H&E without one, by an affine fit to its keypoints (as in `xenium`).
     """
-    from anndata.io import sparse_dataset
+    images = {}
+    for file in sorted(path.glob("*.ome.tif")):
+        name = next((n for n in ["he_image", "if_image"] if file.name.endswith(f"{n}.ome.tif")), None)
+        if name is None or file.name.startswith("._"):  # macOS sidecars
+            continue
+        alignment_file = file.with_name(file.name.replace(".ome.tif", "alignment.csv"))
+        kp_file = file.with_name(file.name.removesuffix("he_image.ome.tif") + "keypoints.csv")
+        image, dims = _tiled_imread(file, imread_kwargs)
+        transformation: BaseTransformation = Identity()
+        if alignment_file.is_file():
+            affine = pd.read_csv(alignment_file, header=None).to_numpy(dtype=float)
+            transformation = Affine(affine, input_axes=("x", "y"), output_axes=("x", "y"))
+            if name == "he_image":
+                _check_keypoints(alignment_file, kp_file)
+        elif name == "he_image":
+            transformation = _affine_from_keypoints(kp_file) or transformation
+        if "c" not in dims:
+            image, dims = image[None], ("c", *dims)
+        n_channels = image.shape[dims.index("c")]
+        images[name] = Image2DModel.parse(
+            image,
+            dims=dims,
+            c_coords=["r", "g", "b", "a"][:n_channels] if name == "he_image" and n_channels in [3, 4] else None,
+            transformations={"global": transformation},
+            **image_models_kwargs,
+        )
+    return images
 
-    store = zarr.storage.ZipStore(zarr_path / zarr_key, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        return cast(csr_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[start:stop])
-    finally:
-        store.close()
 
-
-def _lazy_x(
-    zarr_path: Path, zarr_key: AteraKeys, n_obs: int, n_var: int, dtype: np.dtype, row_chunk_size: int
-) -> da.Array:
-    """Build a `dask`-backed `n_obs x n_var` CSR array, delegating each chunk's read to `sparse_dataset`."""
-    meta = csr_matrix((0, n_var), dtype=dtype)
-    blocks = []
-    for start in range(0, n_obs, row_chunk_size):
-        stop = min(start + row_chunk_size, n_obs)
-        block = delayed(_read_x_chunk)(zarr_path, AteraKeys.CELL_FEATURE_MATRIX_FILE, start, stop)
-        blocks.append(da.from_delayed(block, shape=(stop - start, n_var), dtype=dtype, meta=meta))
-    return da.concatenate(blocks, axis=0)
+def _check_keypoints(alignment_file: Path, kp_file: Path) -> float | None:
+    """Warn when the alignment affine does not map the keypoints onto each other; return the median residual (px)."""
+    if not kp_file.is_file():
+        return None
+    columns = ["fixedX", "fixedY", "alignmentX", "alignmentY"]
+    kp = pd.read_csv(kp_file)
+    if not set(columns) <= set(kp.columns):
+        warnings.warn(f"{kp_file.name}: expected columns {columns}, found {list(kp.columns)}.", stacklevel=2)
+        return None
+    xy = kp[columns].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    xy = xy[np.isfinite(xy).all(axis=1)]
+    if len(xy) < 3:
+        warnings.warn(f"{kp_file.name}: {len(xy)} finite keypoints, at least 3 are needed.", stacklevel=2)
+        return None
+    affine = pd.read_csv(alignment_file, header=None).to_numpy(dtype=float)
+    src, dst = xy[:, 2:], xy[:, :2]
+    median = float(np.median(np.linalg.norm((np.c_[src, np.ones(len(src))] @ affine.T)[:, :2] - dst, axis=1)))
+    if median > KEYPOINTS_MAX_RESIDUAL_PX:
+        logger.warning(
+            f"{alignment_file.name} maps {kp_file.name} with a median residual of {median:.1f} px "
+            f"(> {KEYPOINTS_MAX_RESIDUAL_PX}); the aligned image may be misplaced."
+        )
+    return median
 
 
 def _align_index_column(df: pd.DataFrame) -> pd.DataFrame:
-    """Make a column that shares the index's name have the index's dtype.
+    """Make a column that shares the index's name have the index's dtype, and leave the index unnamed.
 
     The bundles' `obs`/`var` list the index (`barcode`/`feature_id`) as a column too. Under pandas 3,
     `read_elem` returns that index as `str` but the column as `object`, and `anndata` refuses to write
@@ -253,6 +295,9 @@ def _align_index_column(df: pd.DataFrame) -> pd.DataFrame:
     name = df.index.name
     if name is not None and name in df.columns:
         df[name] = df[name].astype(df.index.dtype)
+        # the column keeps the values; an index of the same name breaks `obs.reset_index()`, which spatialdata's
+        # table joins call (spatialdata 0.8.0 _core/query/relational_query.py:259): "cannot insert barcode"
+        df.index.name = None
     return df
 
 
@@ -306,11 +351,72 @@ def _add_label_id(obs_df: pd.DataFrame) -> None:
     obs_df[str(AteraKeys.LABEL_ID)] = np.arange(1, len(obs_df) + 1, dtype=np.uint32)
 
 
-def _parse_table(adata: AnnData, region: str) -> AnnData:
-    """Annotate `region` with `adata`, using whichever `obs` column holds that element's instance ids.
+# store `var` columns that the `xenium` layout renames
+_XENIUM_VAR_NAMES = {str(AteraKeys.VAR_FEATURE_TYPE): "feature_types"}
+
+
+def _xenium_var(var: pd.DataFrame) -> pd.DataFrame:
+    """Lay out the store's `var` as the `xenium` reader does.
+
+    Gene symbols are the index (made unique with a suffix), Ensembl ids go to ``gene_ids`` and the feature type to
+    ``feature_types`` (the bundles index by ``feature_id`` and name the type ``feature_type``). The type values are
+    already the Xenium ones (``Gene Expression``, ``Negative Control Probe``, ...).
+    """
+    out = var.rename(columns=_XENIUM_VAR_NAMES)
+    out["gene_ids"] = var.index.astype(str).to_numpy()
+    out.index = _unique_feature_names(var[str(AteraKeys.FEATURE_NAME)])
+    return out
+
+
+def _is_gene(var: pd.DataFrame) -> np.ndarray:
+    """Which features are ``Gene Expression``, the only ones `xenium` keeps in `X` by default (``gex_only=True``)."""
+    if "feature_types" not in var.columns:
+        return np.ones(len(var), dtype=bool)
+    return (var["feature_types"] == "Gene Expression").to_numpy()
+
+
+def _read_obs_var(group: zarr.Group) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """`obs` with ``label_id`` and the full `var` in the `xenium` layout, in store order."""
+    obs = _read_dataframe(group, AteraKeys.OBS_GROUP)
+    _add_label_id(obs)
+    return obs, _xenium_var(_read_dataframe(group, AteraKeys.VAR_GROUP))
+
+
+def _assemble_tables(
+    x: Any,
+    obs: pd.DataFrame,
+    var: pd.DataFrame,
+    controls: csr_matrix | csc_matrix,
+    var_columns: list[str] | Literal["all"],
+    region: str | None,
+    obsm: Mapping[str, Any] = MappingProxyType({}),
+) -> tuple[AnnData, AnnData]:
+    """The Gene Expression table and the ``table_controls`` table of all other features, for the same cells.
+
+    The other features are the negative control probes and codewords and the unassigned codewords, so `X` and
+    ``n_genes`` of the first table count genes only. The second has a sparse `X` (CSR, as stored), the same `obs`
+    index and instance id columns, and annotates the same element. `var_columns` name the store's columns.
+    """
+    from anndata import AnnData
+
+    is_gene = _is_gene(var)
+    columns = list(
+        var.columns if var_columns == "all" else [_XENIUM_VAR_NAMES.get(c, c) for c in var_columns] + ["gene_ids"]
+    )
+    obsm = {**obsm, "spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()}
+    table = _parse_table(AnnData(X=x, obs=obs, var=var.loc[is_gene, columns], obsm=obsm), region)
+    ids = obs[[str(AteraKeys.CELL_ID), str(AteraKeys.LABEL_ID)]].copy()
+    controls_table = AnnData(X=csr_matrix(controls), obs=ids, var=var.loc[~is_gene, columns])
+    return table, _parse_table(controls_table, region)
+
+
+def _parse_table(adata: AnnData, region: str | None) -> AnnData:
+    """Annotate `region` (if any) with `adata`, using whichever `obs` column holds that element's instance ids.
 
     ``cell_labels`` raster values are ``label_id``; ``cell_boundaries`` shapes are indexed by ``cell_id``.
     """
+    if region is None or adata.n_obs == 0:  # spatialdata rejects an empty annotating table ("Regions ... do not match")
+        return TableModel.parse(adata)
     instance_key = AteraKeys.LABEL_ID if region == "cell_labels" else AteraKeys.CELL_ID
     adata.obs["region"] = pd.Categorical([region] * adata.n_obs)
     return TableModel.parse(adata, region=region, region_key="region", instance_key=str(instance_key))
@@ -320,66 +426,54 @@ def _get_table(
     path: Path,
     var_columns: list[str] | Literal["all"] = DEFAULT_VAR_COLUMNS,
     row_chunk_size: int = DEFAULT_TABLE_ROW_CHUNK_SIZE,
-    region: str = "cell_labels",
-) -> tuple[AnnData, list[str]]:
-    """Read ``cell_feature_matrix.zarr.zip`` into an AnnData table using native `anndata` zarr IO.
+    region: str | None = "cell_labels",
+) -> tuple[AnnData, AnnData, list[str]]:
+    """Read ``cell_feature_matrix.zarr.zip`` into the gene table and the ``table_controls`` table using native `anndata` zarr IO.
 
     `obs`/`var`/`obsm` are read with `anndata.io.read_elem` (which also means `obs`/`var` come back
     indexed by whichever column the store's ``_index`` attr names -- e.g. `barcode`/`feature_id`).
-    `X` is built as a lazily `dask`-backed array in row chunks (see `_lazy_x`), each chunk read via
-    `anndata.io.sparse_dataset` rather than manual `indptr` arithmetic.
+    `X` is a lazy `dask` array of `row_chunk_size`-row CSR chunks (`anndata.experimental.read_elem_lazy`).
 
-    `region` should be the name of a `SpatialElement` that will actually be present in the
-    `SpatialData` object the table is assembled into (see the ``default_region`` logic in
-    `atera`), so the table doesn't end up annotating an element that was never loaded.
+    `region` is the element the table annotates; it must be read too (see `atera`). None annotates nothing.
     """
-    from anndata import AnnData
+    from anndata.experimental import read_elem_lazy
     from anndata.io import read_elem, sparse_dataset
 
-    store = zarr.storage.ZipStore(path / AteraKeys.CELL_FEATURE_MATRIX_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-
-        with _patched_ragged_vlen_chunk_decode():
-            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-            feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
-            if var_columns != "all":
-                var_df = var_df[list(var_columns)]
-            colors = _read_category_colors(group, AteraKeys.OBS_GROUP)
-            colors.update(_read_category_colors(group, AteraKeys.VAR_GROUP, list(var_df.columns)))
-
-            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-            _add_label_id(obs_df)
-
-            obsm = (
-                cast(dict[str, Any], read_elem(group[str(AteraKeys.OBSM_GROUP)]))
-                if str(AteraKeys.OBSM_GROUP) in group
-                else {}
-            )
-
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
+        obs, var = _read_obs_var(group)
+        colors = _read_category_colors(group, AteraKeys.OBS_GROUP)
+        # keyed by the column's name in `var` (`feature_types_colors`), as scanpy looks them up
+        var_colors = {
+            f"{_XENIUM_VAR_NAMES.get(k.removesuffix('_colors'), k.removesuffix('_colors'))}_colors": v
+            for k, v in _read_category_colors(
+                group, AteraKeys.VAR_GROUP, None if var_columns == "all" else list(var_columns)
+            ).items()
+        }
+        obsm = (
+            cast(dict[str, Any], read_elem(group[str(AteraKeys.OBSM_GROUP)]))
+            if str(AteraKeys.OBSM_GROUP) in group
+            else {}
+        )
         manifest_extras = _read_manifest_extras(group)
-        x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
-        n_obs, n_var = x_ds.shape
-        dtype = x_ds.dtype
-        # Genes detected per cell is the number of stored entries per row of the CSR matrix, which `indptr`
-        # already encodes; this avoids a full pass over the (lazy) counts.
-        n_genes = np.diff(_get_array(group, f"{AteraKeys.X_GROUP}/indptr")[:]) if x_ds.format == "csr" else None
-    finally:
-        store.close()
-
-    x = _lazy_x(path, AteraKeys.CELL_FEATURE_MATRIX_FILE, n_obs, n_var, dtype, row_chunk_size)
-
-    if n_genes is not None:
-        obs_df["n_genes"] = n_genes
-
-    adata = AnnData(X=x, obs=obs_df, var=var_df, obsm=obsm)
-    adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
-        [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
-    ].to_numpy()
-    adata.uns.update(colors)
+        # the graph keeps the store, which reopens on first use (also after pickling)
+        x_group = _get_group(group, str(AteraKeys.X_GROUP))
+        x = cast("da.Array", read_elem_lazy(x_group, chunks=(row_chunk_size, -1)))
+        stored_per_row = np.diff(_get_array(x_group, "indptr")[:])
+    is_gene = _is_gene(var)
+    controls: csr_matrix | csc_matrix
+    if (path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE).is_file():  # column reads are cheap in the CSC copy
+        with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
+            controls = cast(csc_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[:, np.flatnonzero(~is_gene)])
+    else:
+        controls = cast(csr_matrix, x[:, ~is_gene].compute())
+    # genes detected per cell: the stored entries of each CSR row (its `indptr` step) minus those of the controls
+    obs["n_genes"] = stored_per_row - controls.getnnz(axis=1)
+    table, controls_table = _assemble_tables(x[:, is_gene], obs, var, controls, var_columns, region, obsm)
+    table.uns.update({**colors, **var_colors})
+    controls_table.uns.update(var_colors)
     if manifest_extras is not None:
-        adata.uns[str(AteraKeys.UNS_MANIFEST)] = manifest_extras
-    return _parse_table(adata, region), feature_names
+        table.uns[str(AteraKeys.UNS_MANIFEST)] = manifest_extras
+    return table, controls_table, var.index.tolist()
 
 
 def read_var(path: str | Path) -> pd.DataFrame:
@@ -388,8 +482,8 @@ def read_var(path: str | Path) -> pd.DataFrame:
     Includes the ~135 per-cluster differential-expression columns that `atera` drops by default
     (see `var_columns` on `atera`) to avoid holding that wider table in memory.
 
-    Use this to build your own `var`/`AnnData` with whichever columns you need, e.g.
-    ``sdata.tables["table"].var = read_var(path)[["feature_name", "de_leiden_res_1.0_c0_score"]]``.
+    It has the same index as the table's `var` (gene symbols), plus the non-gene features, so columns can be added
+    by name, e.g. ``table.var["score"] = read_var(path)["de_leiden_res_1.0_c0_score"]``.
 
     Parameters
     ----------
@@ -398,17 +492,10 @@ def read_var(path: str | Path) -> pd.DataFrame:
 
     Returns
     -------
-    The complete `var` `DataFrame`, indexed by `feature_id`.
+    The complete `var` `DataFrame` of every feature, in the `xenium` layout (see `atera`).
     """
-    path = Path(path)
-    store = zarr.storage.ZipStore(path / AteraKeys.CELL_FEATURE_MATRIX_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        with _patched_ragged_vlen_chunk_decode():
-            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-    finally:
-        store.close()
-    return var_df
+    with _open_zip(Path(path) / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
+        return _xenium_var(_read_dataframe(group, AteraKeys.VAR_GROUP))
 
 
 def read_table_for_cells(
@@ -419,8 +506,8 @@ def read_table_for_cells(
 ) -> AnnData:
     """Read the cell-by-gene table for only a subset of cells, without loading the full `X`.
 
-    Unlike ``atera(path, cells_table=True)``, which eagerly builds the whole `X`, this reads only
-    the requested rows directly off `anndata.io.sparse_dataset`'s own fancy-indexing support
+    Unlike ``atera(path, cells_table=True)``, whose `X` is lazy over every cell, this reads only
+    the requested rows, in memory, directly off `anndata.io.sparse_dataset`'s own fancy-indexing support
     (``x_ds[row_positions]``), which already handles arbitrary/unsorted row selections internally.
 
     Exactly one of `cell_ids`/`bbox` must be given.
@@ -441,45 +528,28 @@ def read_table_for_cells(
 
     Returns
     -------
-    An `AnnData` `TableModel` with only the requested cells.
+    An `AnnData` `TableModel` with only the requested cells and the Gene Expression features.
     """
     if (cell_ids is None) == (bbox is None):
         raise ValueError("Exactly one of `cell_ids`/`bbox` must be given.")
-    from anndata import AnnData
     from anndata.io import sparse_dataset
 
     path = Path(path)
-    store = zarr.storage.ZipStore(path / AteraKeys.CELL_FEATURE_MATRIX_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        with _patched_ragged_vlen_chunk_decode():
-            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)
-            if var_columns != "all":
-                var_df = var_df[list(var_columns)]
-            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-            _add_label_id(obs_df)
-
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
+        obs, var = _read_obs_var(group)
         if cell_ids is not None:
-            index = pd.Index(obs_df[str(AteraKeys.CELL_ID)].to_numpy())
-            row_positions = index.get_indexer(pd.Index(np.asarray(cell_ids)))
+            row_positions = pd.Index(obs[str(AteraKeys.CELL_ID)].to_numpy()).get_indexer(pd.Index(np.asarray(cell_ids)))
             missing = np.asarray(cell_ids)[row_positions == -1]
             if missing.size:
                 raise ValueError(f"cell_id(s) not found in {AteraKeys.CELL_FEATURE_MATRIX_FILE!s}: {missing.tolist()}")
         else:
             assert bbox is not None
             row_positions = _cell_row_positions_in_bbox(path, bbox)
-
-        x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
-        x = cast(csr_matrix, x_ds[row_positions])
-        obs_subset = obs_df.iloc[row_positions]
-    finally:
-        store.close()
-
-    adata = AnnData(X=x, obs=obs_subset, var=var_df)
-    adata.obsm["spatial"] = cast(pd.DataFrame, adata.obs)[
-        [str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]
-    ].to_numpy()
-    return _parse_table(adata, "cell_labels")
+        x = cast(csr_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[row_positions])
+    obs = obs.iloc[row_positions].copy()
+    is_gene = _is_gene(var)
+    obs["n_genes"] = x[:, is_gene].getnnz(axis=1)
+    return _assemble_tables(x[:, is_gene], obs, var, x[:, ~is_gene], var_columns, "cell_labels")[0]
 
 
 def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnData:
@@ -509,34 +579,14 @@ def read_table_for_genes(path: str | Path, genes: str | Sequence[str]) -> AnnDat
 
     genes = [genes] if isinstance(genes, str) else list(genes)
     path = Path(path)
-    store = zarr.storage.ZipStore(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-
-        with _patched_ragged_vlen_chunk_decode():
-            var_df = _read_dataframe(group, AteraKeys.VAR_GROUP)[
-                [str(AteraKeys.FEATURE_ID), str(AteraKeys.FEATURE_NAME)]
-            ]
-            feature_names = var_df[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
-            index = pd.Index(feature_names)
-            col_positions = index.get_indexer(pd.Index(np.asarray(genes)))
-            missing = np.asarray(genes)[col_positions == -1]
-            if missing.size:
-                raise ValueError(
-                    f"gene(s) not found in {AteraKeys.VAR_GROUP!s}.{AteraKeys.FEATURE_NAME!s}: {missing.tolist()}"
-                )
-
-            var_subset = var_df.iloc[col_positions]
-            var_subset.index = pd.Index(np.asarray(genes), name=str(AteraKeys.FEATURE_NAME))
-            _align_index_column(var_subset)
-
-            obs_df = _read_dataframe(group, AteraKeys.OBS_GROUP)
-            _add_label_id(obs_df)
-
-        x_ds = sparse_dataset(group[str(AteraKeys.X_GROUP)])
-        x: csc_matrix = cast(csc_matrix, x_ds[:, col_positions])
-    finally:
-        store.close()
-
-    adata = AnnData(X=x, obs=obs_df, var=var_subset)
-    return _parse_table(adata, "cell_labels")
+    with _open_zip(path / AteraKeys.CSC_CELL_FEATURE_MATRIX_FILE) as group:
+        obs, var = _read_obs_var(group)
+        col_positions = var.index.get_indexer(pd.Index(genes))
+        missing = np.asarray(genes)[col_positions == -1]
+        if missing.size:
+            raise ValueError(
+                f"gene(s) not found in {AteraKeys.VAR_GROUP!s}.{AteraKeys.FEATURE_NAME!s}: {missing.tolist()}"
+            )
+        x = cast(csc_matrix, sparse_dataset(group[str(AteraKeys.X_GROUP)])[:, col_positions])
+    obsm: dict[str, Any] = {"spatial": obs[[str(AteraKeys.CENTROID_X), str(AteraKeys.CENTROID_Y)]].to_numpy()}
+    return _parse_table(AnnData(X=x, obs=obs, var=var.iloc[col_positions], obsm=obsm), "cell_labels")

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import re
@@ -17,23 +16,27 @@ from dask import delayed
 from geopandas import GeoDataFrame
 from shapely import GeometryType, from_ragged_array
 from spatialdata import SpatialData
+from spatialdata._logging import logger
 from spatialdata.models import (
     Image2DModel,
     Image3DModel,
-    Labels2DModel,
     PointsModel,
     ShapesModel,
 )
-from spatialdata.transformations import set_transformation
 from spatialdata.transformations.transformations import Identity, Scale
 from xarray import DataTree
 
 from spatialdata_io._constants._constants import AteraKeys
+from spatialdata_io.readers._utils._utils import parse_physical_size
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Iterator, Mapping, Sequence
 
+    from numpy.typing import ArrayLike
     from xarray import DataArray
+    from zarr.abc.buffer import Buffer
+    from zarr.abc.store import ByteRequest
+    from zarr.core.buffer import BufferPrototype
 
 
 # `zarr.Group.get_array` / `zarr.Group.get_group` (typed lookups that raise on a missing node or on the
@@ -75,98 +78,82 @@ DEFAULT_TABLE_ROW_CHUNK_SIZE = 50_000
 # Max transcripts per `dask` partition / `atera_to_parquet` batch (~130 MB of decoded columns).
 DEFAULT_TRANSCRIPT_CHUNK_ROWS = 5_000_000
 
-_UINT32_SENTINEL = np.iinfo(np.uint32).max
+
+class _PadRaggedVlenStore(zarr.storage.WrapperStore[zarr.storage.ZipStore]):
+    """Pad the short trailing chunk of a 1-D ``vlen-utf8`` zarr v2 array to the nominal chunk size.
+
+    10x writes the last chunk of the `obs`/`var` string columns (e.g. `barcode`, chunks of 1,000,000) with only the
+    items it holds. zarr decodes every v2 chunk at the nominal size and raises "cannot reshape array of size 376951
+    into shape (1000000,)"; zarr's own writer pads that chunk. Only a trailing chunk that holds exactly the remaining
+    items is padded; any other chunk is passed on unchanged, so zarr still raises on a corrupt one.
+    """
+
+    async def get(self, key: str, prototype: BufferPrototype, byte_range: ByteRequest | None = None) -> Buffer | None:
+        buf = await super().get(key, prototype, byte_range)
+        parent, _, name = key.rpartition("/")
+        if buf is None or byte_range is not None or not name.isdigit():
+            return buf
+        meta_buf = await super().get(f"{parent}/.zarray" if parent else ".zarray", prototype)
+        meta = json.loads(meta_buf.to_bytes()) if meta_buf is not None else {}
+        if len(meta.get("shape", ())) != 1 or [f["id"] for f in meta.get("filters") or []] != ["vlen-utf8"]:
+            return buf
+        (size,), (chunk,) = meta["shape"], meta["chunks"]
+        n_items = size - int(name) * chunk
+        if not 0 < n_items < chunk:
+            return buf
+        from numcodecs import VLenUTF8, get_codec
+
+        compressor = get_codec(meta["compressor"]) if meta.get("compressor") else None
+        raw = buf.to_bytes()
+        items = VLenUTF8().decode(compressor.decode(raw) if compressor else raw)
+        if len(items) != n_items:
+            return buf
+        padded = np.full(chunk, meta.get("fill_value") or "", dtype=object)
+        padded[:n_items] = items
+        encoded = VLenUTF8().encode(padded)
+        return prototype.buffer.from_bytes(compressor.encode(encoded) if compressor else encoded)
 
 
 @contextlib.contextmanager
-def _patched_ragged_vlen_chunk_decode() -> Iterator[None]:
-    """Work around ``zarr``'s `V2Codec` failing to decode a vlen (string) array's ragged trailing chunk.
+def _open_zip(path: Path) -> Iterator[zarr.Group]:
+    """Open a zipped zarr store read-only (see `_PadRaggedVlenStore`)."""
+    with zarr.storage.ZipStore(path, read_only=True) as store:
+        yield zarr.open_group(_PadRaggedVlenStore(store), mode="r")
 
-    `obs`/`var`'s string columns (e.g. `barcode`) are stored as 1-D zarr v2 arrays with a fixed
-    chunk size chosen independently of the row count (e.g. `1_000_000`), so the trailing chunk is
-    usually smaller than that nominal size. For fixed-width dtypes this is harmless: `zarr` pads an
-    incomplete edge chunk to the full chunk shape (with the fill value) before compression, so it
-    always decodes back to the full nominal size. Variable-length (`vlen-utf8`/`StringDType`)
-    chunks aren't padded this way -- only the elements actually written are stored -- but
-    `V2Codec._decode_single` unconditionally reshapes the decoded chunk to the nominal chunk shape
-    regardless of dtype, so reading across that trailing chunk raises e.g. ``ValueError: cannot
-    reshape array of size 376951 into shape (1000000,)``. Reproduced against `zarr` 3.1.6 and
-    3.4.0 (the latest release as of writing); no matching issue found upstream yet.
 
-    This patches `V2Codec._decode_single` (the abstract-method entry point present on every
-    `zarr` 3.x release, unlike the private `_decode_sync`/`_decode_single` split introduced partway
-    through the 3.x series) for the duration of the context, falling back to the chunk's actual
-    (smaller) size instead of raising, only for the 1-D case this affects; any other reshape failure
-    (e.g. a genuinely corrupt chunk, or a ragged chunk in more than one dimension) is still raised.
-    """
-    try:
-        from numcodecs.compat import ensure_ndarray_like
-        from zarr.codecs._v2 import V2Codec
-        from zarr.registry import get_ndbuffer_class
-    except ImportError:
-        # `zarr`'s internal layout changed enough that this patch no longer applies; read without
-        # it rather than fail outright (bundles without a ragged vlen chunk are unaffected either way).
-        yield
-        return
+def _unique_feature_names(names: Any) -> pd.Index:
+    """Feature names made unique as anndata does (``G``, ``G-1``), so they can index `var` and label categories."""
+    from anndata.utils import make_index_unique
 
-    original_decode_single = V2Codec._decode_single
+    names = pd.Index([str(name) for name in names])  # numpy can't cast its StringDType, which zarr may return
+    if not names.is_unique:
+        logger.warning(f"{int(names.duplicated().sum())} duplicate feature names; made unique with a suffix.")
+    return make_index_unique(names)
 
-    async def patched_decode_single(self: V2Codec, chunk_bytes: Any, chunk_spec: Any) -> Any:
-        def decode() -> Any:
-            cdata = chunk_bytes.as_array_like()
-            chunk = self.compressor.decode(cdata) if self.compressor else cdata
-            if self.filters:
-                for f in reversed(self.filters):
-                    chunk = f.decode(chunk)
-            chunk = ensure_ndarray_like(chunk)
-            if chunk_spec.dtype.dtype_cls is not np.dtypes.ObjectDType:
-                try:
-                    chunk = chunk.view(chunk_spec.dtype.to_native_dtype())
-                except TypeError:
-                    chunk = np.array(chunk).astype(chunk_spec.dtype.to_native_dtype())
-            elif chunk.dtype != object:
-                raise RuntimeError("cannot read object array without object codec")
 
-            chunk = chunk.reshape(-1, order="A")
-            nominal_size = int(np.prod(chunk_spec.shape))
-            if chunk.size == nominal_size:
-                chunk = chunk.reshape(chunk_spec.shape, order=chunk_spec.order)
-            elif len(chunk_spec.shape) != 1:
-                raise ValueError(f"cannot reshape array of size {chunk.size} into shape {chunk_spec.shape}")
-            # else: ragged trailing chunk of a 1-D vlen array -- keep its natural, smaller size.
-            return get_ndbuffer_class().from_ndarray_like(chunk)
+def _read_feature_names(path: Path) -> list[str]:
+    """The unique feature names of the bundle in store order, which is the order of each tile's ``gene_offset``."""
+    from anndata.io import read_elem
 
-        return await asyncio.to_thread(decode)
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
+        return _unique_feature_names(read_elem(group[f"{AteraKeys.VAR_GROUP}/{AteraKeys.FEATURE_NAME}"])).tolist()
 
-    V2Codec._decode_single = patched_decode_single  # type: ignore[method-assign]
-    try:
-        yield
-    finally:
-        V2Codec._decode_single = original_decode_single  # type: ignore[method-assign]
+
+def _read_cell_ids(path: Path) -> np.ndarray:
+    """The cell ids of the bundle in store order, which is the row order of ``cells.zarr.zip``."""
+    from anndata.io import read_elem
+
+    with _open_zip(path / AteraKeys.CELL_FEATURE_MATRIX_FILE) as group:
+        return np.asarray(read_elem(group[f"{AteraKeys.OBS_GROUP}/{AteraKeys.CELL_ID}"]))
 
 
 def _decode_packed_cell_id(raw: np.ndarray) -> np.ndarray:
     """Decode a (N, 2) uint32 packed cell id array into the int64 ids used in the cell-feature-matrix obs.
 
-    The two uint32 columns pack into an int64 as ``low + (high << 32)``. The sentinel
-    ``(uint32 max, uint32 max)`` marks "no cell assigned" and is decoded to ``-1``.
+    The two uint32 columns pack into an int64 as ``low + (high << 32)``, which is the little-endian int64 view of
+    the pair. The sentinel ``(uint32 max, uint32 max)`` marks "no cell assigned" and so views as ``-1``.
     """
-    low = raw[:, 0].astype(np.int64)
-    high = raw[:, 1].astype(np.int64)
-    packed = low + (high << 32)
-    unassigned = (raw[:, 0] == _UINT32_SENTINEL) & (raw[:, 1] == _UINT32_SENTINEL)
-    packed[unassigned] = -1
-    return packed
-
-
-def _get_labels(
-    cells_group: zarr.Group,
-    mask_index: int,
-    labels_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
-) -> DataArray | DataTree:
-    """Read the labels raster from cells.zarr.zip masks/{mask_index} (0 = nucleus, 1 = cell)."""
-    masks = da.from_array(_get_array(cells_group, f"{AteraKeys.MASKS_GROUP}/{mask_index}"))
-    return Labels2DModel.parse(masks, dims=("y", "x"), transformations={"global": Identity()}, **labels_models_kwargs)
+    return np.ascontiguousarray(raw, dtype="<u4").view("<i8").reshape(-1)
 
 
 def _polygons_to_shapes(
@@ -188,6 +175,11 @@ def _polygons_to_shapes(
     `gridded_polygon_sets`), which differ only in how they produce these ragged arrays.
     """
     n_polygons = len(num_vertices)
+    degenerate = (num_vertices > 0) & (num_vertices < 3)  # shapely needs 3 vertices for a ring
+    if degenerate.any():
+        logger.warning(f"{int(degenerate.sum())} polygon(s) with 1 or 2 vertices kept as empty polygons.")
+        coords = coords[np.repeat(~degenerate, num_vertices)]
+        num_vertices = np.where(degenerate, 0, num_vertices)
     ring_offsets = np.concatenate([[0], np.cumsum(num_vertices)])
     geom_offsets = np.arange(n_polygons + 1)
     geoms = from_ragged_array(GeometryType.POLYGON, coords, offsets=(ring_offsets, geom_offsets))
@@ -243,82 +235,79 @@ def _tile_row_ranges(n_rows: int, chunk_rows: int = DEFAULT_TRANSCRIPT_CHUNK_ROW
     return [(start, min(start + chunk_rows, n_rows)) for start in range(0, n_rows, chunk_rows)] or [(0, 0)]
 
 
-def _read_transcript_tile(
-    path: Path, tile_key: str, feature_names: list[str], start: int = 0, stop: int | None = None
-) -> pd.DataFrame:
-    """Read and decode rows ``[start, stop)`` of a single spatial tile of transcripts.zarr.zip (default: the whole tile).
+def _transcript_rows(tile: zarr.Group, start: int, stop: int, feature_name: pd.Categorical[Any]) -> pd.DataFrame:
+    """Decode rows ``[start, stop)`` of one tile of transcripts.zarr.zip, labelled with `feature_name`."""
 
-    Opens its own zip store (rather than sharing one across tiles) so this function can safely
-    be called from independent `dask` tasks.
-    """
-    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        tile = _get_group(group, f"{AteraKeys.GRID_GROUP}/{tile_key}")
-        location_array = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION))
-        stop = location_array.shape[0] if stop is None else min(stop, location_array.shape[0])
-        location = np.asarray(location_array[start:stop])
-        gene_offset = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))[...])
-        cell_id_raw = np.asarray(_get_array(tile, str(AteraKeys.CELL_ID))[start:stop])
-        overlaps_nucleus = np.asarray(
-            _get_array(tile, str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:stop]
-        ).reshape(-1)
-        quality_score = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:stop]).reshape(-1)
-    finally:
-        store.close()
+    def rows(key: AteraKeys) -> np.ndarray:
+        return np.asarray(_get_array(tile, str(key))[start:stop])
 
-    # Rows within a tile are sorted by gene; gene_offset[g] = [start, end) gives the row range for
-    # gene g, so the per-row gene index must be reconstructed rather than read directly: row r belongs to
-    # the first gene whose range ends after r.
-    gene_index = np.searchsorted(gene_offset[:, 1], np.arange(start, stop), side="right")
-    feature_name = pd.Categorical.from_codes(gene_index, categories=pd.Index(feature_names))
-
+    location = rows(AteraKeys.TRANSCRIPTS_LOCATION)
     return pd.DataFrame(
         {
             str(AteraKeys.TRANSCRIPTS_X): location[:, 0].astype(np.float32),
             str(AteraKeys.TRANSCRIPTS_Y): location[:, 1].astype(np.float32),
             str(AteraKeys.TRANSCRIPTS_Z): location[:, 2].astype(np.float32),
             str(AteraKeys.FEATURE_NAME): feature_name,
-            str(AteraKeys.CELL_ID): _decode_packed_cell_id(cell_id_raw),
-            "overlaps_nucleus": overlaps_nucleus.astype(bool),
-            "quality_score": quality_score.astype(np.float32),
+            str(AteraKeys.CELL_ID): _decode_packed_cell_id(rows(AteraKeys.CELL_ID)),
+            "overlaps_nucleus": rows(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS).reshape(-1).astype(bool),
+            "quality_score": rows(AteraKeys.TRANSCRIPTS_QUALITY_SCORE).reshape(-1).astype(np.float32),
         }
     )
 
 
-def _get_points(path: Path, pixel_size: float, feature_names: list[str]) -> dd.DataFrame:
-    """Lazily read transcripts.zarr.zip, one `dask` task per spatial tile."""
-    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        grid = _get_group(group, str(AteraKeys.GRID_GROUP))
-        tile_keys = sorted(grid.group_keys())
-        tile_sizes = {
-            key: _get_array(_get_group(grid, key), str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0] for key in tile_keys
-        }
-    finally:
-        store.close()
+def _read_transcript_tile(
+    grid: zarr.Group, tile_key: str, feature_names: list[str], start: int = 0, stop: int | None = None
+) -> pd.DataFrame:
+    """Read and decode rows ``[start, stop)`` of a single spatial tile of transcripts.zarr.zip (default: the whole tile).
 
-    cat_dtype = pd.CategoricalDtype(categories=feature_names)
-    meta = pd.DataFrame(
+    `grid` is the store's ``grid`` group. All `dask` tasks share it, so the zip is opened once per process, not once
+    per task.
+    """
+    tile = _get_group(grid, tile_key)
+    n_rows = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0]
+    stop = n_rows if stop is None else min(stop, n_rows)
+    gene_offset = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))[...])
+    # Rows within a tile are sorted by gene; gene_offset[g] = [start, end) gives the row range for
+    # gene g, so the per-row gene index must be reconstructed rather than read directly: row r belongs to
+    # the first gene whose range ends after r.
+    gene_index = np.searchsorted(gene_offset[:, 1], np.arange(start, stop), side="right")
+    feature_name = pd.Categorical.from_codes(gene_index, categories=pd.Index(feature_names))
+    return _transcript_rows(tile, start, stop, feature_name)
+
+
+def _transcripts_meta(categories: list[str]) -> pd.DataFrame:
+    """An empty transcripts table with the column dtypes of `_transcript_rows`."""
+    return pd.DataFrame(
         {
             str(AteraKeys.TRANSCRIPTS_X): pd.array([], dtype="float32"),
             str(AteraKeys.TRANSCRIPTS_Y): pd.array([], dtype="float32"),
             str(AteraKeys.TRANSCRIPTS_Z): pd.array([], dtype="float32"),
-            str(AteraKeys.FEATURE_NAME): pd.array([], dtype=cat_dtype),
+            str(AteraKeys.FEATURE_NAME): pd.Categorical([], categories=categories),
             str(AteraKeys.CELL_ID): pd.array([], dtype="int64"),
             "overlaps_nucleus": pd.array([], dtype="bool"),
             "quality_score": pd.array([], dtype="float32"),
         }
     )
+
+
+def _get_points(path: Path, pixel_size: float, feature_names: list[str]) -> dd.DataFrame:
+    """Lazily read transcripts.zarr.zip, one `dask` task per row range of a spatial tile (see `_tile_row_ranges`)."""
+    # the store stays referenced by the graph; it reopens on first use, also after pickling
+    grid = zarr.open_group(zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True), mode="r")
+    grid = _get_group(grid, str(AteraKeys.GRID_GROUP))
+    tile_keys = sorted(grid.group_keys())
+    tile_sizes = {
+        key: _get_array(_get_group(grid, key), str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0] for key in tile_keys
+    }
+
     # One partition per `chunk_rows`-row slice of a tile (not per whole tile), so peak memory is bounded by
     # `dask`'s number of concurrent tasks times the chunk size, however large a tile is.
     delayed_tiles = [
-        delayed(_read_transcript_tile)(path, key, feature_names, start, stop)
+        delayed(_read_transcript_tile)(grid, key, feature_names, start, stop)
         for key in tile_keys
         for start, stop in _tile_row_ranges(tile_sizes[key])
     ]
-    table = dd.from_delayed(delayed_tiles, meta=meta)
+    table = dd.from_delayed(delayed_tiles, meta=_transcripts_meta(feature_names))
 
     transform = Scale([1.0 / pixel_size, 1.0 / pixel_size], axes=("x", "y"))
     return PointsModel.parse(
@@ -376,8 +365,8 @@ def read_transcripts_for_genes(
     plotting a handful of genes across the whole dataset much cheaper than loading and filtering
     the full transcripts table.
 
-    Requires ``sdata`` to have been read with ``cells_table=True``, to look up gene indices (via
-    the table's `var`) and `pixel_size` (via ``sdata.attrs``).
+    Gene positions come from the bundle's own `var`, so ``sdata`` can hold a filtered table or none; its
+    ``sdata.attrs["pixel_size"]`` is used.
 
     Parameters
     ----------
@@ -403,7 +392,10 @@ def read_transcripts_for_genes(
     if isinstance(genes, str):
         genes = [genes]
     path = Path(path)
-    feature_names = sdata.tables["table"].var[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
+    feature_names = _read_feature_names(path)
+    missing = [gene for gene in genes if gene not in feature_names]
+    if missing:
+        raise ValueError(f"gene(s) not found in {AteraKeys.CELL_FEATURE_MATRIX_FILE!s} var: {missing}")
     gene_indices = {gene: feature_names.index(gene) for gene in genes}
     pixel_size = cast(float, sdata.attrs[str(AteraKeys.PIXEL_SIZE)])
 
@@ -413,60 +405,24 @@ def read_transcripts_for_genes(
     else:
         categories = genes
 
-    columns = [
-        str(AteraKeys.TRANSCRIPTS_X),
-        str(AteraKeys.TRANSCRIPTS_Y),
-        str(AteraKeys.TRANSCRIPTS_Z),
-        str(AteraKeys.FEATURE_NAME),
-        str(AteraKeys.CELL_ID),
-        "overlaps_nucleus",
-        "quality_score",
-    ]
-    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
-        tile_keys = sorted(_get_group(group, str(AteraKeys.GRID_GROUP)).group_keys())
-
-        frames = []
-        for tile_key in tile_keys:
-            tile = _get_group(group, f"{AteraKeys.GRID_GROUP}/{tile_key}")
+    frames = []
+    with _open_zip(path / AteraKeys.TRANSCRIPTS_FILE) as group:
+        grid = _get_group(group, str(AteraKeys.GRID_GROUP))
+        for tile_key in sorted(grid.group_keys()):
+            tile = _get_group(grid, tile_key)
             gene_offset = _get_array(tile, str(AteraKeys.TRANSCRIPTS_GENE_OFFSET))
             for gene, gene_idx in gene_indices.items():
-                start, end = np.asarray(gene_offset[gene_idx])
+                start, end = (int(v) for v in np.asarray(gene_offset[gene_idx]))
                 if end <= start:
                     continue
-                location = np.asarray(_get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION))[start:end])
-                cell_id_raw = np.asarray(_get_array(tile, str(AteraKeys.CELL_ID))[start:end])
-                overlaps_nucleus = np.asarray(
-                    _get_array(tile, str(AteraKeys.TRANSCRIPTS_OVERLAPS_NUCLEUS))[start:end]
-                ).reshape(-1)
-                quality_score = np.asarray(
-                    _get_array(tile, str(AteraKeys.TRANSCRIPTS_QUALITY_SCORE))[start:end]
-                ).reshape(-1)
                 if by_codeword:
-                    codeword_identity = np.asarray(
-                        _get_array(tile, str(AteraKeys.CODEWORD_IDENTITY))[start:end]
-                    ).reshape(-1)
-                    feature_name = pd.Categorical([f"{gene}_cw{cw}" for cw in codeword_identity], categories=categories)
+                    codeword = np.asarray(_get_array(tile, str(AteraKeys.CODEWORD_IDENTITY))[start:end]).reshape(-1)
+                    labels = [f"{gene}_cw{cw}" for cw in codeword]
                 else:
-                    feature_name = pd.Categorical([gene] * (end - start), categories=categories)
-                frames.append(
-                    pd.DataFrame(
-                        {
-                            str(AteraKeys.TRANSCRIPTS_X): location[:, 0].astype(np.float32),
-                            str(AteraKeys.TRANSCRIPTS_Y): location[:, 1].astype(np.float32),
-                            str(AteraKeys.TRANSCRIPTS_Z): location[:, 2].astype(np.float32),
-                            str(AteraKeys.FEATURE_NAME): feature_name,
-                            str(AteraKeys.CELL_ID): _decode_packed_cell_id(cell_id_raw),
-                            "overlaps_nucleus": overlaps_nucleus.astype(bool),
-                            "quality_score": quality_score.astype(np.float32),
-                        }
-                    )
-                )
-    finally:
-        store.close()
+                    labels = [gene] * (end - start)
+                frames.append(_transcript_rows(tile, start, end, pd.Categorical(labels, categories=categories)))
 
-    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
+    df = pd.concat(frames, ignore_index=True) if frames else _transcripts_meta(categories)
 
     transform = Scale([1.0 / pixel_size, 1.0 / pixel_size], axes=("x", "y"))
     sdata.points[points_key] = PointsModel.parse(
@@ -489,8 +445,10 @@ def _tile_bounds(tile_key: str, tile_size: float) -> tuple[float, float, float, 
     return tile_x * tile_size, tile_y * tile_size, (tile_x + 1) * tile_size, (tile_y + 1) * tile_size
 
 
-def _bbox_overlaps(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
-    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+def _bbox_overlaps(boxes: ArrayLike, bbox: Sequence[float]) -> np.ndarray:
+    """Which of the ``(..., 4)`` (xmin, ymin, xmax, ymax) `boxes` overlap `bbox`."""
+    boxes = np.asarray(boxes)
+    return (boxes[..., 0] < bbox[2]) & (bbox[0] < boxes[..., 2]) & (boxes[..., 1] < bbox[3]) & (bbox[1] < boxes[..., 3])
 
 
 def _cell_row_positions_in_bbox(path: Path, bbox: tuple[float, float, float, float]) -> np.ndarray:
@@ -502,22 +460,9 @@ def _cell_row_positions_in_bbox(path: Path, bbox: tuple[float, float, float, flo
     fact `read_cell_boundaries` relies on for its own `bbox` filtering).
     """
     pixel_size = _get_pixel_size(path)
-    xmin, ymin, xmax, ymax = (v * pixel_size for v in bbox)
-
-    store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
+    with _open_zip(path / AteraKeys.CELLS_FILE) as group:
         cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
-    finally:
-        store.close()
-
-    keep = (
-        (cell_bboxes[:, 0] < xmax)
-        & (xmin < cell_bboxes[:, 2])
-        & (cell_bboxes[:, 1] < ymax)
-        & (ymin < cell_bboxes[:, 3])
-    )
-    return np.nonzero(keep)[0]
+    return np.flatnonzero(_bbox_overlaps(cell_bboxes, [v * pixel_size for v in bbox]))
 
 
 def read_cell_boundaries(
@@ -552,9 +497,8 @@ def read_cell_boundaries(
     the top-level ``bboxes`` array); this un-quantizes them via
     ``absolute = cell_min + relative / 255 * (cell_max - cell_min)``.
 
-    Requires ``sdata`` to have been read with ``cells_table=True``, to map row positions in
-    ``gridded_polygon_sets`` to cell ids (via the table's `obs`), and `pixel_size` (via
-    ``sdata.attrs``).
+    Row positions in ``gridded_polygon_sets`` are mapped to cell ids through the bundle's own `obs`, so ``sdata``
+    can hold a filtered table or none; its ``sdata.attrs["pixel_size"]`` is used.
 
     Parameters
     ----------
@@ -580,17 +524,12 @@ def read_cell_boundaries(
     """
     path = Path(path)
     pixel_size = cast(float, sdata.attrs[str(AteraKeys.PIXEL_SIZE)])
-    cell_ids = sdata.tables["table"].obs[str(AteraKeys.CELL_ID)].to_numpy()
+    cell_ids = _read_cell_ids(path)
     is_nucleus = mask_index == 0
 
-    raw_bbox = None
-    if bbox is not None:
-        xmin, ymin, xmax, ymax = bbox
-        raw_bbox = (xmin * pixel_size, ymin * pixel_size, xmax * pixel_size, ymax * pixel_size)
+    raw_bbox = None if bbox is None else [v * pixel_size for v in bbox]
 
-    store = zarr.storage.ZipStore(path / AteraKeys.CELLS_FILE, read_only=True)
-    try:
-        group = zarr.open_group(store, mode="r")
+    with _open_zip(path / AteraKeys.CELLS_FILE) as group:
         cell_bboxes = np.asarray(_get_array(group, str(AteraKeys.BBOXES))[...]).reshape(-1, 4)
         mask_group = _get_group(group, f"{AteraKeys.GRIDDED_POLYGON_SETS_GROUP}/{mask_index}")
         # Each pyramid level merges 2x2 blocks of tiles from the level below, so a tile's spatial
@@ -614,13 +553,7 @@ def read_cell_boundaries(
             relative_vertices = np.asarray(_get_array(tile, str(AteraKeys.RELATIVE_VERTICES))[...]).reshape(-1, 2)
 
             if raw_bbox is not None:
-                tile_cell_bboxes = cell_bboxes[cell_index]
-                keep = (
-                    (tile_cell_bboxes[:, 0] < raw_bbox[2])
-                    & (raw_bbox[0] < tile_cell_bboxes[:, 2])
-                    & (tile_cell_bboxes[:, 1] < raw_bbox[3])
-                    & (raw_bbox[1] < tile_cell_bboxes[:, 3])
-                )
+                keep = _bbox_overlaps(cell_bboxes[cell_index], raw_bbox)
                 if not keep.any():
                     continue
                 relative_vertices = relative_vertices[np.repeat(keep, num_vertices)]
@@ -634,31 +567,13 @@ def read_cell_boundaries(
             coords_parts.append((vertex_mins + relative_vertices / 255 * vertex_spans).astype(np.float32))
             num_vertices_parts.append(num_vertices)
             cell_index_parts.append(cell_index)
-    finally:
-        store.close()
 
-    coords = np.concatenate(coords_parts) if coords_parts else np.empty((0, 2), dtype=np.float32)
-    num_vertices = np.concatenate(num_vertices_parts) if num_vertices_parts else np.empty((0,), dtype=np.int32)
-    cell_index = np.concatenate(cell_index_parts) if cell_index_parts else np.empty((0,), dtype=np.uint32)
-
+    if not coords_parts:  # spatialdata has no empty shapes element: ShapesModel rejects an empty GeoDataFrame
+        raise ValueError(f"No polygons of {AteraKeys.CELLS_FILE!s} overlap bbox={bbox}.")
+    coords, num_vertices = np.concatenate(coords_parts), np.concatenate(num_vertices_parts)
+    cell_index = np.concatenate(cell_index_parts)
     sdata.shapes[shapes_key] = _polygons_to_shapes(coords, num_vertices, cell_index, cell_ids, pixel_size, is_nucleus)
     return sdata
-
-
-def _parse_morphology_channel_name(filename: str) -> str:
-    """Parse the channel name out of a ``chNNNN_<name>.ome.tif`` morphology image filename."""
-    match = re.match(r"ch\d+_(.+)\.ome\.tif+$", filename)
-    if match is None:
-        raise ValueError(f"Expected a morphology image filename of the form 'chNNNN_<name>.ome.tif', found {filename}")
-    return match.group(1)
-
-
-def _parse_morphology_channel_index(filename: str) -> int:
-    """Parse the channel index out of a ``chNNNN_<name>.ome.tif`` morphology image filename."""
-    match = re.match(r"ch(\d+)_.+\.ome\.tif+$", filename)
-    if match is None:
-        raise ValueError(f"Expected a morphology image filename of the form 'chNNNN_<name>.ome.tif', found {filename}")
-    return int(match.group(1))
 
 
 def _get_pixel_size(path: Path) -> float:
@@ -674,8 +589,6 @@ def _get_pixel_size(path: Path) -> float:
             specs = json.load(f)
         return specs[str(AteraKeys.PIXEL_SIZE)]
 
-    from ome_types import from_tiff
-
     morphology_dir = path / AteraKeys.MORPHOLOGY_2D_DIR
     files = (
         sorted(f for f in morphology_dir.iterdir() if f.name.endswith(".ome.tif") and not f.name.startswith("._"))
@@ -687,59 +600,60 @@ def _get_pixel_size(path: Path) -> float:
             f"Cannot determine the pixel size: {path!s} contains neither {AteraKeys.SPECS_FILE!s} nor any "
             f"morphology OME-TIFF files in {morphology_dir.name!s}/."
         )
-    physical_size_x = from_tiff(files[0]).images[0].pixels.physical_size_x
-    if physical_size_x is None:
-        raise ValueError(f"{files[0]!s} does not specify `PhysicalSizeX` in its OME-XML metadata.")
-    return physical_size_x
+    return parse_physical_size(files[0])
+
+
+class _TiffTiles:
+    """Level 0 of a TIFF's first series as an array that `dask` slices one tile per task.
+
+    Each slice opens the file itself, so a `dask` graph holds only the path and pickles (tifffile's zarr store keeps
+    an open file handle and does not), and a task decodes only the tiles it covers, not the whole plane as
+    `dask_image.imread` does. Chunks follow the file's tile grid (strips for an untiled file).
+    """
+
+    def __init__(self, path: Path, imread_kwargs: Mapping[str, Any]) -> None:
+        import tifffile
+
+        self.path, self.imread_kwargs = path, dict(imread_kwargs)
+        with tifffile.TiffFile(path, **self.imread_kwargs) as tf:
+            series, page = tf.series[0], tf.series[0].keyframe
+            self.shape, self.dtype, self.axes = tuple(series.shape), series.dtype, series.axes
+            tile = (page.tilelength, page.tilewidth) if page.is_tiled else (page.rowsperstrip, page.imagewidth)
+        self.ndim = len(self.shape)
+        # one tile in y and x, every sample (S) of a pixel, one plane of any other axis
+        self.chunks = tuple(
+            {"Y": tile[0], "X": tile[1], "S": n}.get(axis, 1) for axis, n in zip(self.axes, self.shape, strict=True)
+        )
+
+    def __getitem__(self, key: Any) -> np.ndarray:
+        import tifffile
+
+        with tifffile.TiffFile(self.path, **self.imread_kwargs) as tf:
+            return cast(np.ndarray, zarr.open_array(tf.series[0].aszarr(level=0), mode="r")[key])
 
 
 def _tiled_imread(
-    path: Path, imread_kwargs: Mapping[str, Any] = MappingProxyType({}), n_levels: int = 1
-) -> list[da.Array]:
-    """Read an OME-TIFF as `dask` arrays (one per pyramid level) chunked by the file's own on-disk tile grid.
+    path: Path, imread_kwargs: Mapping[str, Any] = MappingProxyType({})
+) -> tuple[da.Array, tuple[str, ...]]:
+    """Read level 0 of an OME-TIFF lazily, one `dask` task per tile; return it with its dims.
 
-    `dask_image.imread.imread` gives each page (e.g. each channel or z-plane) exactly one `dask`
-    chunk -- the whole plane, which for these whole-slide-image morphology files is tens of GB.
-    That single giant chunk then has to be fully decoded before `Image2DModel.parse`/`Image3DModel.parse`
-    can rechunk it into tiles or build a downsampled pyramid level, so even plotting one channel at
-    the lowest pyramid resolution requires materializing the entire full-resolution plane in memory.
-
-    This instead reads through `tifffile.TiffPageSeries.aszarr(level=i)`, which exposes the file's
-    native tile grid (e.g. 1024x1024, matching `p.is_tiled`/`p.tilewidth`/`p.tilelength`) as `zarr`
-    chunks, so only the tiles actually touched downstream get decoded.
-
-    These OME-TIFFs embed their own multi-level pyramid (each level half the size of the previous one).
-    Reading up to `n_levels` of those stored levels, rather than downsampling `level=0` lazily, means
-    a low-resolution level only costs reading that (small) level from disk, not every full-resolution
-    tile. If the file has fewer levels than requested, only the available ones are returned.
+    Stored pyramid levels are not read: the image models build the pyramid from level 0 with `scale_factors`.
+    Axes of length 1 other than y and x are dropped, samples (``S``) and channels (``C``) both become ``c``.
     """
-    import tifffile
+    tiles = _TiffTiles(path, imread_kwargs)
+    image = da.from_array(tiles, chunks=tiles.chunks, meta=np.empty((0,) * tiles.ndim, tiles.dtype), lock=False)
+    keep = [i for i, (axis, n) in enumerate(zip(tiles.axes, tiles.shape, strict=True)) if n > 1 or axis in "YX"]
+    image = image.squeeze(axis=tuple(i for i in range(tiles.ndim) if i not in keep))
+    return image, tuple("c" if tiles.axes[i] in "SC" else tiles.axes[i].lower() for i in keep)
 
-    tf = tifffile.TiffFile(path, **imread_kwargs)
-    series = tf.series[0]
-    n_levels = min(n_levels, len(series.levels))
-    return [da.from_zarr(zarr.open(series.aszarr(level=i), mode="r")) for i in range(n_levels)]
 
+def _ome_channel_name(path: Path, index: int) -> str:
+    from ome_types import from_tiff
 
-def _parse_morphology_pyramid(
-    levels: list[da.Array],
-    dims: tuple[str, ...],
-    c_coords: list[str],
-    image_models_kwargs: Mapping[str, Any],
-    model: type[Image2DModel] | type[Image3DModel],
-) -> DataArray | DataTree:
-    """Build a (multiscale) image model from pre-computed pyramid levels instead of downsampling `level=0`."""
-    from xarray import Dataset
-
-    kwargs = {k: v for k, v in image_models_kwargs.items() if k != "scale_factors"}
-    parsed = [model.parse(level, dims=dims, c_coords=c_coords, **kwargs) for level in levels]
-    if len(parsed) == 1:
-        tree: DataArray | DataTree = parsed[0]
-    else:
-        tree = DataTree.from_dict({f"scale{i}": Dataset({"image": p}) for i, p in enumerate(parsed)})
-    set_transformation(tree, Identity(), "global")
-    model.validate(tree)
-    return tree
+    name = from_tiff(path).images[0].pixels.channels[index].name
+    if name is None:
+        raise ValueError(f"Channel {index} in {path!s} has no name in its OME-XML metadata.")
+    return name
 
 
 def _get_morphology_images(
@@ -748,37 +662,31 @@ def _get_morphology_images(
     image_models_kwargs: Mapping[str, Any] = MappingProxyType({}),
     three_d: bool = False,
 ) -> DataArray | DataTree:
-    """Read the morphology OME-TIFF files in a directory as a single multi-channel image."""
+    """Read the ``chNNNN_<name>.ome.tif`` morphology files in a directory as one multi-channel image.
+
+    A 2D file holds a plane per channel of the panel, of which only plane ``NNNN`` carries this file's channel; a 3D
+    file holds the z-stack of its one channel. Channels are named from the OME-XML in both cases.
+    """
     files = sorted(f for f in dir_path.iterdir() if f.name.endswith(".ome.tif") and not f.name.startswith("._"))
     if not files:
         raise FileNotFoundError(f"No morphology OME-TIFF files found in {dir_path}.")
-    # `scale_factors=[2, 2, 2, 2]` (the default) means 5 levels in total; use the file's stored levels for them.
-    n_levels = len(image_models_kwargs.get("scale_factors") or []) + 1
-
-    if three_d:
-        # one file per channel, each file has shape (z, y, x); stack along a new channel axis
-        channel_names = [_parse_morphology_channel_name(f.name) for f in files]
-        per_file_levels = [_tiled_imread(f, imread_kwargs, n_levels) for f in files]
-        n = min(len(lv) for lv in per_file_levels)
-        levels = [da.stack([lv[i] for lv in per_file_levels], axis=0) for i in range(n)]
-        return _parse_morphology_pyramid(levels, ("c", "z", "y", "x"), channel_names, image_models_kwargs, Image3DModel)
-
-    # Each 2D file is itself a multi-page OME-TIFF containing every channel of the panel (shape
-    # (n_channels, y, x)), but only the plane at the index given by the file's own "chNNNN" prefix
-    # holds that channel's real image data; take just that plane from each file.
-    from ome_types import from_tiff
-
-    channel_indices = [_parse_morphology_channel_index(f.name) for f in files]
-    channel_names = []
-    for f, i in zip(files, channel_indices, strict=True):
-        name = from_tiff(f).images[0].pixels.channels[i].name
-        if name is None:
-            raise ValueError(f"Channel {i} in {f!s} has no name in its OME-XML metadata.")
-        channel_names.append(name)
-    per_file_levels = [
-        [level[i] for level in _tiled_imread(f, imread_kwargs, n_levels)]
-        for f, i in zip(files, channel_indices, strict=True)
-    ]
-    n = min(len(lv) for lv in per_file_levels)
-    levels = [da.stack([lv[j] for lv in per_file_levels], axis=0) for j in range(n)]
-    return _parse_morphology_pyramid(levels, ("c", "y", "x"), channel_names, image_models_kwargs, Image2DModel)
+    indices = []
+    for f in files:
+        match = re.match(r"ch(\d+)_.+\.ome\.tif$", f.name)
+        if match is None:
+            raise ValueError(
+                f"Expected a morphology image filename of the form 'chNNNN_<name>.ome.tif', found {f.name}"
+            )
+        indices.append(0 if three_d else int(match.group(1)))
+    planes = []
+    for f, i in zip(files, indices, strict=True):
+        image, dims = _tiled_imread(f, imread_kwargs)
+        planes.append(image if three_d or "c" not in dims else image[i])
+    model = Image3DModel if three_d else Image2DModel
+    return model.parse(
+        da.stack(planes),
+        dims=("c", "z", "y", "x") if three_d else ("c", "y", "x"),
+        c_coords=[_ome_channel_name(f, i) for f, i in zip(files, indices, strict=True)],
+        transformations={"global": Identity()},
+        **image_models_kwargs,
+    )

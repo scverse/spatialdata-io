@@ -6,11 +6,16 @@ from typing import cast
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-import zarr
 
 from spatialdata_io._constants._constants import AteraKeys
-from spatialdata_io.readers._atera_common import _get_array, _get_group, _read_transcript_tile, _tile_row_ranges
-from spatialdata_io.readers.atera import read_var
+from spatialdata_io.readers._atera_common import (
+    _get_array,
+    _get_group,
+    _open_zip,
+    _read_feature_names,
+    _read_transcript_tile,
+    _tile_row_ranges,
+)
 
 __all__ = ["atera_to_parquet"]
 
@@ -57,9 +62,9 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
     ``transcript_id`` is taken from each tile's stored ``id`` array when every tile has one, and is
     otherwise assigned contiguously in the order of the grid group's ``grid_keys`` attribute.
 
-    The input is read and written one spatial tile at a time (mirroring how `atera`'s own transcripts
-    reader is built), so converting even a dataset with tens of millions of transcripts does not require
-    holding the whole table in memory at once.
+    The input is read and written one row range of a spatial tile at a time (one parquet row group each,
+    as `atera`'s own transcripts reader partitions it), so converting even a dataset with hundreds of millions
+    of transcripts does not require holding the whole table in memory at once.
 
     Parameters
     ----------
@@ -75,55 +80,57 @@ def atera_to_parquet(path: str | Path, output: str | Path) -> Path:
     path = Path(path)
     output = Path(output)
 
-    feature_names = read_var(path)[str(AteraKeys.FEATURE_NAME)].astype(str).tolist()
+    feature_names = _read_feature_names(path)
 
-    store = zarr.storage.ZipStore(path / AteraKeys.TRANSCRIPTS_FILE, read_only=True)
-    writer = pq.ParquetWriter(output, _PROSEG_SCHEMA)
+    # written next to `output` and moved there when complete, so a failed run leaves no truncated (but valid)
+    # parquet file and keeps an earlier complete one
+    partial = output.with_name(output.name + ".partial")
     try:
-        grid = _get_group(zarr.open_group(store, mode="r"), str(AteraKeys.GRID_GROUP))
-        tile_keys = [str(key) for key in cast("list[str]", grid.attrs[str(AteraKeys.GRID_KEYS)])]
-        # Stored IDs are used only if every tile has them; otherwise every transcript is numbered
-        # contiguously in `grid_keys` order, so stored and generated IDs never mix.
-        use_stored_ids = all(str(AteraKeys.TRANSCRIPTS_ID) in _get_group(grid, key) for key in tile_keys)
+        with _open_zip(path / AteraKeys.TRANSCRIPTS_FILE) as group, pq.ParquetWriter(partial, _PROSEG_SCHEMA) as writer:
+            grid = _get_group(group, str(AteraKeys.GRID_GROUP))
+            tile_keys = [str(key) for key in cast("list[str]", grid.attrs[str(AteraKeys.GRID_KEYS)])]
+            # Stored IDs are used only if every tile has them; otherwise every transcript is numbered
+            # contiguously in `grid_keys` order, so stored and generated IDs never mix.
+            use_stored_ids = all(str(AteraKeys.TRANSCRIPTS_ID) in _get_group(grid, key) for key in tile_keys)
 
-        offset = 0
-        for tile_key in tile_keys:
-            tile = _get_group(grid, tile_key)
-            n_tile = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0]
-            # A tile can hold 100M+ transcripts, so it is read and written in row ranges (one parquet row group each).
-            for start, stop in _tile_row_ranges(n_tile):
-                tile_df = _read_transcript_tile(path, tile_key, feature_names, start, stop)
-                n = len(tile_df)
-                if n == 0:
-                    continue
+            offset = 0
+            for tile_key in tile_keys:
+                tile = _get_group(grid, tile_key)
+                n_tile = _get_array(tile, str(AteraKeys.TRANSCRIPTS_LOCATION)).shape[0]
+                # A tile can hold 100M+ transcripts, so it is read and written in row ranges (one parquet row group each).
+                for start, stop in _tile_row_ranges(n_tile):
+                    tile_df = _read_transcript_tile(grid, tile_key, feature_names, start, stop)
+                    n = len(tile_df)
+                    if n == 0:
+                        continue
 
-                if use_stored_ids:
-                    stored_ids = _get_array(tile, str(AteraKeys.TRANSCRIPTS_ID))[start:stop]
-                    transcript_id = np.asarray(stored_ids, dtype=np.uint64).reshape(-1)
-                else:
-                    transcript_id = np.arange(offset, offset + n, dtype=np.uint64)
+                    if use_stored_ids:
+                        stored_ids = _get_array(tile, str(AteraKeys.TRANSCRIPTS_ID))[start:stop]
+                        transcript_id = np.asarray(stored_ids, dtype=np.uint64).reshape(-1)
+                    else:
+                        transcript_id = np.arange(offset, offset + n, dtype=np.uint64)
 
-                cell_id = tile_df[str(AteraKeys.CELL_ID)].to_numpy()
-                cell_id_str = np.where(cell_id == -1, _CELL_ID_UNASSIGNED, cell_id.astype(str))
+                    cell_id = tile_df[str(AteraKeys.CELL_ID)].to_numpy()
+                    cell_id_str = np.where(cell_id == -1, _CELL_ID_UNASSIGNED, cell_id.astype(str))
 
-                table = pa.table(
-                    {
-                        "transcript_id": transcript_id,
-                        "cell_id": cell_id_str,
-                        "overlaps_nucleus": tile_df["overlaps_nucleus"].to_numpy().astype(np.uint8),
-                        "feature_name": tile_df[str(AteraKeys.FEATURE_NAME)].astype(str).to_numpy(),
-                        "x_location": tile_df[str(AteraKeys.TRANSCRIPTS_X)].to_numpy().astype(np.float32),
-                        "y_location": tile_df[str(AteraKeys.TRANSCRIPTS_Y)].to_numpy().astype(np.float32),
-                        "z_location": tile_df[str(AteraKeys.TRANSCRIPTS_Z)].to_numpy().astype(np.float32),
-                        "qv": tile_df["quality_score"].to_numpy().astype(np.float32),
-                        "fov_name": np.full(n, tile_key),
-                    },
-                    schema=_PROSEG_SCHEMA,
-                )
-                writer.write_table(table)
-                offset += n
-    finally:
-        writer.close()
-        store.close()
-
+                    table = pa.table(
+                        {
+                            "transcript_id": transcript_id,
+                            "cell_id": cell_id_str,
+                            "overlaps_nucleus": tile_df["overlaps_nucleus"].to_numpy().astype(np.uint8),
+                            "feature_name": tile_df[str(AteraKeys.FEATURE_NAME)].astype(str).to_numpy(),
+                            "x_location": tile_df[str(AteraKeys.TRANSCRIPTS_X)].to_numpy().astype(np.float32),
+                            "y_location": tile_df[str(AteraKeys.TRANSCRIPTS_Y)].to_numpy().astype(np.float32),
+                            "z_location": tile_df[str(AteraKeys.TRANSCRIPTS_Z)].to_numpy().astype(np.float32),
+                            "qv": tile_df["quality_score"].to_numpy().astype(np.float32),
+                            "fov_name": np.full(n, tile_key),
+                        },
+                        schema=_PROSEG_SCHEMA,
+                    )
+                    writer.write_table(table)
+                    offset += n
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    partial.replace(output)
     return output

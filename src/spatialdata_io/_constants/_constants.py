@@ -190,15 +190,10 @@ class AteraKeys(ModeEnum):
 
     # cell_feature_matrix.zarr.zip groups/keys
     X_GROUP = "X"
-    X_DATA = "data"
-    X_INDICES = "indices"
-    X_INDPTR = "indptr"
     OBS_GROUP = "obs"
     VAR_GROUP = "var"
     OBSM_GROUP = "obsm"
     VARM_GROUP = "varm"
-    CATEGORIES = "categories"
-    CODES = "codes"
     COLOR = "color"
 
     # root `.zattrs` manifest (RFC "cell feature anndata", schema anndata_zattrs/v0.1.0)
@@ -217,7 +212,6 @@ class AteraKeys(ModeEnum):
     LABEL_ID = "label_id"
     CENTROID_X = "centroid_column"
     CENTROID_Y = "centroid_row"
-    CELL_AREA = "cell_area"
 
     # var / features
     FEATURE_ID = "feature_id"
