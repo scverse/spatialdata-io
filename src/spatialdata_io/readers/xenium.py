@@ -38,6 +38,7 @@ from spatialdata.models import (
     ShapesModel,
     TableModel,
 )
+from spatialdata.transformations import set_transformation
 from spatialdata.transformations.transformations import Affine, Identity, Scale, Translation
 from xarray import DataArray, DataTree
 
@@ -1082,6 +1083,8 @@ def _add_aligned_images(
     ome_tif_files = list(path.glob("*.ome.tif"))
     csv_files = list(path.glob("*.csv"))
     for file in ome_tif_files:
+        if file.name.startswith("._"):  # macOS sidecar files
+            continue
         element_name = None
         for suffix in [
             XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX,
@@ -1102,8 +1105,39 @@ def _add_aligned_images(
 
             # parse the image
             image = xenium_aligned_image(file, alignment_file, imread_kwargs, image_models_kwargs)
+            if alignment_file is None and element_name == "he_image":
+                keypoints = file.with_name(file.name.removesuffix(XeniumKeys.ALIGNED_HE_IMAGE_SUFFIX) + "keypoints.csv")
+                affine = _affine_from_keypoints(keypoints)
+                if affine is not None:
+                    set_transformation(image, affine, "global")
             images[element_name] = image
     return images
+
+
+def _affine_from_keypoints(kp_file: Path) -> Affine | None:
+    """Least-squares affine from Xenium Explorer keypoints (``alignmentX/Y`` -> ``fixedX/Y``), or None with a warning.
+
+    The alignment CSV that Xenium Explorer writes is this fit. A full affine, because a similarity fit leaves about 22 px
+    of error on scans with 0.2% anisotropy.
+    """
+    if not kp_file.is_file():
+        return None
+    columns = ["fixedX", "fixedY", "alignmentX", "alignmentY"]
+    kp = pd.read_csv(kp_file)
+    if not set(columns) <= set(kp.columns):
+        warnings.warn(f"{kp_file.name}: expected columns {columns}, found {list(kp.columns)}.", stacklevel=2)
+        return None
+    xy = kp[columns].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    xy = xy[np.isfinite(xy).all(axis=1)]
+    if len(xy) < 3:
+        warnings.warn(f"{kp_file.name}: {len(xy)} finite keypoints, at least 3 are needed.", stacklevel=2)
+        return None
+    coef, _, rank, _ = np.linalg.lstsq(np.c_[xy[:, 2:], np.ones(len(xy))], xy[:, :2], rcond=None)
+    if rank < 3:
+        warnings.warn(f"{kp_file.name}: the keypoints are collinear, so they fix no affine.", stacklevel=2)
+        return None
+    logging.info(f"Placed the H&E image by an affine fit to {kp_file.name} (no alignment CSV).")
+    return Affine(np.r_[coef.T, [[0.0, 0.0, 1.0]]], input_axes=("x", "y"), output_axes=("x", "y"))
 
 
 def xenium_aligned_image(
