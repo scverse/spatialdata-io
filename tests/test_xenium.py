@@ -453,3 +453,20 @@ def test_cli_xenium_valid_json_forwarded(
     assert result.exit_code == 0, result.output
     call_kwargs = mock_xenium.call_args.kwargs
     assert call_kwargs[kwarg_param] == {"chunks": 512}
+
+
+@pytest.mark.parametrize("planar", [False, True])
+def test_aligned_he_image_planar_or_interleaved(tmp_path: Path, planar: bool) -> None:
+    import tifffile
+
+    from spatialdata_io.readers.xenium import xenium_aligned_image
+
+    rgb = np.arange(3 * 40 * 60, dtype=np.uint32).reshape(3, 40, 60).astype(np.uint8)
+    path = tmp_path / "S1_he_image.ome.tif"
+    if planar:  # OME axes SYX
+        tifffile.imwrite(path, rgb, ome=True, photometric="rgb", planarconfig="separate")
+    else:  # YXS
+        tifffile.imwrite(path, np.moveaxis(rgb, 0, -1), ome=True, photometric="rgb")
+    he = xenium_aligned_image(path, None)
+    assert list(he.coords["c"].values) == ["r", "g", "b"]
+    np.testing.assert_array_equal(np.asarray(he.transpose("c", "y", "x").data), rgb)
