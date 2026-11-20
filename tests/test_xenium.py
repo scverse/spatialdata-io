@@ -2,6 +2,7 @@ import math
 import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -453,3 +454,104 @@ def test_cli_xenium_valid_json_forwarded(
     assert result.exit_code == 0, result.output
     call_kwargs = mock_xenium.call_args.kwargs
     assert call_kwargs[kwarg_param] == {"chunks": 512}
+
+
+# an H&E aligned by a rotation by 90 degrees, a scale of 2 and a translation
+HE_AFFINE = np.array([[0.0, 2.0, 10.0], [-2.0, 0.0, 300.0], [0.0, 0.0, 1.0]])
+
+
+def _write_he(path: Path, affine: np.ndarray, alignment_csv: bool = True) -> None:
+    import tifffile
+
+    tifffile.imwrite(
+        path / "S1_he_image.ome.tif", np.zeros((3, 40, 60), dtype=np.uint8), ome=True, metadata={"axes": "CYX"}
+    )
+    if alignment_csv:
+        pd.DataFrame(affine).to_csv(path / "S1_he_imagealignment.csv", header=False, index=False)
+
+
+def _write_keypoints(path: Path, affine: np.ndarray) -> pd.DataFrame:
+    src = np.array([[5.0, 5.0], [30.0, 10.0], [50.0, 35.0]])
+    dst = (np.c_[src, np.ones(3)] @ affine.T)[:, :2]
+    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
+    kp.to_csv(path / "S1_keypoints.csv", index=False)
+    return kp
+
+
+def _global_affine(image: Any) -> np.ndarray:
+    from spatialdata.transformations import Affine, get_transformation
+
+    t = get_transformation(image, "global")
+    assert isinstance(t, Affine)
+    return t.to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y"))
+
+
+def test_aligned_he_image_is_placed_by_its_alignment_csv(tmp_path: Path) -> None:
+    from spatialdata_io.readers.xenium import _add_aligned_images
+
+    _write_he(tmp_path, HE_AFFINE)
+    shifted = HE_AFFINE.copy()
+    shifted[0, 2] += 100.0
+    _write_keypoints(tmp_path, shifted)  # the alignment CSV wins over the keypoints
+    images = _add_aligned_images(tmp_path)
+    assert list(images) == ["he_image"]
+    np.testing.assert_allclose(_global_affine(images["he_image"]), HE_AFFINE)
+
+
+def test_he_without_alignment_csv_is_placed_by_keypoints(tmp_path: Path) -> None:
+    from spatialdata_io.readers.xenium import _add_aligned_images
+
+    _write_he(tmp_path, HE_AFFINE, alignment_csv=False)
+    _write_keypoints(tmp_path, HE_AFFINE)
+    he = _add_aligned_images(tmp_path)["he_image"]
+    np.testing.assert_allclose(_global_affine(he), HE_AFFINE, atol=1e-9)
+
+
+def test_affine_from_keypoints_reproduces_an_anisotropic_alignment(tmp_path: Path) -> None:
+    from spatialdata_io.readers.xenium import _affine_from_keypoints
+
+    # x and y scales differ by 0.2%, which a similarity fit can't reproduce
+    affine = np.array([[0.0086, 1.2898, 914.1], [-1.2871, 0.0086, 32040.6], [0.0, 0.0, 1.0]])
+    src = np.array([[16690.0, 14065.0], [22114.0, 25667.0], [13029.0, 25846.0], [16798.0, 35944.0]])
+    dst = (np.c_[src, np.ones(len(src))] @ affine.T)[:, :2]
+    kp = pd.DataFrame({"fixedX": dst[:, 0], "fixedY": dst[:, 1], "alignmentX": src[:, 0], "alignmentY": src[:, 1]})
+    kp.to_csv(tmp_path / "S1_keypoints.csv", index=False)
+    fitted = _affine_from_keypoints(tmp_path / "S1_keypoints.csv")
+    assert fitted is not None
+    np.testing.assert_allclose(
+        fitted.to_affine_matrix(input_axes=("x", "y"), output_axes=("x", "y")), affine, atol=1e-6
+    )
+
+
+@pytest.mark.parametrize(
+    "case", ["other_columns", "two_rows", "nan_rows", "collinear", "other_sample", "appledouble", "no_keypoints"]
+)
+def test_he_stays_unaligned_without_usable_keypoints(tmp_path: Path, case: str) -> None:
+    from spatialdata.transformations import Identity, get_transformation
+
+    from spatialdata_io.readers.xenium import _add_aligned_images
+
+    _write_he(tmp_path, HE_AFFINE, alignment_csv=False)
+    kp = _write_keypoints(tmp_path, HE_AFFINE)
+    kp_file = tmp_path / "S1_keypoints.csv"
+    if case == "other_columns":
+        kp.set_axis(["a", "b", "c", "d"], axis=1).to_csv(kp_file, index=False)
+    elif case == "two_rows":
+        kp.iloc[:2].to_csv(kp_file, index=False)
+    elif case == "nan_rows":
+        kp.assign(fixedX=[1.0, np.nan, "x"]).to_csv(kp_file, index=False)
+    elif case == "collinear":
+        kp.assign(alignmentX=[1.0, 2.0, 3.0], alignmentY=[1.0, 2.0, 3.0]).to_csv(kp_file, index=False)
+    elif case in ["other_sample", "appledouble"]:
+        kp_file.rename(tmp_path / ("S2_keypoints.csv" if case == "other_sample" else "._S1_keypoints.csv"))
+    else:
+        kp_file.unlink()
+    (tmp_path / "._S1_he_image.ome.tif").write_bytes(b"\x00" * 16)  # a macOS sidecar, not a TIFF
+
+    expect_warning = case in ["other_columns", "two_rows", "nan_rows", "collinear"]
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        images = _add_aligned_images(tmp_path)
+    assert list(images) == ["he_image"]
+    assert isinstance(get_transformation(images["he_image"], "global"), Identity)
+    assert any("keypoint" in str(w.message) for w in record) == expect_warning
