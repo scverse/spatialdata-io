@@ -333,7 +333,7 @@ def visium_hd(
             if not bins_as_squares:
                 shapes[shapes_name] = circles
             else:
-                squares_series = circles.buffer(radius, cap_style=3)
+                squares_series = circles.buffer(radius, cap_style="square")
                 shapes[shapes_name] = ShapesModel.parse(
                     GeoDataFrame(geometry=squares_series),
                     transformations=transformations,

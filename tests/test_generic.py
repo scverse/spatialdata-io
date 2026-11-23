@@ -24,14 +24,14 @@ def save_temp_files() -> Generator[tuple[Path, Path, Path], None, None]:
     with tempfile.TemporaryDirectory() as tmpdir:
         sdata = blobs()
         # save the image as jpg
-        x = sdata["blobs_image"].data.compute()
+        x = sdata.images["blobs_image"].data.compute()
         x = np.clip(x * 255, 0, 255).astype(np.uint8).transpose(1, 2, 0)
         im = Image.fromarray(x)
         jpg_path = Path(tmpdir) / "blobs_image.jpg"
         im.save(jpg_path)
 
         # save the shapes as geojson
-        gdf = sdata["blobs_multipolygons"]
+        gdf = sdata.shapes["blobs_multipolygons"]
         geojson_path = Path(tmpdir) / "blobs_multipolygons.geojson"
         gdf.to_file(geojson_path, driver="GeoJSON")
 
@@ -56,7 +56,7 @@ def save_tiff_files(
 
         sdata = blobs()
         # save the image as tiff
-        x = sdata["blobs_image"].transpose(*axes).data.compute()
+        x = sdata.images["blobs_image"].transpose(*axes).data.compute()
 
         tiff_path = Path(tmpdir) / "blobs_image.tiff"
         tiffwrite(tiff_path, x, compression=compression)

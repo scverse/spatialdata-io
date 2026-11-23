@@ -32,6 +32,8 @@ from spatialdata_io.readers._utils._utils import _set_reader_metadata
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from xarray import DataArray, DataTree
+
 __all__ = ["seqfish"]
 
 LARGE_IMAGE_THRESHOLD = 100_000_000
@@ -195,8 +197,8 @@ def seqfish(
         else:
             return raster_models_scale_factors
 
+    images: dict[str, DataArray | DataTree] = {}
     if load_images:
-        images = {}
         for x in rois_str:
             image_path = path / get_dapi_file(x)
             scale_factors = _get_scale_factors(image_path, raster_models_scale_factors)
@@ -207,11 +209,9 @@ def seqfish(
                 scale_factors=scale_factors,
                 transformations={x: scaled[x]},
             )
-    else:
-        images = {}
 
+    labels: dict[str, DataArray | DataTree] = {}
     if load_labels:
-        labels = {}
         for x in rois_str:
             labels_path = path / get_cell_segmentation_labels_file(x)
             scale_factors = _get_scale_factors(labels_path, raster_models_scale_factors)
@@ -222,8 +222,6 @@ def seqfish(
                 scale_factors=scale_factors,
                 transformations={x: scaled[x]},
             )
-    else:
-        labels = {}
 
     points = {}
     if load_points:

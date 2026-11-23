@@ -21,6 +21,8 @@ from spatialdata_io.readers._utils._utils import _set_reader_metadata
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from xarray import DataArray, DataTree
+
 __all__ = ["codex"]
 
 
@@ -79,7 +81,7 @@ def codex(
     path_files = [i for i in os.listdir(path) if im_patt.match(i)]
     if path_files and CodexKeys.IMAGE_TIF in path_files[0]:
         image = imread(path_files[0], **imread_kwargs)
-        images = {
+        images: dict[str, DataArray | DataTree] = {
             "images": Image2DModel.parse(
                 image,
                 scale_factors=[2, 2],

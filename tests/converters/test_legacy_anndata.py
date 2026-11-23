@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 from anndata import AnnData
@@ -14,15 +14,18 @@ from spatialdata_io.converters.legacy_anndata import (
     to_legacy_anndata,
 )
 
+if TYPE_CHECKING:
+    from spatialdata.transformations import BaseTransformation
+
 BlobsTypes = Literal["blobs_labels", "blobs_circles", "blobs_polygons", "blobs_multipolygons"]
 
 
 def blobs_annotating_element(name: BlobsTypes) -> SpatialData:
     sdata = blobs(length=50)
     if name == "blobs_labels":
-        instance_id = get_element_instances(sdata[name]).tolist()
+        instance_id = get_element_instances(sdata.labels[name]).tolist()
     else:
-        instance_id = sdata[name].index.tolist()
+        instance_id = sdata.shapes[name].index.tolist()
     n = len(instance_id)
     new_table = AnnData(shape=(n, 0), obs={"region": [name for _ in range(n)], "instance_id": instance_id})
     new_table = TableModel.parse(new_table, region=name, region_key="region", instance_key="instance_id")
@@ -39,8 +42,9 @@ def _adjust_table_for_idempotency_check(sdata: SpatialData, include_images: bool
     CS_NAME = "blobs_multiscale_image_downscaled_hires"
     sdata = sdata.filter_by_coordinate_system(CS_NAME)
     sdata.rename_coordinate_systems({CS_NAME: "global"})
-    t = get_transformation(sdata["locations"], "global")
-    set_transformation(sdata["locations"], {"global": t}, set_all=True)
+    t = get_transformation(sdata.shapes["locations"], "global")
+    assert isinstance(t, BaseTransformation)
+    set_transformation(sdata.shapes["locations"], {"global": t}, set_all=True)
     IMG_NAME = "blobs_multiscale_image_hires_image"
     im = sdata.images[IMG_NAME]
     del sdata.images[IMG_NAME]
@@ -56,7 +60,7 @@ def idempotency_check_to_anndata(sdata0: SpatialData, include_images: bool) -> N
     assert_equal(adata0, adata2)
 
 
-def idempotency_check_from_anndata(adata0: SpatialData, include_images: bool) -> None:
+def idempotency_check_from_anndata(adata0: AnnData, include_images: bool) -> None:
     sdata0 = from_legacy_anndata(adata0)
     sdata0 = _adjust_table_for_idempotency_check(sdata0, include_images=include_images)
     adata1 = to_legacy_anndata(sdata0, include_images=include_images)

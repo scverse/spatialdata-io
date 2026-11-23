@@ -110,6 +110,6 @@ def iss(
     sdata = SpatialData(
         images={f"{dataset_id}_raw_image": raw_image_parsed},
         labels={REGION: labels_image_parsed},
-        table=table,
+        tables={"table": table},
     )
     return _set_reader_metadata(sdata, "iss")
