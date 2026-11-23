@@ -7,18 +7,16 @@ import numpy as np
 import pandas as pd
 import pytest
 from click.testing import CliRunner
+from scipy.sparse import csr_array, csr_matrix
 from shapely import Point
 from spatialdata import SpatialData, get_extent, read_zarr
 from spatialdata.models import ShapesModel, get_table_keys
 from spatialdata.transformations import get_transformation
+from xarray import DataArray
 
 from spatialdata_io.__main__ import visium_wrapper
 from spatialdata_io._constants._constants import VisiumKeys
 from spatialdata_io.readers.visium import visium
-
-
-from scipy.sparse import csr_array, csr_matrix
-from xarray import DataArray
 
 # --- END-TO-END TESTS ON EXAMPLE DATA ---
 # This dataset name is used to locate the test data in the './data/' directory.
