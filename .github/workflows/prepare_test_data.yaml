@@ -83,7 +83,7 @@ jobs:
           # -------
           # we received written permission to make the following dataset public and integrate it in the CI system of spatialdata-io
           # Spatial Genomics seqFISH v2
-          curl -fsSLO https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip
+          curl -fsSLO https://exampledata.scverse.org/spatialdata/raw_data/seqfish-2-test-dataset.zip
 
           # -------
           # MACSima OMAP datasets are licensed as CC BY 4.0
