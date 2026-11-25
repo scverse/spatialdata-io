@@ -134,10 +134,13 @@ def cosmx(
     assert isinstance(adata_obs, pd.DataFrame)
     fovs_counts = list(map(str, adata_obs.fov.astype(int).unique()))
 
+    table_obs = table.obs
+    assert isinstance(table_obs, pd.DataFrame)
+
     affine_transforms_to_global = {}
 
     for fov in fovs_counts:
-        idx = table.obs.fov.astype(str) == fov
+        idx = table_obs.fov.astype(str) == fov
         loc = table[idx, :].obs[[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL]].values
         glob = table[idx, :].obs[[CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL]].values
         out = estimate_transform(ttype="affine", src=loc, dst=glob)
@@ -148,9 +151,9 @@ def cosmx(
             output_axes=("x", "y"),
         )
 
-    table.obsm["global"] = table.obs[[CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL]].to_numpy()
-    table.obsm["spatial"] = table.obs[[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL]].to_numpy()
-    table.obs.drop(
+    table.obsm["global"] = table_obs[[CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL]].to_numpy()
+    table.obsm["spatial"] = table_obs[[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL]].to_numpy()
+    table_obs.drop(
         columns=[CosmxKeys.X_LOCAL_CELL, CosmxKeys.Y_LOCAL_CELL, CosmxKeys.X_GLOBAL_CELL, CosmxKeys.Y_GLOBAL_CELL],
         inplace=True,
     )
