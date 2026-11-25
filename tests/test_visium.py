@@ -7,10 +7,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from click.testing import CliRunner
+from scipy.sparse import csr_array, csr_matrix
 from shapely import Point
 from spatialdata import SpatialData, get_extent, read_zarr
 from spatialdata.models import ShapesModel, get_table_keys
 from spatialdata.transformations import get_transformation
+from xarray import DataArray
 
 from spatialdata_io.__main__ import visium_wrapper
 from spatialdata_io._constants._constants import VisiumKeys
@@ -72,8 +74,9 @@ def test_visium_data_extent(sdata: SpatialData, coordinate_system: str, expected
 
 def test_visium_images(sdata: SpatialData) -> None:
     """The two downscaled images are read as RGB, and each lives in its own coordinate system."""
-    hires = sdata[f"{DATASET_ID}_hires_image"]
-    lowres = sdata[f"{DATASET_ID}_lowres_image"]
+    hires = sdata.images[f"{DATASET_ID}_hires_image"]
+    lowres = sdata.images[f"{DATASET_ID}_lowres_image"]
+    assert isinstance(hires, DataArray) and isinstance(lowres, DataArray)
 
     for image in (hires, lowres):
         assert image.dims == ("c", "y", "x")
@@ -92,13 +95,15 @@ def test_visium_images(sdata: SpatialData) -> None:
 
 def test_visium_table(sdata: SpatialData) -> None:
     """The table holds the filtered counts, annotated by the spots."""
-    table = sdata["table"]
+    table = sdata.tables["table"]
 
     assert table.shape == (4169, 18085)
     assert table.obs_names[:3].tolist() == ["AACACTTGGCAAGGAA-1", "AACAGGATTCATAGTT-1", "AACAGGCCAACGATTA-1"]
     assert table.var_names[:3].tolist() == ["SAMD11", "NOC2L", "KLHL17"]
     assert table.obs_names.is_unique
     assert table.var_names.is_unique
+    assert isinstance(table.obs, pd.DataFrame)
+    assert isinstance(table.X, (csr_matrix, csr_array))
     assert np.array_equal(table.X.indices[:3], [3, 6, 7])
 
     # the spot coordinates are moved to `obsm`, the remaining columns of `tissue_positions` are kept
@@ -112,15 +117,18 @@ def test_visium_table(sdata: SpatialData) -> None:
 
 def test_visium_circles_are_the_spot_coordinates(sdata: SpatialData, dataset_path: Path) -> None:
     """The circles are the spot coordinates of the table, in the order of the table."""
-    circles = sdata[DATASET_ID]
-    table = sdata["table"]
+    circles = sdata.shapes[DATASET_ID]
+    table = sdata.tables["table"]
+    assert isinstance(table.obs, pd.DataFrame)
+    spatial = table.obsm["spatial"]
+    assert isinstance(spatial, np.ndarray)
 
     # ground truth, read independently of the reader and reordered to follow the table
     positions = pd.read_csv(dataset_path / "spatial" / VisiumKeys.SPOTS_FILE_2, index_col=0)
     expected = positions.loc[table.obs_names, [VisiumKeys.SPOTS_X, VisiumKeys.SPOTS_Y]].to_numpy()
 
     assert np.array_equal(circles.get_coordinates().to_numpy(), expected)
-    assert np.array_equal(table.obsm["spatial"], expected)
+    assert np.array_equal(spatial, expected)
     assert circles.index.tolist() == table.obs["spot_id"].tolist()
     assert all(isinstance(geometry, Point) for geometry in circles.geometry)
 

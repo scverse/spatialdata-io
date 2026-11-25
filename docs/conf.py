@@ -121,6 +121,15 @@ intersphinx_mapping = {
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**.ipynb_checkpoints"]
 
+# entries for which missing API links are to be ignored
+nitpick_ignore = [
+    # Add an entry here when a missing link is outside our control.
+    # type alias used in public signatures, but not part of spatialdata's API docs
+    (
+        "py:obj",
+        "spatialdata.models.chunks_utils.Chunks_t",
+    ),
+]
 
 # -- Options for HTML output -------------------------------------------------
 
