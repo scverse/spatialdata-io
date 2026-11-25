@@ -24,6 +24,8 @@ from spatialdata_io.readers._utils._utils import _read_counts, _set_reader_metad
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from xarray import DataTree
+
 __all__ = ["visium"]
 
 
@@ -223,7 +225,7 @@ def visium(
     if var_names_make_unique:
         table.var_names_make_unique()
 
-    images = {}
+    images: dict[str, DataArray | DataTree] = {}
     if fullres_image_file is not None:
         fullres_image_file = path / Path(fullres_image_file)
         if fullres_image_file.exists():

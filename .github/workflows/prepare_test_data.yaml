@@ -33,24 +33,24 @@ jobs:
           # https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/resources/xenium-example-data
 
           # 10x Genomics Xenium 2.0.0
-          curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Breast_2fov/Xenium_V1_human_Breast_2fov_outs.zip
-          curl -O https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Lung_2fov/Xenium_V1_human_Lung_2fov_outs.zip
+          curl -fsSLO https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Breast_2fov/Xenium_V1_human_Breast_2fov_outs.zip
+          curl -fsSLO https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Lung_2fov/Xenium_V1_human_Lung_2fov_outs.zip
 
           # 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, multimodal cell segmentation
           # this file seems to be corrupted; skipping it for now
-          # curl -O https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny.zip
+          # curl -fsSLO https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny/Xenium_Prime_MultiCellSeg_Mouse_Ileum_tiny.zip
 
           # 10x Genomics Xenium 3.0.0 (5K) Mouse ileum, nuclear expansion
-          curl -O https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Mouse_Ileum_tiny/Xenium_Prime_Mouse_Ileum_tiny_outs.zip
+          curl -fsSLO https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Mouse_Ileum_tiny/Xenium_Prime_Mouse_Ileum_tiny_outs.zip
 
           # 10x Genomics Xenium 4.0.0 (v1) Human ovary, nuclear expansion
-          curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Human_Ovary_tiny/Xenium_V1_Human_Ovary_tiny_outs.zip
+          curl -fsSLO https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Human_Ovary_tiny/Xenium_V1_Human_Ovary_tiny_outs.zip
 
           # 10x Genomics Xenium 4.0.0 (v1) Human ovary, multimodal cell segmentation
-          curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_MultiCellSeg_Human_Ovary_tiny/Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs.zip
+          curl -fsSLO https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_MultiCellSeg_Human_Ovary_tiny/Xenium_V1_MultiCellSeg_Human_Ovary_tiny_outs.zip
 
           # 10x Genomics Xenium 4.0.0 (v1+Protein) Human kidney, multimodal cell segmentation
-          curl -O https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip
+          curl -fsSLO https://cf.10xgenomics.com/samples/xenium/4.0.0/Xenium_V1_Protein_Human_Kidney_tiny/Xenium_V1_Protein_Human_Kidney_tiny_outs.zip
 
           # -------
           # the Visium dataset is licensed as CC BY 4.0, as shown here
@@ -61,8 +61,8 @@ jobs:
           cd CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer
           # The full-resolution tissue image is deliberately not downloaded (~2 GB): `fullres_image_file`
           # is optional and the reader path it exercises is shared with the other readers.
-          curl -O https://cf.10xgenomics.com/samples/spatial-exp/2.1.0/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer_filtered_feature_bc_matrix.h5
-          curl -O https://cf.10xgenomics.com/samples/spatial-exp/2.1.0/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer_spatial.tar.gz
+          curl -fsSLO https://cf.10xgenomics.com/samples/spatial-exp/2.1.0/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer_filtered_feature_bc_matrix.h5
+          curl -fsSLO https://cf.10xgenomics.com/samples/spatial-exp/2.1.0/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer/CytAssist_FFPE_Protein_Expression_Human_Breast_Cancer_spatial.tar.gz
           cd ..
 
           # -------
@@ -70,20 +70,44 @@ jobs:
           # https://www.10xgenomics.com/support/software/space-ranger/latest/resources/visium-hd-example-data
 
           # 10x Genomics Visium HD 4.0.1 3' Mouse Brain Chunk
-          curl -O https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Tiny_3prime_Dataset/Visium_HD_Tiny_3prime_Dataset_outs.zip
+          curl -fsSLO https://cf.10xgenomics.com/samples/spatial-exp/4.0.1/Visium_HD_Tiny_3prime_Dataset/Visium_HD_Tiny_3prime_Dataset_outs.zip
+
+          # -------
+          # the Atera dataset is licensed as CC BY 4.0, as shown here
+          # https://www.10xgenomics.com/support/software/atera-onboard-analysis/latest/resources/example-data
+          # (synthetic dataset demonstrating the Atera Onboard Analysis v1.1 output file format; © 10x Genomics)
+
+          # 10x Genomics Atera tiny dataset
+          curl -O https://cf.10xgenomics.com/samples/atera/1.0.0/tiny_atera_dataset/tiny_atera_dataset_outs.zip
 
           # -------
           # we received written permission to make the following dataset public and integrate it in the CI system of spatialdata-io
           # Spatial Genomics seqFISH v2
-          curl -O https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip
+          curl -fsSLO https://s3.embl.de/spatialdata/raw_data/seqfish-2-test-dataset.zip
 
           # -------
           # MACSima OMAP datasets are licensed as CC BY 4.0
+          # Zenodo's files-archive endpoint returns 403, so each file is downloaded individually
           # OMAP23 for format v1.x.x
-          curl -o OMAP23_small.zip "https://zenodo.org/api/records/18196452/files-archive"
+          mkdir -p OMAP23_small
+          for f in \
+              C-001_S-000_S_DAPI_R-01_W-D01_ROI-01_A-DAPI.tif \
+              C-001_S-000_S_APC_R-01_W-D01_ROI-01_A-CD3_C-REA1151.tif \
+              C-002_S-000_S_PE_R-01_W-D01_ROI-01_A-CD279_C-REA1165.tif \
+              C-004_S-000_S_FITC_R-01_W-D01_ROI-01_A-CD66b_C-REA306.tif \
+              C-015_S-000_B_DAPI_R-01_W-D01_ROI-01_A-DAPI.tif; do
+              curl -fsSL -o "OMAP23_small/$f" "https://zenodo.org/api/records/18196452/files/$f/content"
+          done
 
           # OMAP10 for format v0.x.x
-          curl -o OMAP10_small.zip "https://zenodo.org/api/records/18196366/files-archive"
+          mkdir -p OMAP10_small
+          for f in \
+              C-001_S-000_S_APC_R-01_W-C-1_ROI-01_A-CD15_C-VIMC6.tif \
+              C-001_S-000_S_DAPI_R-01_W-C-1_ROI-01_A-DAPI.tif \
+              C-002_S-000_S_FITC_R-01_W-C-1_ROI-01_A-Bcl2_C-REA872.tif \
+              C-002_S-000_S_PE_R-01_W-C-1_ROI-01_A-CD1c_C-REA694.tif; do
+              curl -fsSL -o "OMAP10_small/$f" "https://zenodo.org/api/records/18196366/files/$f/content"
+          done
 
       - name: Unzip files
         run: |

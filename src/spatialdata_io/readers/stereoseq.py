@@ -319,6 +319,8 @@ def stereoseq(
         zip(x_coords.iterrows(), y_coords.iterrows(), strict=False), desc="creating polygons", total=len(df_coords)
     ):
         assert x_index == y_index
+        # AnnData obs_names are always strings; iterrows() can only type the index labels as Hashable
+        assert isinstance(x_index, str) and isinstance(y_index, str)
         # the polygonal cells coordinates are stored as offsets from the centroids, so let's add the centroids
         x = x_row[x_row != int(SK.PADDING_VALUE)]
         y = y_row[y_row != int(SK.PADDING_VALUE)]

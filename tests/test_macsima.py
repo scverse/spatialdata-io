@@ -51,8 +51,8 @@ RNG = da.random.default_rng(seed=0)
 if not (Path("./data/OMAP10_small").exists() or Path("./data/OMAP23_small").exists()):
     pytest.skip(
         "Requires the OMAP10 or OMAP23 datasets. "
-        "The small OMAP10 dataset can be downloaded from https://zenodo.org/api/records/18196366/files-archive, for the full data see https://zenodo.org/records/7875938"
-        "The small OMAP23 dataset can be downloaded from https://zenodo.org/api/records/18196452/files-archive, for the full data set see https://zenodo.org/records/14008816",
+        "The small OMAP10 dataset can be downloaded from https://zenodo.org/records/18196366, for the full data see https://zenodo.org/records/7875938. "
+        "The small OMAP23 dataset can be downloaded from https://zenodo.org/records/18196452, for the full data set see https://zenodo.org/records/14008816.",
         allow_module_level=True,
     )
 
@@ -235,7 +235,7 @@ def test_image_size(dataset: str, expected: dict[str, Any]) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
     sdata = macsima(f, transformations=False)  # Do not transform to make it easier to compare against pixel dimensions
-    el = sdata[list(sdata.images.keys())[0]]
+    el = sdata.images[list(sdata.images.keys())[0]]
     cs = sdata.coordinate_systems[0]
 
     extent: dict[str, tuple[float, float]] = get_extent(el, coordinate_system=cs)
@@ -290,7 +290,7 @@ def test_total_rounds(dataset: str, expected: list[int]) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
     sdata = macsima(f)
-    table = sdata[list(sdata.tables)[0]]
+    table = sdata.tables[list(sdata.tables)[0]]
     max_cycle = table.var["cycle"].max()
     assert max_cycle == expected
 
@@ -420,11 +420,11 @@ def test_metadata_table(dataset: str, expected_df: pd.DataFrame) -> None:
     f = Path("./data") / dataset
     assert f.is_dir()
     sdata = macsima(f)
-    table = sdata[list(sdata.tables.keys())[0]]
+    table = sdata.tables[list(sdata.tables.keys())[0]]
 
     # Convert table.var to a DataFrame and align to expected columns
     actual = table.var[METADATA_COLUMN_ORDER]
-
+    assert isinstance(actual, pd.DataFrame)
     pd.testing.assert_frame_equal(actual, expected_df)
 
 

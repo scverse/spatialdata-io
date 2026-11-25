@@ -77,7 +77,7 @@ def iss(
     REGION_KEY = "region"
     path = Path(path)
 
-    adata = ad.read(path / h5ad_relative_path)
+    adata = ad.read_h5ad(path / h5ad_relative_path)
     if instance_key is None:
         instance_key = "instance_id"
         adata.obs[instance_key] = adata.obs.index.astype(int)
@@ -110,6 +110,6 @@ def iss(
     sdata = SpatialData(
         images={f"{dataset_id}_raw_image": raw_image_parsed},
         labels={REGION: labels_image_parsed},
-        table=table,
+        tables={"table": table},
     )
     return _set_reader_metadata(sdata, "iss")

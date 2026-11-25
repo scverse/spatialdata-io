@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
     from multiscale_spatial_image.multiscale_spatial_image import MultiscaleSpatialImage
     from spatial_image import SpatialImage
+    from spatialdata.transformations import BaseTransformation
+    from xarray import DataArray, DataTree
 
 __all__ = ["mcmicro"]
 
@@ -32,7 +34,7 @@ def _get_transformation(
     tma: int | None = None,
     tma_centroids: pd.DataFrame | None = None,
     raster_data: SpatialImage | MultiscaleSpatialImage | None = None,
-) -> dict[str, Identity]:
+) -> dict[str, BaseTransformation]:
     if tma is None:
         assert tma_centroids is None
         return {"global": Identity()}
@@ -83,7 +85,7 @@ def mcmicro(
     assert markers.channel_number.is_monotonic_increasing
     marker_names = markers.marker_name.tolist()
 
-    images = {}
+    images: dict[str, DataArray | DataTree] = {}
     if tma:
         centroids_file = path / McmicroKeys.COREOGRAPH_CENTROIDS
         tma_centroids = pd.read_csv(centroids_file, header=None, names=["y", "x"], index_col=False, sep=" ")
@@ -153,7 +155,7 @@ def mcmicro(
 
     samples_labels = list((path / McmicroKeys.LABELS_DIR).glob("*/*" + McmicroKeys.IMAGE_SUFFIX))
 
-    labels = {}
+    labels: dict[str, DataArray | DataTree] = {}
     for labels_path in samples_labels:
         if not tma:
             # TODO: when support python >= 3.9 chance to str.removesuffix(McmicroKeys.IMAGE_SUFFIX)
