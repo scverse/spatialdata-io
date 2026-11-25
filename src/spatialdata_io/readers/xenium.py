@@ -50,7 +50,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from anndata import AnnData
-    from spatialdata._types import ArrayLike
+    from numpy.typing import NDArray
+    from spatialdata.transformations import BaseTransformation
 
 __all__ = ["xenium", "xenium_aligned_image", "xenium_explorer_selection"]
 
@@ -459,7 +460,7 @@ def xenium(
 
     # --- read elements ---
     polygons = {}
-    labels = {}
+    labels: dict[str, DataArray | DataTree] = {}
     points = {}
     images = {}
 
@@ -526,7 +527,11 @@ def xenium(
     return _set_reader_metadata(sdata, "xenium")
 
 
-def _assert_arrays_equal_sampled(a: ArrayLike, b: ArrayLike, n: int = 1000) -> None:
+def _assert_arrays_equal_sampled(
+    a: np.ndarray | pd.api.extensions.ExtensionArray,
+    b: np.ndarray | pd.api.extensions.ExtensionArray,
+    n: int = 1000,
+) -> None:
     """Assert two arrays are equal by checking a random sample of entries."""
     assert len(a) == len(b), f"Array lengths differ: {len(a)} != {len(b)}"
     idx = np.random.default_rng(0).choice(len(a), size=min(n, len(a)), replace=False)
@@ -1174,6 +1179,7 @@ def xenium_aligned_image(
         for dim in to_squeeze:
             image = image.squeeze(dim)
 
+    transformation: BaseTransformation
     if alignment_file is None:
         transformation = Identity()
     else:
@@ -1280,7 +1286,9 @@ def _parse_version_of_xenium_analyzer(
         return None
 
 
-def _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
+def _cell_id_str_from_prefix_suffix_uint32_reference(
+    cell_id_prefix: NDArray[np.integer[Any]], dataset_suffix: NDArray[np.integer[Any]]
+) -> NDArray[np.str_]:
     """Reference implementation of cell_id_str_from_prefix_suffix_uint32.
 
     Readable but slow for large arrays due to Python-level string operations.
@@ -1305,7 +1313,9 @@ def _cell_id_str_from_prefix_suffix_uint32_reference(cell_id_prefix: ArrayLike, 
     return np.array(cell_id_str)
 
 
-def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suffix: ArrayLike) -> ArrayLike:
+def cell_id_str_from_prefix_suffix_uint32(
+    cell_id_prefix: NDArray[np.integer[Any]], dataset_suffix: NDArray[np.integer[Any]]
+) -> NDArray[np.str_]:
     """Convert cell ID prefix/suffix uint32 pairs to the Xenium string representation.
 
     Each uint32 prefix is converted to 8 hex nibbles, each mapped to a character
@@ -1313,14 +1323,14 @@ def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suf
 
     See https://www.10xgenomics.com/support/software/xenium-onboard-analysis/latest/analysis/xoa-output-zarr#cellID
     """
-    cell_id_prefix = np.asarray(cell_id_prefix, dtype=np.uint32)
+    cell_id_prefix_uint32 = np.asarray(cell_id_prefix, dtype=np.uint32)
     dataset_suffix = np.asarray(dataset_suffix)
 
     # Extract 8 hex nibbles (4 bits each) from each uint32, most significant first.
     # Each nibble maps to a character: 0->'a', 1->'b', ..., 9->'j', 10->'k', ..., 15->'p'.
     # Leading zero nibbles become 'a', equivalent to rjust(8, 'a') padding.
     shifts = np.array([28, 24, 20, 16, 12, 8, 4, 0], dtype=np.uint32)
-    nibbles = (cell_id_prefix[:, np.newaxis] >> shifts) & 0xF
+    nibbles = (cell_id_prefix_uint32[:, np.newaxis] >> shifts) & 0xF
     char_codes = (nibbles + ord("a")).astype(np.uint8)
 
     # View the (n, 8) uint8 array as n byte-strings of length 8
@@ -1331,8 +1341,8 @@ def cell_id_str_from_prefix_suffix_uint32(cell_id_prefix: ArrayLike, dataset_suf
 
 
 def prefix_suffix_uint32_from_cell_id_str(
-    cell_id_str: ArrayLike,
-) -> tuple[ArrayLike, ArrayLike]:
+    cell_id_str: NDArray[np.str_],
+) -> tuple[NDArray[np.uint32], NDArray[np.integer[Any]]]:
     # parse the string into the prefix and suffix
     cell_id_prefix_str, dataset_suffix = zip(*[x.split("-") for x in cell_id_str], strict=False)
     dataset_suffix_int = [int(x) for x in dataset_suffix]

@@ -28,6 +28,8 @@ from spatialdata_io.readers._utils._utils import _set_reader_metadata
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from xarray import DataArray, DataTree
+
 SUPPORTED_BACKENDS = ["dask_image", "rioxarray"]
 
 
@@ -173,7 +175,7 @@ def merscope(
     microns_to_pixels = Affine(
         np.genfromtxt(images_dir / MerscopeKeys.TRANSFORMATION_FILE), input_axes=("x", "y"), output_axes=("x", "y")
     )
-    transformations = {"global": microns_to_pixels}
+    transformations: dict[str, BaseTransformation] = {"global": microns_to_pixels}
 
     vizgen_region = path.name if region_name is None else region_name
     slide_name = path.parent.name if slide_name is None else slide_name
@@ -233,7 +235,7 @@ def merscope(
     return _set_reader_metadata(sdata, "merscope")
 
 
-def _get_reader(backend: str | None) -> Callable[..., Image2DModel]:
+def _get_reader(backend: str | None) -> Callable[..., DataArray | DataTree]:
     if backend is not None:
         return _rioxarray_load_merscope if backend == "rioxarray" else _dask_image_load_merscope
     # `find_spec` only reports whether the module can be *found*: importing it can still fail,
@@ -251,7 +253,7 @@ def _rioxarray_load_merscope(
     z_layer: int,
     image_models_kwargs: Mapping[str, Any],
     **kwargs: Any,
-) -> Image2DModel:
+) -> DataTree | DataArray:
     logger.info("Using rioxarray backend.")
 
     try:
@@ -287,7 +289,7 @@ def _dask_image_load_merscope(
     z_layer: int,
     image_models_kwargs: Mapping[str, Any],
     **kwargs: Any,
-) -> Image2DModel:
+) -> DataArray | DataTree:
     im = da.stack(
         [imread(images_dir / f"mosaic_{stain}_z{z_layer}.tif", **kwargs).squeeze() for stain in stainings],
         axis=0,

@@ -14,8 +14,9 @@ from spatialdata import (
 )
 from spatialdata._core.operations._utils import transform_to_data_extent
 from spatialdata._logging import logger
-from spatialdata.models import Image2DModel, ShapesModel, TableModel, get_table_keys
+from spatialdata.models import Image2DModel, ShapesModel, SpatialElement, TableModel, get_table_keys
 from spatialdata.transformations import Identity, Scale
+from xarray import DataArray, DataTree
 
 if TYPE_CHECKING:
     from anndata import AnnData
@@ -132,7 +133,7 @@ def to_legacy_anndata(
     else:
         assert table_name in sdata.tables, f"The table {table_name} is not present in the SpatialData object."
 
-    table = sdata[table_name]
+    table = sdata.tables[table_name]
     (
         region,
         _,
@@ -141,12 +142,25 @@ def to_legacy_anndata(
     if not isinstance(region, list):
         region = [region]
 
-    # the table needs to annotate exactly one Shapes element
+    # the table needs to annotate exactly one Shapes or Labels element
     if len(region) != 1:
-        raise ValueError(f"The table needs to annotate exactly one element. Found {len(region)}.")
-    if region[0] not in sdata.shapes and region[0] not in sdata.labels:
-        raise ValueError("The table needs to annotate a Shapes or Labels element, not Points.")
-    element = sdata[region[0]]
+        raise ValueError(f"The table needs to annotate exactly one element. Found {len(region)}: {region}.")
+    (region_name,) = region
+
+    element: SpatialElement
+    if region_name in sdata.shapes:
+        element = sdata.shapes[region_name]
+    elif region_name in sdata.labels:
+        element = sdata.labels[region_name]
+    elif region_name in sdata.points:
+        raise ValueError(
+            f"The table annotates the Points element '{region_name}', but only Shapes or Labels elements are supported."
+        )
+    else:
+        raise ValueError(
+            f"The element '{region_name}' annotated by the table '{table_name}' is not present in the SpatialData "
+            f"object after filtering for the coordinate system '{coordinate_system}'."
+        )
     region_name = region[0]
 
     # convert polygons, multipolygons and labels to circles
@@ -157,8 +171,9 @@ def to_legacy_anndata(
         sdata=circles_sdata, spatial_element_names=region_name, table_name=table_name, how="inner", match_rows="left"
     )
 
+    # the table must not be none
     # the table after the filtering must not be empty
-    assert len(new_table) > 0, (
+    assert new_table is not None and len(new_table) > 0, (
         "The table does not annotate any geometry in the Shapes element. This could also be caused by a mismatch "
         "between the type of the indices of the geometries and the type of the INSTANCE_KEY column of the table."
     )
@@ -180,7 +195,7 @@ def to_legacy_anndata(
         bb = get_extent(sdata_images, coordinate_system=coordinate_system)
 
         parameters_dict = {"x": "target_width", "y": "target_height", "z": "target_depth"}
-        longest_side = max(bb, key=bb.get)
+        longest_side = max(bb, key=bb.get)  # type: ignore[arg-type]
         parameter_hires = {parameters_dict[longest_side]: DOWNSCALED_HIRES_LENGTH}
         parameter_lowres = {parameters_dict[longest_side]: DOWNSCALED_LOWRES_LENGTH}
         downscaled_hires = transform_to_data_extent(
@@ -190,13 +205,13 @@ def to_legacy_anndata(
             sdata_pre_rasterize, coordinate_system=coordinate_system, maintain_positioning=False, **parameter_lowres
         )
         for image_name in sdata_images.images.keys():
-            downscaled_images_hires[image_name] = downscaled_hires[image_name]
-            downscaled_images_lowres[image_name] = downscaled_lowres[image_name]
+            downscaled_images_hires[image_name] = downscaled_hires.images[image_name]
+            downscaled_images_lowres[image_name] = downscaled_lowres.images[image_name]
 
         if sdata_post_rasterize is None:
             sdata_post_rasterize = downscaled_hires
 
-    adata = sdata_post_rasterize[table_name].copy()
+    adata = sdata_post_rasterize.tables[table_name].copy()
 
     if len(downscaled_images_hires) > 0:
         for image_name in sdata_images.images.keys():
@@ -217,7 +232,7 @@ def to_legacy_anndata(
                 pass
 
     adata.obsm["spatial"] = (
-        get_centroids(sdata_post_rasterize[region_name], coordinate_system=coordinate_system).compute().values
+        get_centroids(sdata_post_rasterize.shapes[region_name], coordinate_system=coordinate_system).compute().values
     )
     return adata
 
@@ -263,7 +278,7 @@ def from_legacy_anndata(adata: AnnData, rgb: bool | None = None) -> SpatialData:
     INSTANCE_KEY = "instance_id"
     SPOT_DIAMETER_FULLRES_DEFAULT = 10
 
-    images = {}
+    images: dict[str, DataArray | DataTree] = {}
     shapes = {}
     spot_diameter_fullres_list = []
     shapes_transformations = {}
