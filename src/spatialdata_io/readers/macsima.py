@@ -27,6 +27,9 @@ from spatialdata_io.readers._utils._utils import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from spatialdata.transformations import BaseTransformation
+    from xarray import DataArray, DataTree
+
 __all__ = ["macsima"]
 
 # Dictionary to harmonize imagetype across metadata versions
@@ -889,9 +892,9 @@ def create_image_element(
     transformations: bool,
     pixels_to_microns: float,
     scale_factors: list[int] | None,
-    coordinate_system: str | None = None,
-) -> sd.models.Image2DModel:
-    t_dict = None
+    coordinate_system: str,
+) -> DataArray | DataTree:
+    t_dict: dict[str, BaseTransformation] | None = None
     if transformations:
         t_pixels_to_microns = sd.transformations.Scale([pixels_to_microns, pixels_to_microns], axes=("x", "y"))
         # 'microns' is also used in merscope example

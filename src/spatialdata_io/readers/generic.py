@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 import dask.array as da
 import numpy as np
@@ -11,6 +11,7 @@ from spatialdata._docs import docstring_parameter
 from spatialdata._logging import logger
 from spatialdata.models import Image2DModel, ShapesModel
 from spatialdata.models._utils import DEFAULT_COORDINATE_SYSTEM
+from spatialdata.models.pyramids_utils import ScaleFactors_t
 from spatialdata.transformations import Identity
 
 if TYPE_CHECKING:
@@ -19,7 +20,8 @@ if TYPE_CHECKING:
 
     from geopandas import GeoDataFrame
     from numpy.typing import NDArray
-    from xarray import DataArray
+    from spatialdata.models.chunks_utils import Chunks_t
+    from xarray import DataArray, DataTree
 
 
 from spatialdata.models.chunks_utils import normalize_chunks
@@ -163,9 +165,41 @@ def _dask_image_imread(input: Path, data_axes: Sequence[str], chunks_cyx: dict[s
         raise ValueError(f"Expected image with {len(data_axes)} dimensions, got {im.ndim}")
 
     im = im.transpose(*[data_axes.index(ax) for ax in ["c", "y", "x"]])
-    return im.rechunk((chunks_cyx["c"], chunks_cyx["y"], chunks_cyx["x"]))
+    return im.rechunk((chunks_cyx["c"], chunks_cyx["y"], chunks_cyx["x"]))  # type: ignore[no-any-return]
 
 
+@overload
+def image(
+    input: Path,
+    data_axes: Sequence[str],
+    coordinate_system: str,
+    use_tiff_memmap: bool = ...,
+    chunks: Chunks_t | None = ...,
+    scale_factors: None = ...,
+) -> DataArray: ...
+
+
+@overload
+def image(
+    input: Path,
+    data_axes: Sequence[str],
+    coordinate_system: str,
+    use_tiff_memmap: bool = ...,
+    chunks: Chunks_t | None = ...,
+    *,
+    scale_factors: Sequence[int],
+) -> DataTree: ...
+
+
+@overload
+def image(
+    input: Path,
+    data_axes: Sequence[str],
+    coordinate_system: str,
+    use_tiff_memmap: bool = ...,
+    chunks: Chunks_t | None = ...,
+    scale_factors: Sequence[int] | None = ...,
+) -> DataArray | DataTree: ...
 def image(
     input: Path,
     data_axes: Sequence[str],
@@ -176,8 +210,8 @@ def image(
     | tuple[tuple[int, ...], ...]
     | Mapping[Any, int | tuple[int, ...] | None]
     | None = None,
-    scale_factors: Sequence[int] | None = None,
-) -> DataArray:
+    scale_factors: ScaleFactors_t | None = None,
+) -> DataArray | DataTree:
     """Read an image file and returns a parsed Image2D spatial element.
 
     Parameters
@@ -213,7 +247,7 @@ def image(
     im = None
     if input.suffix in [".tiff", ".tif"] and use_tiff_memmap:
         try:
-            im_chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping, chunks_cyx=chunks_dict)
+            im_chunks = _tiff_to_chunks(input, axes_dim_mapping=axes_dim_mapping, chunks_cyx=chunks_dict)  # type: ignore[arg-type]
             im = da.block(im_chunks, allow_unknown_chunksizes=True)
 
         # Edge case: Compressed images are not memory-mappable
@@ -226,7 +260,7 @@ def image(
             use_tiff_memmap = False
 
     if input.suffix in [".tiff", ".tif"] and not use_tiff_memmap or input.suffix in [".png", ".jpg", ".jpeg"]:
-        im = _dask_image_imread(input=input, data_axes=data_axes, chunks_cyx=chunks_dict)
+        im = _dask_image_imread(input=input, data_axes=data_axes, chunks_cyx=chunks_dict)  # type: ignore[arg-type]
 
     if im is None:
         raise NotImplementedError(f"File format {input.suffix} not implemented")
