@@ -18,6 +18,7 @@ I/O for the `spatialdata` project.
 .. autosummary::
    :toctree: generated
 
+   atera
    codex
    cosmx
    curio
@@ -44,6 +45,17 @@ I/O for the `spatialdata` project.
    geojson
 ```
 
+### Writers
+
+```{eval-rst}
+.. currentmodule:: spatialdata_io
+
+.. autosummary::
+   :toctree: generated
+
+   write_atera_cell_feature_matrix
+```
+
 ### Conversion functions
 
 ```{eval-rst}
@@ -52,6 +64,7 @@ I/O for the `spatialdata` project.
 .. autosummary::
    :toctree: generated
 
+   atera_to_parquet
    experimental.from_legacy_anndata
    experimental.to_legacy_anndata
 ```
