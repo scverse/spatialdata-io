@@ -32,3 +32,9 @@ Release notes for `v0.7.1` and earlier are available on the [Releases][] page.
 ### Removed
 
 - Support for Python 3.11.
+
+### Fixed
+
+- `visium_hd` no longer uses an empty `dataset_id` when the files have no filename prefix and `dataset_id` is not
+  given. The elements and the coordinate system were named with the empty string (an unnamed coordinate system that
+  e.g. napari-spatialdata cannot select); the default is now `"visium_hd"`.
